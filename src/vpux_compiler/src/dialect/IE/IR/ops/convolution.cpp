@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
@@ -16,6 +16,7 @@
 
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Dialect/Arith/Utils/Utils.h>
 #include <mlir/IR/PatternMatch.h>

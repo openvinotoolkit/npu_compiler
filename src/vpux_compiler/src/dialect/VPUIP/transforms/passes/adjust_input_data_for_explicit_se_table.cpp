@@ -5,6 +5,12 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_ADJUSTINPUTDATAFOREXPLICITSETABLE
+#define GEN_PASS_DEF_ADJUSTINPUTDATAFOREXPLICITSETABLE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -14,7 +20,7 @@ namespace {
 //
 
 class AdjustInputDataForExplicitSETablePass final :
-        public VPUIP::AdjustInputDataForExplicitSETableBase<AdjustInputDataForExplicitSETablePass> {
+        public VPUIP::impl::AdjustInputDataForExplicitSETableBase<AdjustInputDataForExplicitSETablePass> {
 public:
     explicit AdjustInputDataForExplicitSETablePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

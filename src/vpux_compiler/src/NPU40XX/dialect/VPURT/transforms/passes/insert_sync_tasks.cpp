@@ -10,6 +10,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPURT::arch40xx {
+#define GEN_PASS_DECL_INSERTSYNCTASKS
+#define GEN_PASS_DEF_INSERTSYNCTASKS
+#include "vpux/compiler/NPU40XX/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -40,7 +46,7 @@ VPURT::TaskOp createSyncDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::V
 // funcOp{| SyncTask --> op -> .. -> op --> SyncTask |}
 //        |          \-> op -> .. -> op -/           |
 //
-class InsertSyncTasksPass final : public VPURT::arch40xx::InsertSyncTasksBase<InsertSyncTasksPass> {
+class InsertSyncTasksPass final : public VPURT::arch40xx::impl::InsertSyncTasksBase<InsertSyncTasksPass> {
 public:
     explicit InsertSyncTasksPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

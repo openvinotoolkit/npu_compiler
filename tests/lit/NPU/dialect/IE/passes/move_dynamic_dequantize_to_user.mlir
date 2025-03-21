@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --move-dynamic-dequantize-to-user %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<i4:f16, 1.0:8>
 

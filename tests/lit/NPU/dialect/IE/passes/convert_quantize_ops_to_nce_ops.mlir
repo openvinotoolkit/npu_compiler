@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-quantize-ops-to-nce-ops  %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f32, 2.000000e+00>
 !qElemType1 = !quant.uniform<u8:f32, 1.000000e+00>
 !qElemType2 = !quant.uniform<u8:f32, 5.000000e-01>

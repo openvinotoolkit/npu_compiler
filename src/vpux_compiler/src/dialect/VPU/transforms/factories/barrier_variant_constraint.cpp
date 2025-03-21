@@ -12,17 +12,16 @@
 using namespace vpux;
 
 VPU::PerBarrierVariantConstraint VPU::getPerBarrierVariantConstraint(VPU::ArchKind arch,
-                                                                     bool enablePartialWorkloadManagement) {
+                                                                     bool enableWorkloadManagement) {
     switch (arch) {
     case VPU::ArchKind::NPU37XX: {
         return VPU::arch37xx::PerBarrierVariantConstraint{};
     }
     case VPU::ArchKind::NPU40XX: {
-        return VPU::arch40xx::PerBarrierVariantConstraint{enablePartialWorkloadManagement};
+        return VPU::arch40xx::PerBarrierVariantConstraint{enableWorkloadManagement};
     }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
     }
     }
+    VPUX_THROW("Unable to get PerBarrierVariantConstraint for arch {0}", arch);
 }

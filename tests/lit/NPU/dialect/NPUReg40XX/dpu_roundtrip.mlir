@@ -27,7 +27,7 @@ module @Test {
                 VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DPUInvariant_0 idx(!VPURegMapped.Index<0:0:0>) <DPUInvariant>
             }
             ELF.CreateSection @text.invariants aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-              "NPUReg40XX.DPUInvariant"() <{dpu_invariant_descriptor = #NPUReg40XX.DpuInvariantRegister<
+              "NPUReg40XX.DPUInvariant"() <{descriptor = #NPUReg40XX.DpuInvariantRegister<
                 DpuInvariantRegister {
                   cmx_slice0_low_addr = UINT 0x4000000,
                   cmx_slice1_low_addr = UINT 0x4000000,
@@ -38,7 +38,7 @@ module @Test {
                   sparsity_addr = UINT 0,
                   se_size = UINT 0,
                   z_config {
-                    UINT se_z_split = 0 requires 1:1:1,
+                    UINT se_z_split = 0,
                     UINT num_ses_in_z_dir = 0,
                     UINT cm_sp_pattern = 0,
                     UINT npo2_se_z_split_en = 0,
@@ -46,7 +46,7 @@ module @Test {
                     UINT addr_format_sel = 1
                   },
                   kernel_pad_cfg {
-                    UINT mpe_assign = 0 requires 1:2:3,
+                    UINT mpe_assign = 0,
                     UINT pad_right_en = 0,
                     UINT pad_left_en = 0,
                     UINT pad_bottom_en = 0,
@@ -273,9 +273,9 @@ module @Test {
                   variant_count_ = UINT 0,
                   cluster_invariant_ = UINT 0,
                   pad_3 = UINT 0
-                }
+                } requires 11:4:10
               >, input = @builtin.data.nncmx0::@DeclareBuffer_ActIn, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, output = @builtin.data.nncmx0::@DeclareBuffer_ActOut, sym_name = "DPUInvariant_0", task_index = !VPURegMapped.Index<0:0:0>, task_location = @builtin.tasks.DPUInvariant0::@DeclareTaskBuffer_DPUInvariant_0}> : () -> ()
-              // CHECK: dpu_invariant_descriptor = #NPUReg40XX.DpuInvariantRegister<
+              // CHECK: descriptor = #NPUReg40XX.DpuInvariantRegister<
               // CHECK:  DpuInvariantRegister {
               // CHECK:    cmx_slice0_low_addr = UINT 0x4000000,
               // CHECK:    cmx_slice1_low_addr = UINT 0x4000000,
@@ -286,7 +286,7 @@ module @Test {
               // CHECK:    sparsity_addr = UINT 0,
               // CHECK:    se_size = UINT 0,
               // CHECK:    z_config {
-              // CHECK:      UINT se_z_split = 0 requires 1:1:1,
+              // CHECK:      UINT se_z_split = 0,
               // CHECK:      UINT num_ses_in_z_dir = 0,
               // CHECK:      UINT cm_sp_pattern = 0,
               // CHECK:      UINT npo2_se_z_split_en = 0,
@@ -294,7 +294,7 @@ module @Test {
               // CHECK:      UINT addr_format_sel = 1
               // CHECK:    },
               // CHECK:    kernel_pad_cfg {
-              // CHECK:      UINT mpe_assign = 0 requires 1:2:3,
+              // CHECK:      UINT mpe_assign = 0,
               // CHECK:      UINT pad_right_en = 0,
               // CHECK:      UINT pad_left_en = 0,
               // CHECK:      UINT pad_bottom_en = 0,
@@ -521,22 +521,22 @@ module @Test {
               // CHECK:    variant_count_ = UINT 0,
               // CHECK:    cluster_invariant_ = UINT 0,
               // CHECK:    pad_3 = UINT 0
-              // CHECK:  }
+              // CHECK:  } requires 11:4:10
               // CHECK: >
             }
             ELF.CreateSection @text.variants aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-              "NPUReg40XX.DPUVariant"() <{dpu_variant_descriptor = #NPUReg40XX.DpuVariantRegister<
+              "NPUReg40XX.DPUVariant"() <{descriptor = #NPUReg40XX.DpuVariantRegister<
                 DpuVariantRegister {
                   invar_ptr {
                     UINT invar_ptr = 0,
                     UINT var_tag = 1
                   },
                   workload_size0 {
-                    UINT workload_size_x = 0x20 requires 1:1:1,
+                    UINT workload_size_x = 0x20,
                     UINT workload_size_y = 0x21
                   },
                   workload_size1 {
-                    UINT workload_size_z = 0x22 requires 1:2:3,
+                    UINT workload_size_z = 0x22,
                     UINT pad_count_up = 3,
                     UINT pad_count_left = 4,
                     UINT pad_count_down = 5,
@@ -750,20 +750,20 @@ module @Test {
                   pad_7_1 = UINT 0,
                   pad_7_2 = UINT 0,
                   pad_7_3 = UINT 0
-                }
+                } requires 11:4:10
               >, invariant_task_location = @builtin.tasks.DPUInvariant0::@DeclareTaskBuffer_DPUInvariant_0, nce_task_type = #VPUIP.nce_task_type<MAXPOOL>, sym_name = "DPUVariant11", task_index = !VPURegMapped.Index<0:0:0>}> : () -> ()
-              // CHECK: dpu_variant_descriptor = #NPUReg40XX.DpuVariantRegister<
+              // CHECK: descriptor = #NPUReg40XX.DpuVariantRegister<
               // CHECK: DpuVariantRegister {
               // CHECK:   invar_ptr {
               // CHECK:     UINT invar_ptr = 0,
               // CHECK:     UINT var_tag = 1
               // CHECK:   },
               // CHECK:   workload_size0 {
-              // CHECK:     UINT workload_size_x = 0x20 requires 1:1:1,
+              // CHECK:     UINT workload_size_x = 0x20,
               // CHECK:     UINT workload_size_y = 0x21
               // CHECK:   },
               // CHECK:   workload_size1 {
-              // CHECK:     UINT workload_size_z = 0x22 requires 1:2:3,
+              // CHECK:     UINT workload_size_z = 0x22,
               // CHECK:     UINT pad_count_up = 3,
               // CHECK:     UINT pad_count_left = 4,
               // CHECK:     UINT pad_count_down = 5,
@@ -977,7 +977,7 @@ module @Test {
               // CHECK:   pad_7_1 = UINT 0,
               // CHECK:   pad_7_2 = UINT 0,
               // CHECK:   pad_7_3 = UINT 0
-              // CHECK: }
+              // CHECK: } requires 11:4:10
               // CHECK: >
             }
             ELF.CreateSymbolTableSection @symtab secFlags("SHF_NONE") {

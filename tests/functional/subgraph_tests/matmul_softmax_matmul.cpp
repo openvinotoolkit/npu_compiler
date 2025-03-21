@@ -1,4 +1,4 @@
-// Copyright (C) 2024 Intel Corporation
+// Copyright (C) 2024-2025 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -28,11 +28,9 @@ class MatMulSoftmaxMatMulTestCommon : public VpuOv2LayerTest, public testing::Wi
             const auto totalSize =
                     std::accumulate(inputStaticShape.begin(), inputStaticShape.end(), 1, std::multiplies<size_t>());
             auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f16>::value_type>();
-            const int64_t upperBound = 127;
-            const int64_t lowerBound = -127;
-            const int64_t dataRange = upperBound - lowerBound + 1;
             for (size_t i = 0; i < totalSize; i++) {
-                inputData[i] = static_cast<ov::float16>((i % dataRange) - upperBound);
+                // too large values may cause overflow, so we use sin function to generate values in range [-1, 1]
+                inputData[i] = std::sin(i);
             }
             return inputTensor;
         };
@@ -81,13 +79,14 @@ private:
     const double _relativeThreashold = 0.001;
 };
 
-TEST_P(MatMulSoftmaxMatMulTestCommon, HW) {
+TEST_P(MatMulSoftmaxMatMulTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
-INSTANTIATE_TEST_SUITE_P(smoke_MatMulSoftmaxMatMul_NPU4000, MatMulSoftmaxMatMulTestCommon,
+INSTANTIATE_TEST_SUITE_P(smoke_MatMulSoftmaxMatMul, MatMulSoftmaxMatMulTestCommon,
                          ::testing::ValuesIn({TestParams{{64, 4, 49, 32}, {64, 4, 49, 32}, {64, 4, 49, 32}, -1},
+                                              TestParams{{1, 32, 1, 128}, {1, 32, 1024, 128}, {1, 32, 1024, 128}, -1},
                                               TestParams{{16, 8, 49, 32}, {16, 8, 49, 32}, {16, 8, 49, 32}, -1},
                                               TestParams{{4, 16, 49, 32}, {4, 16, 49, 32}, {4, 16, 49, 32}, -1}}),
                          MatMulSoftmaxMatMulTestCommon::getTestCaseName);

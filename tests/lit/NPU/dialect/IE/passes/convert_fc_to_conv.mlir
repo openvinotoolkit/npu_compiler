@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-fc-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertFullyConnectedToConvolution
 func.func @ConvertFullyConnectedToConvolution(%arg0: tensor<1x16xf32>) -> tensor<1x64xf32> {
     %weights = const.Declare tensor<64x16xf32> = dense<1.0> : tensor<64x16xf32>

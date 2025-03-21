@@ -180,55 +180,14 @@ mlir::LogicalResult vpux::VPU::VerticalFusionOp::verify() {
         return errorAt(op->getLoc(), "Operation have to contain one YieldOp, but it has {0}", numYieldOps);
     }
 
-    return mlir::success();
-}
-
-namespace {
-
-class RemoveIfEmptyBody final : public mlir::OpRewritePattern<VPU::VerticalFusionOp> {
-public:
-    using OpRewritePattern::OpRewritePattern;
-
-    mlir::LogicalResult matchAndRewrite(VPU::VerticalFusionOp origOp, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult RemoveIfEmptyBody::matchAndRewrite(VPU::VerticalFusionOp origOp,
-                                                       mlir::PatternRewriter& rewriter) const {
-    if (origOp.getOperands().size() != 1 || origOp.getResults().size() != 1) {
-        return mlir::failure();
-    }
-
-    auto input = origOp.getOperand(0);
-    auto output = origOp.getResult(0);
-
-    if (input.getType() != output.getType()) {
-        return mlir::failure();
-    }
-
-    auto& bodyBlock = origOp.getOps().front();
-
-    // Check if ops does not have any operation besides YieldOp which is
-    // integral part of VerticalFusion
-    bool allYields = llvm::all_of(bodyBlock.getOperations(), [](const auto& op) {
-        return mlir::isa<VPU::YieldOp>(op);
+    bool allYields = llvm::all_of(opBody, [](mlir::Block& block) {
+        return llvm::all_of(block, [](mlir::Operation& op) {
+            return mlir::isa<VPU::YieldOp>(&op);
+        });
     });
 
     if (allYields) {
-        return mlir::failure();
+        return errorAt(op->getLoc(), "Operation does not have any operation besides YieldOp");
     }
-
-    rewriter.replaceOp(origOp, input);
-
     return mlir::success();
-}
-
-}  // namespace
-
-//
-// getCanonicalizationPatterns
-//
-
-void vpux::VPU::VerticalFusionOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
-                                                              mlir::MLIRContext* ctx) {
-    patterns.add<RemoveIfEmptyBody>(ctx);
 }

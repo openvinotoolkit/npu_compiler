@@ -15,9 +15,13 @@ vcl_result_t VCLTestsCommon::initModelData(const char* netName, const char* weig
     vcl_result_t ret = VCL_RESULT_SUCCESS;
 
     vcl_version_info_t version;
-    vcl_compiler_desc_t compilerDesc = {VCL_PLATFORM_VPU3720, VCL_LOG_ERROR};
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = nullptr;
-    ret = vclCompilerCreate(compilerDesc, &compiler, nullptr);
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
     if (ret) {
         std::cerr << "Failed to create compiler! Result:0x" << std::hex << uint64_t(ret) << std::dec << std::endl;
         return ret;
@@ -187,7 +191,7 @@ IRInfoTestType VCLTestsCommon::readJson2Vec(std::string fileName) {
 
         if (enabled) {
             /// Only add a config to test if we enable it in config file
-            irInfos.push_back(irInfo);
+            irInfos.push_back(std::move(irInfo));
         }
 
         ++lineNo;

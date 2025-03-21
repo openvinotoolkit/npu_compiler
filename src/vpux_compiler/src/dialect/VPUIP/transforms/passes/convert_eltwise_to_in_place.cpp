@@ -9,6 +9,12 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTELTWISETOINPLACE
+#define GEN_PASS_DEF_CONVERTELTWISETOINPLACE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -158,7 +164,7 @@ void makeInPlaceEltwise(VPUIP::NCEClusterTaskOp clusterTaskOp, AliasesInfo& alia
 // ConvertEltwiseToInPlacePass
 //
 
-class ConvertEltwiseToInPlacePass final : public VPUIP::ConvertEltwiseToInPlaceBase<ConvertEltwiseToInPlacePass> {
+class ConvertEltwiseToInPlacePass final : public VPUIP::impl::ConvertEltwiseToInPlaceBase<ConvertEltwiseToInPlacePass> {
 public:
     explicit ConvertEltwiseToInPlacePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -117,11 +117,8 @@ mlir::LogicalResult ConvertInputToFP16::matchAndRewrite(IE::InterpolateOp op, ml
     const auto inputType = op.getInput().getType().cast<mlir::ShapedType>().getElementType();
     const auto arch = VPU::getArch(op);
 
-    const std::set<VPU::ArchKind> incompatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-
-    if (incompatibleTargets.count(arch) > 0 && (VPU::getCompilationMode(op) != VPU::CompilationMode::ReferenceSW)) {
+    // VPU4000-M2I does not support C-minor FP16
+    if (arch >= VPU::ArchKind::NPU40XX && (VPU::getCompilationMode(op) != VPU::CompilationMode::ReferenceSW)) {
         return mlir::failure();
     }
 

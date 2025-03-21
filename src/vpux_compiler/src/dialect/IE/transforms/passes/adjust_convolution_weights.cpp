@@ -15,6 +15,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTCONVOLUTIONWEIGHTS
+#define GEN_PASS_DEF_ADJUSTCONVOLUTIONWEIGHTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -243,7 +249,7 @@ mlir::LogicalResult AdjustConvWeights::matchAndRewrite(IE::ExpandOp expandOp, ml
 // AdjustConvolutionWeightsPass
 //
 
-class AdjustConvolutionWeightsPass final : public IE::AdjustConvolutionWeightsBase<AdjustConvolutionWeightsPass> {
+class AdjustConvolutionWeightsPass final : public IE::impl::AdjustConvolutionWeightsBase<AdjustConvolutionWeightsPass> {
 public:
     explicit AdjustConvolutionWeightsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

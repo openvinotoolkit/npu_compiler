@@ -18,6 +18,13 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_LEGALIZEDILATEDCONVOLUTION
+#define GEN_PASS_DEF_LEGALIZEDILATEDCONVOLUTION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -287,9 +294,10 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
         offsets[Dims4D::Act::H] = parameter.offsetY;
         SmallVector<int64_t> sliceShape{inputShape[Dims4D::Act::N], inputShape[Dims4D::Act::C], parameter.sizeY,
                                         parameter.sizeX};
-        const std::string locSuffixBase = llvm::formatv("slice_in_{0}_{1}_{2}_{3}", parameter.offsetY,
-                                                        parameter.offsetX, parameter.sizeY, parameter.sizeX)
-                                                  .str();
+        const std::string locSuffixBase =
+                llvm::formatv("slice_in_{0}_{1}_{2}_{3}_{4}", parameter.index, parameter.offsetY, parameter.offsetX,
+                              parameter.sizeY, parameter.sizeX)
+                        .str();
         auto sliceActLoc = takeOpLoc(origOp, locSuffixBase);
         auto slicedActivation =
                 rewriter.create<IE::SliceOp>(sliceActLoc, origOp->getOperand(0), getIntArrayAttr(ctx, offsets.raw()),
@@ -335,7 +343,8 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
     return mlir::success();
 }
 
-class LegalizeDilatedConvolutionPass final : public IE::LegalizeDilatedConvolutionBase<LegalizeDilatedConvolutionPass> {
+class LegalizeDilatedConvolutionPass final :
+        public IE::impl::LegalizeDilatedConvolutionBase<LegalizeDilatedConvolutionPass> {
 public:
     explicit LegalizeDilatedConvolutionPass(bool enableSEPDilatedGroupConv, Logger log)
             : _enableSEPDilatedGroupConv{enableSEPDilatedGroupConv} {

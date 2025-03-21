@@ -12,7 +12,7 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -25,6 +25,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include "vpux/compiler/core/types/quantile_float/dialect.hpp"
@@ -37,6 +38,7 @@
 #include <mlir/Dialect/Index/IR/IndexDialect.h>
 #include <mlir/Dialect/Index/IR/IndexOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/Quant/QuantOps.h>
@@ -70,6 +72,7 @@ struct CustomBuiltinBufferizerInterface : mlir::DialectBufferizerInterface {
 
 void registerDialects(mlir::DialectRegistry& registry) {
     registry.insert<vpux::Const::ConstDialect,                //
+                    vpux::Core::CoreDialect,                  //
                     vpux::IE::IEDialect,                      //
                     vpux::VPU::VPUDialect,                    //
                     vpux::IERT::IERTDialect,                  //
@@ -96,7 +99,9 @@ void registerDialects(mlir::DialectRegistry& registry) {
                     mlir::scf::SCFDialect,             //
                     mlir::math::MathDialect,           //
                     mlir::cf::ControlFlowDialect,      //
-                    mlir::LLVM::LLVMDialect>();
+                    mlir::LLVM::LLVMDialect,           //
+                    mlir::linalg::LinalgDialect,       //
+                    mlir::index::IndexDialect>();
 }
 
 }  // namespace

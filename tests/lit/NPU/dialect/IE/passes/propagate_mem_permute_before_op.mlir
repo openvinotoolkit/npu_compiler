@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-mem-permute-before-op %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
@@ -668,10 +667,10 @@ func.func @MoveThroughConcat_IfAnyInputBranchIsBenificial(%arg0: tensor<4x512x36
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
-// CHECK-LABEL: @NotMoveThroughConcat_IfNoneOfInputBranchIsBenificial
+// CHECK-LABEL: @MoveThroughConcat_IfNoneOfInputBranchIsBenificial
 // CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x2048x36x36xf16>,
 // CHECK-SAME:      [[INPUT_1:%.+]]: tensor<1x2048x36x36xf16>
-func.func @NotMoveThroughConcat_IfNoneOfInputBranchIsBenificial(%arg0: tensor<1x2048x36x36xf16>, %arg1: tensor<1x2048x36x36xf16>) -> tensor<4x1024x36x36xf16, {order = #NHWC}> {
+func.func @MoveThroughConcat_IfNoneOfInputBranchIsBenificial(%arg0: tensor<1x2048x36x36xf16>, %arg1: tensor<1x2048x36x36xf16>) -> tensor<4x1024x36x36xf16, {order = #NHWC}> {
     %2 = IE.ShapeCast {shape = [4, 512, 36, 36]} inputs(%arg0 : tensor<1x2048x36x36xf16>) -> tensor<4x512x36x36xf16>
     %3 = IE.ShapeCast {shape = [4, 512, 36, 36]} inputs(%arg1 : tensor<1x2048x36x36xf16>) -> tensor<4x512x36x36xf16>
 
@@ -682,11 +681,12 @@ func.func @NotMoveThroughConcat_IfNoneOfInputBranchIsBenificial(%arg0: tensor<1x
 
     // CHECK:    [[RESHAPE0:%.+]] = IE.ShapeCast {shape = [4, 512, 36, 36]} inputs([[INPUT_0]] : tensor<1x2048x36x36xf16>) -> tensor<4x512x36x36xf16>
     // CHECK:    [[RESHAPE1:%.+]] = IE.ShapeCast {shape = [4, 512, 36, 36]} inputs([[INPUT_1]] : tensor<1x2048x36x36xf16>) -> tensor<4x512x36x36xf16>
-    // CHECK:    [[CONCAT:%.+]] = IE.Concat([[RESHAPE0]], [[RESHAPE1]])
-    // CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 512, 0, 0]]} : tensor<4x512x36x36xf16>, tensor<4x512x36x36xf16> -> tensor<4x1024x36x36xf16>
-    // CHECK:    [[PERMUTE_OUT:%.+]] = IE.MemPermute([[CONCAT]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x1024x36x36xf16> -> tensor<4x1024x36x36xf16, {order = #NHWC}>
+    // CHECK:    [[PERMUTE0:%.+]] = IE.MemPermute([[RESHAPE0]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x512x36x36xf16> -> tensor<4x512x36x36xf16, {order = #NHWC}>
+    // CHECK:    [[PERMUTE1:%.+]] = IE.MemPermute([[RESHAPE1]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x512x36x36xf16> -> tensor<4x512x36x36xf16, {order = #NHWC}>
+    // CHECK:    [[CONCAT:%.+]] = IE.Concat([[PERMUTE0]], [[PERMUTE1]])
+    // CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 512, 0, 0]]} : tensor<4x512x36x36xf16, {order = #NHWC}>, tensor<4x512x36x36xf16, {order = #NHWC}> -> tensor<4x1024x36x36xf16, {order = #NHWC}>
 
-    // CHECK:    return [[PERMUTE_OUT]] : tensor<4x1024x36x36xf16, {order = #NHWC}>
+    // CHECK:    return [[CONCAT]] : tensor<4x1024x36x36xf16, {order = #NHWC}>
 }
 
 // -----
@@ -924,4 +924,43 @@ func.func @NotMovePermuteQuantizeWhenMultiplyHasDifferentInputs(%arg0: tensor<1x
     //CHECK:    [[PERMUTEQUANTIZE:%.+]] = IE.PermuteQuantize([[MULTIPLY]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x1024x1x3584xf16> -> tensor<1x1024x1x3584xf16, {order = #NHWC}>
 
     //CHECK:    return [[PERMUTEQUANTIZE]] : tensor<1x1024x1x3584xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughReshape
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x128x64x64xf16>
+func.func @PropagateMemPermuteThroughReshape(%arg0: tensor<1x128x64x64xf16>) -> tensor<16x8x64x64xf16> {
+    %0 = IE.Reshape(%arg0) {shape_value = [16, 8, 64, 64]} : tensor<1x128x64x64xf16> -> tensor<16x8x64x64xf16>
+    %1 = IE.MemPermute(%0) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<16x8x64x64xf16> -> tensor<16x8x64x64xf16>
+
+    return %1 :  tensor<16x8x64x64xf16>
+
+    //CHECK:    [[MEM_PERMUTE:%.+]] = IE.MemPermute([[INPUT_0]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x128x64x64xf16> -> tensor<1x128x64x64xf16>
+    //CHECK:    [[RESHAPE:%.+]] = IE.Reshape([[MEM_PERMUTE]]) {shape_value = [16, 8, 64, 64]} : tensor<1x128x64x64xf16> -> tensor<16x8x64x64xf16>
+
+    //CHECK:    return [[RESHAPE]] : tensor<16x8x64x64xf16>
+}
+
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @NotPropagateMemPermuteThroughReshapeDueToPermuteDimsChanged
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x128x64x64xf16>
+func.func @NotPropagateMemPermuteThroughReshapeDueToPermuteDimsChanged(%arg0: tensor<1x128x64x64xf16>) -> tensor<16x64x64x8xf16> {
+    %0 = IE.Reshape(%arg0) {shape_value = [16, 8, 64, 64]} : tensor<1x128x64x64xf16> -> tensor<16x8x64x64xf16>
+    %1 = IE.MemPermute(%0) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<16x8x64x64xf16> -> tensor<16x64x64x8xf16>
+
+    return %1 :  tensor<16x64x64x8xf16>
+
+    //CHECK:    [[RESHAPE:%.+]] = IE.Reshape([[INPUT_0]]) {shape_value = [16, 8, 64, 64]} : tensor<1x128x64x64xf16> -> tensor<16x8x64x64xf16>
+    //CHECK:    [[MEM_PERMUTE:%.+]] = IE.MemPermute([[RESHAPE]]) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<16x8x64x64xf16> -> tensor<16x64x64x8xf16>
+
+    //CHECK:    return [[MEM_PERMUTE]] : tensor<16x64x64x8xf16>
 }

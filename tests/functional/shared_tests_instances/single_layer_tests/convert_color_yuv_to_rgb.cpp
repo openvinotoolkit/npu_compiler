@@ -104,7 +104,6 @@ ov::element::Type dTypes[] = {
         ov::element::f16,
 };
 
-// Cases for 3720/4000
 auto inputShapeTrueI420 = generate_input_static_shapes(inShapes, I420, true);
 auto inputShapeFalseI420 = generate_input_static_shapes(inShapes, I420, false);
 auto inputShapeTrueNV12 = generate_input_static_shapes(inShapes, NV12, true);

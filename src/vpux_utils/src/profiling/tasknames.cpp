@@ -11,11 +11,14 @@
 #include "vpux/utils/profiling/location.hpp"
 
 #include <sstream>
+#include <vector>
 
-namespace vpux::profiling {
+namespace {
 
-const std::string CLUSTER_LEVEL_PROFILING_SUFFIX = "cluster";
-const std::string VARIANT_LEVEL_PROFILING_SUFFIX = "variant";
+struct TokenizedTaskName {
+    std::string layerName;
+    std::vector<std::string> tokens;
+};
 
 std::vector<std::string> splitBySeparator(const std::string& s, char separator) {
     std::istringstream iss(s);
@@ -35,6 +38,12 @@ TokenizedTaskName tokenizeTaskName(const std::string& taskName) {
     std::vector<std::string> parts = splitBySeparator(afterNameSep, vpux::LOCATION_SEPARATOR);
     return {std::move(layerName), std::move(parts)};
 }
+
+}  // namespace
+
+namespace vpux::profiling {
+
+const std::string VARIANT_LEVEL_PROFILING_SUFFIX = "variant";
 
 ParsedTaskName deserializeTaskName(const std::string& fullTaskName) {
     const auto LOC_METADATA_SEPARATOR = '_';  // conventional separator used for attaching metadata to MLIR Locations
@@ -59,39 +68,6 @@ ParsedTaskName deserializeTaskName(const std::string& fullTaskName) {
 
 std::string getLayerName(const std::string& taskName) {
     return taskName.substr(0, taskName.rfind(vpux::LOCATION_ORIGIN_SEPARATOR));
-}
-
-std::string getTaskNameSuffixes(const std::string& name) {
-    const auto startPos = name.rfind(LOCATION_ORIGIN_SEPARATOR);
-    if (startPos == std::string::npos) {
-        return "";
-    }
-    return name.substr(startPos + 1);
-}
-
-std::string getClusterFromName(const std::string& name) {
-    return getValueFromStructuredTaskName(name, CLUSTER_LEVEL_PROFILING_SUFFIX);
-}
-
-std::string getVariantFromName(const std::string& name) {
-    return getValueFromStructuredTaskName(name, VARIANT_LEVEL_PROFILING_SUFFIX);
-}
-
-std::string getValueFromStructuredTaskName(const std::string& name, const std::string& key) {
-    auto taskNameSuffixes = getTaskNameSuffixes(name);
-    auto suffixes = splitBySeparator(taskNameSuffixes, LOCATION_SEPARATOR);
-
-    for (auto& suffix : suffixes) {
-        auto parts = splitBySeparator(suffix, '_');
-        if (parts.size() == 2) {
-            auto extractedKey = parts[0];
-            auto extractedValue = parts[1];
-            if (extractedKey == key) {
-                return extractedValue;
-            }
-        }
-    }
-    return "";
 }
 
 }  // namespace vpux::profiling

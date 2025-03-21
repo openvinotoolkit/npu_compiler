@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -16,6 +17,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OUTPUTPIPELINETILING
+#define GEN_PASS_DEF_OUTPUTPIPELINETILING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 
 namespace {
@@ -24,7 +31,7 @@ namespace {
 // OutputPipelineTilingPass
 //
 
-class OutputPipelineTilingPass final : public VPU::OutputPipelineTilingBase<OutputPipelineTilingPass> {
+class OutputPipelineTilingPass final : public VPU::impl::OutputPipelineTilingBase<OutputPipelineTilingPass> {
 public:
     explicit OutputPipelineTilingPass(bool enablePrefetchTiling, Logger log)
             : _enablePrefetchTiling(enablePrefetchTiling) {
@@ -35,10 +42,9 @@ public:
 
 private:
     bool isTilingAdjustmentBeneficial(VPU::NCEOpInterface nceOp, const OutputTiling& origTiling,
-                                      const OutputTiling& newTiling);
+                                      const OutputTiling& newTiling, std::shared_ptr<VPU::LayerCostModel> costModel);
     void safeRunOnFunc() final;
     bool _enablePrefetchTiling = true;
-    std::shared_ptr<VPU::LayerCostModel> _costModel = nullptr;
 };
 
 mlir::LogicalResult OutputPipelineTilingPass::initialize(mlir::MLIRContext* ctx) {
@@ -55,7 +61,8 @@ mlir::LogicalResult OutputPipelineTilingPass::initialize(mlir::MLIRContext* ctx)
 }
 
 bool OutputPipelineTilingPass::isTilingAdjustmentBeneficial(VPU::NCEOpInterface nceOp, const OutputTiling& origTiling,
-                                                            const OutputTiling& newTiling) {
+                                                            const OutputTiling& newTiling,
+                                                            std::shared_ptr<VPU::LayerCostModel> costModel) {
     auto origOp = nceOp.getOperation();
 
     // 1.Check if new output tiles can all be evenly unrolled
@@ -117,8 +124,8 @@ bool OutputPipelineTilingPass::isTilingAdjustmentBeneficial(VPU::NCEOpInterface 
     // However, if the 'big' newCost is still smaller than the accurate origCost, new strategy must be better than the
     // old one. As a result, the costs checking still can ensure new tiling strategy is optimal even though newCost is
     // not so accurate.
-    auto newCost = _costModel->getDPUandDMATimeCostWithCustomTiling(nceOp, mcStrategy, newTiling);
-    auto origCost = _costModel->getDPUandDMATimeCostWithCustomTiling(nceOp, mcStrategy, origTiling);
+    auto newCost = costModel->getDPUandDMATimeCostWithCustomTiling(nceOp, mcStrategy, newTiling);
+    auto origCost = costModel->getDPUandDMATimeCostWithCustomTiling(nceOp, mcStrategy, origTiling);
 
     _log.nest().trace("Original cost: {0} , Current cost: {1}", origCost, newCost);
 
@@ -132,13 +139,18 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
 
     auto func = getOperation();
     auto siblingsOpsAnalysis = getAnalysis<VPU::SiblingOpsAnalysis>();
-    _costModel = std::make_shared<VPU::LayerCostModel>(func, _enablePrefetchTiling, _log, siblingsOpsAnalysis);
+    auto costModel = std::make_shared<VPU::LayerCostModel>(func, _enablePrefetchTiling, _log, siblingsOpsAnalysis);
 
     func->walk([&](VPU::TilingBuilderOpInterface tilingBuilderOp) {
         auto origOp = tilingBuilderOp.getOperation();
 
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(origOp);
         if (nceOp == nullptr) {
+            return;
+        }
+
+        if (mlir::isa<VPU::NCEMatMulOp>(origOp)) {
+            // E126102: Skip MatMulOp since it does not support cost, but this pass is cost based.
             return;
         }
 
@@ -203,7 +215,7 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
         if (!mlir::failed(findSupportedTileSize) && prefetchableTilesOnDim != origTilingStrategy) {
             // find an available tiling strategy for output pipelining
             auto curTiles = findSupportedTileSize.value();
-            if (isTilingAdjustmentBeneficial(nceOp, origTiles.value(), curTiles)) {
+            if (isTilingAdjustmentBeneficial(nceOp, origTiles.value(), curTiles, costModel)) {
                 origOp->setAttr(tilingStrategy, getIntArrayAttr(origOp->getContext(), curTiles[0].axis));
                 _log.debug("Overwrite original tiling strategy: {0} with output pipelining tiling strategy: {1} at "
                            "{2}",

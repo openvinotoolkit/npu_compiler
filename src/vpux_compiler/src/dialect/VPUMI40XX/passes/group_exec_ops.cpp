@@ -4,11 +4,19 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_GROUPEXECUTIONOPS
+#define GEN_PASS_DEF_GROUPEXECUTIONOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -200,7 +208,7 @@ void groupExecOps(VPUMI40XX::MappedInferenceOp mpi, int64_t tilesCount, const VP
     }
 }
 
-class GroupExecutionOpsPass : public VPUMI40XX::GroupExecutionOpsBase<GroupExecutionOpsPass> {
+class GroupExecutionOpsPass : public VPUMI40XX::impl::GroupExecutionOpsBase<GroupExecutionOpsPass> {
 public:
     explicit GroupExecutionOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

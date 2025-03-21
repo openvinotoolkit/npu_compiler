@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @GroupBoundedBuffer
 func.func @GroupBoundedBuffer(%arg0: memref<1x8x384x384xf16>, %arg1: memref<4xsi32>) ->
     !VPUIP.BoundedBuffer<data=memref<1x8x384x384xf16>, dynamic_shape=memref<4xsi32>> {

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertConstToAttr
   func.func @ConvertConstToAttr(%arg0: tensor<24x16x7x8xf32>) -> tensor<1x32x20x31xf32> {
     %cst_shape = const.Declare tensor<4xsi32> = dense<[1, 2, 3, 4]> : tensor<4xsi64>, [#const.CastElemType<si32>]

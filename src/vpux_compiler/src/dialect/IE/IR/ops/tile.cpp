@@ -75,10 +75,11 @@ mlir::LogicalResult vpux::IE::TileOp::inferReturnTypeComponents(
     return mlir::success();
 }
 
+//
 // ConvertRepeatsToAttr
+//
 
 namespace {
-
 class ConvertRepeatsToAttr final : public mlir::OpRewritePattern<IE::TileOp> {
 public:
     using mlir::OpRewritePattern<IE::TileOp>::OpRewritePattern;
@@ -111,6 +112,13 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::TileOp origOp, mlir::PatternRewriter& rewriter) const final;
 };
 
+}  // namespace
+
+//
+// AddUnsqueeze
+//
+
+namespace {
 mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::PatternRewriter& rewriter) const {
     // repeats attribute has no value
     if (!origOp.getRepeatsValues().has_value()) {
@@ -153,9 +161,62 @@ mlir::LogicalResult AddUnsqueeze::matchAndRewrite(IE::TileOp origOp, mlir::Patte
 
 }  // namespace
 
+//
+// FuseTileOp
+//
+
+namespace {
+class FuseTileOp final : public mlir::OpRewritePattern<IE::TileOp> {
+public:
+    using mlir::OpRewritePattern<IE::TileOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FuseTileOp::matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const {
+    if (!tileOp.getOutput().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto nextTileOp = mlir::dyn_cast_or_null<IE::TileOp>(*tileOp.getOutput().getUsers().begin());
+    if (nextTileOp == nullptr) {
+        return mlir::failure();
+    }
+
+    if (!tileOp.getRepeatsValues().has_value() || !nextTileOp.getRepeatsValues().has_value()) {
+        return mlir::failure();
+    }
+
+    auto firstTileRepeatsVal = parseIntArrayAttr<int64_t>(tileOp.getRepeatsValues().value());
+    auto secondTileRepeatsVal = parseIntArrayAttr<int64_t>(nextTileOp.getRepeatsValues().value());
+
+    const auto firstRepeatsSize = firstTileRepeatsVal.size();
+    const auto secondRepeatsSize = secondTileRepeatsVal.size();
+    if (firstRepeatsSize != secondRepeatsSize) {
+        if (firstRepeatsSize > secondRepeatsSize) {
+            secondTileRepeatsVal.insert(secondTileRepeatsVal.begin(), firstRepeatsSize - secondRepeatsSize, 1);
+        } else {
+            firstTileRepeatsVal.insert(firstTileRepeatsVal.begin(), secondRepeatsSize - firstRepeatsSize, 1);
+        }
+    }
+
+    SmallVector<int64_t> fusedRepeatsVal(firstTileRepeatsVal.size());
+    std::transform(firstTileRepeatsVal.begin(), firstTileRepeatsVal.end(), secondTileRepeatsVal.begin(),
+                   fusedRepeatsVal.begin(), std::multiplies<int>());
+
+    rewriter.replaceOpWithNewOp<IE::TileOp>(nextTileOp, tileOp.getInput(), nullptr,
+                                            getIntArrayAttr(tileOp.getContext(), fusedRepeatsVal));
+
+    return mlir::success();
+}
+
+}  // namespace
+
 void vpux::IE::TileOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<ConvertRepeatsToAttr>(ctx);
     patterns.add<AddUnsqueeze>(ctx);
+    patterns.add<FuseTileOp>(ctx);
 }
 
 //

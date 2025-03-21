@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PERAXISFQCONCAT
+#define GEN_PASS_DEF_PERAXISFQCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -17,7 +24,7 @@ namespace {
 // PerAxisFQConcatPass
 //
 
-class PerAxisFQConcatPass final : public IE::PerAxisFQConcatBase<PerAxisFQConcatPass> {
+class PerAxisFQConcatPass final : public IE::impl::PerAxisFQConcatBase<PerAxisFQConcatPass> {
 public:
     explicit PerAxisFQConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-ddr-copies-into-concats %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !qElemType = !quant.uniform<u8:f16, 0.019874431572708431:128>

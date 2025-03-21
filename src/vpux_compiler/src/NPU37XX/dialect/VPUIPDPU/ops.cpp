@@ -185,8 +185,7 @@ mlir::LogicalResult ODUOutActivationsOp::verify() {
     if ((arch == VPU::ArchKind::NPU37XX) && !(dataTypeExists && !dataWidthExists)) {
         return errorAt(getLoc(), "Operation {0}: use data_type attr to specify data type", getOperationName());
     }
-
-    if ((arch == VPU::ArchKind::NPU40XX) && !(!dataTypeExists && dataWidthExists)) {
+    if ((arch > VPU::ArchKind::NPU37XX) && !(!dataTypeExists && dataWidthExists)) {
         return errorAt(getLoc(), "Operation {0}: use data_width attr to specify data type", getOperationName());
     }
 

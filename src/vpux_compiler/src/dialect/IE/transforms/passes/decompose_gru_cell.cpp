@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -24,6 +24,12 @@
 
 #include <optional>
 #include <utility>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_DECOMPOSEGRUCELL
+#define GEN_PASS_DEF_DECOMPOSEGRUCELL
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -87,10 +93,11 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
     const auto shouldLinearBeforeReset = gruCell.getShouldLinearBeforeReset();
 
     // xw = X * (W^T) -> [batch_size, 3 * hidden_size]
-    auto xw = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_xw_matmul"), inputData, weights, false, true);
+    auto xw = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_xw_matmul"), inputData, weights, false, true, nullptr);
 
     // hr = H * (R^T) -> [batch_size, 3 * hidden_size]
-    auto hr = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_hr_matmul"), hiddenState, recurrenceWeights, false, true);
+    auto hr = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_hr_matmul"), hiddenState, recurrenceWeights, false, true,
+                                            nullptr);
 
     auto xwZrOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});
     auto xwZrSizes = getIntArrayAttr(ctx, SmallVector<int64_t>{batchSize, 2 * hiddenSize});
@@ -129,7 +136,7 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
         // ht = tanh(xwH + (rt (.) H) * (Rh^T) + bH) -> [batch_size, hidden_size]
         ht = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "_ht_mul"), rt, hiddenState,
                                              noneOrExplicitBroadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
-        ht = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_ht_matMul"), ht, rH, false, true);
+        ht = rewriter.create<IE::MatMulOp>(appendLoc(loc, "_ht_matMul"), ht, rH, false, true, nullptr);
         if (hasBiases) {
             auto bHOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{2 * hiddenSize});
             auto bHSizes = getIntArrayAttr(ctx, SmallVector<int64_t>{hiddenSize});
@@ -148,7 +155,8 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
         // ht = tanh(xwH + (rt (.) (hrH + Rbh)) + Wbh) -> [batch_size, hidden_size]
         ht = hrH;
         if (hasBiases) {
-            auto rbhOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{2 * hiddenSize});
+            // Rbh = biases[3 * hiddenSize :] when shouldLinearBeforeReset is true
+            auto rbhOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{3 * hiddenSize});
             auto rbhSizes = getIntArrayAttr(ctx, SmallVector<int64_t>{hiddenSize});
             auto rbh = rewriter.create<IE::SliceOp>(appendLoc(loc, "_rbh_slice"), biases.value(), rbhOffsets, rbhSizes);
             ht = rewriter.create<IE::AddOp>(appendLoc(loc, "ht_add0"), ht, rbh, numpyBroadcastTypeAttr, nullptr,
@@ -157,7 +165,8 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
         ht = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "ht_mul"), rt, ht, noneOrExplicitBroadcastTypeAttr, nullptr,
                                              nullptr, nullptr, nullptr);
         if (hasBiases) {
-            auto wbhOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{3 * hiddenSize});
+            // Wbh = biases[2 * hiddenSize : 3 * hiddenSize] when shouldLinearBeforeReset is true
+            auto wbhOffsets = getIntArrayAttr(ctx, SmallVector<int64_t>{2 * hiddenSize});
             auto wbhSizes = getIntArrayAttr(ctx, SmallVector<int64_t>{hiddenSize});
             auto wbh = rewriter.create<IE::SliceOp>(appendLoc(loc, "_wbh_slice"), biases.value(), wbhOffsets, wbhSizes);
             ht = rewriter.create<IE::AddOp>(appendLoc(loc, "ht_add1"), ht, wbh, numpyBroadcastTypeAttr, nullptr,
@@ -169,8 +178,8 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
     }
 
     // Ht = (1 - zt) (.) ht + zt (.) H -> [batch_size, hidden_size]
-    auto one = Const::createConst(rewriter, loc, mlir::RankedTensorType::get({1}, mlir::Float16Type::get(ctx)),
-                                  ArrayRef(SmallVector<type::float16>{1.0f}));
+    auto elemType = zt.getType().cast<NDTypeInterface>().getElementType();
+    auto one = Const::createConst(rewriter, loc, mlir::RankedTensorType::get({1}, elemType), ArrayRef({1.0f}));
     auto sub = rewriter.create<IE::SubtractOp>(appendLoc(loc, "_sub"), one, zt, numpyBroadcastTypeAttr, nullptr,
                                                nullptr, nullptr, nullptr);
     auto mul1 = rewriter.create<IE::MultiplyOp>(appendLoc(loc, "_mul1"), zt, hiddenState,
@@ -185,10 +194,58 @@ mlir::LogicalResult GRUCellRewriter::matchAndRewrite(IE::GRUCellOp gruCell, mlir
 }
 
 //
+// GRUSequenceToCellRewriter
+//
+
+class GRUSequenceToCellRewriter final : public mlir::OpRewritePattern<IE::GRUSequenceOp> {
+public:
+    GRUSequenceToCellRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::GRUSequenceOp>(ctx), _log(std::move(log)) {
+        this->setDebugName("GRUSequenceToCellRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::GRUSequenceOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult GRUSequenceToCellRewriter::matchAndRewrite(IE::GRUSequenceOp origOp,
+                                                               mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{1}' at '{2}'", origOp->getName(), origOp->getLoc());
+
+    auto getNewReshapeOut = [&](mlir::Value input) -> mlir::Value {
+        const auto shape = getShape(input).raw();
+        SmallVector<int64_t> newShape(shape.begin() + 1, shape.end());
+
+        const auto newInputShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
+        return rewriter.create<IE::ReshapeOp>(origOp.getLoc(), input, nullptr, false, newInputShapeAttr).getResult();
+    };
+
+    auto newGRUCellOp = rewriter.create<IE::GRUCellOp>(
+            origOp.getLoc(), getNewReshapeOut(origOp.getInputData()), getNewReshapeOut(origOp.getInitialHiddenState()),
+            getNewReshapeOut(origOp.getWeights()), getNewReshapeOut(origOp.getRecurrenceWeights()),
+            getNewReshapeOut(origOp.getBiases()), origOp.getHiddenSizeAttr(), origOp.getShouldLinearBeforeResetAttr(),
+            origOp.getClipAttr());
+
+    auto newOutReshape1 =
+            rewriter.create<IE::ReshapeOp>(origOp.getLoc(), newGRUCellOp.getResult(), nullptr, false,
+                                           getIntArrayAttr(rewriter.getContext(), getShape(origOp->getResult(0))));
+    auto newOutReshape2 =
+            rewriter.create<IE::ReshapeOp>(origOp.getLoc(), newGRUCellOp.getResult(), nullptr, false,
+                                           getIntArrayAttr(rewriter.getContext(), getShape(origOp->getResult(1))));
+
+    rewriter.replaceOp(origOp, {newOutReshape1.getResult(), newOutReshape2.getResult()});
+
+    _log.trace("[{0}] Replaced with 'IE::GRUCellOp'", getDebugName());
+    return mlir::success();
+}
+
+//
 // DecomposeGRUCellPass
 //
 
-class DecomposeGRUCellPass final : public IE::DecomposeGRUCellBase<DecomposeGRUCellPass> {
+class DecomposeGRUCellPass final : public IE::impl::DecomposeGRUCellBase<DecomposeGRUCellPass> {
 public:
     explicit DecomposeGRUCellPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());
@@ -208,8 +265,21 @@ void DecomposeGRUCellPass::safeRunOnFunc() {
     mlir::ConversionTarget target(ctx);
     target.addLegalDialect<IE::IEDialect, Const::ConstDialect>();
     target.addIllegalOp<IE::GRUCellOp>();
+    target.addDynamicallyLegalOp<IE::GRUSequenceOp>([&](IE::GRUSequenceOp origOp) {
+        auto inputShape = getShape(origOp.getInputData());
+        auto hidenShape = getShape(origOp.getInitialHiddenState());
+
+        if (inputShape.empty() || hidenShape.empty() || getShape(origOp.getWeights()).empty() ||
+            getShape(origOp.getRecurrenceWeights()).empty() || getShape(origOp.getBiases()).empty()) {
+            return true;
+        }
+
+        // When input's batch&seq_len and hidden's batch&directions are both one, it can be transfered to GRUCell
+        return inputShape[Dim(0)] != 1 || inputShape[Dim(1)] != 1 || hidenShape[Dim(0)] != 1 || hidenShape[Dim(1)] != 1;
+    });
 
     mlir::RewritePatternSet patterns(&ctx);
+    patterns.add<GRUSequenceToCellRewriter>(&ctx, _log);
     patterns.add<GRUCellRewriter>(&ctx, _log);
 
     auto func = getOperation();

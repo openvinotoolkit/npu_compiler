@@ -87,3 +87,12 @@ bool vpux::Const::ReshapeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeI
 Const::Content vpux::Const::ReshapeAttr::transform(vpux::Const::Content& input) const {
     return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
 }
+
+//
+// ReshapeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ReshapeAttr::getStableHashValue() const {
+    const auto newShape = parseIntArrayAttr<int64_t>(getShape());
+    return llvm::hash_combine(getMnemonic(), llvm::hash_combine_range(newShape.begin(), newShape.end()));
+}

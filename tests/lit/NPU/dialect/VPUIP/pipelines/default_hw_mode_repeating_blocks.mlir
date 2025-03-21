@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="function-outlining='naive'" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !MemRef = memref<1x3x62x62xf16>
 
 module @ChainCalls {

@@ -2,10 +2,13 @@
 // Copyright (C) 2022 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
+
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include "vpux/utils/core/enums.hpp"
@@ -13,6 +16,12 @@
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_FUSEPERMUTEQUANTIZEEXPAND
+#define GEN_PASS_DEF_FUSEPERMUTEQUANTIZEEXPAND
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -322,7 +331,7 @@ mlir::LogicalResult FuseQuantizeCastExpandIntoPermuteQuantizeQuantizeCastRewrite
 //
 
 class FusePermuteQuantizeExpandPass final :
-        public IE::arch37xx::FusePermuteQuantizeExpandBase<FusePermuteQuantizeExpandPass> {
+        public IE::arch37xx::impl::FusePermuteQuantizeExpandBase<FusePermuteQuantizeExpandPass> {
 public:
     explicit FusePermuteQuantizeExpandPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

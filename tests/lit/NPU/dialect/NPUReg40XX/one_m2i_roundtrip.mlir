@@ -26,7 +26,7 @@ module @OneM2IWithoutAttributes {
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_M2I_0 idx(!VPURegMapped.Index<0:0:0>) <M2I>
       }
       ELF.CreateSection @text.dma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-        "NPUReg40XX.M2I"() <{input = @DeclareBuffer0, m2i_descriptor = #NPUReg40XX.VpuMediaTask<
+        "NPUReg40XX.M2I"() <{input = @DeclareBuffer0, descriptor = #NPUReg40XX.VpuMediaTask<
           VpuMediaTask {
             inAddr0 {
               UINT inAddr = 0
@@ -45,7 +45,7 @@ module @OneM2IWithoutAttributes {
               UINT height = 0x54,
               UINT ls = 0x80,
               UINT HWPEN = 0,
-              UINT ExtHDR = 0  requires 1:1:1,
+              UINT ExtHDR = 0 ,
               UINT Reserved_InSize1 = 0
             },
             inAddr2 {
@@ -144,7 +144,7 @@ module @OneM2IWithoutAttributes {
             },
             pad8_0 = UINT 0,
             pad8_1 = UINT 0
-          }
+          } requires 11:4:10
         >, output_buff = @DeclareBuffer1, sym_name = "M2I_0_0"}> : () -> ()
       }
     }
@@ -152,7 +152,7 @@ module @OneM2IWithoutAttributes {
   }
 }
 
-// CHECK: m2i_descriptor = #NPUReg40XX.VpuMediaTask<
+// CHECK: descriptor = #NPUReg40XX.VpuMediaTask<
 // CHECK: VpuMediaTask {
 // CHECK:   inAddr0 {
 // CHECK:     UINT inAddr = 0
@@ -171,7 +171,7 @@ module @OneM2IWithoutAttributes {
 // CHECK:     UINT height = 0x54,
 // CHECK:     UINT ls = 0x80,
 // CHECK:     UINT HWPEN = 0,
-// CHECK:     UINT ExtHDR = 0 requires 1:1:1,
+// CHECK:     UINT ExtHDR = 0,
 // CHECK:     UINT Reserved_InSize1 = 0
 // CHECK:   },
 // CHECK:   inAddr2 {
@@ -270,5 +270,5 @@ module @OneM2IWithoutAttributes {
 // CHECK:   },
 // CHECK:   pad8_0 = UINT 0,
 // CHECK:   pad8_1 = UINT 0
-// CHECK: }
+// CHECK: } requires 11:4:10
 // CHECK: >

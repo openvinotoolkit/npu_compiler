@@ -9,11 +9,18 @@
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 
+namespace vpux::VPURT::arch40xx {
+#define GEN_PASS_DECL_FINDWLMENQUEUEBARRIER
+#define GEN_PASS_DEF_FINDWLMENQUEUEBARRIER
+#include "vpux/compiler/NPU40XX/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT::arch40xx
+
 using namespace vpux;
 
 namespace {
 
-class FindWlmEnqueueBarrierPass final : public VPURT::arch40xx::FindWlmEnqueueBarrierBase<FindWlmEnqueueBarrierPass> {
+class FindWlmEnqueueBarrierPass final :
+        public VPURT::arch40xx::impl::FindWlmEnqueueBarrierBase<FindWlmEnqueueBarrierPass> {
 public:
     explicit FindWlmEnqueueBarrierPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -35,20 +42,23 @@ void FindWlmEnqueueBarrierPass::safeRunOnFunc() {
     if (!VPURT::verifyOneWaitBarrierPerTask(func, _log)) {
         _log.warning("WLM cannot be enabled as not all tasks have 1 wait barrier");
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
+        signalPassFailure();
         return;
     }
 
     auto& barrierInfo = getAnalysis<BarrierInfo>();
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, true);
+
+    // Order barriers following barrier consumption order for WLM as this impacts work item ordering
+    // and work items are triggered on barrier consumption events
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 
     VPURT::EnqueueBarrierHandler enqueueBarrier(func, barrierInfo, _log);
 
     const auto res = enqueueBarrier.calculateEnqueueBarriers();
     if (mlir::failed(res)) {
         _log.warning("Enqueue algorithm failed. Need to switch to nonWLM");
-        VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
-        barrierInfo.clearAttributes();
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
+        signalPassFailure();
         return;
     }
 
@@ -67,7 +77,6 @@ void FindWlmEnqueueBarrierPass::safeRunOnFunc() {
         }
     });
 
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
     barrierInfo.clearAttributes();
 }
 }  // namespace

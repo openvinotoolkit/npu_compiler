@@ -13,6 +13,13 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <numeric>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTUPSAMPLINGTOSTRIDEDCONCAT
+#define GEN_PASS_DEF_CONVERTUPSAMPLINGTOSTRIDEDCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -40,7 +47,7 @@ auto getConcatResult(mlir::PatternRewriter& rewriter, vpux::Dim axis, int64_t fa
 //
 
 class ConvertUpsamplingToStridedConcatPass final :
-        public IE::ConvertUpsamplingToStridedConcatBase<ConvertUpsamplingToStridedConcatPass> {
+        public IE::impl::ConvertUpsamplingToStridedConcatBase<ConvertUpsamplingToStridedConcatPass> {
 public:
     explicit ConvertUpsamplingToStridedConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

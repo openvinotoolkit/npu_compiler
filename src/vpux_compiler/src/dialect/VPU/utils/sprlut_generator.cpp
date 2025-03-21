@@ -15,7 +15,13 @@ using namespace VPU;
 //
 
 void SaturationBypassRange::serialize(std::vector<uint16_t>& buffer) const {
-    buffer.insert(buffer.end(), {saturationValue.to_bits(), lowerThreshold.to_bits(), upperThreshold.to_bits()});
+    buffer.insert(buffer.end(), saturationValue.to_bits());
+    if (lowerThreshold < 0) {
+        // In case of negative range HW expects reversed low & upper
+        buffer.insert(buffer.end(), {upperThreshold.to_bits(), lowerThreshold.to_bits()});
+    } else {
+        buffer.insert(buffer.end(), {lowerThreshold.to_bits(), upperThreshold.to_bits()});
+    }
 }
 
 void ReservedRegion::serialize(std::vector<uint16_t>& buffer) {
@@ -54,10 +60,14 @@ std::pair<float, float> vpux::VPU::getSegmentBeginEnd(uint16_t sign, uint16_t ex
     const uint16_t numOfMantissaLSBs = FP16_MANTISSA_SIZE - numOfMantissaMSBs;
     const uint16_t mantissaLSBsMask = (1 << numOfMantissaLSBs) - 1;
 
-    const uint16_t beginMantissa = mantissaMSBs << numOfMantissaLSBs;
-    const uint16_t endMantissa = beginMantissa | mantissaLSBsMask;
+    const uint16_t mantissaZeroes = mantissaMSBs << numOfMantissaLSBs;
+    const uint16_t mantissaOnes = mantissaZeroes | mantissaLSBsMask;
 
-    return std::make_pair(getValue(sign, exponent, beginMantissa), getValue(sign, exponent, endMantissa));
+    const auto segmentBegin = getValue(sign, exponent, mantissaZeroes);
+    const auto segmentEnd = getValue(sign, exponent, mantissaOnes);
+
+    // Negative number with big mantissa is smaller than with small mantissa, so min/max ensures that begin < end
+    return std::make_pair(std::min(segmentBegin, segmentEnd), std::max(segmentBegin, segmentEnd));
 }
 
 float vpux::VPU::getValue(uint16_t sign, uint16_t exponent, uint16_t mantissa) {
@@ -185,7 +195,7 @@ LineDesc SprLUTGenerator::generateLine(float x0, float x1) const {
     const auto y1 = _refFunction(x1);
 
     const auto slope = (y1 - y0) / (x1 - x0);
-    return {slope, y0};
+    return {slope, x1 >= 0 ? y0 : y1};
 }
 
 float SprLUTGenerator::getError(uint16_t sign, uint16_t exponent, uint16_t mantissa, int numOfMantissaMSBs) const {
@@ -194,7 +204,7 @@ float SprLUTGenerator::getError(uint16_t sign, uint16_t exponent, uint16_t manti
     const auto value = getValue(sign, exponent, mantissa);
 
     const auto line = generateLine(segmentBegin, segmentEnd);
-    const auto approx = line.slope * (value - segmentBegin) + line.intercept;
+    const auto approx = line.slope * (value - (value >= 0 ? segmentBegin : segmentEnd)) + line.intercept;
     const auto ref = _refFunction(value);
     return std::abs(approx - ref);
 }

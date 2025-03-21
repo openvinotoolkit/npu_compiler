@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUIPDPU-to-NPUReg40XX --set-elf-op-offsets %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUASM-to-NPUReg40XX --convert-VPUIPDPU-to-NPUReg40XX --set-elf-op-offsets %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
   IE.ExecutorResource 1 of @DMA_NN
   IE.TileResource 1 of @NCE at 6.000000e+02 MHz
@@ -89,25 +88,34 @@ module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
 //CHECK: ELF.Main @elfMain
 
 //CHECK: ELF.CreateSection @text.Barriers
-//CHECK-NEXT: VPUASM.ConfigureBarrier @ConfigureBarrier0
+//CHECK: "NPUReg40XX.ConfigureBarrier"
+//CHECK: sym_name = "ConfigureBarrier0"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 0 : ui64}
-//CHECK-NEXT: VPUASM.ConfigureBarrier @ConfigureBarrier1
+//CHECK: "NPUReg40XX.ConfigureBarrier"
+//CHECK: sym_name = "ConfigureBarrier1"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 12 : ui64}
-//CHECK-NEXT: VPUASM.ConfigureBarrier @ConfigureBarrier2
+//CHECK: "NPUReg40XX.ConfigureBarrier"
+//CHECK: sym_name = "ConfigureBarrier2"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 24 : ui64}
 
 //CHECK: ELF.CreateSection @text.nndma0
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_0"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 0 : ui64}
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_1 idx(!VPURegMapped.Index<0:0:1>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_1"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 224 : ui64}
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_2 idx(!VPURegMapped.Index<0:0:2>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_2"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 448 : ui64}
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_3 idx(!VPURegMapped.Index<0:0:3>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_3"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 672 : ui64}
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_4 idx(!VPURegMapped.Index<0:0:4>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_4"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 896 : ui64}
-//CHECK-NEXT: VPUASM.NNDMA @NNDMA_0_0_5 idx(!VPURegMapped.Index<0:0:5>)
+//CHECK: "NPUReg40XX.NNDMA"
+//CHECK: sym_name = "NNDMA_0_0_5"
 //CHECK-SAME:       {elfMemOffsetAttrKey = 1120 : ui64}
 
 //CHECK: ELF.CreateSection @text.invariants

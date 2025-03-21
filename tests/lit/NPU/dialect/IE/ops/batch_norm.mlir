@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @BatchNormAttr
 func.func @BatchNormAttr(%arg0: tensor<1x3x256x256xf16>) -> tensor<1x3x256x256xf16> {
   %cst = const.Declare tensor<3xf16> = dense<[0.000000e+00, 4.169920e-01, 1.000000e+00]> : tensor<3xf16>

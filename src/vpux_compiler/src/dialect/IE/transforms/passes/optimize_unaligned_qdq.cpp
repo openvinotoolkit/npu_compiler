@@ -8,6 +8,13 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/utils/error.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEUNALIGNEDQDQSEQ
+#define GEN_PASS_DEF_OPTIMIZEUNALIGNEDQDQSEQ
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -49,7 +56,7 @@ mlir::LogicalResult UnalignedFakeQuantizeRewriter::matchAndRewrite(IE::FakeQuant
     return mlir::success();
 }
 
-class OptimizeUnalignedQDQSeqPass final : public IE::OptimizeUnalignedQDQSeqBase<OptimizeUnalignedQDQSeqPass> {
+class OptimizeUnalignedQDQSeqPass final : public IE::impl::OptimizeUnalignedQDQSeqBase<OptimizeUnalignedQDQSeqPass> {
 public:
     explicit OptimizeUnalignedQDQSeqPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -74,12 +81,6 @@ private:
         auto maxPoolOp = mlir::dyn_cast<IE::MaxPoolOp>(op);
         if (maxPoolOp != nullptr) {
             if (!VPU::NCEMaxPoolOp::verifyKernel(maxPoolOp, _log).failed()) {
-                return true;
-            }
-        }
-        auto andOp = mlir::dyn_cast<IE::AndOp>(op);
-        if (andOp != nullptr) {
-            if (!VPU::NCEEltwiseOp::verifyKernel(andOp, _log).failed()) {
                 return true;
             }
         }

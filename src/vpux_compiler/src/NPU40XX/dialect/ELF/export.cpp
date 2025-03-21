@@ -148,6 +148,10 @@ BlobView exportToELF(mlir::ModuleOp module, BlobAllocator& allocator, Logger log
 
     const auto size = elfWriter.getTotalSize();
     auto blob = allocator.allocate(vpux::Byte{static_cast<int64_t>(size)});
+    // For a consistent blob hash make sure that the memory is initialized before serializing
+    // This fill_n is required as the writer will not cover the padding between the sections.
+    // The writer will only override the memory for sections inside of the prealocated buffer.
+    std::fill_n(blob, size, 0);
     serializeTo(blob, elfMain, log, elfWriter, sectionMap, symbolMap, symRefMap);
 
     return {blob, static_cast<uint64_t>(size)};

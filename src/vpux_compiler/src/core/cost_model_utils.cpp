@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <vpu/shave/layers.h>
 #include <bitset>
@@ -271,12 +272,13 @@ VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, VPU::ArchKin
     vpunnDPUWorkload.weight_sparsity = weightsSparsityRatio;
     vpunnDPUWorkload.weight_sparsity_enabled = isWeightsSparsityEnabled;
     vpunnDPUWorkload.isi_strategy = isiStrategy;
+    vpunnDPUWorkload.superdense_memory = nceClusterOp.getIsSuperdense();
 
     return vpunnDPUWorkload;
 }
 
 size_t calculateMultiClusterDMACost(mlir::Value innerOperand, VPUNN::DataType inElemType, VPUNN::DataType outElemType,
-                                    VPU::ArchKind archKind, std::shared_ptr<VPUNN::VPUCostModel> costModel) {
+                                    VPU::ArchKind archKind, const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
     auto operandType = innerOperand.getType();
     auto distributedType = operandType.dyn_cast<VPUIP::DistributedBufferType>();
     VPUX_THROW_UNLESS(distributedType != nullptr, "Unsupported operand type {0}", operandType);
@@ -302,7 +304,7 @@ bool extraDMAsRequired(mlir::Value innerOperand) {
 }
 
 size_t vpux::getDMACost(mlir::Value input, mlir::Value output, VPU::ArchKind archKind,
-                        std::shared_ptr<VPUNN::VPUCostModel> costModel) {
+                        const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
     auto inputType = input.getType();
     auto outputType = output.getType();
 
@@ -417,7 +419,7 @@ size_t vpux::getAsyncExecuteCycleEnd(mlir::async::ExecuteOp op) {
 }
 
 size_t vpux::calculateCopyCycles(mlir::Operation* innerOp, VPU::ArchKind archKind,
-                                 const std::shared_ptr<VPUNN::VPUCostModel> costModel) {
+                                 const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
     if (auto copyOp = mlir::dyn_cast<VPUIP::CopyOp>(innerOp)) {
         return checked_cast<size_t>(getDMACost(copyOp.getInput(), copyOp.getOutput(), archKind, costModel));
     } else if (auto copyOp = mlir::dyn_cast<VPUIP::NNDMAOp>(innerOp)) {
@@ -477,12 +479,23 @@ vpux::Byte vpux::getSwKernelRunTotalAllocSize(VPUIP::SwKernelRun swKernelRun, Ar
 std::string getSwKernelOperationName(VPUIP::SwKernelOp swKernelOp) {
     auto strKernelOp = swKernelOp.getKernelFunction().getLeafReference().str();
 
-    auto prefIndex = strKernelOp.find(vpux::VPUIP::SW_KERNEL_NAME_PREFIX.str());
-    if (prefIndex == std::string::npos) {
-        auto prefIndex2 = strKernelOp.find("generated_");
-        VPUX_THROW_WHEN(prefIndex2 == std::string::npos, "Not a valid swKernelOp name - {0}", strKernelOp);
+    // cut kernel_entry name if is added
+    auto vpuNameEndIdx = strKernelOp.find(".", 0);
+    if (vpuNameEndIdx != std::string::npos) {
+        strKernelOp = strKernelOp.substr(0, vpuNameEndIdx);
     }
-    auto prefEndIndex = prefIndex + vpux::VPUIP::SW_KERNEL_NAME_PREFIX.size();
+
+    size_t prefEndIndex = 0;
+    auto prefIndex = strKernelOp.find(vpux::VPUIP::SW_KERNEL_NAME_PREFIX.str());
+    if (prefIndex != std::string::npos) {
+        prefEndIndex = prefIndex + vpux::VPUIP::SW_KERNEL_NAME_PREFIX.size();
+    } else {
+        StringLiteral generated = "generated_";
+        auto prefIndexGenerated = strKernelOp.find(generated);
+        VPUX_THROW_WHEN(prefIndexGenerated == std::string::npos, "Not a valid swKernelOp name - {0}", strKernelOp);
+        prefEndIndex = prefIndexGenerated + generated.size();
+    }
+
     VPUX_THROW_WHEN(prefEndIndex > strKernelOp.size(), "Not a valid swKernelOp name length - {0}", strKernelOp);
 
     auto nameSize = std::string::npos;

@@ -85,12 +85,6 @@ void skipCompilationCallbackImplNPU3720(std::stringstream& skip, ov::AnyMap conf
     }
 }
 
-class PoolingLayerTestWithBatching : public PoolingLayerTest, virtual public VpuOv2LayerTest {
-    void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "skip-unroll-batch=true";
-    }
-};
-
 class PoolingLayerTest_NPU3720 : public PoolingLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -100,7 +94,11 @@ class PoolingLayerTest_NPU3720 : public PoolingLayerTest, virtual public VpuOv2L
         VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});
     }
 };
-class PoolingLayerTest_NPU3720_SOB : public PoolingLayerTestWithBatching {};
+class PoolingLayerTest_NPU3720_SOB : public PoolingLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "skip-unroll-batch=true";
+    }
+};
 
 TEST_P(PoolingLayerTest_NPU3720, SW) {
     setSkipCompilationCallback([this](std::stringstream& skip) {
@@ -186,7 +184,15 @@ class PoolingLayerTest_NPU4000 : public PoolingLayerTest, virtual public VpuOv2L
         VpuOv2LayerTest::inputs.insert({funcInputs[0].get_node_shared_ptr(), tensorData});
     }
 };
-class PoolingLayerTest_NPU4000_SOB : public PoolingLayerTestWithBatching {};
+
+class PoolingLayerTestWithUnrollBatchingCompileMethod : public PoolingLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "batch-compile-method=unroll batch-unroll-settings={skip-unroll-batch=true}";
+    }
+};
+
+class PoolingLayerTest_NPU4000_SOB : public PoolingLayerTestWithUnrollBatchingCompileMethod {};
 
 class PoolingLayerTest_NPU4000_F32 : public PoolingLayerTest_NPU4000 {
     void configure_model() override {
@@ -218,7 +224,6 @@ TEST_P(PoolingLayerTest_NPU4000_SOB, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 class MaxPoolingV8LayerTestCommon : public MaxPoolingV8LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(MaxPoolingV8LayerTestCommon, NPU3720_SW) {

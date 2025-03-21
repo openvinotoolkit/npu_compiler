@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-convbackpropdata-to-transposedconv --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertConvBackpropDataToTransposedConv
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x16x23x30xf16>)
 func.func @ConvertConvBackpropDataToTransposedConv(%input: tensor<1x16x23x30xf16>) -> tensor<1x32x46x59xf16> {
@@ -326,4 +325,27 @@ func.func @ConvertQuantizedConvertedGroupConvBackpropDataToGroupTransposedConv(%
     // CHECK-SAME:  } : tensor<1x64x46x59xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16>, tensor<1xf16> -> tensor<1x64x46x59xf16>
 
     // CHECK:       return [[OUTPUT_FQ]]
+}
+
+// -----
+
+// CHECK:  #map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
+
+// CHECK-LABEL: @ConvertConvBackpropDataWithNonConstFilterToTransposedConv
+// CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x512x4x4xf16>, [[INPUT1:%.+]]: tensor<512x256x3x3xf16>)
+func.func @ConvertConvBackpropDataWithNonConstFilterToTransposedConv(%input0: tensor<1x512x4x4xf16>, %input1: tensor<512x256x3x3xf16>) -> tensor<1x256x9x9xf16> {
+    %output = IE.ConvolutionBackpropData(%input0, %input1) {
+            dilations = [1, 1], output_padding = [0, 0], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]
+        } : tensor<1x512x4x4xf16>, tensor<512x256x3x3xf16> -> tensor<1x256x9x9xf16>
+
+    return %output : tensor<1x256x9x9xf16>
+
+    // CHECK-NOT:   IE.ConvolutionBackpropData
+    // CHECK:       [[TRANSPOSE:%.+]] = IE.Transpose([[INPUT1]]) {order_value = #map} : tensor<512x256x3x3xf16> -> tensor<256x512x3x3xf16>
+    // CHECK:       [[REVERSE:%.+]] = IE.Reverse([[TRANSPOSE]]) {axis_value = [2, 3], mode = #IE.reverse_mode<INDEX>} : tensor<256x512x3x3xf16> -> tensor<256x512x3x3xf16>
+    // CHECK:       [[OUTPUT:%.+]] = IE.TransposedConvolution([[INPUT0]], [[REVERSE]]) {
+    // CHECK-SAME:      dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, output_padding = [0, 0], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]
+    // CHECK-SAME:  } : tensor<1x512x4x4xf16>, tensor<256x512x3x3xf16> -> tensor<1x256x9x9xf16>
+
+    // CHECK:       return [[OUTPUT]]
 }

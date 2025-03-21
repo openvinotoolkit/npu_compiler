@@ -9,6 +9,12 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_UPSTREAMSLICE
+#define GEN_PASS_DEF_UPSTREAMSLICE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -17,7 +23,7 @@ namespace {
 // UpstreamSlicePass
 //
 
-class UpstreamSlicePass final : public IE::UpstreamSliceBase<UpstreamSlicePass> {
+class UpstreamSlicePass final : public IE::impl::UpstreamSliceBase<UpstreamSlicePass> {
 public:
     explicit UpstreamSlicePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

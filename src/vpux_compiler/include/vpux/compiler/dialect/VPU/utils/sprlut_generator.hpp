@@ -65,7 +65,7 @@ struct LutConfig {
 // Slope is calculated as (y1 - y0) / (x1 - x0) where:
 //   x0 and x1 - the beginning and the end of the segment (see lut config above)
 //   y0 and y1 - reference function values at x0 and x1 respectively
-// Intercept is calculated as reference function value at x0
+// Intercept is calculated as reference function value at x0 if range is positive, or at x1 if negative
 // Because we are calculating slope as ref(x0) and not as ref(0), HW uses the following formula:
 // f(x) = a(x - x0) + b
 

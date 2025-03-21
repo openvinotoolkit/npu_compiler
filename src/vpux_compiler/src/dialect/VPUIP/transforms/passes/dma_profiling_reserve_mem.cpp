@@ -9,6 +9,12 @@
 
 #include "vpux/compiler/core/profiling.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_DMATASKPROFILINGRESERVEMEM
+#define GEN_PASS_DEF_DMATASKPROFILINGRESERVEMEM
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 //
 
 class DMATaskProfilingReserveMemPass final :
-        public VPUIP::DMATaskProfilingReserveMemBase<DMATaskProfilingReserveMemPass> {
+        public VPUIP::impl::DMATaskProfilingReserveMemBase<DMATaskProfilingReserveMemPass> {
 public:
     explicit DMATaskProfilingReserveMemPass(DMAProfilingMode profilingMode, Logger log): _profilingMode(profilingMode) {
         Base::initLogger(log, Base::getArgumentName());

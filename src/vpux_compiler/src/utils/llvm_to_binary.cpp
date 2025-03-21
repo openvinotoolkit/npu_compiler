@@ -4,15 +4,18 @@
 //
 
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
-#include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Target/LLVMIR/Dialect/LLVMIR/LLVMToLLVMIRTranslation.h>
 #include <mlir/Target/LLVMIR/Export.h>
 
 #include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SetVector.h>
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Program.h>
+
+#include <fstream>
 
 using namespace vpux;
 
@@ -40,17 +43,51 @@ std::string getMoviLDArchPath(VPU::ArchKind arch) {
 }
 }  // namespace
 
-void vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKernelSymbol, vpux::Logger log) {
-    auto llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
-
+void vpux::transitivelyCloneFunctions(mlir::ModuleOp dstModuleOp, mlir::ModuleOp srcModuleOp,
+                                      mlir::SymbolRefAttr swKernelSymbol) {
+    auto llvmFuncOp = srcModuleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
     VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
 
-    // We create a temporary module in which we clone the llvmFuncOp and then translate it
-    // to LLVM IR, and write it to disk.
+    llvm::SmallSetVector<mlir::LLVM::LLVMFuncOp, 4> seen;
+    llvm::SmallVector<mlir::LLVM::LLVMFuncOp, 4> worklist;
+    seen.insert(llvmFuncOp);
+    worklist.push_back(llvmFuncOp);
+
+    // We expect all functions to be fully lowered to the llvm dialect.
+    // Any symbol uses should be either AddressOf or Call ops.
+    while (!worklist.empty()) {
+        auto callerOp = worklist.pop_back_val();
+
+        callerOp.walk([&](mlir::SymbolUserOpInterface sOp) {
+            mlir::LLVM::LLVMFuncOp callee = nullptr;
+            auto callOp = mlir::dyn_cast<mlir::LLVM::CallOp>(&sOp);
+            if (callOp != nullptr && callOp->getCallee()) {
+                callee = srcModuleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(*callOp->getCallee());
+            }
+
+            if (auto addrOfOp = mlir::dyn_cast<mlir::LLVM::AddressOfOp>(&sOp)) {
+                callee = srcModuleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(addrOfOp->getGlobalName());
+            }
+
+            if (callee && seen.insert(callee)) {
+                worklist.push_back(callee);
+            }
+        });
+    }
+
+    for (auto funcOp : seen) {
+        dstModuleOp.getBody()->push_back(funcOp.clone());
+    }
+}
+
+void vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKernelSymbol, vpux::Logger log) {
+    // Create a temporary module to perform the LLVM IR lowering on.
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
     auto tmpModuleOp = moduleBuilder.create<mlir::ModuleOp>(moduleOp.getLoc(), llvm::StringRef("TempModule"));
 
-    tmpModuleOp.getBody()->push_back(llvmFuncOp.clone());
+    // Transitively clone the function and its dependencies into
+    // the temporary module.
+    transitivelyCloneFunctions(tmpModuleOp, moduleOp, swKernelSymbol);
 
     // Translate the LLVM dialect module to the LLVM IR module. The translation
     // is inspired from MLIR Toy example chapter 6 (https://mlir.llvm.org/docs/Tutorials/Toy/Ch-6/).
@@ -93,19 +130,6 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
 
     std::string errMsg;
 
-    // We replace, if any, in file sw_layer.ll, string "memory(none)" with "readnone".
-    //   (our MLIR is based on LLVM 16, while moviCompile uses LLVM 15 - see changes
-    //   to the LLVM IR here:
-    //   https://releases.llvm.org/16.0.0/docs/ReleaseNotes.html#changes-to-the-llvm-ir).
-    //  (ExecuteAndWait inspired from src/vpux_imd_backend/src/executor.cpp)
-    llvm::StringRef prgSed = "/usr/bin/sed";
-    llvm::SmallVector<llvm::StringRef> runArgsSed = {
-            prgSed, "-e", "s/memory(none)/readnone/", "-e", "s/memory(only)/readonly/", "sw_layer.ll", "-i.bak"};
-
-    const auto procErrSed = llvm::sys::ExecuteAndWait(prgSed, runArgsSed, /*Env=*/std::nullopt, redirects,
-                                                      /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);
-    VPUX_THROW_UNLESS(procErrSed == 0, "Call to sed failed");
-
     // We compile with moviCompile the sw_layer.ll to sw_layer.s (SHAVE assembly).
     auto mvCompileEnvVar = std::getenv("MV_COMPILE_DIR");
     auto mvToolsEnvVar = std::getenv("MV_TOOLS_DIR");
@@ -119,16 +143,16 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
     auto prgMCStr = std::string(mvCompileEnvVar == NULL ? mvToolsPathCompleteStr : mvCompileEnvVar) +
                     "/linux64/bin/moviCompile";
     llvm::StringRef prgMC = prgMCStr;
-    llvm::SmallVector<llvm::StringRef> runArgsMC = {prgMC,
-                                                    std::string("-mcpu=") + archArgument,
-                                                    "-S",
-                                                    "-o",
-                                                    "sw_layer.s",
-                                                    "-x",
-                                                    "ir",
-                                                    "-mllvm",
-                                                    "-opaque-pointers",
-                                                    "sw_layer.ll"};
+    std::string mcpuStr = std::string("-mcpu=") + archArgument;
+    llvm::SmallVector<llvm::StringRef> runArgsMC = {prgMC,           // Movicompile tool
+                                                    mcpuStr,         // CPU
+                                                    "-S",            // Only run preprocess and compilation steps
+                                                    "-o",            // Write output to:
+                                                    "sw_layer.s",    // file sw_layer.s
+                                                    "-x",            // Treat subsequent input files as having:
+                                                    "ir",            // type ir
+                                                    "-O3",           // optimize code
+                                                    "sw_layer.ll"};  // Output file
 
     const auto procErrMC = llvm::sys::ExecuteAndWait(prgMC, runArgsMC, /*Env=*/std::nullopt, redirects,
                                                      /*SecondsToWait*/ 100, /*MemoryLimit=*/0, &errMsg);

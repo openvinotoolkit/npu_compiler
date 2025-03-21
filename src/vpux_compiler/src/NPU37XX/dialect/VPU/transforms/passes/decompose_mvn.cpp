@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -15,6 +16,12 @@
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU::arch37xx {
+#define GEN_PASS_DECL_DECOMPOSEMVN
+#define GEN_PASS_DEF_DECOMPOSEMVN
+#include "vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch37xx
 
 using namespace vpux;
 
@@ -50,7 +57,7 @@ bool checkInsertReshapeDimOrder(DimsOrder dimOrder, bool acrossChannel) {
 // DecomposeMVNPass
 //
 
-class DecomposeMVNPass final : public VPU::arch37xx::DecomposeMVNBase<DecomposeMVNPass> {
+class DecomposeMVNPass final : public VPU::arch37xx::impl::DecomposeMVNBase<DecomposeMVNPass> {
 public:
     explicit DecomposeMVNPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

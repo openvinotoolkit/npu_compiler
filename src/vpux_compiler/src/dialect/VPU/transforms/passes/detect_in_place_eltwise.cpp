@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
@@ -11,6 +12,12 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_DETECTINPLACEELTWISE
+#define GEN_PASS_DEF_DETECTINPLACEELTWISE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -89,7 +96,7 @@ mlir::LogicalResult DetectInPlaceEltwise::matchAndRewrite(VPU::NCEEltwiseOp eltw
 // DetectInPlaceEltwisePass
 //
 
-class DetectInPlaceEltwisePass final : public VPU::DetectInPlaceEltwiseBase<DetectInPlaceEltwisePass> {
+class DetectInPlaceEltwisePass final : public VPU::impl::DetectInPlaceEltwiseBase<DetectInPlaceEltwisePass> {
 public:
     explicit DetectInPlaceEltwisePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

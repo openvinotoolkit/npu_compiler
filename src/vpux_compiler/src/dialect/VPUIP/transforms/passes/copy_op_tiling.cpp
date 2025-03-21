@@ -1,18 +1,26 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_COPYOPTILING
+#define GEN_PASS_DEF_COPYOPTILING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -34,8 +42,10 @@ bool isLegalCopyOp(VPUIP::CopyOp copyOp) {
         return true;
     }
 
-    // If tensor size is greater than DMA_LIMIT its no longer legal operation
-    if (getDmaSize(copyOp) > VPUIP::DMA_LIMIT) {
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(copyOp));
+
+    // If tensor size is greater than max plane size, its no longer legal operation
+    if (getDmaSize(copyOp) > Byte(dmaEngineLimits.getMaxLength())) {
         return false;
     }
 
@@ -98,7 +108,7 @@ bool isLegalCopyOpWithConcatOp(VPUIP::CopyOp copyOp) {
 // CopyOpTilingPass
 //
 
-class CopyOpTilingPass final : public VPUIP::CopyOpTilingBase<CopyOpTilingPass> {
+class CopyOpTilingPass final : public VPUIP::impl::CopyOpTilingBase<CopyOpTilingPass> {
 public:
     explicit CopyOpTilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -149,9 +159,12 @@ SmallVector<mlir::Value> CopyOpTiling::createTiles(VPUIP::CopyOp origOp, mlir::P
     const auto singlePlaneSize = fullCopySize / numPlanesOfFullShape;
     //  The number of planes DMA could process within one tile. In case of small spatial dimensions of tensor (e.g.
     // 1x2048x8x8) it can exceed CMX_DMA_MAX_NUM_PLANES, so it's necessary to limit this value
-    const auto maxNumPlanes = VPUIP::getMaxNumberPlanes(_arch);
-    const int64_t numPlanesPerTile =
-            std::clamp(VPUIP::DMA_LIMIT.count() / singlePlaneSize.count(), int64_t(1), maxNumPlanes);
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(_arch);
+
+    const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes() - 1;
+
+    const int64_t numPlanesPerTile = std::clamp(dmaMaxLength / singlePlaneSize.count(), int64_t(1), dmaMaxNumPlanes);
 
     SmallVector<mlir::Value> concatInputs;
     auto currentOffset = SmallVector<int64_t>(origInputShape.size(), 0);
@@ -333,7 +346,7 @@ void CopyOpTilingPass::safeRunOnFunc() {
 
     // This rewriter will not handle Copy Op with a distributed type
     // For Copy Op that require tiling:
-    // 1. Handle cases where the tensor size exceeds DMA_LIMIT;
+    // 1. Handle cases where the tensor size exceeds max plane size;
     // 2. Handle cases with stride level is MAX_STRIDING_LEVEL and planes exceeding MAX_NUM_PLANES;
     {
         mlir::RewritePatternSet patterns(&ctx);

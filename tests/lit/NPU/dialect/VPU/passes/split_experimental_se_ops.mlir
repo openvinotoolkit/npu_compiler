@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --split-se-ops="se-experimental-ops-enabled=true" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK: func.func @RollSplitWithLargeSize([[INPUT_DATA:%.+]]: tensor<1x128x160x160xf16, {order = #NHWC}>) -> tensor<1x128x160x160xf16, {order = #NHWC}> {

@@ -7,9 +7,9 @@
 
 #include "vpux/compiler/core/attributes/dim.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/func_ref.hpp"

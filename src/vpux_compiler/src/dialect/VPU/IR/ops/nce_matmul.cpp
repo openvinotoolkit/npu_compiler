@@ -70,6 +70,10 @@ mlir::LogicalResult vpux::VPU::NCEMatMulOp::verify() {
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPU::NCEMatMulOp::verifyKernel(IE::MatMulOp) {
+    return mlir::success();
+}
+
 //
 // fitIntoCMX
 //
@@ -158,7 +162,6 @@ bool VPU::NCEMatMulOp::isSupported(IE::MatMulOp op, vpux::LogCb logCb, bool chec
             outputType.changeShape(Shape({outputShape[Dims4D::Act::C] * outputShape[Dims4D::Act::N], 1,
                                           outputShape[Dims4D::Act::W], outputShape[Dims4D::Act::H], 1})),
             mod, logCb, checkLayout, checkChannelAlignment);
-    isSupported = isSupported && IE::doesIEMatMulFitIntoCMX(op, inputShape, filterShape);
     return isSupported;
 }
 
@@ -177,19 +180,59 @@ bool VPU::NCEMatMulOp::isSupported(VPU::NCEMatMulOp op, vpux::LogCb logCb, bool 
 // TilingBuilderOpInterace
 //
 
-TilingInfo vpux::VPU::NCEMatMulOp::backInferTileInfo([[maybe_unused]] const vpux::TileInfo& outputTile,
-                                                     [[maybe_unused]] vpux::Logger log) {
-    VPUX_THROW("VPU::NCEMatMulOp::backInferTileInfo is not implemented!");
+// Returns a WeightsTable tile required to produce the specific output tile
+TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& outputTile) {
+    const auto origWeightsTable = origOp.getWeightsTable();
+    VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have a WeightsTable", *origOp);
+
+    const auto origWeightsTableShape = getShape(origWeightsTable);
+
+    VPUX_THROW_UNLESS(
+            origWeightsTableShape[DimsGroups5D::Filter::G] == getShape(origOp.getOutput())[DimsGroups5D::Act::G] &&
+                    origWeightsTableShape[DimsGroups5D::Filter::OC] ==
+                            getShape(origOp.getOutput())[DimsGroups5D::Act::C] &&
+                    origWeightsTableShape[DimsGroups5D::Filter::IC] == 1 &&
+                    origWeightsTableShape[DimsGroups5D::Filter::KY] == 1 &&
+                    origWeightsTableShape[DimsGroups5D::Filter::KX] ==
+                            VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
+            "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
+            "\nProbably, we need to update this logic",
+            origWeightsTableShape, getShape(origOp.getOutput()));
+
+    TileInfo weightsTableTile(origWeightsTableShape);
+    weightsTableTile.offsets[DimsGroups5D::Filter::OC] = outputTile.offsets[DimsGroups5D::Act::C];
+    weightsTableTile.shape[DimsGroups5D::Filter::OC] = outputTile.shape[DimsGroups5D::Act::C];
+    weightsTableTile.offsets[DimsGroups5D::Filter::G] = outputTile.offsets[DimsGroups5D::Act::G];
+    weightsTableTile.shape[DimsGroups5D::Filter::G] = outputTile.shape[DimsGroups5D::Act::G];
+    return weightsTableTile;
 }
 
-void vpux::VPU::NCEMatMulOp::adjustAttrs([[maybe_unused]] const vpux::TilingInfo&,
-                                         [[maybe_unused]] const vpux::TileInfo& outputTile) {
-    VPUX_THROW("VPU::NCEMatMulOp::adjustAttrs is not implemented!");
+TilingInfo vpux::VPU::NCEMatMulOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
+    const auto origInputShape = getShape(getInput());
+    const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    const auto origPadding = toPadInfo(getPad());
+
+    auto inputTiling =
+            vpux::backInferMatMulTile(outputTile, origInputShape, origFilterShape, getStrides(), origPadding);
+    VPUX_THROW_UNLESS(mlir::succeeded(checkAndAlignActInputTiling(
+                              mlir::cast<VPU::NCEOpInterface>(*this->getOperation()), inputTiling, log)),
+                      "Failed to get an aligned act input tiling");
+
+    inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile));
+
+    return inputTiling;
 }
 
-mlir::FailureOr<OutputTiling> vpux::VPU::NCEMatMulOp::getTilingStrategy([[maybe_unused]] TilingMode tilingMode,
-                                                                        [[maybe_unused]] Logger log) {
-    VPUX_THROW("VPU::NCEMatMulOp::getTilingStrategy is not implemented!");
+void vpux::VPU::NCEMatMulOp::adjustAttrs(const vpux::TilingInfo& inputTiling, const vpux::TileInfo& outputTile) {
+    VPU::adjustPaddings(this, inputTiling);
+    auto newRawFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
+    newRawFilterShape[DimsGroups5D::Filter::OC] = outputTile.shape[DimsGroups5D::Act::C];
+    newRawFilterShape[DimsGroups5D::Filter::G] = outputTile.shape[DimsGroups5D::Act::G];
+    setRawFilterShapeAttr(getIntArrayAttr(getContext(), newRawFilterShape));
+}
+
+mlir::FailureOr<OutputTiling> vpux::VPU::NCEMatMulOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
+    return vpux::getHWLayerTilingStrategy(this->getOperation(), tilingMode, log);
 }
 
 //

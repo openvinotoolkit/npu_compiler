@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --reduce-exceeding-active-count-barriers="num-barriers=2 share-wait-and-update-barriers=1" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // Note: 'idx' added since tasks can be reordered
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

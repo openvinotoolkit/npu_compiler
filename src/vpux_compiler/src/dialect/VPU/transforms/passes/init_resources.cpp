@@ -4,7 +4,16 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_INITRESOURCES
+#define GEN_PASS_DEF_INITRESOURCES
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 
 namespace {
@@ -13,7 +22,7 @@ namespace {
 // InitResourcesPass
 //
 
-class InitResourcesPass final : public VPU::InitResourcesBase<InitResourcesPass> {
+class InitResourcesPass final : public VPU::impl::InitResourcesBase<InitResourcesPass> {
 public:
     InitResourcesPass() = default;
     InitResourcesPass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log);

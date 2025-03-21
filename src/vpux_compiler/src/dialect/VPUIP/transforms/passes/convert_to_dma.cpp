@@ -1,8 +1,9 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -11,6 +12,13 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTTODMA
+#define GEN_PASS_DEF_CONVERTTODMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 namespace {
@@ -19,7 +27,7 @@ namespace {
 // ConvertToDMAPass
 //
 
-class ConvertToDMAPass final : public VPUIP::ConvertToDMABase<ConvertToDMAPass> {
+class ConvertToDMAPass final : public VPUIP::impl::ConvertToDMABase<ConvertToDMAPass> {
 public:
     explicit ConvertToDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -687,23 +695,50 @@ mlir::LogicalResult ConvertToDMAPass::SwKernelPerAxisTileConverter::matchAndRewr
     // Sub Op 0: Input 1x2x3x4, Output 1x4x3x4,  repeats [1x2x1x1]
     // Sub Op 1: Input 1x4x3x4, Output 1x4x9x4,  repeats [1x1x3x1]
     // Sub Op 2: Input 1x4x9x4, Output 1x4x9x16, repeats [1x1x1x4]
-    for (size_t idx = 0; idx < checked_cast<size_t>(inType.getRank()); ++idx) {
-        if (inShape[Dim(idx)] == outShape[Dim(idx)]) {
-            continue;
+    auto diffDims = IE::getDiffInOutSizeDims(inShape, outShape);
+    auto calculateRequiredCMX = [](const auto& inputType, const auto& outputType) {
+        auto requiredCMX = Byte(0);
+        if (inputType.getMemoryKind() == vpux::VPU::MemoryKind::CMX_NN) {
+            requiredCMX += inputType.getTotalAllocSize();
         }
-
+        if (outputType.getMemoryKind() == vpux::VPU::MemoryKind::CMX_NN) {
+            requiredCMX += outputType.getTotalAllocSize();
+        }
+        return requiredCMX;
+    };
+    for (size_t i = 0; i < checked_cast<size_t>(diffDims.size()); ++i) {
+        auto currRepeatDim = diffDims[i];
         auto lastInType = lastResult.getType().cast<vpux::NDTypeInterface>();
         auto newOutShape = to_small_vector(lastInType.getShape());
-        newOutShape[idx] = outShape[Dim(idx)];
+        newOutShape[currRepeatDim.ind()] = outShape[currRepeatDim];
         auto newMemRefOutputType = outType.changeShape(ShapeRef(newOutShape));
+        if (i < checked_cast<size_t>(diffDims.size()) - 1) {
+            auto nextRepeatDim = diffDims[i + 1];
+            // Infer the output shape for the next PerAxisTile
+            auto nextOutShape = std::move(newOutShape);
+            nextOutShape[nextRepeatDim.ind()] = outShape[nextRepeatDim];
+            auto nextMemRefOutputType = outType.changeShape(ShapeRef(nextOutShape));
+
+            // The input shape of the next PerAxisTile is the output shape of the current PerAxisTile
+            auto nextMemRefInputType = newMemRefOutputType;
+
+            // Calculate the required CMX memory
+            auto requiredCMX = calculateRequiredCMX(nextMemRefInputType, nextMemRefOutputType);
+
+            // If the next PerAxisTile can't fit in CMX, the current PerAxisTile should put output in DDR
+            if (requiredCMX > VPU::getTotalCMXSize(swKernelOp)) {
+                newMemRefOutputType = newMemRefOutputType.changeMemSpace(VPU::MemoryKind::DDR);
+            }
+        }
         auto outputBuffer = rewriter.create<mlir::memref::AllocOp>(swKernelOp->getLoc(),
                                                                    newMemRefOutputType.cast<mlir::MemRefType>());
 
-        VPUX_THROW_UNLESS(outShape[Dim(idx)] % inShape[Dim(idx)] == 0 && outShape[Dim(idx)] / inShape[Dim(idx)] > 1,
+        VPUX_THROW_UNLESS(outShape[currRepeatDim] % inShape[currRepeatDim] == 0 &&
+                                  outShape[currRepeatDim] / inShape[currRepeatDim] > 1,
                           "Unexpect Tile Op inshape '{0}' outShape '{1}' rank", inShape, outShape);
-        const auto repeats = outShape[Dim(idx)] / inShape[Dim(idx)];
+        const auto repeats = outShape[currRepeatDim] / inShape[currRepeatDim];
         const auto repeatsAttr = mlir::IntegerAttr::get(getInt64Type(ctx), repeats);
-        const auto axisAttr = mlir::IntegerAttr::get(getInt64Type(ctx), idx);
+        const auto axisAttr = mlir::IntegerAttr::get(getInt64Type(ctx), currRepeatDim.ind());
 
         lastResult = rewriter.create<VPUIP::PerAxisTileDMAOp>(swKernelOp->getLoc(), lastResult, outputBuffer, axisAttr,
                                                               repeatsAttr, nullptr)
@@ -801,7 +836,7 @@ void ConvertToDMAPass::safeRunOnFunc() {
         if (!mlir::isa<VPUIP::SwKernelOp, VPUIP::UpsamplingOp>(op)) {
             return true;
         }
-        if (VPUIP::hasDynamicShape(op)) {
+        if (VPUIP::hasBoundedBuffers(op)) {
             return true;
         }
 

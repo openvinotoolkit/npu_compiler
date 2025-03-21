@@ -15,23 +15,34 @@
 
 /*
  * When a change is made to vpu_nnrt_api_40xx.h that breaks backwards compatibility
- * VPU_NNRT_40XX_API_VER_MAJOR must be incremented.
+ * (old blob does not work with new firmware) VPU_NNRT_40XX_API_VER_MAJOR must be incremented.
  *
- * If a change preserves backwards compatibility then VPU_NNRT_40XX_API_VER_MINOR
+ * If a change preserves backwards compatibility but breaks forwards compatibility
+ * (new blob does not work with old firmware) then VPU_NNRT_40XX_API_VER_MINOR
  * should be incremented. It resets to 0 when the major version is incremented.
  *
  * If vpu_nnrt_api_40xx.h is modified (field names, documentation, formatting) but the API
  * itself is not changed, then VPU_NNRT_40XX_API_VER_PATCH should be incremented.
  *
  * When the compiler creates a MappedInference in an ELF blob
- * VpuMappedInference.vpu_nnrt_api_ver is set to the version of nn_public used.
+ * VpuMappedInference.vpu_nnrt_api_ver is set to the version of the NNRT API used.
  * NNRuntime checks this version at inference time to ensure it is current and
  * returns an error if the major version does not match.
  * Note: VPU_NNRT_40XX_API_VER_PATCH is not stored in the MappedInference as
  * compatibility is not affected if this changes.
+ *
+ * API changelog
+ * -------------
+ * 11.6:
+ *   - Added VpuWorkItem::next_workitem_idx to allow a linked list of work items to be enqueued.
+ *
+ * 11.5:
+ *   - Added barrier configuration data (barriers_configuration, num_of_barrier_reprogrammings,
+ *     barrier_programming_mode and barrier_configuration_stride in VpuManagedMappedInference)
+ *     to allow runtime to efficiently fill barrier FIFOs.
  */
 #define VPU_NNRT_40XX_API_VER_MAJOR 11
-#define VPU_NNRT_40XX_API_VER_MINOR 5
+#define VPU_NNRT_40XX_API_VER_MINOR 6
 #define VPU_NNRT_40XX_API_VER_PATCH 0
 #define VPU_NNRT_40XX_API_VER ((VPU_NNRT_40XX_API_VER_MAJOR << 16) | VPU_NNRT_40XX_API_VER_MINOR)
 #define VPU_CONCAT_NNRT_API_VER(MAJOR, MINOR) (((MAJOR) << 16) | (MINOR))

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --per-axis-fq-concat %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @PerAxisFqConcat(%arg0: tensor<1x256x128x128xf16>, %arg1: tensor<1x48x128x128xf16>) -> tensor<1x304x128x128xf16> {
     %CST_LEFT_FQ_LO = const.Declare tensor<1x256x1x1xf16> = dense<0.000000e+00> : tensor<1x256x1x1xf16>
     %CST_LEFT_FQ_HI = const.Declare tensor<1x256x1x1xf16> = dense<1.000000e+00> : tensor<1x256x1x1xf16>

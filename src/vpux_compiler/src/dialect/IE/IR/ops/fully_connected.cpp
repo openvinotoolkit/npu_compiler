@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -38,6 +39,18 @@ mlir::LogicalResult vpux::IE::FullyConnectedOp::inferReturnTypeComponents(
 
     inferredReturnShapes.emplace_back(outShape, inType.getElementType());
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::IE::FullyConnectedOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    auto loc = getLoc();
+
+    SmallVector<mlir::OpFoldResult> outShape;
+    outShape.push_back(IE::reifyDim(builder, getInput(), 0, loc));
+    outShape.push_back(IE::reifyDim(builder, getWeights(), 0, loc));
+
+    reifiedReturnShapes.emplace_back(std::move(outShape));
     return mlir::success();
 }
 

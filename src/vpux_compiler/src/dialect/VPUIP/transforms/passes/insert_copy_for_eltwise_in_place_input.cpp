@@ -4,12 +4,18 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_INSERTCOPYFORELTWISEINPLACEINPUT
+#define GEN_PASS_DEF_INSERTCOPYFORELTWISEINPLACEINPUT
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -27,7 +33,7 @@ vpux::Strides getCompactStrides(NDTypeInterface type) {
 //
 
 class InsertCopyForEltwiseInPlaceInputPass final :
-        public VPUIP::InsertCopyForEltwiseInPlaceInputBase<InsertCopyForEltwiseInPlaceInputPass> {
+        public VPUIP::impl::InsertCopyForEltwiseInPlaceInputBase<InsertCopyForEltwiseInPlaceInputPass> {
 public:
     explicit InsertCopyForEltwiseInPlaceInputPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -54,15 +60,10 @@ std::optional<mlir::Value> InsertCopyForEltwiseInPlaceInputPass::getInputToOverw
     auto eltwiseInputs = VPUIP::getLayerInputs(op);
     auto eltwiseOutput = VPUIP::getLayerOutputs(op)[0];
 
-    auto outRootBuffers = aliasesInfo.getRoots(eltwiseOutput);
-    VPUX_THROW_WHEN(outRootBuffers.size() != 1, "Too many root buffers for eltwise output = {0}", eltwiseOutput);
-
-    auto outputRootBuff = *outRootBuffers.begin();
+    auto outputRootBuff = aliasesInfo.getRoot(eltwiseOutput);
 
     auto overwrittenInput = llvm::find_if(eltwiseInputs, [&](mlir::Value input) -> bool {
-        auto inRootBuffers = aliasesInfo.getRoots(input);
-        VPUX_THROW_WHEN(inRootBuffers.size() != 1, "Too many root buffers for eltwise input = {0}", input);
-        auto inputRootBuff = *inRootBuffers.begin();
+        auto inputRootBuff = aliasesInfo.getRoot(input);
 
         return inputRootBuff == outputRootBuff;
     });

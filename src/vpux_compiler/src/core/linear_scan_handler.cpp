@@ -7,10 +7,8 @@
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
 
-#include "vpux/utils/core/numeric.hpp"
-#include "vpux/utils/core/range.hpp"
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 
 using namespace vpux;
 

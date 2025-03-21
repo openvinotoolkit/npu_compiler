@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --scaleshift-processing %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ScaleShiftProcessingWithConstInput
 func.func @ScaleShiftProcessingWithConstInput(%arg0: tensor<1x77x1x1xf16>) -> tensor<77x77x3x3xf16> {
     %input_const = const.Declare tensor<77x77x3x3xf16> = dense<1.000000e+00> : tensor<77x77x3x3xf16>

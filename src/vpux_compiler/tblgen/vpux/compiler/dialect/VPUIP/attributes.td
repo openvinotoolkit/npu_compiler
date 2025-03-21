@@ -7,8 +7,8 @@
 #define VPUX_COMPILER_DIALECT_VPUIP_ATTRIBUTES
 
 include "vpux/compiler/dialect/VPUIP/attr_interfaces.td"
-include "vpux/compiler/core/attr_interfaces.td"
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attr_interfaces.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPUIP/dialect.td"
 
 //
@@ -66,6 +66,7 @@ def VPUIP_NCETaskType :
             I64EnumAttrCase<"IDENTITY",         5>,
             I64EnumAttrCase<"REDUCEMEAN",       6>,
             I64EnumAttrCase<"REDUCESUMSQUARE",  7>,
+            I64EnumAttrCase<"REDUCESUM",        8>,
         ]
     > {
 }

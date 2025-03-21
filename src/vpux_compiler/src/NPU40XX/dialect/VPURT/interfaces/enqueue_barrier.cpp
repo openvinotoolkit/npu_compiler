@@ -11,7 +11,7 @@ using namespace vpux;
 
 vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(mlir::func::FuncOp func, BarrierInfo& barrierInfo, Logger log)
         : _barrierInfo(barrierInfo),
-          _barrierFifoDepth(BARRIER_FIFO_SIZE),
+          _barrierDepthCheck(BARRIER_FIFO_SIZE > 1 ? BARRIER_FIFO_SIZE - 1 : 1),
           _dmaFifoDepth(DMA_OUTSTANDING_TRANSACTIONS),
           _optimizeAndMergeEnqFlag(true),
           _log(log) {
@@ -27,7 +27,7 @@ vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(
         bool optimizeAndMergeEnqFlag, Logger log)
         : _barrierInfo(barrierInfoTest),
           _taskQueueTypeMap(taskQueueTypeMap),
-          _barrierFifoDepth(barrierFifoDepth),
+          _barrierDepthCheck(barrierFifoDepth > 1 ? barrierFifoDepth - 1 : 1),
           _dmaFifoDepth(dmaFifoDepth),
           _optimizeAndMergeEnqFlag(optimizeAndMergeEnqFlag),
           _log(log) {
@@ -332,9 +332,10 @@ void vpux::VPURT::EnqueueBarrierHandler::optimizeEnqueueIfPossible(std::optional
 
     SmallVector<size_t> prevVids;
 
-    // For update barriers get N-th prev bar instance, where N is depth of barrier FIFO
+    // For update barriers get N-th prev bar instance, where N is depth of check which correspond to ready barrier
+    // configs stored in barrier FIFO
     for (auto& vid : taskBarriers) {
-        auto prevVidOpt = getNthPrevBarInstance(vid, _barrierFifoDepth);
+        auto prevVidOpt = getNthPrevBarInstance(vid, _barrierDepthCheck);
         if (prevVidOpt.has_value()) {
             prevVids.push_back(prevVidOpt.value());
         }
@@ -471,9 +472,10 @@ mlir::LogicalResult vpux::VPURT::EnqueueBarrierHandler::findInitialEnqWithLcaFor
         enqVidRangeMax = std::min(enqVidRangeMax, vid);
     }
 
-    // For update barriers get N-th prev bar instance, where N is depth of barrier FIFO
+    // For update barriers get N-th prev bar instance, where N is depth of check which correspond to ready barrier
+    // configs stored in barrier FIFO
     for (auto& vid : updateBarriers) {
-        auto prevVidOpt = getNthPrevBarInstance(vid, _barrierFifoDepth);
+        auto prevVidOpt = getNthPrevBarInstance(vid, _barrierDepthCheck);
         if (prevVidOpt.has_value()) {
             prevVids.push_back(prevVidOpt.value());
             enqVidRangeMin = std::max(enqVidRangeMin, prevVidOpt.value());
@@ -535,14 +537,6 @@ mlir::LogicalResult vpux::VPURT::EnqueueBarrierHandler::findInitialEnqWithLcaFor
 mlir::LogicalResult vpux::VPURT::EnqueueBarrierHandler::calculateEnqueueBarriers() {
     _tasksEnqBar.resize(_barrierInfo.getNumOfTasks());
 
-    // For each barrier index store map which indicates for given queue what is the order index
-    // this barrier should have to guarantee given task FIFO will be processed in order
-    // TODO: To be removed once E#144867 is merged
-    SmallVector<llvm::DenseMap<VPURT::TaskQueueType, size_t>> barOrderForEachQueueType;
-    if (performEnqueueOrderingCheck) {
-        barOrderForEachQueueType.resize(_barrierInfo.getNumOfBarrierOps());
-    }
-
     // Processed queue types
     llvm::DenseSet<VPURT::TaskQueueType> processedQueues;
 
@@ -581,14 +575,6 @@ mlir::LogicalResult vpux::VPURT::EnqueueBarrierHandler::calculateEnqueueBarriers
         }
 
         size_t outstandingEnquOpsCounter = 0;
-
-        size_t barOrderIndex = 0;
-        llvm::DenseMap<VPURT::TaskQueueType, size_t> previousQueuesBarOrderIndexes;
-        if (performEnqueueOrderingCheck) {
-            for (auto& qType : processedQueues) {
-                previousQueuesBarOrderIndexes[qType] = 0;
-            }
-        }
 
         for (auto taskInd : taskVec) {
             _log.trace("Find enqueue for task {0}", taskInd);
@@ -677,55 +663,11 @@ mlir::LogicalResult vpux::VPURT::EnqueueBarrierHandler::calculateEnqueueBarriers
                     if (waitBarriers.empty()) {
                         outstandingEnqueuesTaskWaitBarIndexVec[outstandingEnquOpsCounter] = previousTaskWaitBarOpt;
                     } else {
-                        outstandingEnqueuesTaskWaitBarIndexVec[outstandingEnquOpsCounter] = waitBarVid;
+                        outstandingEnqueuesTaskWaitBarIndexVec[outstandingEnquOpsCounter] = *waitBarriers.begin();
                     }
                     outstandingEnqueuesTaskIndexVec[outstandingEnquOpsCounter] = taskInd;
                     outstandingEnquOpsCounter = (outstandingEnquOpsCounter + 1) % outstandingEnqueueLimit;
                 }
-            }
-
-            // Check if enqueues would be possible to be ordered to guarantee task HW FIFO order and WorkItem
-            // placement in adjacent way for the same barrier
-            // TODO: To be turned off/removed once E#144867 is merged
-            if (performEnqueueOrderingCheck && enqBarOpt != previousEnqBarOpt && enqBarOpt.has_value()) {
-                auto enqBar = enqBarOpt.value();
-                // If new enqueue if different than previous one that would mean new WorkItem task
-                // and different barrier.
-
-                // If there is already an entry that means that task is going to be enqueued on same
-                // barrier that was used before for this qoueue and this is not the previous task
-                // This is an error condition that will not allow us to order WorkItems
-                if (barOrderForEachQueueType[enqBar].find(queueType) != barOrderForEachQueueType[enqBar].end()) {
-                    _log.warning("Would not be able to order WorkItems for taskInd {0}: queue type {1}:{2}, "
-                                 "enqueue barrier {3}",
-                                 taskInd, VPU::stringifyExecutorKind(queueType.type), queueType.id, enqBar);
-                    return mlir::failure();
-                }
-
-                // Check if index is not decreasing for other queues. If yes that would mean
-                // that different queues require different barrier ordering for WorkItems what
-                // will be a deadlock at runtime
-                for (auto& [otherQueueType, lastBarOrderIndex] : previousQueuesBarOrderIndexes) {
-                    auto barOrderForQueueTypeIt = barOrderForEachQueueType[enqBar].find(otherQueueType);
-                    if (barOrderForQueueTypeIt != barOrderForEachQueueType[enqBar].end()) {
-                        // If the index on other queue got smaller the last one previously detected
-                        // when enqueueing previous ops then this means there will be WorkItem ordering issue
-                        if (barOrderForQueueTypeIt->getSecond() < lastBarOrderIndex) {
-                            _log.warning("Would not be able to order WorkItems for taskInd {0}: queue type {1}:{2}, "
-                                         "enqueue barrier {3} as there is conflict with order required by task on "
-                                         "different queue {4}:{5}",
-                                         taskInd, VPU::stringifyExecutorKind(queueType.type), queueType.id, enqBar,
-                                         VPU::stringifyExecutorKind(otherQueueType.type), otherQueueType.id);
-                            return mlir::failure();
-                        }
-
-                        lastBarOrderIndex = barOrderForQueueTypeIt->getSecond();
-                    }
-                }
-
-                barOrderForEachQueueType[enqBarOpt.value()][queueType] = barOrderIndex;
-
-                barOrderIndex++;
             }
 
             _tasksEnqBar[taskInd] = enqBarOpt;

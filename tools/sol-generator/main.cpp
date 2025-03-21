@@ -90,13 +90,13 @@ int main(int argc, char* argv[]) {
 
             auto res = std::make_shared<ov::opset3::Result>(ss);
 
-            const std::string friendlyResultName = "Result" + std::to_string(i);
+            auto friendlyResultName = std::string("Result") + std::to_string(i);
             res->set_friendly_name(friendlyResultName);
-            res->output(0).get_tensor().set_names({friendlyResultName});
+            res->output(0).get_tensor().set_names({std::move(friendlyResultName)});
 
-            parameters.push_back(data);
-            stridedSlices.push_back(ss);
-            results.push_back(res);
+            parameters.push_back(std::move(data));
+            stridedSlices.push_back(std::move(ss));
+            results.push_back(std::move(res));
         }
 
         auto network = std::make_shared<ov::Model>(ov::ResultVector(std::move(results)),

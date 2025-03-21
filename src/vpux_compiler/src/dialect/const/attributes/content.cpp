@@ -481,7 +481,7 @@ mlir::ParseResult vpux::Const::parseContentAttr(mlir::AsmParser& parser, Content
     return mlir::success();
 }
 
-const mlir::ElementsAttr& vpux::Const::ContentAttr::getBaseContent() const {
+mlir::ElementsAttr vpux::Const::ContentAttr::getBaseContent() const {
     return getImpl()->baseContent;
 }
 
@@ -499,6 +499,17 @@ bool vpux::Const::ContentAttr::isSplat() const {
 
 vpux::Const::TransformAttrInterfaceArrayAttr vpux::Const::ContentAttr::getTransformationsAttr() const {
     return getImpl()->transformations;
+}
+
+llvm::hash_code vpux::Const::ContentAttr::getTransformationHash() const {
+    return ContentAttr::getTransformationHash(getTransformations());
+}
+
+llvm::hash_code vpux::Const::ContentAttr::getTransformationHash(ArrayRef<TransformAttrInterface> transformations) {
+    const auto hashes = transformations | transformed([](TransformAttrInterface attr) {
+                            return attr.getStableHashValue();
+                        });
+    return llvm::hash_combine_range(hashes.begin(), hashes.end());
 }
 
 void vpux::Const::printContentAttr(mlir::AsmPrinter& printer, const ContentAttr& content) {

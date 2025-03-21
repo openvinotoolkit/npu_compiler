@@ -202,7 +202,7 @@ All instructions are perfromed on **x64 Native Tools Command Prompt for VS XXXX*
     <details>
     <summary>2.2.3 Build option list in NPU-Plugin Project</summary>
 
-    For more details on the build options, please refer to this [features.cmake](https://github.com/openvinotoolkit/openvino/blob/master/src/plugins/intel_npu/cmake/features.cmake) file in [NPU-Plugin Project], which provides explanations for all the available build options.
+    For more details on the build options, please refer to this [features.cmake](https://github.com/openvinotoolkit/npu_compiler/blob/develop/cmake/features.cmake) file in [NPU-Plugin Project], which provides explanations for all the available build options.
 
     ```sh
         # Build Driver Compiler targets
@@ -271,6 +271,5 @@ To use cmake presets to build, please see
 Driver compiler build is a static build, to get a static build of [NPU-Plugin Project] repo, please see
  * [how to build static](../../../guides/how-to-build-static.md).
 
-
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler

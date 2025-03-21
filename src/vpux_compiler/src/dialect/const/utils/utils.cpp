@@ -7,9 +7,13 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinDialect.h>
+#include <mlir/IR/DialectImplementation.h>
+#include <mlir/IR/DialectResourceBlobManager.h>
 #include <mlir/IR/SymbolTable.h>
 
 namespace vpux::Const {
@@ -53,6 +57,21 @@ mlir::Value createZerosConstImpl(mlir::OpBuilder& builder, mlir::Location loc, T
     return builder.create<Const::DeclareOp>(loc, type, Const::ContentAttr::get(denseElementVal)).getOutput();
 }
 }  // namespace
+
+mlir::StringRef getOvKey(Const::DeclareOp declareOp) {
+    auto key = getResourceName(declareOp.getContentAttr().getBaseContent());
+    static_assert(std::is_same_v<mlir::StringRef, decltype(key)>,
+                  "Cannot return StringRef if the underlying getResourceName() doesn't return it - potential dangling "
+                  "reference otherwise");
+    if (key.starts_with(Const::OPENVINO_CONST_PREFIX)) {
+        return key;
+    }
+    return {};
+}
+
+bool isOpenVINOConstant(Const::DeclareOp declareOp) {
+    return !getOvKey(declareOp).empty();
+}
 
 mlir::Value createZerosConst(mlir::OpBuilder& builder, mlir::Location loc, mlir::RankedTensorType type) {
     return createZerosConstImpl(builder, loc, type);
@@ -172,6 +191,56 @@ SmallVector<Const::DeclareOp> getDeclareOpsUses(mlir::SymbolRefAttr symbol, mlir
     }
 
     return getDeclareOpsUses(rodataOp, from);
+}
+
+void foldSingleConstant(Const::DeclareOp& origOp) {
+    const auto content = origOp.getContent();
+    const auto contentType = content.getType();
+    const auto contentElemType = contentType.getElementType();
+
+    const auto bufSize = checked_cast<size_t>(contentType.getTotalAllocSize().count());
+    std::vector<char> tempBuf(bufSize);
+    content.copyTo(MutableArrayRef(tempBuf.data(), bufSize));
+
+    auto rankedTensorType = contentType.cast<mlir::RankedTensorType>();
+
+    const auto elemTypeBitSize = contentType.getElemTypeSize().count();
+    // As of now sub byte types are not supported as DenseElementsAttr storage, I1 is an exception
+    const auto isUnsupportedSubByteStorageType = elemTypeBitSize < CHAR_BIT && elemTypeBitSize > 1;
+    if (isUnsupportedSubByteStorageType) {
+        rankedTensorType = contentType
+                                   .changeShapeElemType(Shape({1, 1, 1, checked_cast<int32_t>(bufSize)}),
+                                                        getUInt8Type(contentType.getContext()))
+                                   .cast<mlir::RankedTensorType>();
+    } else if (auto qtype = contentElemType.dyn_cast<mlir::quant::QuantizedType>()) {
+        rankedTensorType = contentType.changeElemType(normalizeQuantStorageType(qtype)).cast<mlir::RankedTensorType>();
+    }
+
+    const auto denseAttr = Const::createConstContent(rankedTensorType, tempBuf);
+    auto origType = origOp.getType().cast<NDTypeInterface>();
+
+    if (isUnsupportedSubByteStorageType) {
+        // Temporary fix to enable compilation.
+        // Final design to also include a mechanism to FREEZE constants
+        // from accepting future transformations due to the fact of packed
+        // sub byte values stored, which would require an unpacking and a repacking
+        origOp.getProperties().content = Const::ContentAttr::get(
+                denseAttr, Const::ContentSetup(denseAttr.getType())
+                                   .changeShapeAndElemType(origType.getShape(), origType.getElementType()));
+    } else {
+        origOp.getProperties().content = Const::ContentAttr::get(denseAttr);
+    }
+}
+
+void appendContentToVector(Const::Content& content, MutableArrayRef<char> buffer, size_t& start) {
+    const auto bufSizeBytes = checked_cast<size_t>(content.getType().getTotalAllocSize().count());
+    auto* oldEnd = buffer.data() + start;
+    VPUX_THROW_UNLESS(start + bufSizeBytes <= buffer.size(),
+                      "Overflow during fusing buffer size {0}, size after copying {1}", buffer.size(),
+                      start + bufSizeBytes);
+    MutableArrayRef<char> newBufferSlice(reinterpret_cast<char*>(oldEnd), bufSizeBytes);
+    content.copyTo(newBufferSlice);
+    start += bufSizeBytes;
 }
 
 }  // namespace vpux::Const

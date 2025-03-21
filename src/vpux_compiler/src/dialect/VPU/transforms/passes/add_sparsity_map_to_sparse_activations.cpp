@@ -3,10 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ADDSPARSITYMAPTOSPARSEACTIVATIONS
+#define GEN_PASS_DEF_ADDSPARSITYMAPTOSPARSEACTIVATIONS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -32,7 +40,7 @@ void updateUsers(mlir::OpResult& result) {
 //
 
 class AddSparsityMapToSparseActivationsPass final :
-        public VPU::AddSparsityMapToSparseActivationsBase<AddSparsityMapToSparseActivationsPass> {
+        public VPU::impl::AddSparsityMapToSparseActivationsBase<AddSparsityMapToSparseActivationsPass> {
 public:
     explicit AddSparsityMapToSparseActivationsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -63,6 +71,12 @@ void AddSparsityMapToSparseActivationsPass::safeRunOnFunc() {
             }
 
             if (sparseType.getSparsityMap() != nullptr) {
+                return;
+            }
+
+            auto isSEOnlyOp = mlir::isa<VPU::GroupSparseTensorOp>(op) && sparseType.getSparsityMap() == nullptr &&
+                              sparseType.getStorageElementTable() != nullptr;
+            if (VPU::isSEOnlyWithoutSMSupported(VPU::getArch(op)) && isSEOnlyOp) {
                 return;
             }
 

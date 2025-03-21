@@ -14,5 +14,7 @@ constexpr StringRef REDUCE_SUPPORTED = "VPU.ReduceSupported";
 
 bool isNCEReduceSupported(mlir::Operation* op, LogCb logCb);
 bool isReduceOpSupportedOnNCE(mlir::Operation* op);
+VPUIP::NCETaskType configureNCEReduceTaskType(VPU::NCEReduceOp origOp);
+
 }  // namespace VPU
 }  // namespace vpux

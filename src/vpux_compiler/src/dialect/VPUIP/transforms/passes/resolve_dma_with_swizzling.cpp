@@ -8,6 +8,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_RESOLVEDMAWITHSWIZZLING
+#define GEN_PASS_DEF_RESOLVEDMAWITHSWIZZLING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -16,7 +22,7 @@ namespace {
 // ResolveDMAWithSwizzlingPass
 //
 
-class ResolveDMAWithSwizzlingPass final : public VPUIP::ResolveDMAWithSwizzlingBase<ResolveDMAWithSwizzlingPass> {
+class ResolveDMAWithSwizzlingPass final : public VPUIP::impl::ResolveDMAWithSwizzlingBase<ResolveDMAWithSwizzlingPass> {
 public:
     explicit ResolveDMAWithSwizzlingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -178,7 +184,8 @@ void ResolveDMAWithSwizzlingPass::safeRunOnFunc() {
                 appendLoc(dmaOp->getLoc(), "_flat_buffer_dma"), newInputOp->getResult(0), newOutputBuff,
                 dmaOp.getPortAttr(), dmaOp.getIsOutOfOrderAttr(), dmaOp.getIsCriticalAttr(), dmaOp.getSpillIdAttr(),
                 dmaOp.getCompressCandidateAttr(), /*dmaHwpId=*/nullptr,
-                /*profilingMetadata=*/nullptr, dmaOp.getSplitCandidateAttr());
+                /*profilingMetadata=*/nullptr, dmaOp.getSplitCandidateAttr(), /*profiling_buffer_mgmt=*/nullptr,
+                dmaOp.getFusionIdAttr());
         _log.nest().trace("Create new DMA - '{0}'", newDmaOp->getLoc());
 
         dmaOp->erase();

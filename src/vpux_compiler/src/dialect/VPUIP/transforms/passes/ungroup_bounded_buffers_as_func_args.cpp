@@ -1,9 +1,10 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/core/bounded_buffer.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -14,9 +15,16 @@
 
 #include <intel_npu/prefix.hpp>
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Support/LogicalResult.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNGROUPBOUNDEDBUFFERSASFUNCARGS
+#define GEN_PASS_DEF_UNGROUPBOUNDEDBUFFERSASFUNCARGS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -27,7 +35,7 @@ namespace {
 //
 
 class UngroupBoundedBuffersAsFuncArgs final :
-        public VPUIP::UngroupBoundedBuffersAsFuncArgsBase<UngroupBoundedBuffersAsFuncArgs> {
+        public VPUIP::impl::UngroupBoundedBuffersAsFuncArgsBase<UngroupBoundedBuffersAsFuncArgs> {
 public:
     explicit UngroupBoundedBuffersAsFuncArgs(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

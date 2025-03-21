@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --split-fake-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
 // CHECK: !qElemType1 = !quant.uniform<i8:f16:1, {0.43933364269780179,0.24145462933708639,0.78572959151922483,0.58888816085516238,0.56745297301049324,0.93348080504174324,0.71047830020680147,0.15292347926719516,0.12209666383032705,0.099555625167547484,0.85396088244868262,0.038385636198754403,0.14808043685613895,0.25258062026079964,0.29266679053213079,0.59047199324065569}>
 // CHECK-LABEL: @SplitFakeQuantForI8WeightsAsInputs
@@ -99,4 +98,38 @@
     // CHECK: [[VAL3:%.+]] = IE.Dequantize([[VAL2]]) {dstElemType = f16} : tensor<1x16x1x256x!qElemType1> -> tensor<1x16x1x256xf16>
     // CHECK: return [[VAL3]] : tensor<1x16x1x256xf16>
   }
-  
+
+// -----
+
+#NWHC = affine_map < (d0, d1, d2, d3)->(d0, d3, d2, d1)>
+
+// CHECK: !qElemType = !quant.uniform<i8:f16, 1.000000e+00>
+// CHECK: !qElemType1 = !quant.uniform<i8:f16:3,
+// {0.43933364269780179,0.24145462933708639,0.78572959151922483,0.58888816085516238,0.56745297301049324,0.93348080504174324,0.71047830020680147,0.15292347926719516,0.12209666383032705,0.099555625167547484,0.85396088244868262,0.038385636198754403,0.14808043685613895,0.25258062026079964,0.29266679053213079,0.59047199324065569}>
+// CHECK-LABEL: @SplitFakeQuantForI8WeightsAsInputsWithTranspose
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<16x256xsi8>
+func.func @SplitFakeQuantForI8WeightsAsInputsWithTranspose(%arg0 : tensor<16x256xsi8>)->tensor<1x256x1x16xf16> {
+    %cst = const.Declare tensor<1x1x1x16xf16> = dense<[[55.795372, 30.6647377, 99.7876586, 74.7887955, 72.0665283, 118.552063, 90.2307434, 19.4212818, 15.5062761, 12.6435642, 108.453033, 4.87497568, 18.8062153, 32.0777397, 37.1686821, 74.9899444]]> : tensor<1x16xf32>, [#const.Reshape<[1, 1, 1, 16]>, #const.CastElemType<f16>]
+    %cst_0 = const.Declare tensor<1x1x1x16xf16> = dense<[[-56.2347069, -30.9061928, -100.573387, -75.3776855, -72.6339798, -119.485542, -90.9412231, -19.5742054, -15.6283731, -12.7431202, -109.306992, -4.91336155, -18.9542961, -32.3303185, -37.4613495, -75.5804138]]> : tensor<1x16xf32>, [#const.Reshape<[1, 1, 1, 16]>, #const.CastElemType<f16>]
+    %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<1.270000e+02> : tensor<1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+    %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<-1.280000e+02> : tensor<1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>]
+    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 16, 256]} : tensor<16x256xsi8> -> tensor<1x1x16x256xsi8>
+    %1 = IE.Convert(%0) {dstElemType = f16} : tensor<1x1x16x256xsi8> -> tensor<1x1x16x256xf16>
+    %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [0], [1, 2], [3]], shape_value = [1, 16, 1, 256]} : tensor<1x1x16x256xf16> -> tensor<1x16x1x256xf16>
+    %3 = IE.Transpose(%2) {order_value = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>} : tensor<1x16x1x256xf16> -> tensor<1x256x1x16xf16>
+    %4 = IE.FakeQuantize(%3, %cst_2, %cst_1, %cst_0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x256x1x16xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x16xf16>, tensor<1x1x1x16xf16> -> tensor<1x256x1x16xf16>
+
+    return %4 : tensor<1x256x1x16xf16>
+
+    // CHECK: [[RESHAPE0:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 16, 256]} : tensor<16x256xsi8> -> tensor<1x1x16x256xsi8>
+    // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE0]]) {dstElemType = f16} : tensor<1x1x16x256xsi8> -> tensor<1x1x16x256xf16>
+    // CHECK: [[RESHAPE1:%.+]] = IE.AffineReshape([[CONVERT]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [1, 2], [3]], shape_value = [1, 16, 1, 256]} : tensor<1x1x16x256xf16> -> tensor<1x16x1x256xf16>
+    // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[RESHAPE1]]) {order_value = #NWHC} : tensor<1x16x1x256xf16> -> tensor<1x256x1x16xf16>
+    // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[TRANSPOSE]]) {dstElemType = !qElemType} : tensor<1x256x1x16xf16> -> tensor<1x256x1x16x!qElemType>
+    // CHECK: [[QUANTIZECAST:%.+]] = IE.QuantizeCast([[QUANTIZE]]) {dstElemType = !qElemType1} : tensor<1x256x1x16x!qElemType> -> tensor<1x256x1x16x!qElemType1>
+    // CHECK: [[DEQUANTIZE:%.+]] = IE.Dequantize([[QUANTIZECAST]]) {dstElemType = f16} : tensor<1x256x1x16x!qElemType1> -> tensor<1x256x1x16xf16>
+
+    // CHECK: return [[DEQUANTIZE]] : tensor<1x256x1x16xf16>
+}

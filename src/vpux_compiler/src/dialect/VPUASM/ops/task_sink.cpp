@@ -12,15 +12,6 @@ using namespace vpux;
 // TAskSinkOp
 //
 
-void VPUASM::TaskSinkOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-    VPUX_THROW("can't serialize TaskSinkOp");
-    return;
-}
-
-size_t VPUASM::TaskSinkOp::getBinarySize(VPU::ArchKind) {
-    return sizeof(uint32_t);
-}
-
 size_t VPUASM::TaskSinkOp::getAlignmentRequirements(VPU::ArchKind) {
     return sizeof(uint32_t);
 }

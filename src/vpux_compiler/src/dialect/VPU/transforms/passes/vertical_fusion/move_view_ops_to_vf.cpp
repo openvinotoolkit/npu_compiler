@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
@@ -16,6 +17,12 @@
 #include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Pass/PassManager.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_MOVEVIEWOPSTOVF
+#define GEN_PASS_DEF_MOVEVIEWOPSTOVF
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -85,7 +92,7 @@ mlir::LogicalResult ViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp vfOp,
 // MoveViewOpsToVFPass
 //
 
-class MoveViewOpsToVFPass final : public MoveViewOpsToVFBase<MoveViewOpsToVFPass> {
+class MoveViewOpsToVFPass final : public VPU::impl::MoveViewOpsToVFBase<MoveViewOpsToVFPass> {
 public:
     explicit MoveViewOpsToVFPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

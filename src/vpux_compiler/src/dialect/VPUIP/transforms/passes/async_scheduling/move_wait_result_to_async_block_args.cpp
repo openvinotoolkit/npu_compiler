@@ -8,6 +8,12 @@
 #include "vpux/compiler/core/async_deps_info.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_MOVEWAITRESULTTOASYNCBLOCKARGS
+#define GEN_PASS_DEF_MOVEWAITRESULTTOASYNCBLOCKARGS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -51,7 +57,7 @@ void moveWaitResults(mlir::async::AwaitOp waitOp, Logger log) {
 }
 
 class MoveWaitResultToAsyncBlockArgsPass final :
-        public VPUIP::MoveWaitResultToAsyncBlockArgsBase<MoveWaitResultToAsyncBlockArgsPass> {
+        public VPUIP::impl::MoveWaitResultToAsyncBlockArgsBase<MoveWaitResultToAsyncBlockArgsPass> {
 public:
     explicit MoveWaitResultToAsyncBlockArgsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

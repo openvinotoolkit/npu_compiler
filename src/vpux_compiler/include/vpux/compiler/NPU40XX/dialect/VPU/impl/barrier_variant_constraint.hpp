@@ -19,14 +19,14 @@ constexpr double firmwareVariantCountWithWLM = 256;
 constexpr double firmwareVariantCount = 128;
 
 struct PerBarrierVariantConstraint final {
-    PerBarrierVariantConstraint(bool enablePartialWorkloadManagement = false)
-            : _enablePartialWorkloadManagement(enablePartialWorkloadManagement) {
+    PerBarrierVariantConstraint(bool workloadManagementEnable = false)
+            : _workloadManagementEnable(workloadManagementEnable) {
     }
     size_t getPerBarrierMaxVariantSum() const;
     size_t getPerBarrierMaxVariantCount() const;
 
 private:
-    bool _enablePartialWorkloadManagement;
+    bool _workloadManagementEnable;
 };
 
 }  // namespace vpux::VPU::arch40xx

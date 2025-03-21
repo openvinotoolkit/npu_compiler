@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUREGMAPPED_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPUREGMAPPED_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPURegMapped/dialect.td"
 
 //

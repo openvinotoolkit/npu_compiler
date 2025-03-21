@@ -10,7 +10,15 @@
 
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
+#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OPTIMIZESPARSITYOPS
+#define GEN_PASS_DEF_OPTIMIZESPARSITYOPS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -20,7 +28,7 @@ namespace {
 // OptimizeSparsityOpsPass
 //
 
-class OptimizeSparsityOpsPass final : public VPU::OptimizeSparsityOpsBase<OptimizeSparsityOpsPass> {
+class OptimizeSparsityOpsPass final : public VPU::impl::OptimizeSparsityOpsBase<OptimizeSparsityOpsPass> {
 public:
     explicit OptimizeSparsityOpsPass(VPU::SparsityProfileCreateFunc sparsityProfileCreateCb, Logger log)
             : _sparsityProfileCreateCb(std::move(sparsityProfileCreateCb)) {
@@ -182,6 +190,9 @@ void OptimizeSparsityOpsPass::safeRunOnFunc() {
         target.addIllegalOp<VPU::SparsifyOp>();
         target.addLegalDialect<Const::ConstDialect>();
         target.addLegalDialect<VPU::VPUDialect>();
+        target.addLegalDialect<mlir::linalg::LinalgDialect>();
+        target.addLegalDialect<mlir::math::MathDialect>();
+
         target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
         mlir::RewritePatternSet legalPatterns(&ctx);

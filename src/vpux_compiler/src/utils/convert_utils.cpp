@@ -6,6 +6,7 @@
 #include "vpux/compiler/utils/convert_utils.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
 

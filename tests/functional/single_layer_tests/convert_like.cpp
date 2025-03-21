@@ -57,7 +57,6 @@ TEST_P(ConvertLikeLayerTest_NPU4000, SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
-
 const TypeVector inType{
         element::f16, element::f32, element::i32, element::i8, element::u8,
 };

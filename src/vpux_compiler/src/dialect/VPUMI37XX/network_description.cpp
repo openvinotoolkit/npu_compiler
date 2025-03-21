@@ -171,7 +171,7 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
                             ov::element::Type(mapElementTypeOV.at(descriptorFromIRModel.type)).get_type_name());
         }
 
-        convertedIODescriptors.push_back(convertedIODescriptor);
+        convertedIODescriptors.push_back(std::move(convertedIODescriptor));
     }
 
     return convertedIODescriptors;

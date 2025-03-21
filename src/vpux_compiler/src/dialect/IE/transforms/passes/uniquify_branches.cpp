@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
@@ -12,6 +13,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNIQUIFYBRANCHES
+#define GEN_PASS_DEF_UNIQUIFYBRANCHES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -669,7 +676,7 @@ mlir::LogicalResult MoveReorderBeforeSplit::matchAndRewrite(IE::ReorderOp layerO
 // UniquifyBranches
 //
 
-class UniquifyBranches final : public IE::UniquifyBranchesBase<UniquifyBranches> {
+class UniquifyBranches final : public IE::impl::UniquifyBranchesBase<UniquifyBranches> {
 public:
     explicit UniquifyBranches(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

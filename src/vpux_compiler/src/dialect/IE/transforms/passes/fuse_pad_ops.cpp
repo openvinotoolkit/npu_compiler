@@ -8,11 +8,18 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/pad_extract.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <openvino/core/coordinate_diff.hpp>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEPADOPS
+#define GEN_PASS_DEF_FUSEPADOPS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -192,7 +199,7 @@ mlir::LogicalResult FuseConstantPadWithMaxpool::matchAndRewrite(IE::MaxPoolOp or
 // FusePadOpsPass
 //
 
-class FusePadOpsPass final : public IE::FusePadOpsBase<FusePadOpsPass> {
+class FusePadOpsPass final : public IE::impl::FusePadOpsBase<FusePadOpsPass> {
 public:
     explicit FusePadOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-scatterndupdate-to-strided-concat
 // --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertScatterNDUpdateToStridedConcat
 func.func @ConvertScatterNDUpdateToStridedConcat(%arg0:  tensor<1x1x1x1x15xf16>, %arg1 : tensor<1x1x1x1x5xf16> ) -> tensor<1x1x1x1x15xf16>{
     %cst = const.Declare tensor<1x1x1x1x5x5xsi32> = dense<[[[[[[0,0,0,0,0],[0,0,0,0,3],[0,0,0,0,6],[0,0,0,0,9],[0,0,0,0,12]]]]]]> : tensor<1x1x1x1x5x5xsi32>

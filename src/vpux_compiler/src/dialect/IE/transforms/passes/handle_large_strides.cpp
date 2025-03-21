@@ -15,6 +15,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLELARGESTRIDES
+#define GEN_PASS_DEF_HANDLELARGESTRIDES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -536,7 +542,7 @@ mlir::LogicalResult AvgPoolMPOptimizationRewriter::matchAndRewrite(IE::AvgPoolOp
 // HandleLargeStridesPass
 //
 
-class HandleLargeStridesPass final : public IE::HandleLargeStridesBase<HandleLargeStridesPass> {
+class HandleLargeStridesPass final : public IE::impl::HandleLargeStridesBase<HandleLargeStridesPass> {
 public:
     explicit HandleLargeStridesPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

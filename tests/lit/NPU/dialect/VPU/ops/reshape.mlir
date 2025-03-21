@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertToShapeCast
 func.func @ConvertToShapeCast(%arg0 : tensor<1x2x3x4xf16>) -> tensor<1x3x2x4xf16> {
     %0 = VPU.Reshape(%arg0) {shape_value = [1, 3, 2, 4]} : tensor<1x2x3x4xf16> -> tensor<1x3x2x4xf16>

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --flatten-sparse-weights-types %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @SparseConvWeights(%arg0: memref<1x32x3x3xf16, #NHWC, [@CMX_NN, 0]>, %arg1: memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x3x3xf16, #NHWC, [@CMX_NN, 0]> {

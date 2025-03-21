@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-IE-to-VPU-M2I %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @convertColorConvert
 func.func @convertColorConvert(%arg0: tensor<1x360x320x1xui8>) -> tensor<1x240x320x3xui8> {
    %0 = IE.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<BGR>} : tensor<1x360x320x1xui8> -> tensor<1x240x320x3xui8>

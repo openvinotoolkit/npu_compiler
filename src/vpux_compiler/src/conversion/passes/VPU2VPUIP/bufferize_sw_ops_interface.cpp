@@ -13,11 +13,13 @@
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/allocate_buffers.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/utils/core/logger.hpp"
 
+#include <mlir/Dialect/Linalg/Transforms/BufferizableOpInterfaceImpl.h>
 using namespace vpux;
 
 namespace {
@@ -112,15 +114,20 @@ std::pair<mlir::DenseSet<size_t>, mlir::DenseSet<size_t>> getOptimalCMXPlacement
     });
 
     // Find the subset that uses the most NNCMX without going over the limit
-    size_t subsetIdx;
-    for (subsetIdx = 0; subsetIdx < subsets.size(); ++subsetIdx) {
-        if (subsets[subsetIdx].second > totalAvailableCMXSize) {
-            --subsetIdx;
+    std::optional<size_t> subsetIdx;
+    for (size_t idx = 0; idx < subsets.size(); ++idx) {
+        if (subsets[idx].second > totalAvailableCMXSize) {
+            if (idx > 0) {
+                subsetIdx = idx - 1;
+            }
             break;
         }
     }
+    if (!subsetIdx.has_value()) {
+        return {inputsForCMX, outputsForCMX};
+    }
 
-    const auto maxValidCmxUsageSubsetIdx = std::min(subsetIdx, subsets.size() - 1);
+    const auto maxValidCmxUsageSubsetIdx = std::min(subsetIdx.value(), subsets.size() - 1);
 
     for (const auto& idx : subsets[maxValidCmxUsageSubsetIdx].first) {
         if (idx < inputs.size()) {
@@ -201,8 +208,12 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
 
     // TODO : tile 0
     const int64_t tileIndex = 0;
-    auto builtInFunction = VPUIP::createBuiltInFunction(module, layerOp, swKernelOperands, swKernelResults,
-                                                        swLayerOp.getKernelInfo(), log.nest());
+    auto genericSwLayerOp = mlir::dyn_cast<VPU::GenericSwLayerOp>(op);
+    auto builtInFunction = genericSwLayerOp
+                                   ? genericSwLayerOp.getCallee()
+                                   : VPUIP::createBuiltInFunction(module, layerOp, swKernelOperands, swKernelResults,
+                                                                  swLayerOp.getKernelInfo(), log.nest());
+
     auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), swKernelOperands, swKernelResults,
                                                          builtInFunction, getIntAttr(ctx, tileIndex));
 
@@ -255,8 +266,10 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
 
         rewriter.eraseOp(swKernelOp);
 
-        builtInFunction =
-                createBuiltInFunction(module, layerOp, cmxOperands, cmxResults, swLayerOp.getKernelInfo(), log.nest());
+        if (genericSwLayerOp == nullptr) {
+            builtInFunction = createBuiltInFunction(module, layerOp, cmxOperands, cmxResults, swLayerOp.getKernelInfo(),
+                                                    log.nest());
+        }
 
         swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), cmxOperands, cmxResults, builtInFunction,
                                                         getIntAttr(ctx, tileIndex));
@@ -306,8 +319,11 @@ mlir::LogicalResult vpux::bufferizeSWLayerOpInNceClusterTiling(mlir::RewriterBas
                                          /*individualBuffers=*/true);
     // actual tile index will be corrected as part of unroll NCEClusterTiling pass, this index will be dropped
     const int64_t tileIndex = 0;
-    auto builtInFunction =
-            createBuiltInFunction(module, layerOp, newOperands, outputBuffers, swLayerOp.getKernelInfo(), log.nest());
+    auto genericSwLayerOp = mlir::dyn_cast<VPU::GenericSwLayerOp>(op);
+    auto builtInFunction = genericSwLayerOp ? genericSwLayerOp.getCallee()
+                                            : createBuiltInFunction(module, layerOp, newOperands, outputBuffers,
+                                                                    swLayerOp.getKernelInfo(), log.nest());
+
     auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(op->getLoc(), newOperands, outputBuffers, builtInFunction,
                                                          getIntAttr(op->getContext(), tileIndex));
     vpux::VPUIP::initSwKernel(swKernelOp, newOperands, outputBuffers, swLayerOp.getKernelInfo().args, log.nest());
@@ -387,7 +403,9 @@ bool isLegalStridedSliceOp(VPU::StridedSliceOp stridedSliceOp) {
         }
     }
 
-    return stridingLevel < VPUIP::getMaxStridingLevel(VPU::getArch(stridedSliceOp));
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(stridedSliceOp));
+
+    return stridingLevel <= dmaEngineLimits.getMaxStrideCount();
 }
 
 mlir::LogicalResult StridedSliceOpBufferizeModel::bufferizeImpl(
@@ -601,6 +619,8 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::IRDFTOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::IRDFTOp>>(*ctx);
         VPU::RDFTUncutOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RDFTUncutOp>>(*ctx);
         VPU::IRDFTLastAxisOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::IRDFTLastAxisOp>>(*ctx);
+        VPU::ExperimentalDetectronROIFeatureExtractorOp::attachInterface<
+                SoftwareLayerOpBufferizeModel<VPU::ExperimentalDetectronROIFeatureExtractorOp>>(*ctx);
         VPU::AccumulateOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AccumulateOp>>(*ctx);
         VPU::RangeOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RangeOp>>(*ctx);
         VPU::NonZeroOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::NonZeroOp>>(*ctx);
@@ -613,5 +633,8 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
                 *ctx);
         VPU::DynamicExpandOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicExpandOp>>(*ctx);
         VPU::PopulateWeightTableOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::PopulateWeightTableOp>>(*ctx);
+        VPU::GenericSwLayerOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::GenericSwLayerOp>>(*ctx);
+        VPU::RoPEOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RoPEOp>>(*ctx);
     });
+    mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
 }

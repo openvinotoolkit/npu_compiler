@@ -3,12 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
-#include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_ADDINITIALBARRIERCONFIGURATIONOPS
+#define GEN_PASS_DEF_ADDINITIALBARRIERCONFIGURATIONOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -17,7 +22,7 @@ static constexpr size_t INITIAL_BARRIER_FIFO_DEPTH = 4;
 namespace {
 
 class AddInitialBarrierConfigurationOps :
-        public VPUMI40XX::AddInitialBarrierConfigurationOpsBase<AddInitialBarrierConfigurationOps> {
+        public VPUMI40XX::impl::AddInitialBarrierConfigurationOpsBase<AddInitialBarrierConfigurationOps> {
 public:
     explicit AddInitialBarrierConfigurationOps(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

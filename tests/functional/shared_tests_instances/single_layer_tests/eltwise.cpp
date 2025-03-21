@@ -85,7 +85,6 @@ TEST_P(EltwiseEmptyShapeInputLayerTest, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 void setCommonSkipCompilationCallback(EltwiseIntegerLayerTest* test) {
     test->setSkipCompilationCallback([test](std::stringstream& skip) {
         const auto eltwiseType = std::get<1>(test->GetParam());

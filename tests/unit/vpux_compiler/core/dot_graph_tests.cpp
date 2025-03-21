@@ -5,7 +5,7 @@
 
 //
 
-#include "vpux/compiler/core/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/dot_printer.hpp"
 
@@ -111,7 +111,7 @@ TEST_F(MLIR_DotGraph, GenerateViaPass) {
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    pm.addPass(vpux::createPrintDotPass(fileName));
+    pm.addPass(vpux::Core::createPrintDotPass(fileName));
 
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
     const std::string expectedOutputFileName = "output_main.dot";
@@ -156,7 +156,7 @@ TEST_F(MLIR_DotGraph, GenerateViaPass_TwoFunctions) {
     ASSERT_TRUE(module.get() != nullptr);
 
     mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
-    pm.addPass(vpux::createPrintDotPass(fileName));
+    pm.addPass(vpux::Core::createPrintDotPass(fileName));
 
     ASSERT_TRUE(mlir::succeeded(pm.run(module.get())));
 

@@ -16,4 +16,6 @@ mlir::IntegerAttr getAllocSizeAttr(mlir::Type type);
 
 vpux::NDTypeInterface setAllocSizeAttr(vpux::NDTypeInterface type, int64_t allocSize);
 
+DimsOrder inferNewDimsOrder(DimsOrder origOrder, size_t numShapeDims);
+
 }  // namespace vpux

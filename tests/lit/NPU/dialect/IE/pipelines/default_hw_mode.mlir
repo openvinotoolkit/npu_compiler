@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-ie %s | FileCheck %s --strict-whitespace
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @FuseConstDivideToMatMul
 module @FuseConstDivideToMatMul {
     IE.CNNNetwork entryPoint : @main
@@ -35,20 +34,19 @@ module @FuseConstDivideToMatMul {
 
         return %29 : tensor<1x3x64x64xf16>
 
+        // CHECK: [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> = dense<2.460000e+02> :
+        // CHECK-SAME: tensor<1xf16>, [#const.Reshape<[1, 1, 1, 1]>, #const.ScalarMultInverse, #const.Broadcast<1 : i64, 3 : i64>, #const.Quantize<!qElemType>, #const.CastElemType<!qElemType1>, #const.Reshape<[3, 1, 1, 1]>, #const.Dequantize, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [13, 0, 0, 0]>]
         // CHECK: [[CONV0:%.+]] = IE.Convolution
-        // CHECK-SAME:  static_scale = 0.135327876 : f32
         // CHECK: [[CONV0_RESHAPE:%.+]] = IE.AffineReshape([[CONV0]])
         // CHECK-SAME: -> tensor<1x64x64x1xf16, {order = #NHWC}>
         // CHECK: [[CONV0_PERMUTE:%.+]] = IE.PermuteCast([[CONV0_RESHAPE]])
 
         // CHECK: [[CONV1:%.+]] = IE.Convolution
-        // CHECK-SAME:  static_scale = 0.135327876 : f32
         // CHECK: [[CONV1_RESHAPE:%.+]] = IE.AffineReshape([[CONV1]])
         // CHECK-SAME: -> tensor<1x64x64x1xf16, {order = #NHWC}>
         // CHECK: [[CONV1_PERMUTE:%.+]] = IE.PermuteCast([[CONV1_RESHAPE]])
 
         // CHECK: [[CONV2:%.+]] = IE.Convolution
-        // CHECK-SAME:  static_scale = 0.135327876 : f32
         // CHECK: [[CONV2_RESHAPE:%.+]] = IE.AffineReshape([[CONV2]])
         // CHECK-SAME: -> tensor<1x64x64x1xf16, {order = #NHWC}>
         // CHECK: [[CONV2_PERMUTE:%.+]] = IE.PermuteCast([[CONV2_RESHAPE]])
@@ -58,7 +56,11 @@ module @FuseConstDivideToMatMul {
         // CHECK: [[CONV1_RES:%.+]] = IE.AffineReshape([[CONV1_PERMUTE]])
         // CHECK: [[CONV2_RES:%.+]] = IE.AffineReshape([[CONV2_PERMUTE]])
         // CHECK: [[CONCAT:%.+]] = IE.Concat([[CONV0_RES]], [[CONV1_RES]], [[CONV2_RES]])
-        // CHECK-NEXT: return [[CONCAT]]
+
+        // CHECK: [[PERMUTE_QUANTIZE:%.+]] = IE.PermuteQuantize([[CONCAT]])
+        // CHECK: [[GROUP_CONV:%.+]] = IE.GroupConvolution([[PERMUTE_QUANTIZE]], [[CST]])
+        // CHECK: [[SLICE:%.+]] = IE.Slice [[GROUP_CONV]] [0, 0, 0, 0] [1, 3, 64, 64] : tensor<1x16x64x64xf16> to tensor<1x3x64x64xf16>
+        // CHECK-NEXT: return [[SLICE]]
     }
 }
 
@@ -739,7 +741,7 @@ module @HandleFQWithDifferentScenarios {
         // Weights FQ has multiple zero points and scales, but being constant, it can also be split
         // Output FQ, without zero in the data range, cannot be split and is implemented by the SW layer
 
-        // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> = dense<2> : tensor<16x16x3x3xui8>, [#const.CastElemType<!qElemType>, #const.Dequantize, #const.Reorder<#NHWC>]
+        // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}> = dense<2> : tensor<16x16x3x3xui8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>, #const.Dequantize, #const.Reorder<#NHWC>]
         // CHECK-DAG:       [[OUT_HIGH:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<5.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
         // CHECK-DAG:       [[OUT_LOW:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<4.500000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
 

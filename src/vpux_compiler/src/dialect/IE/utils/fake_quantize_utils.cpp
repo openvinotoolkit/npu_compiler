@@ -124,6 +124,18 @@ mlir::FailureOr<FqData> revertScaleShift(mlir::MLIRContext* ctx, const Const::Co
     return data;
 }
 
+bool isWeightOfUserOp(mlir::Operation* curOp, mlir::Operation* userOp) {
+    if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp, IE::FullyConnectedOp>(userOp)) {
+        return false;
+    }
+
+    if (curOp->getResult(0) != userOp->getOperand(1)) {
+        return false;
+    }
+
+    return true;
+}
+
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::MultiplyOp& multiplyOp) {
     opChain.push_back(multiplyOp.getOperation());
 
@@ -141,7 +153,35 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Mult
     }
     scale = scaleCst.getContentAttr();
 
-    return mlir::success();
+    // We don't need to check following ops for constant input because the new created FakeQuantize will be folded to
+    // constant even if it can't be folded to users
+    if (inputIsConst) {
+        return mlir::success();
+    }
+
+    // Check following ops
+    if (!multiplyOp->hasOneUse()) {
+        // We decided to only treat the single-use case for now
+        log.trace("Match failed: Got MultiplyOp with 0 or multiple users");
+        return mlir::failure();
+    }
+    auto opUser = multiplyOp->user_begin();
+
+    if (isWeightOfUserOp(multiplyOp, *opUser)) {
+        return mlir::success();
+    }
+
+    if (auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(*opUser)) {
+        return this->initializeStructure(affineReshape);
+    }
+    if (auto convertOp = mlir::dyn_cast<IE::ConvertOp>(*opUser)) {
+        return this->initializeStructure(convertOp);
+    }
+    if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(*opUser)) {
+        return this->initializeStructure(transposeOp);
+    }
+
+    return mlir::failure();
 }
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::SubtractOp& subtractOp) {
@@ -173,22 +213,21 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Subt
         return this->initializeStructure(multiplyOp);
     }
 
-    return mlir::success();
+    if (isWeightOfUserOp(subtractOp.getOperation(), *opUser)) {
+        return mlir::success();
+    }
+
+    // We don't need to check following ops for constant input because the new created FakeQuantize will be folded to
+    // constant even if it can't be folded to users
+    if (inputIsConst) {
+        return mlir::success();
+    }
+
+    return mlir::failure();
 }
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::ConvertOp& convertOp) {
     opChain.push_back(convertOp.getOperation());
-
-    // Retrieve non-const input properties
-    const auto inputBlock = mlir::dyn_cast_or_null<mlir::BlockArgument>(convertOp.getInput());
-    if (inputBlock != nullptr) {
-        log.trace("Got block argument input: {0}", inputBlock);
-    } else {
-        log.trace("Match failed: Got ConvertOp without Const or BlockArgument input");
-        return mlir::failure();
-    }
-
-    inputValue = convertOp.getOutput();
 
     // Check following ops
     if (!convertOp->hasOneUse()) {
@@ -197,12 +236,22 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
         return mlir::failure();
     }
     auto opUser = convertOp->user_begin();
-    if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(*opUser)) {
-        if (!transposeOp->hasOneUse()) {
-            return mlir::failure();
+
+    // Retrieve non-const input properties
+    const auto inputBlock = mlir::dyn_cast_or_null<mlir::BlockArgument>(convertOp.getInput());
+    if (inputBlock != nullptr) {
+        log.trace("Got block argument input: {0}", inputBlock);
+        inputValue = convertOp.getOutput();
+
+        if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(*opUser)) {
+            inputValue = transposeOp.getOutput();
+            return this->initializeStructure(transposeOp);
         }
-        inputValue = transposeOp.getOutput();
-        opUser = transposeOp->user_begin();
+    }
+
+    if (isWeightOfUserOp(convertOp.getOperation(), *opUser)) {
+        log.trace("Match succeed: {0} is the weight of {1}, match succeed", convertOp->getLoc(), (*opUser)->getLoc());
+        return mlir::success();
     }
 
     // Prevent rematching already processed ConvertOps (they aren't deleted by the WDtoFQ pass)
@@ -211,6 +260,9 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
         return mlir::failure();
     }
 
+    if (auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(*opUser)) {
+        return this->initializeStructure(affineReshape);
+    }
     if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(*opUser)) {
         return this->initializeStructure(subtractOp);
     }
@@ -218,9 +270,88 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
         return this->initializeStructure(multiplyOp);
     }
 
-    // in block arg case, ConvertOps are kept, so a ConvertOp with no following SubtractOp or MultiplyOp would
-    // result in a useless FakeQuantizeOp being inserted
-    log.trace("Match failed: ConvertOp with no following SubractOp or MultiplyOp, match failed");
+    log.trace("Match failed: ConvertOp with no following AffineReshapeOp or SubractOp or MultiplyOp, match failed");
+    return mlir::failure();
+}
+
+mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::AffineReshapeOp& affineReshapeOp) {
+    opChain.push_back(affineReshapeOp.getOperation());
+
+    // Check following ops
+    if (!affineReshapeOp->hasOneUse()) {
+        // We decided to only treat the single-use case for now
+        log.trace("Match failed: Got affineReshapeOp with 0 or multiple users");
+        return mlir::failure();
+    }
+    auto opUser = affineReshapeOp->user_begin();
+
+    if (isWeightOfUserOp(affineReshapeOp.getOperation(), *opUser)) {
+        log.trace("Match succeed: {0} is the weight of {1}, match succeed", affineReshapeOp->getLoc(),
+                  (*opUser)->getLoc());
+        return mlir::success();
+    }
+
+    // Prevent rematching already processed AffineReshapeOps (they aren't deleted by the WDtoFQ pass)
+    if (auto fakeQuantOp = mlir::dyn_cast<IE::FakeQuantizeOp>(*opUser)) {
+        log.trace("Match failed: FakeQuantizeOp already present at end of structure");
+        return mlir::failure();
+    }
+
+    if (auto convertOp = mlir::dyn_cast<IE::ConvertOp>(*opUser)) {
+        return this->initializeStructure(convertOp);
+    }
+    if (auto multiplyOp = mlir::dyn_cast<IE::MultiplyOp>(*opUser)) {
+        return this->initializeStructure(multiplyOp);
+    }
+    if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(*opUser)) {
+        return this->initializeStructure(subtractOp);
+    }
+    if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(*opUser)) {
+        return this->initializeStructure(transposeOp);
+    }
+
+    log.trace("Match failed: affineReshapeOp with no following ConvertOp or SubractOp or MultiplyOp or TransposeOp, "
+              "match failed");
+    return mlir::failure();
+}
+
+mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::TransposeOp& transposeOp) {
+    opChain.push_back(transposeOp.getOperation());
+
+    // Check following ops
+    if (!transposeOp->hasOneUse()) {
+        // We decided to only treat the single-use case for now
+        log.trace("Match failed: Got transposeOp with 0 or multiple users");
+        return mlir::failure();
+    }
+    auto opUser = transposeOp->user_begin();
+
+    if (isWeightOfUserOp(transposeOp.getOperation(), *opUser)) {
+        log.trace("Match succeed: {0} is the weight of {1}, match succeed", transposeOp->getLoc(), (*opUser)->getLoc());
+        return mlir::success();
+    }
+
+    // Prevent rematching already processed TransposeOps (they aren't deleted by the WDtoFQ pass)
+    if (auto fakeQuantOp = mlir::dyn_cast<IE::FakeQuantizeOp>(*opUser)) {
+        log.trace("Match failed: FakeQuantizeOp already present at end of structure");
+        return mlir::failure();
+    }
+
+    if (auto affineReshapeOp = mlir::dyn_cast<IE::AffineReshapeOp>(*opUser)) {
+        return this->initializeStructure(affineReshapeOp);
+    }
+    if (auto convertOp = mlir::dyn_cast<IE::ConvertOp>(*opUser)) {
+        return this->initializeStructure(convertOp);
+    }
+    if (auto multiplyOp = mlir::dyn_cast<IE::MultiplyOp>(*opUser)) {
+        return this->initializeStructure(multiplyOp);
+    }
+    if (auto subtractOp = mlir::dyn_cast<IE::SubtractOp>(*opUser)) {
+        return this->initializeStructure(subtractOp);
+    }
+
+    log.trace("Match failed: transposeOp with no following AffineReshapeOp or ConvertOp or MultiplyOp or SubtractOp, "
+              "match failed");
     return mlir::failure();
 }
 
@@ -274,12 +405,13 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
     return mlir::success();
 }
 
-WeightsDequantizeStructureInfo::WeightsDequantizeStructureInfo(const Logger& log): log(log) {
+WeightsDequantizeStructureInfo::WeightsDequantizeStructureInfo(bool constInput, const Logger& log)
+        : inputIsConst(constInput), log(log) {
 }
 
 mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::create(Const::DeclareOp origOp,
                                                                                        const Logger& log) {
-    WeightsDequantizeStructureInfo info(log);
+    WeightsDequantizeStructureInfo info(true, log);
     const auto status = info.initializeStructure(origOp);
     if (mlir::succeeded(status)) {
         return info;
@@ -289,7 +421,7 @@ mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::
 
 mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::create(IE::ConvertOp origOp,
                                                                                        const Logger& log) {
-    WeightsDequantizeStructureInfo info(log);
+    WeightsDequantizeStructureInfo info(false, log);
     const auto status = info.initializeStructure(origOp);
     if (mlir::succeeded(status)) {
         return info;
@@ -299,6 +431,15 @@ mlir::FailureOr<WeightsDequantizeStructureInfo> WeightsDequantizeStructureInfo::
 
 mlir::Operation* WeightsDequantizeStructureInfo::getLastOp() const {
     VPUX_THROW_UNLESS(opChain.size() >= 1, "WD info is not initialized");
+    // traverse bottom-up to find the last Multiply op
+    for (auto first = opChain.rbegin(), last = opChain.rend(); first != last; ++first) {
+        auto op = *first;
+        if (mlir::isa<IE::MultiplyOp>(op)) {
+            return op;
+        }
+    }
+
+    // For the pattern of weights as input with dynamic scale, etraverse bottom-up to find the last Multiply op
     return opChain.back();
 }
 
@@ -416,6 +557,10 @@ mlir::Value WeightsDequantizeStructureInfo::getDynamicScale() const {
 
 mlir::Value WeightsDequantizeStructureInfo::getDynamicShift() const {
     return dynamicShift;
+}
+
+Const::ContentAttr WeightsDequantizeStructureInfo::getScale() const {
+    return scale;
 }
 
 Const::ContentAttr WeightsDequantizeStructureInfo::getShift() const {

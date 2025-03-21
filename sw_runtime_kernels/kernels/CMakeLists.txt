@@ -1,4 +1,4 @@
-# Copyright (C) 2022-2024 Intel Corporation
+# Copyright (C) 2022-2025 Intel Corporation
 # SPDX-License-Identifier: Apache 2.0
 
 cmake_minimum_required(VERSION 3.20)
@@ -7,12 +7,13 @@ project(kernels)
 
 option(ENABLE_SHAVE_BINARIES_BUILD "Enable shave binaries build, if disabled, prebuilt binaries will be used" OFF)
 option(ENABLE_MANAGEMENT_KERNEL_BUILD "Enable management kernel build" OFF)
+option(ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD "Enable firmware.vpu.client sources kernels build" OFF)
 
 set(target_binary_dir "${CMAKE_CURRENT_BINARY_DIR}/act_shave_bin")
 file(MAKE_DIRECTORY ${target_binary_dir})
 
 # Establish if we want to build the kernels or just use prebuilts
-if(NOT (ENABLE_SHAVE_BINARIES_BUILD OR ENABLE_MANAGEMENT_KERNEL_BUILD))
+if(NOT (ENABLE_SHAVE_BINARIES_BUILD OR ENABLE_MANAGEMENT_KERNEL_BUILD OR ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD))
   set(build_kernels FALSE)
 else()
   set(build_kernels TRUE)
@@ -29,7 +30,7 @@ add_custom_target(act_shave_kernels_ready)
 add_custom_target(act_shave_kernels_build)
 
 # Enable building kernels from separate build folder if needed
-if(ENABLE_SHAVE_BINARIES_BUILD)
+if(ENABLE_MLIR_COMPILER AND build_kernels)
   exists_mv_tools_version(available)
   if(NOT available)
     get_mv_tools()
@@ -78,7 +79,7 @@ if(ENABLE_SHAVE_BINARIES_BUILD)
   list(APPEND kernel_descrip_list ${kernel_list})
 endif()
 
-if(ENABLE_MANAGEMENT_KERNEL_BUILD)
+if(ENABLE_MANAGEMENT_KERNEL_BUILD OR ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD)
   if(ENABLE_NPU_MONO)
     if(DEFINED ENV{FIRMWARE_VPU_DIR})
         message(AUTHOR_WARNING "FIRMWARE_VPU_DIR environment variable is deprecated when ENABLE_NPU_MONO=ON")
@@ -89,17 +90,24 @@ if(ENABLE_MANAGEMENT_KERNEL_BUILD)
     set(FIRMWARE_VPU_DIR "${NPU_MONO_FIRMWARE_PROJECT_DIR}")
   else()
     if(NOT DEFINED ENV{FIRMWARE_VPU_DIR})
-        message(FATAL_ERROR "FIRMWARE_VPU_DIR environment variable must be defined when ENABLE_MANAGEMENT_KERNEL_BUILD=ON")
+        message(FATAL_ERROR "FIRMWARE_VPU_DIR environment variable must be defined when ENABLE_MANAGEMENT_KERNEL_BUILD=ON or ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD=ON")
     endif()
 
     set(FIRMWARE_VPU_DIR "$ENV{FIRMWARE_VPU_DIR}")
   endif()
 
   # If we want to build only MGMT kernels we should iterate only through those descrip files
-  if(NOT ENABLE_SHAVE_BINARIES_BUILD)
-    file(GLOB kernel_list "${kernel_descrip_dir}nnActEntry_*.txt")
-    list(APPEND kernel_descrip_list ${kernel_list})
+  if(ENABLE_MANAGEMENT_KERNEL_BUILD AND NOT ENABLE_SHAVE_BINARIES_BUILD)
+    file(GLOB mgmt_kernel_list "${kernel_descrip_dir}nnActEntry_*.txt")
+    list(APPEND kernel_descrip_list ${mgmt_kernel_list})
   endif()
+
+  # If we want to build only kernels with firmware sources we should iterate only through those descrip files
+  if(ENABLE_FIRMWARE_SOURCES_KERNEL_BUILD AND NOT ENABLE_SHAVE_BINARIES_BUILD)
+    file(GLOB firmware_kernel_list "${kernel_descrip_dir}*_fw.txt")
+    list(APPEND kernel_descrip_list ${firmware_kernel_list})
+  endif()
+
 endif()
 
 # Main iterator
@@ -113,6 +121,7 @@ foreach(kernel_descrip ${kernel_descrip_list})
   set(cppflags_list "")
   set(always_inline "no")
   set(rt_kernel "no")
+  set(firmware_kernel "no")
   set(extra_src_list "")
   set(asm_src_list "")
   set(asm_include_list "")
@@ -130,13 +139,13 @@ foreach(kernel_descrip ${kernel_descrip_list})
 
   if(build_kernels)
     if(kernel_cpunum STREQUAL "3720")
-      list(APPEND define_symbols_list "USE_3720_INTSTRUCTIONS")
+      list(APPEND define_symbols_list "USE_3720_INSTRUCTIONS")
       set(link_libraries_list ${link_libraries_list_VPU3720})
       if(rt_kernel STREQUAL "yes")
         list(APPEND define_symbols_list "CONFIG_TARGET_SOC_3720")
       endif()
     elseif(kernel_cpunum STREQUAL "4000")
-      list(APPEND define_symbols_list "USE_4000_INTSTRUCTIONS")
+      list(APPEND define_symbols_list "USE_4000_INSTRUCTIONS")
       set(link_libraries_list ${link_libraries_list_VPU4000})
       if(rt_kernel STREQUAL "yes")
         list(APPEND define_symbols_list "CONFIG_TARGET_SOC_4000")
@@ -188,13 +197,9 @@ foreach(kernel_descrip ${kernel_descrip_list})
     set(link_script_file "${CMAKE_CURRENT_SOURCE_DIR}/prebuild/shave_rt_kernel.ld")
   else()
     set(kernel_src_path "${CMAKE_CURRENT_SOURCE_DIR}/${kernel_src_file}")
-    if(NOT kernel_cpunum STREQUAL "6000")
       set(shave_preemption_opt "-mshave-preemption-checks=restore")
       list(APPEND shave_preemption_opt "-mshave-low-impact-preemption" )
       list(APPEND shave_preemption_opt "-mshave-preemption-max-loop-depth=1")
-    else()
-      set(shave_preemption_opt "-mshave-preemption-checks=off")
-      endif()
     endif()
   endif()
 

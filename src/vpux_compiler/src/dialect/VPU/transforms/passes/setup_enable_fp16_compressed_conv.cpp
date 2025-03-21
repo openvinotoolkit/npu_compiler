@@ -4,10 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/compressed_convolution_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SETUPENABLEFP16COMPRESSEDCONV
+#define GEN_PASS_DEF_SETUPENABLEFP16COMPRESSEDCONV
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -18,7 +25,7 @@ namespace {
 //
 
 class SetupEnableFP16CompressedConvPass final :
-        public VPU::SetupEnableFP16CompressedConvBase<SetupEnableFP16CompressedConvPass> {
+        public VPU::impl::SetupEnableFP16CompressedConvBase<SetupEnableFP16CompressedConvPass> {
 public:
     SetupEnableFP16CompressedConvPass() = default;
     SetupEnableFP16CompressedConvPass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log)

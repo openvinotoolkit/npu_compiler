@@ -121,25 +121,25 @@ static const char* COMPILER_VERSION =
 
 namespace VPUXDriverCompiler {
 
-VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t desc, const std::map<std::string, std::string>& config,
-                               VCLLogger* vclLogger)
-        : _options(std::make_shared<intel_npu::OptionsDesc>()), _compilerDesc(desc), _logger(vclLogger) {
+VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc, VCLLogger* vclLogger)
+        : _options(std::make_shared<intel_npu::OptionsDesc>()),
+          _compilerDesc(*compilerDesc),
+          _deviceDesc(*deviceDesc),
+          _logger(vclLogger) {
     // Prepare default compilation configs
     registerCommonOptions(*_options);
     registerCompilerOptions(*_options);
     registerRunTimeOptions(*_options);
-
-    intel_npu::Config parsedConfig(_options);
-    parsedConfig.update(config, intel_npu::OptionMode::CompileTime);
 
     // Create compiler instance with the default config
     // COMPILER_TYPE DRIVER is assumed
     _compiler = createNPUCompiler();
 
     // Update the compiler properties
+    uint32_t compiler_version = _compiler->get_version();
     _compilerProp.id = COMPILER_VERSION;
-    _compilerProp.version.major = VCL_COMPILER_VERSION_MAJOR;
-    _compilerProp.version.minor = VCL_COMPILER_VERSION_MINOR;
+    _compilerProp.version.major = compiler_version >> 16;     /// 16Bit msb = major version
+    _compilerProp.version.minor = compiler_version & 0xFFFF;  /// 16Bit lsb = minor version
 
     _compilerProp.supportedOpsets = _compiler->getSupportedOpsetVersion();
 }

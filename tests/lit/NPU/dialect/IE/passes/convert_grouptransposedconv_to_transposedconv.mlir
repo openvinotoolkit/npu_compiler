@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-group-transposed-conv-to-transposed-conv="enable-sep-transposed-conv=true" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertGroupTransposedConvToTransposedConv
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x64x64x64xf16>)
 func.func @ConvertGroupTransposedConvToTransposedConv(%input: tensor<1x64x64x64xf16>) -> tensor<1x64x130x130xf16> {

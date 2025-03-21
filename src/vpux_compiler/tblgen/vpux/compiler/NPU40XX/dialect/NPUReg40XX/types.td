@@ -29,11 +29,10 @@ class NPUReg40XX_Version<int vMajor, int vMinor, int vPatch> : VPURegMapped_Vers
 
 // MI Version that acts as baseline for NPU4 NNRT API
 // All registers default to this baseline unless specified otherwise
-def NPUReg40XX_BaselineVersion : NPUReg40XX_Version<11, 4, 0>;
+def NPUReg40XX_BaselineVersion : NPUReg40XX_Version<11, 4, 10>;
 
 class NPUReg40XX_RegFieldWrapper<string name = "", int width = 0, int pos = 0, string dataType = "UINT", VPURegMapped_Version version = NPUReg40XX_BaselineVersion> :
     VPURegMapped_RegFieldWrapper<NPUReg40XX_Dialect, name, width, pos, dataType, version> {
-
     }
 
 //
@@ -1387,31 +1386,33 @@ def reg_WI_unit : NPUReg40XX_RegisterWrapper<"wi_unit", 1, 0x9, ["wi_unit"]>;
 def bf_WI_sub_unit : NPUReg40XX_RegFieldWrapper<"wi_sub_unit", 8, 0>;
 def reg_WI_sub_unit : NPUReg40XX_RegisterWrapper<"wi_sub_unit", 1, 0xA, ["wi_sub_unit"]>;
 
-// in API we have pas with 53 bytes, but in compiler we have sanity check for 8 byte per elem -> need 7 pads
-def bf_Pad_8_0 : NPUReg40XX_RegFieldWrapper<"pad_8_0", 64, 0>;
-def reg_Pad_8_0 : NPUReg40XX_RegisterWrapper<"pad_8_0", 8, 0xB, ["pad_8_0"]>;
+def bf_Pad0_8_0 : NPUReg40XX_RegFieldWrapper<"pad0_8_0", 8, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad0_8_0 : NPUReg40XX_RegisterWrapper<"pad0_8_0", 1, 0xB, ["pad0_8_0"]>;
 
-def bf_Pad_8_1 : NPUReg40XX_RegFieldWrapper<"pad_8_1", 64, 0>;
-def reg_Pad_8_1 : NPUReg40XX_RegisterWrapper<"pad_8_1", 8, 0x13, ["pad_8_1"]>;
+def bf_WI_next_workitem_idx : NPUReg40XX_RegFieldWrapper<"next_workitem_idx", 32, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_WI_next_workitem_idx : NPUReg40XX_RegisterWrapper<"next_workitem_idx", 4, 0xC, ["next_workitem_idx"]>;
 
-def bf_Pad_8_2 : NPUReg40XX_RegFieldWrapper<"pad_8_2", 64, 0>;
-def reg_Pad_8_2 : NPUReg40XX_RegisterWrapper<"pad_8_2", 8, 0x1B, ["pad_8_2"]>;
+// in API we have pas with 48 bytes, but in compiler we have sanity check for 8 byte per elem -> need 6 pads
+def bf_Pad1_8_0 : NPUReg40XX_RegFieldWrapper<"pad1_8_0", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_0 : NPUReg40XX_RegisterWrapper<"pad1_8_0", 8, 0x10, ["pad1_8_0"]>;
 
-def bf_Pad_8_3 : NPUReg40XX_RegFieldWrapper<"pad_8_3", 64, 0>;
-def reg_Pad_8_3 : NPUReg40XX_RegisterWrapper<"pad_8_3", 8, 0x23, ["pad_8_3"]>;
+def bf_Pad1_8_1 : NPUReg40XX_RegFieldWrapper<"pad1_8_1", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_1 : NPUReg40XX_RegisterWrapper<"pad1_8_1", 8, 0x18, ["pad1_8_1"]>;
 
-def bf_Pad_8_4 : NPUReg40XX_RegFieldWrapper<"pad_8_4", 64, 0>;
-def reg_Pad_8_4 : NPUReg40XX_RegisterWrapper<"pad_8_4", 8, 0x2B, ["pad_8_4"]>;
+def bf_Pad1_8_2 : NPUReg40XX_RegFieldWrapper<"pad1_8_2", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_2 : NPUReg40XX_RegisterWrapper<"pad1_8_2", 8, 0x20, ["pad1_8_2"]>;
 
-def bf_Pad_8_5 : NPUReg40XX_RegFieldWrapper<"pad_8_5", 64, 0>;
-def reg_Pad_8_5 : NPUReg40XX_RegisterWrapper<"pad_8_5", 8, 0x33, ["pad_8_5"]>;
+def bf_Pad1_8_3 : NPUReg40XX_RegFieldWrapper<"pad1_8_3", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_3 : NPUReg40XX_RegisterWrapper<"pad1_8_3", 8, 0x28, ["pad1_8_3"]>;
 
-def bf_Pad_8_6 : NPUReg40XX_RegFieldWrapper<"pad_5_6", 40, 0>;
-def reg_Pad_8_6 : NPUReg40XX_RegisterWrapper<"pad_5_6", 5, 0x3B, ["pad_5_6"]>;
+def bf_Pad1_8_4 : NPUReg40XX_RegFieldWrapper<"pad1_8_4", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_4 : NPUReg40XX_RegisterWrapper<"pad1_8_4", 8, 0x30, ["pad1_8_4"]>;
 
+def bf_Pad1_8_5 : NPUReg40XX_RegFieldWrapper<"pad1_8_5", 64, 0, "UINT", NPUReg40XX_Version<11, 6, 0>>;
+def reg_Pad1_8_5 : NPUReg40XX_RegisterWrapper<"pad1_8_5", 8, 0x38, ["pad1_8_5"]>;
 
 def reg_mapped_WorkItemDescriptor : NPUReg40XX_RegMappedWrapper<"WorkItem",
-    ["desc_ptr", "wi_type", "wi_unit", "wi_sub_unit", "pad_8_0", "pad_8_1", "pad_8_2", "pad_8_3", "pad_8_4", "pad_8_5", "pad_5_6"]>;
+    ["desc_ptr", "wi_type", "wi_unit", "wi_sub_unit", "pad0_8_0", "next_workitem_idx", "pad1_8_0", "pad1_8_1", "pad1_8_2", "pad1_8_3", "pad1_8_4", "pad1_8_5"]>;
 
 // TaskInfo registers
 def bf_TIDescPtr : NPUReg40XX_RegFieldWrapper<"ti_desc_ptr", 64, 0, "UINT", NPUReg40XX_Version<11, 4, 10>>;
@@ -1475,7 +1476,7 @@ def bf_TaskBArrierReservedNextEnqueueId : NPUReg40XX_RegFieldWrapper<"tb_reserve
 def ref_TaskBArrierReservedNextEnqueueId : NPUReg40XX_RegisterWrapper<"tb_reserved_next_enqueue_id", 4, 0x14, ["tb_reserved_next_enqueue_id"]>;
 
 // TaskBarrierMap descriptor
-def reg_mapped_TaskBarrierMapDescriptor : NPUReg40XX_RegMappedWrapper<"vpuTaskBarrierMap",
+def reg_mapped_TaskBarrierMapDescriptor : NPUReg40XX_RegMappedWrapper<"VpuTaskBarrierMap",
     ["tb_next_same_id", "tb_producer_count", "tb_consumer_count", "tb_real_id", "tb_pad3", "tb_work_item_idx", "tb_enqueue_count", "tb_reserved_next_enqueue_id"]>;
 
 
@@ -1501,5 +1502,1172 @@ def reg_BRConsumersRefOffset : NPUReg40XX_RegisterWrapper<"br_consumers_ref_offs
 
 def reg_mapped_BarrierReferenceMapDescriptor : NPUReg40XX_RegMappedWrapper<"BarrierReferenceMap",
     ["br_physical_barrier", "br_producer_count", "br_consumer_count", "br_pad2", "br_producers_ref_offset", "br_consumers_ref_offset"]>;
+
+//
+// VpuTaskReference
+//
+
+def bf_taskReferenceR1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1", 64, 0, "UINT">;
+def reg_taskReferenceR1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1", 8, 0x0, ["taskReferenceR1"]>;
+
+def bf_taskReferenceR2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2", 64, 0, "UINT">;
+def reg_taskReferenceR2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2", 8, 0x8, ["taskReferenceR2"]>;
+
+def bf_taskReferenceR3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3", 64, 0, "UINT">;
+def reg_taskReferenceR3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3", 8, 0x10, ["taskReferenceR3"]>;
+
+def bf_taskReferenceAddr : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr", 64, 0, "UINT">;
+def reg_taskReferenceAddr : NPUReg40XX_RegisterWrapper<"taskReferenceAddr", 8, 0x18, ["taskReferenceAddr"]>;
+
+def bf_taskReferenceCount : NPUReg40XX_RegFieldWrapper<"taskReferenceCount", 64, 0>;
+def reg_taskReferenceCount : NPUReg40XX_RegisterWrapper<"taskReferenceCount", 8, 0x20, ["taskReferenceCount"]>;
+
+def reg_mapped_VpuTaskReferenceDescriptor : NPUReg40XX_RegMappedWrapper<"VpuTaskReference",
+    ["taskReferenceR1", "taskReferenceR2", "taskReferenceR3", "taskReferenceAddr", "taskReferenceCount"]>;
+
+
+//
+// VpuMappedInference
+//
+
+def bf_miVpuNNRTApiVer : NPUReg40XX_RegFieldWrapper<"miVpuNNRTApiVer", 32, 0, "UINT">;
+def reg_miVpuNNRTApiVer : NPUReg40XX_RegisterWrapper<"miVpuNNRTApiVer", 4, 0x0, ["miVpuNNRTApiVer"]>;
+
+def bf_miPad0 : NPUReg40XX_RegFieldWrapper<"miPad0", 32, 0, "UINT">;
+def reg_miPad0 : NPUReg40XX_RegisterWrapper<"miPad0", 4, 0x4, ["miPad0"]>;
+
+def bf_miReserved0 : NPUReg40XX_RegFieldWrapper<"miReserved0", 64, 0, "UINT">;
+def reg_miReserved0 : NPUReg40XX_RegisterWrapper<"miReserved0", 8, 0x8, ["miReserved0"]>;
+
+def bf_miLogAddrDmaHwp : NPUReg40XX_RegFieldWrapper<"miLogAddrDmaHwp", 64, 0, "UINT">;
+def reg_miLogAddrDmaHwp : NPUReg40XX_RegisterWrapper<"miLogAddrDmaHwp", 8, 0x10, ["miLogAddrDmaHwp"]>;
+
+//VpuTaskCounts
+def bf_miTcReserved1 : NPUReg40XX_RegFieldWrapper<"miTcReserved1", 32, 0, "UINT">;
+def reg_miTcReserved1 : NPUReg40XX_RegisterWrapper<"miTcReserved1", 4, 0x18, ["miTcReserved1"]>;
+
+def bf_miTcReserved2 : NPUReg40XX_RegFieldWrapper<"miTcReserved2", 32, 0, "UINT">;
+def reg_miTcReserved2 : NPUReg40XX_RegisterWrapper<"miTcReserved2", 4, 0x1C, ["miTcReserved2"]>;
+
+def bf_miTcDmaDDRCount : NPUReg40XX_RegFieldWrapper<"miTcDmaDDRCount", 32, 0, "UINT">;
+def reg_miTcDmaDDRCount : NPUReg40XX_RegisterWrapper<"miTcDmaDDRCount", 4, 0x20, ["miTcDmaDDRCount"]>;
+
+def bf_miTcDmaCMXCount : NPUReg40XX_RegFieldWrapper<"miTcDmaCMXCount", 32, 0, "UINT">;
+def reg_miTcDmaCMXCount : NPUReg40XX_RegisterWrapper<"miTcDmaCMXCount", 4, 0x24, ["miTcDmaCMXCount"]>;
+
+def bf_miDPUInvariantCount : NPUReg40XX_RegFieldWrapper<"miDPUInvariantCount", 32, 0, "UINT">;
+def reg_miDPUInvariantCount : NPUReg40XX_RegisterWrapper<"miDPUInvariantCount", 4, 0x28, ["miDPUInvariantCount"]>;
+
+def bf_miTcDPUVariantCount : NPUReg40XX_RegFieldWrapper<"miTcDPUVariantCount", 32, 0, "UINT">;
+def reg_miTcDPUVariantCount : NPUReg40XX_RegisterWrapper<"miTcDPUVariantCount", 4, 0x2C, ["miTcDPUVariantCount"]>;
+
+def bf_miTcActRangeCount : NPUReg40XX_RegFieldWrapper<"miTcActRangeCount", 32, 0, "UINT">;
+def reg_miTcActRangeCount : NPUReg40XX_RegisterWrapper<"miTcActRangeCount", 4, 0x30, ["miTcActRangeCount"]>;
+
+def bf_miTcActInvoCount : NPUReg40XX_RegFieldWrapper<"miTcActInvoCount", 32, 0, "UINT">;
+def reg_miTcActInvoCount : NPUReg40XX_RegisterWrapper<"miTcActInvoCount", 4, 0x34, ["miTcActInvoCount"]>;
+
+def bf_miTcMediaCount : NPUReg40XX_RegFieldWrapper<"miTcMediaCount", 32, 0, "UINT">;
+def reg_miTcMediaCount : NPUReg40XX_RegisterWrapper<"miTcMediaCount", 4, 0x38, ["miTcMediaCount"]>;
+// VpuTaskCounts end
+
+def bf_miTaskStorageSize : NPUReg40XX_RegFieldWrapper<"miTaskStorageSize", 32, 0, "UINT">;
+def reg_miTaskStorageSize : NPUReg40XX_RegisterWrapper<"miTaskStorageSize", 4, 0x3C, ["miTaskStorageSize"]>;
+
+
+// VpuTaskReference<VpuDMATask> dma_tasks_ddr_
+def bf_taskReferenceR1_DMA_DDR_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_0", 8, 0x40, ["taskReferenceR1_DMA_DDR_0"]>;
+def bf_taskReferenceR2_DMA_DDR_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_0", 8, 0x48, ["taskReferenceR2_DMA_DDR_0"]>;
+def bf_taskReferenceR3_DMA_DDR_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_0", 8, 0x50, ["taskReferenceR3_DMA_DDR_0"]>;
+def bf_taskReferenceAddr_DMA_DDR_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_0", 8, 0x58, ["taskReferenceAddr_DMA_DDR_0"]>;
+def bf_taskReferenceCount_DMA_DDR_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_0", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_0", 8, 0x60, ["taskReferenceCount_DMA_DDR_0"]>;
+
+def bf_taskReferenceR1_DMA_DDR_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_1", 8, 0x68, ["taskReferenceR1_DMA_DDR_1"]>;
+def bf_taskReferenceR2_DMA_DDR_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_1", 8, 0x70, ["taskReferenceR2_DMA_DDR_1"]>;
+def bf_taskReferenceR3_DMA_DDR_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_1", 8, 0x78, ["taskReferenceR3_DMA_DDR_1"]>;
+def bf_taskReferenceAddr_DMA_DDR_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_1", 8, 0x80, ["taskReferenceAddr_DMA_DDR_1"]>;
+def bf_taskReferenceCount_DMA_DDR_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_1", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_1", 8, 0x88, ["taskReferenceCount_DMA_DDR_1"]>;
+
+def bf_taskReferenceR1_DMA_DDR_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_2", 8, 0x90, ["taskReferenceR1_DMA_DDR_2"]>;
+def bf_taskReferenceR2_DMA_DDR_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_2", 8, 0x98, ["taskReferenceR2_DMA_DDR_2"]>;
+def bf_taskReferenceR3_DMA_DDR_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_2", 8, 0xA0, ["taskReferenceR3_DMA_DDR_2"]>;
+def bf_taskReferenceAddr_DMA_DDR_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_2", 8, 0xA8, ["taskReferenceAddr_DMA_DDR_2"]>;
+def bf_taskReferenceCount_DMA_DDR_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_2", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_2", 8, 0xB0, ["taskReferenceCount_DMA_DDR_2"]>;
+
+def bf_taskReferenceR1_DMA_DDR_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_3", 8, 0xB8, ["taskReferenceR1_DMA_DDR_3"]>;
+def bf_taskReferenceR2_DMA_DDR_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_3", 8, 0xC0, ["taskReferenceR2_DMA_DDR_3"]>;
+def bf_taskReferenceR3_DMA_DDR_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_3", 8, 0xC8, ["taskReferenceR3_DMA_DDR_3"]>;
+def bf_taskReferenceAddr_DMA_DDR_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_3", 8, 0xD0, ["taskReferenceAddr_DMA_DDR_3"]>;
+def bf_taskReferenceCount_DMA_DDR_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_3", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_3", 8, 0xD8, ["taskReferenceCount_DMA_DDR_3"]>;
+
+def bf_taskReferenceR1_DMA_DDR_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_4", 8, 0xE0, ["taskReferenceR1_DMA_DDR_4"]>;
+def bf_taskReferenceR2_DMA_DDR_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_4", 8, 0xE8, ["taskReferenceR2_DMA_DDR_4"]>;
+def bf_taskReferenceR3_DMA_DDR_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_4", 8, 0xF0, ["taskReferenceR3_DMA_DDR_4"]>;
+def bf_taskReferenceAddr_DMA_DDR_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_4", 8, 0xF8, ["taskReferenceAddr_DMA_DDR_4"]>;
+def bf_taskReferenceCount_DMA_DDR_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_4", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_4", 8, 0x100, ["taskReferenceCount_DMA_DDR_4"]>;
+
+def bf_taskReferenceR1_DMA_DDR_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_DDR_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_DDR_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_DDR_5", 8, 0x108, ["taskReferenceR1_DMA_DDR_5"]>;
+def bf_taskReferenceR2_DMA_DDR_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_DDR_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_DDR_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_DDR_5", 8, 0x110, ["taskReferenceR2_DMA_DDR_5"]>;
+def bf_taskReferenceR3_DMA_DDR_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_DDR_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_DDR_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_DDR_5", 8, 0x118, ["taskReferenceR3_DMA_DDR_5"]>;
+def bf_taskReferenceAddr_DMA_DDR_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_DDR_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_DDR_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_DDR_5", 8, 0x120, ["taskReferenceAddr_DMA_DDR_5"]>;
+def bf_taskReferenceCount_DMA_DDR_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_DDR_5", 64, 0>;
+def reg_taskReferenceCount_DMA_DDR_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_DDR_5", 8, 0x128, ["taskReferenceCount_DMA_DDR_5"]>;
+
+// VpuTaskReference<VpuDMATask> dma_tasks_cmx_
+def bf_taskReferenceR1_DMA_CMX_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_0", 8, 0x130, ["taskReferenceR1_DMA_CMX_0"]>;
+def bf_taskReferenceR2_DMA_CMX_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_0", 8, 0x138, ["taskReferenceR2_DMA_CMX_0"]>;
+def bf_taskReferenceR3_DMA_CMX_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_0", 8, 0x140, ["taskReferenceR3_DMA_CMX_0"]>;
+def bf_taskReferenceAddr_DMA_CMX_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_0", 8, 0x148, ["taskReferenceAddr_DMA_CMX_0"]>;
+def bf_taskReferenceCount_DMA_CMX_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_0", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_0", 8, 0x150, ["taskReferenceCount_DMA_CMX_0"]>;
+
+def bf_taskReferenceR1_DMA_CMX_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_1", 8, 0x158, ["taskReferenceR1_DMA_CMX_1"]>;
+def bf_taskReferenceR2_DMA_CMX_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_1", 8, 0x160, ["taskReferenceR2_DMA_CMX_1"]>;
+def bf_taskReferenceR3_DMA_CMX_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_1", 8, 0x168, ["taskReferenceR3_DMA_CMX_1"]>;
+def bf_taskReferenceAddr_DMA_CMX_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_1", 8, 0x170, ["taskReferenceAddr_DMA_CMX_1"]>;
+def bf_taskReferenceCount_DMA_CMX_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_1", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_1", 8, 0x178, ["taskReferenceCount_DMA_CMX_1"]>;
+
+def bf_taskReferenceR1_DMA_CMX_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_2", 8, 0x180, ["taskReferenceR1_DMA_CMX_2"]>;
+def bf_taskReferenceR2_DMA_CMX_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_2", 8, 0x188, ["taskReferenceR2_DMA_CMX_2"]>;
+def bf_taskReferenceR3_DMA_CMX_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_2", 8, 0x190, ["taskReferenceR3_DMA_CMX_2"]>;
+def bf_taskReferenceAddr_DMA_CMX_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_2", 8, 0x198, ["taskReferenceAddr_DMA_CMX_2"]>;
+def bf_taskReferenceCount_DMA_CMX_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_2", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_2", 8, 0x1A0, ["taskReferenceCount_DMA_CMX_2"]>;
+
+def bf_taskReferenceR1_DMA_CMX_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_3", 8, 0x1A8, ["taskReferenceR1_DMA_CMX_3"]>;
+def bf_taskReferenceR2_DMA_CMX_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_3", 8, 0x1B0, ["taskReferenceR2_DMA_CMX_3"]>;
+def bf_taskReferenceR3_DMA_CMX_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_3", 8, 0x1B8, ["taskReferenceR3_DMA_CMX_3"]>;
+def bf_taskReferenceAddr_DMA_CMX_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_3", 8, 0x1C0, ["taskReferenceAddr_DMA_CMX_3"]>;
+def bf_taskReferenceCount_DMA_CMX_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_3", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_3", 8, 0x1C8, ["taskReferenceCount_DMA_CMX_3"]>;
+
+def bf_taskReferenceR1_DMA_CMX_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_4", 8, 0x1D0, ["taskReferenceR1_DMA_CMX_4"]>;
+def bf_taskReferenceR2_DMA_CMX_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_4", 8, 0x1D8, ["taskReferenceR2_DMA_CMX_4"]>;
+def bf_taskReferenceR3_DMA_CMX_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_4", 8, 0x1E0, ["taskReferenceR3_DMA_CMX_4"]>;
+def bf_taskReferenceAddr_DMA_CMX_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_4", 8, 0x1E8, ["taskReferenceAddr_DMA_CMX_4"]>;
+def bf_taskReferenceCount_DMA_CMX_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_4", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_4", 8, 0x1F0, ["taskReferenceCount_DMA_CMX_4"]>;
+
+def bf_taskReferenceR1_DMA_CMX_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DMA_CMX_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_DMA_CMX_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DMA_CMX_5", 8, 0x1F8, ["taskReferenceR1_DMA_CMX_5"]>;
+def bf_taskReferenceR2_DMA_CMX_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DMA_CMX_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_DMA_CMX_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DMA_CMX_5", 8, 0x200, ["taskReferenceR2_DMA_CMX_5"]>;
+def bf_taskReferenceR3_DMA_CMX_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DMA_CMX_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_DMA_CMX_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DMA_CMX_5", 8, 0x208, ["taskReferenceR3_DMA_CMX_5"]>;
+def bf_taskReferenceAddr_DMA_CMX_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DMA_CMX_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DMA_CMX_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DMA_CMX_5", 8, 0x210, ["taskReferenceAddr_DMA_CMX_5"]>;
+def bf_taskReferenceCount_DMA_CMX_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DMA_CMX_5", 64, 0>;
+def reg_taskReferenceCount_DMA_CMX_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DMA_CMX_5", 8, 0x218, ["taskReferenceCount_DMA_CMX_5"]>;
+
+// VpuTaskReference<VpuDPUInvariant> invariants
+def bf_taskReferenceR1_DPU_inv_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_0", 8, 0x220, ["taskReferenceR1_DPU_inv_0"]>;
+def bf_taskReferenceR2_DPU_inv_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_0", 8, 0x228, ["taskReferenceR2_DPU_inv_0"]>;
+def bf_taskReferenceR3_DPU_inv_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_0", 8, 0x230, ["taskReferenceR3_DPU_inv_0"]>;
+def bf_taskReferenceAddr_DPU_inv_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_0", 8, 0x238, ["taskReferenceAddr_DPU_inv_0"]>;
+def bf_taskReferenceCount_DPU_inv_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_0", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_0", 8, 0x240, ["taskReferenceCount_DPU_inv_0"]>;
+
+def bf_taskReferenceR1_DPU_inv_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_1", 8, 0x248, ["taskReferenceR1_DPU_inv_1"]>;
+def bf_taskReferenceR2_DPU_inv_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_1", 8, 0x250, ["taskReferenceR2_DPU_inv_1"]>;
+def bf_taskReferenceR3_DPU_inv_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_1", 8, 0x258, ["taskReferenceR3_DPU_inv_1"]>;
+def bf_taskReferenceAddr_DPU_inv_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_1", 8, 0x260, ["taskReferenceAddr_DPU_inv_1"]>;
+def bf_taskReferenceCount_DPU_inv_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_1", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_1", 8, 0x268, ["taskReferenceCount_DPU_inv_1"]>;
+
+def bf_taskReferenceR1_DPU_inv_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_2", 8, 0x270, ["taskReferenceR1_DPU_inv_2"]>;
+def bf_taskReferenceR2_DPU_inv_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_2", 8, 0x278, ["taskReferenceR2_DPU_inv_2"]>;
+def bf_taskReferenceR3_DPU_inv_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_2", 8, 0x280, ["taskReferenceR3_DPU_inv_2"]>;
+def bf_taskReferenceAddr_DPU_inv_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_2", 8, 0x288, ["taskReferenceAddr_DPU_inv_2"]>;
+def bf_taskReferenceCount_DPU_inv_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_2", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_2", 8, 0x290, ["taskReferenceCount_DPU_inv_2"]>;
+
+def bf_taskReferenceR1_DPU_inv_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_3", 8, 0x298, ["taskReferenceR1_DPU_inv_3"]>;
+def bf_taskReferenceR2_DPU_inv_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_3", 8, 0x2A0, ["taskReferenceR2_DPU_inv_3"]>;
+def bf_taskReferenceR3_DPU_inv_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_3", 8, 0x2A8, ["taskReferenceR3_DPU_inv_3"]>;
+def bf_taskReferenceAddr_DPU_inv_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_3", 8, 0x2B0, ["taskReferenceAddr_DPU_inv_3"]>;
+def bf_taskReferenceCount_DPU_inv_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_3", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_3", 8, 0x2B8, ["taskReferenceCount_DPU_inv_3"]>;
+
+def bf_taskReferenceR1_DPU_inv_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_4", 8, 0x2C0, ["taskReferenceR1_DPU_inv_4"]>;
+def bf_taskReferenceR2_DPU_inv_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_4", 8, 0x2C8, ["taskReferenceR2_DPU_inv_4"]>;
+def bf_taskReferenceR3_DPU_inv_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_4", 8, 0x2D0, ["taskReferenceR3_DPU_inv_4"]>;
+def bf_taskReferenceAddr_DPU_inv_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_4", 8, 0x2D8, ["taskReferenceAddr_DPU_inv_4"]>;
+def bf_taskReferenceCount_DPU_inv_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_4", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_4", 8, 0x2E0, ["taskReferenceCount_DPU_inv_4"]>;
+
+def bf_taskReferenceR1_DPU_inv_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_inv_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_inv_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_inv_5", 8, 0x2E8, ["taskReferenceR1_DPU_inv_5"]>;
+def bf_taskReferenceR2_DPU_inv_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_inv_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_inv_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_inv_5", 8, 0x2F0, ["taskReferenceR2_DPU_inv_5"]>;
+def bf_taskReferenceR3_DPU_inv_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_inv_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_inv_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_inv_5", 8, 0x2F8, ["taskReferenceR3_DPU_inv_5"]>;
+def bf_taskReferenceAddr_DPU_inv_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_inv_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_inv_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_inv_5", 8, 0x300, ["taskReferenceAddr_DPU_inv_5"]>;
+def bf_taskReferenceCount_DPU_inv_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_inv_5", 64, 0>;
+def reg_taskReferenceCount_DPU_inv_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_inv_5", 8, 0x308, ["taskReferenceCount_DPU_inv_5"]>;
+
+// VpuTaskReference<VpuDPUVariant> variants
+def bf_taskReferenceR1_DPU_var_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_0", 8, 0x310, ["taskReferenceR1_DPU_var_0"]>;
+def bf_taskReferenceR2_DPU_var_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_0", 8, 0x318, ["taskReferenceR2_DPU_var_0"]>;
+def bf_taskReferenceR3_DPU_var_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_0", 8, 0x320, ["taskReferenceR3_DPU_var_0"]>;
+def bf_taskReferenceAddr_DPU_var_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_0", 8, 0x328, ["taskReferenceAddr_DPU_var_0"]>;
+def bf_taskReferenceCount_DPU_var_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_0", 64, 0>;
+def reg_taskReferenceCount_DPU_var_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_0", 8, 0x330, ["taskReferenceCount_DPU_var_0"]>;
+
+def bf_taskReferenceR1_DPU_var_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_1", 8, 0x338, ["taskReferenceR1_DPU_var_1"]>;
+def bf_taskReferenceR2_DPU_var_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_1", 8, 0x340, ["taskReferenceR2_DPU_var_1"]>;
+def bf_taskReferenceR3_DPU_var_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_1", 8, 0x348, ["taskReferenceR3_DPU_var_1"]>;
+def bf_taskReferenceAddr_DPU_var_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_1", 8, 0x350, ["taskReferenceAddr_DPU_var_1"]>;
+def bf_taskReferenceCount_DPU_var_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_1", 64, 0>;
+def reg_taskReferenceCount_DPU_var_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_1", 8, 0x358, ["taskReferenceCount_DPU_var_1"]>;
+
+def bf_taskReferenceR1_DPU_var_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_2", 8, 0x360, ["taskReferenceR1_DPU_var_2"]>;
+def bf_taskReferenceR2_DPU_var_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_2", 8, 0x368, ["taskReferenceR2_DPU_var_2"]>;
+def bf_taskReferenceR3_DPU_var_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_2", 8, 0x370, ["taskReferenceR3_DPU_var_2"]>;
+def bf_taskReferenceAddr_DPU_var_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_2", 8, 0x378, ["taskReferenceAddr_DPU_var_2"]>;
+def bf_taskReferenceCount_DPU_var_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_2", 64, 0>;
+def reg_taskReferenceCount_DPU_var_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_2", 8, 0x380, ["taskReferenceCount_DPU_var_2"]>;
+
+def bf_taskReferenceR1_DPU_var_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_3", 8, 0x388, ["taskReferenceR1_DPU_var_3"]>;
+def bf_taskReferenceR2_DPU_var_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_3", 8, 0x390, ["taskReferenceR2_DPU_var_3"]>;
+def bf_taskReferenceR3_DPU_var_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_3", 8, 0x398, ["taskReferenceR3_DPU_var_3"]>;
+def bf_taskReferenceAddr_DPU_var_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_3", 8, 0x3A0, ["taskReferenceAddr_DPU_var_3"]>;
+def bf_taskReferenceCount_DPU_var_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_3", 64, 0>;
+def reg_taskReferenceCount_DPU_var_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_3", 8, 0x3A8, ["taskReferenceCount_DPU_var_3"]>;
+
+def bf_taskReferenceR1_DPU_var_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_4", 8, 0x3B0, ["taskReferenceR1_DPU_var_4"]>;
+def bf_taskReferenceR2_DPU_var_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_4", 8, 0x3B8, ["taskReferenceR2_DPU_var_4"]>;
+def bf_taskReferenceR3_DPU_var_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_4", 8, 0x3C0, ["taskReferenceR3_DPU_var_4"]>;
+def bf_taskReferenceAddr_DPU_var_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_4", 8, 0x3C8, ["taskReferenceAddr_DPU_var_4"]>;
+def bf_taskReferenceCount_DPU_var_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_4", 64, 0>;
+def reg_taskReferenceCount_DPU_var_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_4", 8, 0x3D0, ["taskReferenceCount_DPU_var_4"]>;
+
+def bf_taskReferenceR1_DPU_var_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_DPU_var_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_DPU_var_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_DPU_var_5", 8, 0x3D8, ["taskReferenceR1_DPU_var_5"]>;
+def bf_taskReferenceR2_DPU_var_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_DPU_var_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_DPU_var_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_DPU_var_5", 8, 0x3E0, ["taskReferenceR2_DPU_var_5"]>;
+def bf_taskReferenceR3_DPU_var_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_DPU_var_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_DPU_var_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_DPU_var_5", 8, 0x3E8, ["taskReferenceR3_DPU_var_5"]>;
+def bf_taskReferenceAddr_DPU_var_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_DPU_var_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_DPU_var_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_DPU_var_5", 8, 0x3F0, ["taskReferenceAddr_DPU_var_5"]>;
+def bf_taskReferenceCount_DPU_var_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_DPU_var_5", 64, 0>;
+def reg_taskReferenceCount_DPU_var_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_DPU_var_5", 8, 0x3F8, ["taskReferenceCount_DPU_var_5"]>;
+
+// VpuTaskReference<VpuActKernelRange> act_kernel_ranges
+def bf_taskReferenceR1_ActKernel_range_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_0", 8, 0x400, ["taskReferenceR1_ActKernel_range_0"]>;
+def bf_taskReferenceR2_ActKernel_range_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_0", 8, 0x408, ["taskReferenceR2_ActKernel_range_0"]>;
+def bf_taskReferenceR3_ActKernel_range_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_0", 8, 0x410, ["taskReferenceR3_ActKernel_range_0"]>;
+def bf_taskReferenceAddr_ActKernel_range_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_0", 8, 0x418, ["taskReferenceAddr_ActKernel_range_0"]>;
+def bf_taskReferenceCount_ActKernel_range_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_0", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_0", 8, 0x420, ["taskReferenceCount_ActKernel_range_0"]>;
+
+def bf_taskReferenceR1_ActKernel_range_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_1", 8, 0x428, ["taskReferenceR1_ActKernel_range_1"]>;
+def bf_taskReferenceR2_ActKernel_range_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_1", 8, 0x430, ["taskReferenceR2_ActKernel_range_1"]>;
+def bf_taskReferenceR3_ActKernel_range_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_1", 8, 0x438, ["taskReferenceR3_ActKernel_range_1"]>;
+def bf_taskReferenceAddr_ActKernel_range_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_1", 8, 0x440, ["taskReferenceAddr_ActKernel_range_1"]>;
+def bf_taskReferenceCount_ActKernel_range_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_1", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_1", 8, 0x448, ["taskReferenceCount_ActKernel_range_1"]>;
+
+def bf_taskReferenceR1_ActKernel_range_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_2", 8, 0x450, ["taskReferenceR1_ActKernel_range_2"]>;
+def bf_taskReferenceR2_ActKernel_range_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_2", 8, 0x458, ["taskReferenceR2_ActKernel_range_2"]>;
+def bf_taskReferenceR3_ActKernel_range_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_2", 8, 0x460, ["taskReferenceR3_ActKernel_range_2"]>;
+def bf_taskReferenceAddr_ActKernel_range_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_2", 8, 0x468, ["taskReferenceAddr_ActKernel_range_2"]>;
+def bf_taskReferenceCount_ActKernel_range_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_2", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_2", 8, 0x470, ["taskReferenceCount_ActKernel_range_2"]>;
+
+def bf_taskReferenceR1_ActKernel_range_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_3", 8, 0x478, ["taskReferenceR1_ActKernel_range_3"]>;
+def bf_taskReferenceR2_ActKernel_range_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_3", 8, 0x480, ["taskReferenceR2_ActKernel_range_3"]>;
+def bf_taskReferenceR3_ActKernel_range_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_3", 8, 0x488, ["taskReferenceR3_ActKernel_range_3"]>;
+def bf_taskReferenceAddr_ActKernel_range_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_3", 8, 0x490, ["taskReferenceAddr_ActKernel_range_3"]>;
+def bf_taskReferenceCount_ActKernel_range_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_3", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_3", 8, 0x498, ["taskReferenceCount_ActKernel_range_3"]>;
+
+def bf_taskReferenceR1_ActKernel_range_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_4", 8, 0x4A0, ["taskReferenceR1_ActKernel_range_4"]>;
+def bf_taskReferenceR2_ActKernel_range_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_4", 8, 0x4A8, ["taskReferenceR2_ActKernel_range_4"]>;
+def bf_taskReferenceR3_ActKernel_range_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_4", 8, 0x4B0, ["taskReferenceR3_ActKernel_range_4"]>;
+def bf_taskReferenceAddr_ActKernel_range_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_4", 8, 0x4B8, ["taskReferenceAddr_ActKernel_range_4"]>;
+def bf_taskReferenceCount_ActKernel_range_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_4", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_4", 8, 0x4C0, ["taskReferenceCount_ActKernel_range_4"]>;
+
+def bf_taskReferenceR1_ActKernel_range_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_range_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_range_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_range_5", 8, 0x4C8, ["taskReferenceR1_ActKernel_range_5"]>;
+def bf_taskReferenceR2_ActKernel_range_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_range_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_range_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_range_5", 8, 0x4D0, ["taskReferenceR2_ActKernel_range_5"]>;
+def bf_taskReferenceR3_ActKernel_range_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_range_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_range_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_range_5", 8, 0x4D8, ["taskReferenceR3_ActKernel_range_5"]>;
+def bf_taskReferenceAddr_ActKernel_range_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_range_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_range_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_range_5", 8, 0x4E0, ["taskReferenceAddr_ActKernel_range_5"]>;
+def bf_taskReferenceCount_ActKernel_range_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_range_5", 64, 0>;
+def reg_taskReferenceCount_ActKernel_range_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_range_5", 8, 0x4E8, ["taskReferenceCount_ActKernel_range_5"]>;
+
+// VpuTaskReference<VpuActKernelInvocation> act_kernel_invocations
+def bf_taskReferenceR1_ActKernel_invo_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_0", 8, 0x4F0, ["taskReferenceR1_ActKernel_invo_0"]>;
+def bf_taskReferenceR2_ActKernel_invo_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_0", 8, 0x4F8, ["taskReferenceR2_ActKernel_invo_0"]>;
+def bf_taskReferenceR3_ActKernel_invo_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_0", 8, 0x500, ["taskReferenceR3_ActKernel_invo_0"]>;
+def bf_taskReferenceAddr_ActKernel_invo_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_0", 8, 0x508, ["taskReferenceAddr_ActKernel_invo_0"]>;
+def bf_taskReferenceCount_ActKernel_invo_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_0", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_0", 8, 0x510, ["taskReferenceCount_ActKernel_invo_0"]>;
+
+def bf_taskReferenceR1_ActKernel_invo_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_1", 8, 0x518, ["taskReferenceR1_ActKernel_invo_1"]>;
+def bf_taskReferenceR2_ActKernel_invo_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_1", 8, 0x520, ["taskReferenceR2_ActKernel_invo_1"]>;
+def bf_taskReferenceR3_ActKernel_invo_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_1", 8, 0x528, ["taskReferenceR3_ActKernel_invo_1"]>;
+def bf_taskReferenceAddr_ActKernel_invo_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_1", 8, 0x530, ["taskReferenceAddr_ActKernel_invo_1"]>;
+def bf_taskReferenceCount_ActKernel_invo_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_1", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_1", 8, 0x538, ["taskReferenceCount_ActKernel_invo_1"]>;
+
+def bf_taskReferenceR1_ActKernel_invo_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_2", 8, 0x540, ["taskReferenceR1_ActKernel_invo_2"]>;
+def bf_taskReferenceR2_ActKernel_invo_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_2", 8, 0x548, ["taskReferenceR2_ActKernel_invo_2"]>;
+def bf_taskReferenceR3_ActKernel_invo_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_2", 8, 0x550, ["taskReferenceR3_ActKernel_invo_2"]>;
+def bf_taskReferenceAddr_ActKernel_invo_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_2", 8, 0x558, ["taskReferenceAddr_ActKernel_invo_2"]>;
+def bf_taskReferenceCount_ActKernel_invo_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_2", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_2", 8, 0x560, ["taskReferenceCount_ActKernel_invo_2"]>;
+
+def bf_taskReferenceR1_ActKernel_invo_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_3", 8, 0x568, ["taskReferenceR1_ActKernel_invo_3"]>;
+def bf_taskReferenceR2_ActKernel_invo_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_3", 8, 0x570, ["taskReferenceR2_ActKernel_invo_3"]>;
+def bf_taskReferenceR3_ActKernel_invo_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_3", 8, 0x578, ["taskReferenceR3_ActKernel_invo_3"]>;
+def bf_taskReferenceAddr_ActKernel_invo_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_3", 8, 0x580, ["taskReferenceAddr_ActKernel_invo_3"]>;
+def bf_taskReferenceCount_ActKernel_invo_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_3", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_3", 8, 0x588, ["taskReferenceCount_ActKernel_invo_3"]>;
+
+def bf_taskReferenceR1_ActKernel_invo_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_4", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_4", 8, 0x590, ["taskReferenceR1_ActKernel_invo_4"]>;
+def bf_taskReferenceR2_ActKernel_invo_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_4", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_4", 8, 0x598, ["taskReferenceR2_ActKernel_invo_4"]>;
+def bf_taskReferenceR3_ActKernel_invo_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_4", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_4 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_4", 8, 0x5A0, ["taskReferenceR3_ActKernel_invo_4"]>;
+def bf_taskReferenceAddr_ActKernel_invo_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_4", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_4 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_4", 8, 0x5A8, ["taskReferenceAddr_ActKernel_invo_4"]>;
+def bf_taskReferenceCount_ActKernel_invo_4 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_4", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_4 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_4", 8, 0x5B0, ["taskReferenceCount_ActKernel_invo_4"]>;
+
+def bf_taskReferenceR1_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ActKernel_invo_5", 64, 0, "UINT">;
+def reg_taskReferenceR1_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ActKernel_invo_5", 8, 0x5B8, ["taskReferenceR1_ActKernel_invo_5"]>;
+def bf_taskReferenceR2_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ActKernel_invo_5", 64, 0, "UINT">;
+def reg_taskReferenceR2_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ActKernel_invo_5", 8, 0x5C0, ["taskReferenceR2_ActKernel_invo_5"]>;
+def bf_taskReferenceR3_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ActKernel_invo_5", 64, 0, "UINT">;
+def reg_taskReferenceR3_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ActKernel_invo_5", 8, 0x5C8, ["taskReferenceR3_ActKernel_invo_5"]>;
+def bf_taskReferenceAddr_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ActKernel_invo_5", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ActKernel_invo_5", 8, 0x5D0, ["taskReferenceAddr_ActKernel_invo_5"]>;
+def bf_taskReferenceCount_ActKernel_invo_5 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ActKernel_invo_5", 64, 0>;
+def reg_taskReferenceCount_ActKernel_invo_5 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ActKernel_invo_5", 8, 0x5D8, ["taskReferenceCount_ActKernel_invo_5"]>;
+
+// VpuTaskReference<VpuMediaTask> media_tasks
+def bf_taskReferenceR1_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MediaTask", 64, 0, "UINT">;
+def reg_taskReferenceR1_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MediaTask", 8, 0x5E0, ["taskReferenceR1_MediaTask"]>;
+def bf_taskReferenceR2_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MediaTask", 64, 0, "UINT">;
+def reg_taskReferenceR2_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MediaTask", 8, 0x5E8, ["taskReferenceR2_MediaTask"]>;
+def bf_taskReferenceR3_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MediaTask", 64, 0, "UINT">;
+def reg_taskReferenceR3_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MediaTask", 8, 0x5F0, ["taskReferenceR3_MediaTask"]>;
+def bf_taskReferenceAddr_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MediaTask", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MediaTask", 8, 0x5F8, ["taskReferenceAddr_MediaTask"]>;
+def bf_taskReferenceCount_MediaTask : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MediaTask", 64, 0>;
+def reg_taskReferenceCount_MediaTask : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MediaTask", 8, 0x600, ["taskReferenceCount_MediaTask"]>;
+
+// VpuTaskReference<VpuBarrierCountConfig> barrier_configs
+def bf_taskReferenceR1_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_BarrierConfig", 64, 0, "UINT">;
+def reg_taskReferenceR1_BarrierConfig : NPUReg40XX_RegisterWrapper<"taskReferenceR1_BarrierConfig", 8, 0x608, ["taskReferenceR1_BarrierConfig"]>;
+def bf_taskReferenceR2_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_BarrierConfig", 64, 0, "UINT">;
+def reg_taskReferenceR2_BarrierConfig : NPUReg40XX_RegisterWrapper<"taskReferenceR2_BarrierConfig", 8, 0x610, ["taskReferenceR2_BarrierConfig"]>;
+def bf_taskReferenceR3_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_BarrierConfig", 64, 0, "UINT">;
+def reg_taskReferenceR3_BarrierConfig : NPUReg40XX_RegisterWrapper<"taskReferenceR3_BarrierConfig", 8, 0x618, ["taskReferenceR3_BarrierConfig"]>;
+def bf_taskReferenceAddr_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_BarrierConfig", 64, 0, "UINT">;
+def reg_taskReferenceAddr_BarrierConfig : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_BarrierConfig", 8, 0x620, ["taskReferenceAddr_BarrierConfig"]>;
+def bf_taskReferenceCount_BarrierConfig : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_BarrierConfig", 64, 0>;
+def reg_taskReferenceCount_BarrierConfig : NPUReg40XX_RegisterWrapper<"taskReferenceCount_BarrierConfig", 8, 0x628, ["taskReferenceCount_BarrierConfig"]>;
+
+// MappedInference.VpuNNShaveRuntimeConfigs
+def bf_MiNNRTCfg_reserved : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_reserved", 64, 0>;
+def reg_MiNNRTCfg_reserved : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_reserved", 8, 0x630, ["MiNNRTCfg_reserved"]>;
+
+def bf_MiNNRTCfg_runtime_entry : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_runtime_entry", 64, 0>;
+def reg_MiNNRTCfg_runtime_entry : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_runtime_entry", 8, 0x638, ["MiNNRTCfg_runtime_entry"]>;
+
+def bf_MiNNRTCfg_act_rt_window_base : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_act_rt_window_base", 64, 0>;
+def reg_MiNNRTCfg_act_rt_window_base : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_act_rt_window_base", 8, 0x640, ["MiNNRTCfg_act_rt_window_base"]>;
+
+// stack_frames
+def bf_MiNNRTCfg_stack_0 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_0", 32, 0>;
+def reg_MiNNRTCfg_stack_0 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_0", 4, 0x648, ["MiNNRTCfg_stack_0"]>;
+def bf_MiNNRTCfg_stack_1 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_1", 32, 0>;
+def reg_MiNNRTCfg_stack_1 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_1", 4, 0x64C, ["MiNNRTCfg_stack_1"]>;
+def bf_MiNNRTCfg_stack_2 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_2", 32, 0>;
+def reg_MiNNRTCfg_stack_2 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_2", 4, 0x650, ["MiNNRTCfg_stack_2"]>;
+def bf_MiNNRTCfg_stack_3 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_3", 32, 0>;
+def reg_MiNNRTCfg_stack_3 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_3", 4, 0x654, ["MiNNRTCfg_stack_3"]>;
+def bf_MiNNRTCfg_stack_4 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_4", 32, 0>;
+def reg_MiNNRTCfg_stack_4 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_4", 4, 0x658, ["MiNNRTCfg_stack_4"]>;
+def bf_MiNNRTCfg_stack_5 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_5", 32, 0>;
+def reg_MiNNRTCfg_stack_5 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_5", 4, 0x65C, ["MiNNRTCfg_stack_5"]>;
+def bf_MiNNRTCfg_stack_6 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_6", 32, 0>;
+def reg_MiNNRTCfg_stack_6 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_6", 4, 0x660, ["MiNNRTCfg_stack_6"]>;
+def bf_MiNNRTCfg_stack_7 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_7", 32, 0>;
+def reg_MiNNRTCfg_stack_7 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_7", 4, 0x664, ["MiNNRTCfg_stack_7"]>;
+def bf_MiNNRTCfg_stack_8 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_8", 32, 0>;
+def reg_MiNNRTCfg_stack_8 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_8", 4, 0x668, ["MiNNRTCfg_stack_8"]>;
+def bf_MiNNRTCfg_stack_9 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_9", 32, 0>;
+def reg_MiNNRTCfg_stack_9 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_9", 4, 0x66C, ["MiNNRTCfg_stack_9"]>;
+def bf_MiNNRTCfg_stack_10 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_10", 32, 0>;
+def reg_MiNNRTCfg_stack_10 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_10", 4, 0x670, ["MiNNRTCfg_stack_10"]>;
+def bf_MiNNRTCfg_stack_11 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_11", 32, 0>;
+def reg_MiNNRTCfg_stack_11 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_11", 4, 0x674, ["MiNNRTCfg_stack_11"]>;
+
+def bf_MiNNRTCfg_stack_size : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_stack_size", 32, 0>;
+def reg_MiNNRTCfg_stack_size : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_stack_size", 4, 0x678, ["MiNNRTCfg_stack_size"]>;
+
+def bf_MiNNRTCfg_code_window_buffer_size : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_code_window_buffer_size", 32, 0>;
+def reg_MiNNRTCfg_code_window_buffer_size : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_code_window_buffer_size", 4, 0x67C, ["MiNNRTCfg_code_window_buffer_size"]>;
+
+def bf_MiNNRTCfg_perf_metrics_mask : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_perf_metrics_mask", 32, 0>;
+def reg_MiNNRTCfg_perf_metrics_mask : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_perf_metrics_mask", 4, 0x680, ["MiNNRTCfg_perf_metrics_mask"]>;
+
+def bf_MiNNRTCfg_runtime_version : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_runtime_version", 32, 0>;
+def reg_MiNNRTCfg_runtime_version : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_runtime_version", 4, 0x684, ["MiNNRTCfg_runtime_version"]>;
+
+def bf_MiNNRTCfg_use_schedule_embedded_rt : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_use_schedule_embedded_rt", 8, 0>;
+def reg_MiNNRTCfg_use_schedule_embedded_rt : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_use_schedule_embedded_rt", 1, 0x688, ["MiNNRTCfg_use_schedule_embedded_rt"]>;
+
+def bf_MiNNRTCfg_dpu_perf_mode : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_dpu_perf_mode", 8, 0>;
+def reg_MiNNRTCfg_dpu_perf_mode : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_dpu_perf_mode", 1, 0x689, ["MiNNRTCfg_dpu_perf_mode"]>;
+
+def bf_MiNNRTCfg_pad_6 : NPUReg40XX_RegFieldWrapper<"MiNNRTCfg_pad_6", 48, 0>;
+def reg_MiNNRTCfg_pad_6 : NPUReg40XX_RegisterWrapper<"MiNNRTCfg_pad_6", 6, 0x68A, ["MiNNRTCfg_pad_6"]>;
+
+// uint64_t hwp_workpoint_cfg_addr
+def bf_MihHwpWorkpointCfgAddr : NPUReg40XX_RegFieldWrapper<"MihHwpWorkpointCfgAddr", 64, 0>;
+def reg_MihHwpWorkpointCfgAddr : NPUReg40XX_RegisterWrapper<"MihHwpWorkpointCfgAddr", 8, 0x690, ["MihHwpWorkpointCfgAddr"]>;
+
+// VpuTaskReference<uint8_t> managed_inference
+def bf_taskReferenceR1_ManagedInference : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_ManagedInference", 64, 0, "UINT">;
+def reg_taskReferenceR1_ManagedInference : NPUReg40XX_RegisterWrapper<"taskReferenceR1_ManagedInference", 8, 0x698, ["taskReferenceR1_ManagedInference"]>;
+def bf_taskReferenceR2_ManagedInference : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_ManagedInference", 64, 0, "UINT">;
+def reg_taskReferenceR2_ManagedInference : NPUReg40XX_RegisterWrapper<"taskReferenceR2_ManagedInference", 8, 0x6A0, ["taskReferenceR2_ManagedInference"]>;
+def bf_taskReferenceR3_ManagedInference : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_ManagedInference", 64, 0, "UINT">;
+def reg_taskReferenceR3_ManagedInference : NPUReg40XX_RegisterWrapper<"taskReferenceR3_ManagedInference", 8, 0x6A8, ["taskReferenceR3_ManagedInference"]>;
+def bf_taskReferenceAddr_ManagedInference : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_ManagedInference", 64, 0, "UINT">;
+def reg_taskReferenceAddr_ManagedInference : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_ManagedInference", 8, 0x6B0, ["taskReferenceAddr_ManagedInference"]>;
+def bf_taskReferenceCount_ManagedInference : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_ManagedInference", 64, 0>;
+def reg_taskReferenceCount_ManagedInference : NPUReg40XX_RegisterWrapper<"taskReferenceCount_ManagedInference", 8, 0x6B8, ["taskReferenceCount_ManagedInference"]>;
+
+def reg_mapped_VpuMappedInferenceDescriptor : NPUReg40XX_RegMappedWrapper<"VpuMappedInference",
+    ["miVpuNNRTApiVer", "miPad0", "miReserved0", "miLogAddrDmaHwp", "miTcReserved1", "miTcReserved2", "miTcDmaDDRCount",
+     "miTcDmaCMXCount", "miDPUInvariantCount", "miTcDPUVariantCount", "miTcActRangeCount", "miTcActInvoCount", "miTcMediaCount", "miTaskStorageSize",
+
+     "taskReferenceR1_DMA_DDR_0", "taskReferenceR2_DMA_DDR_0", "taskReferenceR3_DMA_DDR_0", "taskReferenceAddr_DMA_DDR_0", "taskReferenceCount_DMA_DDR_0",
+     "taskReferenceR1_DMA_DDR_1", "taskReferenceR2_DMA_DDR_1", "taskReferenceR3_DMA_DDR_1", "taskReferenceAddr_DMA_DDR_1", "taskReferenceCount_DMA_DDR_1",
+     "taskReferenceR1_DMA_DDR_2", "taskReferenceR2_DMA_DDR_2", "taskReferenceR3_DMA_DDR_2", "taskReferenceAddr_DMA_DDR_2", "taskReferenceCount_DMA_DDR_2",
+     "taskReferenceR1_DMA_DDR_3", "taskReferenceR2_DMA_DDR_3", "taskReferenceR3_DMA_DDR_3", "taskReferenceAddr_DMA_DDR_3", "taskReferenceCount_DMA_DDR_3",
+     "taskReferenceR1_DMA_DDR_4", "taskReferenceR2_DMA_DDR_4", "taskReferenceR3_DMA_DDR_4", "taskReferenceAddr_DMA_DDR_4", "taskReferenceCount_DMA_DDR_4",
+     "taskReferenceR1_DMA_DDR_5", "taskReferenceR2_DMA_DDR_5", "taskReferenceR3_DMA_DDR_5", "taskReferenceAddr_DMA_DDR_5", "taskReferenceCount_DMA_DDR_5",
+
+     "taskReferenceR1_DMA_CMX_0", "taskReferenceR2_DMA_CMX_0", "taskReferenceR3_DMA_CMX_0", "taskReferenceAddr_DMA_CMX_0", "taskReferenceCount_DMA_CMX_0",
+     "taskReferenceR1_DMA_CMX_1", "taskReferenceR2_DMA_CMX_1", "taskReferenceR3_DMA_CMX_1", "taskReferenceAddr_DMA_CMX_1", "taskReferenceCount_DMA_CMX_1",
+     "taskReferenceR1_DMA_CMX_2", "taskReferenceR2_DMA_CMX_2", "taskReferenceR3_DMA_CMX_2", "taskReferenceAddr_DMA_CMX_2", "taskReferenceCount_DMA_CMX_2",
+     "taskReferenceR1_DMA_CMX_3", "taskReferenceR2_DMA_CMX_3", "taskReferenceR3_DMA_CMX_3", "taskReferenceAddr_DMA_CMX_3", "taskReferenceCount_DMA_CMX_3",
+     "taskReferenceR1_DMA_CMX_4", "taskReferenceR2_DMA_CMX_4", "taskReferenceR3_DMA_CMX_4", "taskReferenceAddr_DMA_CMX_4", "taskReferenceCount_DMA_CMX_4",
+     "taskReferenceR1_DMA_CMX_5", "taskReferenceR2_DMA_CMX_5", "taskReferenceR3_DMA_CMX_5", "taskReferenceAddr_DMA_CMX_5", "taskReferenceCount_DMA_CMX_5",
+
+     "taskReferenceR1_DPU_inv_0", "taskReferenceR2_DPU_inv_0", "taskReferenceR3_DPU_inv_0", "taskReferenceAddr_DPU_inv_0", "taskReferenceCount_DPU_inv_0",
+     "taskReferenceR1_DPU_inv_1", "taskReferenceR2_DPU_inv_1", "taskReferenceR3_DPU_inv_1", "taskReferenceAddr_DPU_inv_1", "taskReferenceCount_DPU_inv_1",
+     "taskReferenceR1_DPU_inv_2", "taskReferenceR2_DPU_inv_2", "taskReferenceR3_DPU_inv_2", "taskReferenceAddr_DPU_inv_2", "taskReferenceCount_DPU_inv_2",
+     "taskReferenceR1_DPU_inv_3", "taskReferenceR2_DPU_inv_3", "taskReferenceR3_DPU_inv_3", "taskReferenceAddr_DPU_inv_3", "taskReferenceCount_DPU_inv_3",
+     "taskReferenceR1_DPU_inv_4", "taskReferenceR2_DPU_inv_4", "taskReferenceR3_DPU_inv_4", "taskReferenceAddr_DPU_inv_4", "taskReferenceCount_DPU_inv_4",
+     "taskReferenceR1_DPU_inv_5", "taskReferenceR2_DPU_inv_5", "taskReferenceR3_DPU_inv_5", "taskReferenceAddr_DPU_inv_5", "taskReferenceCount_DPU_inv_5",
+
+     "taskReferenceR1_DPU_var_0", "taskReferenceR2_DPU_var_0", "taskReferenceR3_DPU_var_0", "taskReferenceAddr_DPU_var_0", "taskReferenceCount_DPU_var_0",
+     "taskReferenceR1_DPU_var_1", "taskReferenceR2_DPU_var_1", "taskReferenceR3_DPU_var_1", "taskReferenceAddr_DPU_var_1", "taskReferenceCount_DPU_var_1",
+     "taskReferenceR1_DPU_var_2", "taskReferenceR2_DPU_var_2", "taskReferenceR3_DPU_var_2", "taskReferenceAddr_DPU_var_2", "taskReferenceCount_DPU_var_2",
+     "taskReferenceR1_DPU_var_3", "taskReferenceR2_DPU_var_3", "taskReferenceR3_DPU_var_3", "taskReferenceAddr_DPU_var_3", "taskReferenceCount_DPU_var_3",
+     "taskReferenceR1_DPU_var_4", "taskReferenceR2_DPU_var_4", "taskReferenceR3_DPU_var_4", "taskReferenceAddr_DPU_var_4", "taskReferenceCount_DPU_var_4",
+     "taskReferenceR1_DPU_var_5", "taskReferenceR2_DPU_var_5", "taskReferenceR3_DPU_var_5", "taskReferenceAddr_DPU_var_5", "taskReferenceCount_DPU_var_5",
+
+     "taskReferenceR1_ActKernel_range_0", "taskReferenceR2_ActKernel_range_0", "taskReferenceR3_ActKernel_range_0", "taskReferenceAddr_ActKernel_range_0", "taskReferenceCount_ActKernel_range_0",
+     "taskReferenceR1_ActKernel_range_1", "taskReferenceR2_ActKernel_range_1", "taskReferenceR3_ActKernel_range_1", "taskReferenceAddr_ActKernel_range_1", "taskReferenceCount_ActKernel_range_1",
+     "taskReferenceR1_ActKernel_range_2", "taskReferenceR2_ActKernel_range_2", "taskReferenceR3_ActKernel_range_2", "taskReferenceAddr_ActKernel_range_2", "taskReferenceCount_ActKernel_range_2",
+     "taskReferenceR1_ActKernel_range_3", "taskReferenceR2_ActKernel_range_3", "taskReferenceR3_ActKernel_range_3", "taskReferenceAddr_ActKernel_range_3", "taskReferenceCount_ActKernel_range_3",
+     "taskReferenceR1_ActKernel_range_4", "taskReferenceR2_ActKernel_range_4", "taskReferenceR3_ActKernel_range_4", "taskReferenceAddr_ActKernel_range_4", "taskReferenceCount_ActKernel_range_4",
+     "taskReferenceR1_ActKernel_range_5", "taskReferenceR2_ActKernel_range_5", "taskReferenceR3_ActKernel_range_5", "taskReferenceAddr_ActKernel_range_5", "taskReferenceCount_ActKernel_range_5",
+
+     "taskReferenceR1_ActKernel_invo_0", "taskReferenceR2_ActKernel_invo_0", "taskReferenceR3_ActKernel_invo_0", "taskReferenceAddr_ActKernel_invo_0", "taskReferenceCount_ActKernel_invo_0",
+     "taskReferenceR1_ActKernel_invo_1", "taskReferenceR2_ActKernel_invo_1", "taskReferenceR3_ActKernel_invo_1", "taskReferenceAddr_ActKernel_invo_1", "taskReferenceCount_ActKernel_invo_1",
+     "taskReferenceR1_ActKernel_invo_2", "taskReferenceR2_ActKernel_invo_2", "taskReferenceR3_ActKernel_invo_2", "taskReferenceAddr_ActKernel_invo_2", "taskReferenceCount_ActKernel_invo_2",
+     "taskReferenceR1_ActKernel_invo_3", "taskReferenceR2_ActKernel_invo_3", "taskReferenceR3_ActKernel_invo_3", "taskReferenceAddr_ActKernel_invo_3", "taskReferenceCount_ActKernel_invo_3",
+     "taskReferenceR1_ActKernel_invo_4", "taskReferenceR2_ActKernel_invo_4", "taskReferenceR3_ActKernel_invo_4", "taskReferenceAddr_ActKernel_invo_4", "taskReferenceCount_ActKernel_invo_4",
+     "taskReferenceR1_ActKernel_invo_5", "taskReferenceR2_ActKernel_invo_5", "taskReferenceR3_ActKernel_invo_5", "taskReferenceAddr_ActKernel_invo_5", "taskReferenceCount_ActKernel_invo_5",
+
+     "taskReferenceR1_MediaTask", "taskReferenceR2_MediaTask", "taskReferenceR3_MediaTask", "taskReferenceAddr_MediaTask", "taskReferenceCount_MediaTask",
+     "taskReferenceR1_BarrierConfig", "taskReferenceR2_BarrierConfig", "taskReferenceR3_BarrierConfig", "taskReferenceAddr_BarrierConfig", "taskReferenceCount_BarrierConfig",
+     "MiNNRTCfg_reserved", "MiNNRTCfg_runtime_entry", "MiNNRTCfg_act_rt_window_base", "MiNNRTCfg_stack_0", "MiNNRTCfg_stack_1", "MiNNRTCfg_stack_2", "MiNNRTCfg_stack_3",
+     "MiNNRTCfg_stack_4", "MiNNRTCfg_stack_5", "MiNNRTCfg_stack_6", "MiNNRTCfg_stack_7", "MiNNRTCfg_stack_8", "MiNNRTCfg_stack_9", "MiNNRTCfg_stack_10", "MiNNRTCfg_stack_11",
+     "MiNNRTCfg_stack_size", "MiNNRTCfg_code_window_buffer_size", "MiNNRTCfg_perf_metrics_mask", "MiNNRTCfg_runtime_version", "MiNNRTCfg_use_schedule_embedded_rt",
+     "MiNNRTCfg_dpu_perf_mode", "MiNNRTCfg_pad_6", "MihHwpWorkpointCfgAddr", "taskReferenceR1_ManagedInference", "taskReferenceR2_ManagedInference",
+     "taskReferenceR3_ManagedInference", "taskReferenceAddr_ManagedInference", "taskReferenceCount_ManagedInference"
+]>;
+
+
+// VpuNNShaveRuntimeConfigs
+def bf_NNRTCfg_reserved : NPUReg40XX_RegFieldWrapper<"NNRTCfg_reserved", 64, 0>;
+def reg_NNRTCfg_reserved : NPUReg40XX_RegisterWrapper<"NNRTCfg_reserved", 8, 0x0, ["NNRTCfg_reserved"]>;
+
+def bf_NNRTCfg_runtime_entry : NPUReg40XX_RegFieldWrapper<"NNRTCfg_runtime_entry", 64, 0>;
+def reg_NNRTCfg_runtime_entry : NPUReg40XX_RegisterWrapper<"NNRTCfg_runtime_entry", 8, 0x8, ["NNRTCfg_runtime_entry"]>;
+
+def bf_NNRTCfg_act_rt_window_base : NPUReg40XX_RegFieldWrapper<"NNRTCfg_act_rt_window_base", 64, 0>;
+def reg_NNRTCfg_act_rt_window_base : NPUReg40XX_RegisterWrapper<"NNRTCfg_act_rt_window_base", 8, 0x10, ["NNRTCfg_act_rt_window_base"]>;
+
+// stack_frames
+def bf_NNRTCfg_stack_0 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_0", 32, 0>;
+def reg_NNRTCfg_stack_0 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_0", 4, 0x18, ["NNRTCfg_stack_0"]>;
+def bf_NNRTCfg_stack_1 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_1", 32, 0>;
+def reg_NNRTCfg_stack_1 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_1", 4, 0x1C, ["NNRTCfg_stack_1"]>;
+def bf_NNRTCfg_stack_2 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_2", 32, 0>;
+def reg_NNRTCfg_stack_2 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_2", 4, 0x20, ["NNRTCfg_stack_2"]>;
+def bf_NNRTCfg_stack_3 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_3", 32, 0>;
+def reg_NNRTCfg_stack_3 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_3", 4, 0x24, ["NNRTCfg_stack_3"]>;
+def bf_NNRTCfg_stack_4 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_4", 32, 0>;
+def reg_NNRTCfg_stack_4 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_4", 4, 0x28, ["NNRTCfg_stack_4"]>;
+def bf_NNRTCfg_stack_5 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_5", 32, 0>;
+def reg_NNRTCfg_stack_5 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_5", 4, 0x2C, ["NNRTCfg_stack_5"]>;
+def bf_NNRTCfg_stack_6 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_6", 32, 0>;
+def reg_NNRTCfg_stack_6 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_6", 4, 0x30, ["NNRTCfg_stack_6"]>;
+def bf_NNRTCfg_stack_7 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_7", 32, 0>;
+def reg_NNRTCfg_stack_7 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_7", 4, 0x34, ["NNRTCfg_stack_7"]>;
+def bf_NNRTCfg_stack_8 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_8", 32, 0>;
+def reg_NNRTCfg_stack_8 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_8", 4, 0x38, ["NNRTCfg_stack_8"]>;
+def bf_NNRTCfg_stack_9 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_9", 32, 0>;
+def reg_NNRTCfg_stack_9 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_9", 4, 0x3C, ["NNRTCfg_stack_9"]>;
+def bf_NNRTCfg_stack_10 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_10", 32, 0>;
+def reg_NNRTCfg_stack_10 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_10", 4, 0x40, ["NNRTCfg_stack_10"]>;
+def bf_NNRTCfg_stack_11 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_11", 32, 0>;
+def reg_NNRTCfg_stack_11 : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_11", 4, 0x44, ["NNRTCfg_stack_11"]>;
+
+def bf_NNRTCfg_stack_size : NPUReg40XX_RegFieldWrapper<"NNRTCfg_stack_size", 32, 0>;
+def reg_NNRTCfg_stack_size : NPUReg40XX_RegisterWrapper<"NNRTCfg_stack_size", 4, 0x48, ["NNRTCfg_stack_size"]>;
+
+def bf_NNRTCfg_code_window_buffer_size : NPUReg40XX_RegFieldWrapper<"NNRTCfg_code_window_buffer_size", 32, 0>;
+def reg_NNRTCfg_code_window_buffer_size : NPUReg40XX_RegisterWrapper<"NNRTCfg_code_window_buffer_size", 4, 0x4C, ["NNRTCfg_code_window_buffer_size"]>;
+
+def bf_NNRTCfg_perf_metrics_mask : NPUReg40XX_RegFieldWrapper<"NNRTCfg_perf_metrics_mask", 32, 0>;
+def reg_NNRTCfg_perf_metrics_mask : NPUReg40XX_RegisterWrapper<"NNRTCfg_perf_metrics_mask", 4, 0x50, ["NNRTCfg_perf_metrics_mask"]>;
+
+def bf_NNRTCfg_runtime_version : NPUReg40XX_RegFieldWrapper<"NNRTCfg_runtime_version", 32, 0>;
+def reg_NNRTCfg_runtime_version : NPUReg40XX_RegisterWrapper<"NNRTCfg_runtime_version", 4, 0x54, ["NNRTCfg_runtime_version"]>;
+
+def bf_NNRTCfg_use_schedule_embedded_rt : NPUReg40XX_RegFieldWrapper<"NNRTCfg_use_schedule_embedded_rt", 8, 0>;
+def reg_NNRTCfg_use_schedule_embedded_rt : NPUReg40XX_RegisterWrapper<"NNRTCfg_use_schedule_embedded_rt", 1, 0x58, ["NNRTCfg_use_schedule_embedded_rt"]>;
+
+def bf_NNRTCfg_dpu_perf_mode : NPUReg40XX_RegFieldWrapper<"NNRTCfg_dpu_perf_mode", 8, 0>;
+def reg_NNRTCfg_dpu_perf_mode : NPUReg40XX_RegisterWrapper<"NNRTCfg_dpu_perf_mode", 1, 0x59, ["NNRTCfg_dpu_perf_mode"]>;
+
+def bf_NNRTCfg_pad_6 : NPUReg40XX_RegFieldWrapper<"NNRTCfg_pad_6", 48, 0>;
+def reg_NNRTCfg_pad_6 : NPUReg40XX_RegisterWrapper<"NNRTCfg_pad_6", 6, 0x5A, ["NNRTCfg_pad_6"]>;
+
+def reg_mapped_VpuNNShaveRuntimeConfigsDescriptor : NPUReg40XX_RegMappedWrapper<"VpuNNShaveRuntimeConfigs",
+    ["NNRTCfg_reserved", "NNRTCfg_runtime_entry", "NNRTCfg_act_rt_window_base", "NNRTCfg_stack_0", "NNRTCfg_stack_1", "NNRTCfg_stack_2",
+     "NNRTCfg_stack_3", "NNRTCfg_stack_4", "NNRTCfg_stack_5", "NNRTCfg_stack_6", "NNRTCfg_stack_7", "NNRTCfg_stack_8", "NNRTCfg_stack_9",
+     "NNRTCfg_stack_10", "NNRTCfg_stack_11", "NNRTCfg_stack_size", "NNRTCfg_code_window_buffer_size", "NNRTCfg_perf_metrics_mask",
+     "NNRTCfg_runtime_version", "NNRTCfg_use_schedule_embedded_rt", "NNRTCfg_dpu_perf_mode", "NNRTCfg_pad_6"
+    ]>;
+
+
+//VpuNNRTConfig
+// this contains VpuNNShaveRuntimeConfigs (see above), and it has two aditional fields:
+
+def bf_NNRTCfg_logAddrDmaHwp : NPUReg40XX_RegFieldWrapper<"NNRTCfg_logAddrDmaHwp", 64, 0>;
+def reg_NNRTCfg_logAddrDmaHwp : NPUReg40XX_RegisterWrapper<"NNRTCfg_logAddrDmaHwp", 8, 0x60, ["NNRTCfg_logAddrDmaHwp"]>;
+
+def bf_NNRTCfg_HwpCfgAddr : NPUReg40XX_RegFieldWrapper<"NNRTCfg_HwpCfgAddr", 64, 0>;
+def reg_NNRTCfg_HwpCfgAddr : NPUReg40XX_RegisterWrapper<"NNRTCfg_HwpCfgAddr", 8, 0x68, ["NNRTCfg_HwpCfgAddr"]>;
+
+def reg_mapped_VpuNNRTConfigDescriptor : NPUReg40XX_RegMappedWrapper<"VpuNNRTConfig",
+    ["NNRTCfg_reserved", "NNRTCfg_runtime_entry", "NNRTCfg_act_rt_window_base", "NNRTCfg_stack_0", "NNRTCfg_stack_1", "NNRTCfg_stack_2", "NNRTCfg_stack_3",
+     "NNRTCfg_stack_4", "NNRTCfg_stack_5", "NNRTCfg_stack_6", "NNRTCfg_stack_7", "NNRTCfg_stack_8", "NNRTCfg_stack_9", "NNRTCfg_stack_10", "NNRTCfg_stack_11",
+     "NNRTCfg_stack_size", "NNRTCfg_code_window_buffer_size", "NNRTCfg_perf_metrics_mask", "NNRTCfg_runtime_version", "NNRTCfg_use_schedule_embedded_rt",
+     "NNRTCfg_dpu_perf_mode", "NNRTCfg_pad_6", "NNRTCfg_logAddrDmaHwp", "NNRTCfg_HwpCfgAddr"
+    ]>;
+
+//
+// VpuBarrierConfiguration
+//
+def bf_BarrierConfiguration_producerCount : NPUReg40XX_RegFieldWrapper<"BarrierConfiguration_producerCount", 8, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_BarrierConfiguration_producerCount : NPUReg40XX_RegisterWrapper<"BarrierConfiguration_producerCount", 1, 0x0, ["BarrierConfiguration_producerCount"]>;
+
+def bf_BarrierConfiguration_producerInterruptEnabled : NPUReg40XX_RegFieldWrapper<"BarrierConfiguration_producerInterruptEnabled", 8, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_BarrierConfiguration_producerInterruptEnabled : NPUReg40XX_RegisterWrapper<"BarrierConfiguration_producerInterruptEnabled", 1, 0x1, ["BarrierConfiguration_producerInterruptEnabled"]>;
+
+def bf_BarrierConfiguration_consumerCount : NPUReg40XX_RegFieldWrapper<"BarrierConfiguration_consumerCount", 8, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_BarrierConfiguration_consumerCount : NPUReg40XX_RegisterWrapper<"BarrierConfiguration_consumerCount", 1, 0x2, ["BarrierConfiguration_consumerCount"]>;
+
+def bf_BarrierConfiguration_consumerInterruptEnabled : NPUReg40XX_RegFieldWrapper<"BarrierConfiguration_consumerInterruptEnabled", 8, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_BarrierConfiguration_consumerInterruptEnabled : NPUReg40XX_RegisterWrapper<"BarrierConfiguration_consumerInterruptEnabled", 1, 0x3, ["BarrierConfiguration_consumerInterruptEnabled"]>;
+
+
+def reg_mapped_VpuBarrierConfigurationDescriptor : NPUReg40XX_RegMappedWrapper<"VpuBarrierConfiguration",
+    [
+        "BarrierConfiguration_producerCount", "BarrierConfiguration_producerInterruptEnabled",
+        "BarrierConfiguration_consumerCount", "BarrierConfiguration_consumerInterruptEnabled"
+    ]>;
+
+
+
+//
+// VpuManagedMappedInferenceInfo
+//
+
+// VpuTaskReference<VpuTaskInfo> tasks_ref_info
+def bf_taskReferenceR1_MMII_tasks_ref_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMII_tasks_ref_info", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMII_tasks_ref_info : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMII_tasks_ref_info", 8, 0x0, ["taskReferenceR1_MMII_tasks_ref_info"]>;
+def bf_taskReferenceR2_MMII_tasks_ref_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMII_tasks_ref_info", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMII_tasks_ref_info : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMII_tasks_ref_info", 8, 0x8, ["taskReferenceR2_MMII_tasks_ref_info"]>;
+def bf_taskReferenceR3_MMII_tasks_ref_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMII_tasks_ref_info", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMII_tasks_ref_info : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMII_tasks_ref_info", 8, 0x10, ["taskReferenceR3_MMII_tasks_ref_info"]>;
+def bf_taskReferenceAddr_MMII_tasks_ref_info : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMII_tasks_ref_info", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMII_tasks_ref_info : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMII_tasks_ref_info", 8, 0x18, ["taskReferenceAddr_MMII_tasks_ref_info"]>;
+def bf_taskReferenceCount_MMII_tasks_ref_info : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMII_tasks_ref_info", 64, 0>;
+def reg_taskReferenceCount_MMII_tasks_ref_info : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMII_tasks_ref_info", 8, 0x20, ["taskReferenceCount_MMII_tasks_ref_info"]>;
+
+// VpuTaskReference<BarrierReferenceMap> vb_mapping
+def bf_taskReferenceR1_MMII_vb_mapping : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMII_vb_mapping", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMII_vb_mapping : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMII_vb_mapping", 8, 0x28, ["taskReferenceR1_MMII_vb_mapping"]>;
+def bf_taskReferenceR2_MMII_vb_mapping : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMII_vb_mapping", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMII_vb_mapping : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMII_vb_mapping", 8, 0x30, ["taskReferenceR2_MMII_vb_mapping"]>;
+def bf_taskReferenceR3_MMII_vb_mapping : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMII_vb_mapping", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMII_vb_mapping : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMII_vb_mapping", 8, 0x38, ["taskReferenceR3_MMII_vb_mapping"]>;
+def bf_taskReferenceAddr_MMII_vb_mapping : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMII_vb_mapping", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMII_vb_mapping : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMII_vb_mapping", 8, 0x40, ["taskReferenceAddr_MMII_vb_mapping"]>;
+def bf_taskReferenceCount_MMII_vb_mapping : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMII_vb_mapping", 64, 0>;
+def reg_taskReferenceCount_MMII_vb_mapping : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMII_vb_mapping", 8, 0x48, ["taskReferenceCount_MMII_vb_mapping"]>;
+
+// VpuTaskReference<uint32_t> barrier_producer_ref_offsets
+def bf_taskReferenceR1_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMII_barrier_producer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMII_barrier_producer_ref_offsets", 8, 0x50, ["taskReferenceR1_MMII_barrier_producer_ref_offsets"]>;
+def bf_taskReferenceR2_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMII_barrier_producer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMII_barrier_producer_ref_offsets", 8, 0x58, ["taskReferenceR2_MMII_barrier_producer_ref_offsets"]>;
+def bf_taskReferenceR3_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMII_barrier_producer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMII_barrier_producer_ref_offsets", 8, 0x60, ["taskReferenceR3_MMII_barrier_producer_ref_offsets"]>;
+def bf_taskReferenceAddr_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMII_barrier_producer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMII_barrier_producer_ref_offsets", 8, 0x68, ["taskReferenceAddr_MMII_barrier_producer_ref_offsets"]>;
+def bf_taskReferenceCount_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMII_barrier_producer_ref_offsets", 64, 0>;
+def reg_taskReferenceCount_MMII_barrier_producer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMII_barrier_producer_ref_offsets", 8, 0x70, ["taskReferenceCount_MMII_barrier_producer_ref_offsets"]>;
+
+// VpuTaskReference<uint32_t> barrier_consumer_ref_offsets
+def bf_taskReferenceR1_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMII_barrier_consumer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMII_barrier_consumer_ref_offsets", 8, 0x78, ["taskReferenceR1_MMII_barrier_consumer_ref_offsets"]>;
+def bf_taskReferenceR2_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMII_barrier_consumer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMII_barrier_consumer_ref_offsets", 8, 0x80, ["taskReferenceR2_MMII_barrier_consumer_ref_offsets"]>;
+def bf_taskReferenceR3_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMII_barrier_consumer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMII_barrier_consumer_ref_offsets", 8, 0x88, ["taskReferenceR3_MMII_barrier_consumer_ref_offsets"]>;
+def bf_taskReferenceAddr_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMII_barrier_consumer_ref_offsets", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMII_barrier_consumer_ref_offsets", 8, 0x90, ["taskReferenceAddr_MMII_barrier_consumer_ref_offsets"]>;
+def bf_taskReferenceCount_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMII_barrier_consumer_ref_offsets", 64, 0>;
+def reg_taskReferenceCount_MMII_barrier_consumer_ref_offsets : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMII_barrier_consumer_ref_offsets", 8, 0x98, ["taskReferenceCount_MMII_barrier_consumer_ref_offsets"]>;
+
+// uint64_t ref_info_base_vars[VPU_MAX_TILES]
+def bf_MMII_ref_info_base_vars_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_0", 8, 0xA0, ["MMII_ref_info_base_vars_0"]>;
+def bf_MMII_ref_info_base_vars_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_1", 8, 0xA8, ["MMII_ref_info_base_vars_1"]>;
+def bf_MMII_ref_info_base_vars_2 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_2", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_2 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_2", 8, 0xB0, ["MMII_ref_info_base_vars_2"]>;
+def bf_MMII_ref_info_base_vars_3 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_3", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_3 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_3", 8, 0xB8, ["MMII_ref_info_base_vars_3"]>;
+def bf_MMII_ref_info_base_vars_4 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_4", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_4 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_4", 8, 0xC0, ["MMII_ref_info_base_vars_4"]>;
+def bf_MMII_ref_info_base_vars_5 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_vars_5", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_vars_5 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_vars_5", 8, 0xC8, ["MMII_ref_info_base_vars_5"]>;
+
+// uint64_t ref_info_base_invars[VPU_MAX_TILES]
+def bf_MMII_ref_info_base_invars_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_0", 8, 0xD0, ["MMII_ref_info_base_invars_0"]>;
+def bf_MMII_ref_info_base_invars_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_1", 8, 0xD8, ["MMII_ref_info_base_invars_1"]>;
+def bf_MMII_ref_info_base_invars_2 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_2", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_2 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_2", 8, 0xE0, ["MMII_ref_info_base_invars_2"]>;
+def bf_MMII_ref_info_base_invars_3 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_3", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_3 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_3", 8, 0xE8, ["MMII_ref_info_base_invars_3"]>;
+def bf_MMII_ref_info_base_invars_4 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_4", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_4 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_4", 8, 0xF0, ["MMII_ref_info_base_invars_4"]>;
+def bf_MMII_ref_info_base_invars_5 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_invars_5", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_invars_5 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_invars_5", 8, 0xF8, ["MMII_ref_info_base_invars_5"]>;
+
+// uint64_t ref_info_base_akr[VPU_MAX_TILES];
+def bf_MMII_ref_info_base_akr_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_0", 8, 0x100, ["MMII_ref_info_base_akr_0"]>;
+def bf_MMII_ref_info_base_akr_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_1", 8, 0x108, ["MMII_ref_info_base_akr_1"]>;
+def bf_MMII_ref_info_base_akr_2 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_2", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_2 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_2", 8, 0x110, ["MMII_ref_info_base_akr_2"]>;
+def bf_MMII_ref_info_base_akr_3 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_3", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_3 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_3", 8, 0x118, ["MMII_ref_info_base_akr_3"]>;
+def bf_MMII_ref_info_base_akr_4 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_4", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_4 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_4", 8, 0x120, ["MMII_ref_info_base_akr_4"]>;
+def bf_MMII_ref_info_base_akr_5 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_akr_5", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_akr_5 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_akr_5", 8, 0x128, ["MMII_ref_info_base_akr_5"]>;
+
+// uint64_t ref_info_base_aki[VPU_MAX_TILES]
+def bf_MMII_ref_info_base_aki_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_0", 8, 0x130, ["MMII_ref_info_base_aki_0"]>;
+def bf_MMII_ref_info_base_aki_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_1", 8, 0x138, ["MMII_ref_info_base_aki_1"]>;
+def bf_MMII_ref_info_base_aki_2 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_2", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_2 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_2", 8, 0x140, ["MMII_ref_info_base_aki_2"]>;
+def bf_MMII_ref_info_base_aki_3 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_3", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_3 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_3", 8, 0x148, ["MMII_ref_info_base_aki_3"]>;
+def bf_MMII_ref_info_base_aki_4 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_4", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_4 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_4", 8, 0x150, ["MMII_ref_info_base_aki_4"]>;
+def bf_MMII_ref_info_base_aki_5 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_aki_5", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_aki_5 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_aki_5", 8, 0x158, ["MMII_ref_info_base_aki_5"]>;
+
+// uint64_t ref_info_base_dma_from_ddr[VPU_MAX_DMA_ENGINES]
+def bf_MMII_ref_info_base_dma_from_ddr_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_dma_from_ddr_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_dma_from_ddr_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_dma_from_ddr_0", 8, 0x160, ["MMII_ref_info_base_dma_from_ddr_0"]>;
+def bf_MMII_ref_info_base_dma_from_ddr_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_dma_from_ddr_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_dma_from_ddr_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_dma_from_ddr_1", 8, 0x168, ["MMII_ref_info_base_dma_from_ddr_1"]>;
+
+// uint64_t ref_info_base_dma_from_cmx[VPU_MAX_DMA_ENGINES]
+def bf_MMII_ref_info_base_dma_from_cmx_0 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_dma_from_cmx_0", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_dma_from_cmx_0 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_dma_from_cmx_0", 8, 0x170, ["MMII_ref_info_base_dma_from_cmx_0"]>;
+def bf_MMII_ref_info_base_dma_from_cmx_1 : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_dma_from_cmx_1", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_dma_from_cmx_1 : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_dma_from_cmx_1", 8, 0x178, ["MMII_ref_info_base_dma_from_cmx_1"]>;
+
+// uint64_t ref_info_base_media
+def bf_MMII_ref_info_base_media : NPUReg40XX_RegFieldWrapper<"MMII_ref_info_base_media", 64, 0, "UINT">;
+def reg_MMII_ref_info_base_media : NPUReg40XX_RegisterWrapper<"MMII_ref_info_base_media", 8, 0x180, ["MMII_ref_info_base_media"]>;
+
+def reg_mapped_VpuManagedMappedInferenceInfoDescriptor : NPUReg40XX_RegMappedWrapper<"VpuManagedMappedInferenceInfo",
+    [
+        "taskReferenceR1_MMII_tasks_ref_info", "taskReferenceR2_MMII_tasks_ref_info", "taskReferenceR3_MMII_tasks_ref_info", "taskReferenceAddr_MMII_tasks_ref_info",
+        "taskReferenceCount_MMII_tasks_ref_info", "taskReferenceR1_MMII_vb_mapping", "taskReferenceR2_MMII_vb_mapping", "taskReferenceR3_MMII_vb_mapping",
+        "taskReferenceAddr_MMII_vb_mapping", "taskReferenceCount_MMII_vb_mapping", "taskReferenceR1_MMII_barrier_producer_ref_offsets",
+        "taskReferenceR2_MMII_barrier_producer_ref_offsets", "taskReferenceR3_MMII_barrier_producer_ref_offsets", "taskReferenceAddr_MMII_barrier_producer_ref_offsets",
+        "taskReferenceCount_MMII_barrier_producer_ref_offsets", "taskReferenceR1_MMII_barrier_consumer_ref_offsets", "taskReferenceR2_MMII_barrier_consumer_ref_offsets",
+        "taskReferenceR3_MMII_barrier_consumer_ref_offsets", "taskReferenceAddr_MMII_barrier_consumer_ref_offsets",
+        "taskReferenceCount_MMII_barrier_consumer_ref_offsets", "MMII_ref_info_base_vars_0", "MMII_ref_info_base_vars_1", "MMII_ref_info_base_vars_2",
+        "MMII_ref_info_base_vars_3", "MMII_ref_info_base_vars_4", "MMII_ref_info_base_vars_5", "MMII_ref_info_base_invars_0", "MMII_ref_info_base_invars_1",
+        "MMII_ref_info_base_invars_2", "MMII_ref_info_base_invars_3", "MMII_ref_info_base_invars_4", "MMII_ref_info_base_invars_5", "MMII_ref_info_base_akr_0",
+        "MMII_ref_info_base_akr_1", "MMII_ref_info_base_akr_2", "MMII_ref_info_base_akr_3", "MMII_ref_info_base_akr_4", "MMII_ref_info_base_akr_5",
+        "MMII_ref_info_base_aki_0", "MMII_ref_info_base_aki_1", "MMII_ref_info_base_aki_2", "MMII_ref_info_base_aki_3", "MMII_ref_info_base_aki_4",
+        "MMII_ref_info_base_aki_5", "MMII_ref_info_base_dma_from_ddr_0", "MMII_ref_info_base_dma_from_ddr_1", "MMII_ref_info_base_dma_from_cmx_0",
+        "MMII_ref_info_base_dma_from_cmx_1", "MMII_ref_info_base_media"
+    ]>;
+
+
+//
+// VpuManagedMappedInference
+//
+
+// uint32_t vpu_nnrt_api_ver
+def bf_MMI_vpu_nnrt_api_ver : NPUReg40XX_RegFieldWrapper<"MMI_vpu_nnrt_api_ver", 32, 0, "UINT">;
+def reg_MMI_vpu_nnrt_api_ver : NPUReg40XX_RegisterWrapper<"MMI_vpu_nnrt_api_ver", 4, 0x0, ["MMI_vpu_nnrt_api_ver"]>;
+
+// uint32_t final_barrier
+def bf_MMI_final_barrier : NPUReg40XX_RegFieldWrapper<"MMI_final_barrier", 32, 0, "UINT">;
+def reg_MMI_final_barrier : NPUReg40XX_RegisterWrapper<"MMI_final_barrier", 4, 0x4, ["MMI_final_barrier"]>;
+
+// VpuTaskReference<VpuWorkItem> work_items
+def bf_taskReferenceR1_MMI_work_item : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_work_item", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_work_item : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_work_item", 8, 0x8, ["taskReferenceR1_MMI_work_item"]>;
+def bf_taskReferenceR2_MMI_work_item : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_work_item", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_work_item : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_work_item", 8, 0x10, ["taskReferenceR2_MMI_work_item"]>;
+def bf_taskReferenceR3_MMI_work_item : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_work_item", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_work_item : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_work_item", 8, 0x18, ["taskReferenceR3_MMI_work_item"]>;
+def bf_taskReferenceAddr_MMI_work_item : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_work_item", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_work_item : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_work_item", 8, 0x20, ["taskReferenceAddr_MMI_work_item"]>;
+def bf_taskReferenceCount_MMI_work_item : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_work_item", 64, 0>;
+def reg_taskReferenceCount_MMI_work_item : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_work_item", 8, 0x28, ["taskReferenceCount_MMI_work_item"]>;
+
+// VpuTaskReference<VpuTaskBarrierMap> task_configs
+def bf_taskReferenceR1_MMI_task_configs : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_task_configs", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_task_configs : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_task_configs", 8, 0x30, ["taskReferenceR1_MMI_task_configs"]>;
+def bf_taskReferenceR2_MMI_task_configs : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_task_configs", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_task_configs : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_task_configs", 8, 0x38, ["taskReferenceR2_MMI_task_configs"]>;
+def bf_taskReferenceR3_MMI_task_configs : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_task_configs", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_task_configs : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_task_configs", 8, 0x40, ["taskReferenceR3_MMI_task_configs"]>;
+def bf_taskReferenceAddr_MMI_task_configs : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_task_configs", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_task_configs : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_task_configs", 8, 0x48, ["taskReferenceAddr_MMI_task_configs"]>;
+def bf_taskReferenceCount_MMI_task_configs : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_task_configs", 64, 0>;
+def reg_taskReferenceCount_MMI_task_configs : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_task_configs", 8, 0x50, ["taskReferenceCount_MMI_task_configs"]>;
+
+// VpuTaskReference<uint32_t> reserved0[4]
+def bf_taskReferenceR1_MMI_reserved0_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_reserved0_0", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_reserved0_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_reserved0_0", 8, 0x58, ["taskReferenceR1_MMI_reserved0_0"]>;
+def bf_taskReferenceR2_MMI_reserved0_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_reserved0_0", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_reserved0_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_reserved0_0", 8, 0x60, ["taskReferenceR2_MMI_reserved0_0"]>;
+def bf_taskReferenceR3_MMI_reserved0_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_reserved0_0", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_reserved0_0 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_reserved0_0", 8, 0x68, ["taskReferenceR3_MMI_reserved0_0"]>;
+def bf_taskReferenceAddr_MMI_reserved0_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_reserved0_0", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_reserved0_0 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_reserved0_0", 8, 0x70, ["taskReferenceAddr_MMI_reserved0_0"]>;
+def bf_taskReferenceCount_MMI_reserved0_0 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_reserved0_0", 64, 0>;
+def reg_taskReferenceCount_MMI_reserved0_0 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_reserved0_0", 8, 0x78, ["taskReferenceCount_MMI_reserved0_0"]>;
+
+def bf_taskReferenceR1_MMI_reserved0_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_reserved0_1", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_reserved0_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_reserved0_1", 8, 0x80, ["taskReferenceR1_MMI_reserved0_1"]>;
+def bf_taskReferenceR2_MMI_reserved0_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_reserved0_1", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_reserved0_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_reserved0_1", 8, 0x88, ["taskReferenceR2_MMI_reserved0_1"]>;
+def bf_taskReferenceR3_MMI_reserved0_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_reserved0_1", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_reserved0_1 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_reserved0_1", 8, 0x90, ["taskReferenceR3_MMI_reserved0_1"]>;
+def bf_taskReferenceAddr_MMI_reserved0_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_reserved0_1", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_reserved0_1 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_reserved0_1", 8, 0x98, ["taskReferenceAddr_MMI_reserved0_1"]>;
+def bf_taskReferenceCount_MMI_reserved0_1 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_reserved0_1", 64, 0>;
+def reg_taskReferenceCount_MMI_reserved0_1 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_reserved0_1", 8, 0xA0, ["taskReferenceCount_MMI_reserved0_1"]>;
+
+def bf_taskReferenceR1_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_reserved0_2", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_reserved0_2", 8, 0xA8, ["taskReferenceR1_MMI_reserved0_2"]>;
+def bf_taskReferenceR2_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_reserved0_2", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_reserved0_2", 8, 0xB0, ["taskReferenceR2_MMI_reserved0_2"]>;
+def bf_taskReferenceR3_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_reserved0_2", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_reserved0_2", 8, 0xB8, ["taskReferenceR3_MMI_reserved0_2"]>;
+def bf_taskReferenceAddr_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_reserved0_2", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_reserved0_2", 8, 0xC0, ["taskReferenceAddr_MMI_reserved0_2"]>;
+def bf_taskReferenceCount_MMI_reserved0_2 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_reserved0_2", 64, 0>;
+def reg_taskReferenceCount_MMI_reserved0_2 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_reserved0_2", 8, 0xC8, ["taskReferenceCount_MMI_reserved0_2"]>;
+
+def bf_taskReferenceR1_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_reserved0_3", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_reserved0_3", 8, 0xD0, ["taskReferenceR1_MMI_reserved0_3"]>;
+def bf_taskReferenceR2_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_reserved0_3", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_reserved0_3", 8, 0xD8, ["taskReferenceR2_MMI_reserved0_3"]>;
+def bf_taskReferenceR3_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_reserved0_3", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_reserved0_3", 8, 0xE0, ["taskReferenceR3_MMI_reserved0_3"]>;
+def bf_taskReferenceAddr_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_reserved0_3", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_reserved0_3", 8, 0xE8, ["taskReferenceAddr_MMI_reserved0_3"]>;
+def bf_taskReferenceCount_MMI_reserved0_3 : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_reserved0_3", 64, 0>;
+def reg_taskReferenceCount_MMI_reserved0_3 : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_reserved0_3", 8, 0xF0, ["taskReferenceCount_MMI_reserved0_3"]>;
+
+// VpuTaskReference<VpuBarrierConfiguration> barriers_configuration
+def bf_taskReferenceR1_MMI_barriers_configuration : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_barriers_configuration", 64, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_taskReferenceR1_MMI_barriers_configuration : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_barriers_configuration", 8, 0xF8, ["taskReferenceR1_MMI_barriers_configuration"]>;
+def bf_taskReferenceR2_MMI_barriers_configuration : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_barriers_configuration", 64, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_taskReferenceR2_MMI_barriers_configuration : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_barriers_configuration", 8, 0x100, ["taskReferenceR2_MMI_barriers_configuration"]>;
+def bf_taskReferenceR3_MMI_barriers_configuration : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_barriers_configuration", 64, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_taskReferenceR3_MMI_barriers_configuration : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_barriers_configuration", 8, 0x108, ["taskReferenceR3_MMI_barriers_configuration"]>;
+def bf_taskReferenceAddr_MMI_barriers_configuration : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_barriers_configuration", 64, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_taskReferenceAddr_MMI_barriers_configuration : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_barriers_configuration", 8, 0x110, ["taskReferenceAddr_MMI_barriers_configuration"]>;
+def bf_taskReferenceCount_MMI_barriers_configuration : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_barriers_configuration", 64, 0, "UINT", NPUReg40XX_Version<11, 5, 0>>;
+def reg_taskReferenceCount_MMI_barriers_configuration : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_barriers_configuration", 8, 0x118, ["taskReferenceCount_MMI_barriers_configuration"]>;
+
+// VpuTaskReference<uint32_t> num_of_barrier_reprogrammings
+def bf_taskReferenceR1_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_num_of_barrier_reprogrammings", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_num_of_barrier_reprogrammings", 8, 0x120, ["taskReferenceR1_MMI_num_of_barrier_reprogrammings"]>;
+def bf_taskReferenceR2_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_num_of_barrier_reprogrammings", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_num_of_barrier_reprogrammings", 8, 0x128, ["taskReferenceR2_MMI_num_of_barrier_reprogrammings"]>;
+def bf_taskReferenceR3_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_num_of_barrier_reprogrammings", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_num_of_barrier_reprogrammings", 8, 0x130, ["taskReferenceR3_MMI_num_of_barrier_reprogrammings"]>;
+def bf_taskReferenceAddr_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_num_of_barrier_reprogrammings", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_num_of_barrier_reprogrammings", 8, 0x138, ["taskReferenceAddr_MMI_num_of_barrier_reprogrammings"]>;
+def bf_taskReferenceCount_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_num_of_barrier_reprogrammings", 64, 0>;
+def reg_taskReferenceCount_MMI_num_of_barrier_reprogrammings : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_num_of_barrier_reprogrammings", 8, 0x140, ["taskReferenceCount_MMI_num_of_barrier_reprogrammings"]>;
+
+// VpuTaskReference<uint32_t> initial_barriers
+def bf_taskReferenceR1_MMI_initial_barriers : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_initial_barriers", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_initial_barriers : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_initial_barriers", 8, 0x148, ["taskReferenceR1_MMI_initial_barriers"]>;
+def bf_taskReferenceR2_MMI_initial_barriers : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_initial_barriers", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_initial_barriers : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_initial_barriers", 8, 0x150, ["taskReferenceR2_MMI_initial_barriers"]>;
+def bf_taskReferenceR3_MMI_initial_barriers : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_initial_barriers", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_initial_barriers : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_initial_barriers", 8, 0x158, ["taskReferenceR3_MMI_initial_barriers"]>;
+def bf_taskReferenceAddr_MMI_initial_barriers : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_initial_barriers", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_initial_barriers : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_initial_barriers", 8, 0x160, ["taskReferenceAddr_MMI_initial_barriers"]>;
+def bf_taskReferenceCount_MMI_initial_barriers : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_initial_barriers", 64, 0>;
+def reg_taskReferenceCount_MMI_initial_barriers : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_initial_barriers", 8, 0x168, ["taskReferenceCount_MMI_initial_barriers"]>;
+
+// VpuTaskReference<VpuNNRTConfig> nnrt_config
+def bf_taskReferenceR1_MMI_nnrt_config : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_nnrt_config", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_nnrt_config : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_nnrt_config", 8, 0x170, ["taskReferenceR1_MMI_nnrt_config"]>;
+def bf_taskReferenceR2_MMI_nnrt_config : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_nnrt_config", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_nnrt_config : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_nnrt_config", 8, 0x178, ["taskReferenceR2_MMI_nnrt_config"]>;
+def bf_taskReferenceR3_MMI_nnrt_config : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_nnrt_config", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_nnrt_config : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_nnrt_config", 8, 0x180, ["taskReferenceR3_MMI_nnrt_config"]>;
+def bf_taskReferenceAddr_MMI_nnrt_config : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_nnrt_config", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_nnrt_config : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_nnrt_config", 8, 0x188, ["taskReferenceAddr_MMI_nnrt_config"]>;
+def bf_taskReferenceCount_MMI_nnrt_config : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_nnrt_config", 64, 0>;
+def reg_taskReferenceCount_MMI_nnrt_config : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_nnrt_config", 8, 0x190, ["taskReferenceCount_MMI_nnrt_config"]>;
+
+// uint8_t actshv_used
+def bf_MMI_actshv_used : NPUReg40XX_RegFieldWrapper<"MMI_actshv_used", 8, 0, "UINT">;
+def reg_MMI_actshv_used : NPUReg40XX_RegisterWrapper<"MMI_actshv_used", 1, 0x198, ["MMI_actshv_used"]>;
+
+// uint8_t dpu_used
+def bf_MMI_dpu_used : NPUReg40XX_RegFieldWrapper<"MMI_dpu_used", 8, 0, "UINT">;
+def reg_MMI_dpu_used : NPUReg40XX_RegisterWrapper<"MMI_dpu_used", 1, 0x199, ["MMI_dpu_used"]>;
+
+// uint8_t media_used
+def bf_MMI_media_used : NPUReg40XX_RegFieldWrapper<"MMI_media_used", 8, 0, "UINT">;
+def reg_MMI_media_used : NPUReg40XX_RegisterWrapper<"MMI_media_used", 1, 0x19A, ["MMI_media_used"]>;
+
+// uint8_t dma_from_ddr_used
+def bf_MMI_dma_from_ddr_used : NPUReg40XX_RegFieldWrapper<"MMI_dma_from_ddr_used", 8, 0, "UINT">;
+def reg_MMI_dma_from_ddr_used : NPUReg40XX_RegisterWrapper<"MMI_dma_from_ddr_used", 1, 0x19B, ["MMI_dma_from_ddr_used"]>;
+
+// uint8_t dma_from_cmx_used
+def bf_MMI_dma_from_cmx_used : NPUReg40XX_RegFieldWrapper<"MMI_dma_from_cmx_used", 8, 0, "UINT">;
+def reg_MMI_dma_from_cmx_used : NPUReg40XX_RegisterWrapper<"MMI_dma_from_cmx_used", 1, 0x19C, ["MMI_dma_from_cmx_used"]>;
+
+// uint8_t pad0_[2];
+def bf_MMI_pad0_ : NPUReg40XX_RegFieldWrapper<"MMI_pad0_", 16, 0, "UINT">;
+def reg_MMI_pad0_ : NPUReg40XX_RegisterWrapper<"MMI_pad0_", 2, 0x19D, ["MMI_pad0_"]>;
+
+// VpuBarrierProgrammingMode barrier_programming_mode;
+def bf_MMI_barrier_programming_mode : NPUReg40XX_RegFieldWrapper<"MMI_barrier_programming_mode", 8, 0, "UINT">;
+def reg_MMI_barrier_programming_mode : NPUReg40XX_RegisterWrapper<"MMI_barrier_programming_mode", 1, 0x19F, ["MMI_barrier_programming_mode"]>;
+
+// VpuTaskReference<VpuManagedMappedInferenceInfo> inference_info
+def bf_taskReferenceR1_MMI_inference_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR1_MMI_inference_info", 64, 0, "UINT">;
+def reg_taskReferenceR1_MMI_inference_info : NPUReg40XX_RegisterWrapper<"taskReferenceR1_MMI_inference_info", 8, 0x1A0, ["taskReferenceR1_MMI_inference_info"]>;
+def bf_taskReferenceR2_MMI_inference_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR2_MMI_inference_info", 64, 0, "UINT">;
+def reg_taskReferenceR2_MMI_inference_info : NPUReg40XX_RegisterWrapper<"taskReferenceR2_MMI_inference_info", 8, 0x1A8, ["taskReferenceR2_MMI_inference_info"]>;
+def bf_taskReferenceR3_MMI_inference_info : NPUReg40XX_RegFieldWrapper<"taskReferenceR3_MMI_inference_info", 64, 0, "UINT">;
+def reg_taskReferenceR3_MMI_inference_info : NPUReg40XX_RegisterWrapper<"taskReferenceR3_MMI_inference_info", 8, 0x1B0, ["taskReferenceR3_MMI_inference_info"]>;
+def bf_taskReferenceAddr_MMI_inference_info : NPUReg40XX_RegFieldWrapper<"taskReferenceAddr_MMI_inference_info", 64, 0, "UINT">;
+def reg_taskReferenceAddr_MMI_inference_info : NPUReg40XX_RegisterWrapper<"taskReferenceAddr_MMI_inference_info", 8, 0x1B8, ["taskReferenceAddr_MMI_inference_info"]>;
+def bf_taskReferenceCount_MMI_inference_info : NPUReg40XX_RegFieldWrapper<"taskReferenceCount_MMI_inference_info", 64, 0>;
+def reg_taskReferenceCount_MMI_inference_info : NPUReg40XX_RegisterWrapper<"taskReferenceCount_MMI_inference_info", 8, 0x1C0, ["taskReferenceCount_MMI_inference_info"]>;
+
+// uint32_t barrier_configuration_stride
+def bf_MMI_barrier_configuration_stride : NPUReg40XX_RegFieldWrapper<"MMI_barrier_configuration_stride", 32, 0, "UINT">;
+def reg_MMI_barrier_configuration_stride : NPUReg40XX_RegisterWrapper<"MMI_barrier_configuration_stride", 4, 0x1C8, ["MMI_barrier_configuration_stride"]>;
+
+// uint8_t pad1_[236]
+def bf_MMI_pad1_0 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_0", 64, 0, "UINT">;
+def reg_MMI_pad1_0 : NPUReg40XX_RegisterWrapper<"MMI_pad1_0", 8, 0x1CC, ["MMI_pad1_0"]>;
+
+def bf_MMI_pad1_1 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_1", 64, 0, "UINT">;
+def reg_MMI_pad1_1 : NPUReg40XX_RegisterWrapper<"MMI_pad1_1", 8, 0x1D4, ["MMI_pad1_1"]>;
+
+def bf_MMI_pad1_2 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_2", 64, 0, "UINT">;
+def reg_MMI_pad1_2 : NPUReg40XX_RegisterWrapper<"MMI_pad1_2", 8, 0x1DC, ["MMI_pad1_2"]>;
+
+def bf_MMI_pad1_3 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_3", 64, 0, "UINT">;
+def reg_MMI_pad1_3 : NPUReg40XX_RegisterWrapper<"MMI_pad1_3", 8, 0x1E4, ["MMI_pad1_3"]>;
+
+def bf_MMI_pad1_4 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_4", 64, 0, "UINT">;
+def reg_MMI_pad1_4 : NPUReg40XX_RegisterWrapper<"MMI_pad1_4", 8, 0x1EC, ["MMI_pad1_4"]>;
+
+def bf_MMI_pad1_5 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_5", 64, 0, "UINT">;
+def reg_MMI_pad1_5 : NPUReg40XX_RegisterWrapper<"MMI_pad1_5", 8, 0x1F4, ["MMI_pad1_5"]>;
+
+def bf_MMI_pad1_6 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_6", 64, 0, "UINT">;
+def reg_MMI_pad1_6 : NPUReg40XX_RegisterWrapper<"MMI_pad1_6", 8, 0x1FC, ["MMI_pad1_6"]>;
+
+def bf_MMI_pad1_7 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_7", 64, 0, "UINT">;
+def reg_reg_MMI_pad1_7 : NPUReg40XX_RegisterWrapper<"MMI_pad1_7", 8, 0x204, ["MMI_pad1_7"]>;
+
+def bf_MMI_pad1_8 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_8", 64, 0, "UINT">;
+def reg_MMI_pad1_8 : NPUReg40XX_RegisterWrapper<"MMI_pad1_8", 8, 0x20C, ["MMI_pad1_8"]>;
+
+def bf_MMI_pad1_9 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_9", 64, 0, "UINT">;
+def reg_MMI_pad1_9 : NPUReg40XX_RegisterWrapper<"MMI_pad1_9", 8, 0x214, ["MMI_pad1_9"]>;
+
+def bf_MMI_pad1_10 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_10", 64, 0, "UINT">;
+def reg_MMI_pad1_10 : NPUReg40XX_RegisterWrapper<"MMI_pad1_10", 8, 0x21C, ["MMI_pad1_10"]>;
+
+def bf_MMI_pad1_11 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_11", 64, 0, "UINT">;
+def reg_MMI_pad1_11 : NPUReg40XX_RegisterWrapper<"MMI_pad1_11", 8, 0x224, ["MMI_pad1_11"]>;
+
+def bf_MMI_pad1_12 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_12", 64, 0, "UINT">;
+def reg_MMI_pad1_12 : NPUReg40XX_RegisterWrapper<"MMI_pad1_12", 8, 0x22C, ["MMI_pad1_12"]>;
+
+def bf_MMI_pad1_13 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_13", 64, 0, "UINT">;
+def reg_MMI_pad1_13 : NPUReg40XX_RegisterWrapper<"MMI_pad1_13", 8, 0x234, ["MMI_pad1_13"]>;
+
+def bf_MMI_pad1_14 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_14", 64, 0, "UINT">;
+def reg_MMI_pad1_14 : NPUReg40XX_RegisterWrapper<"MMI_pad1_14", 8, 0x23C, ["MMI_pad1_14"]>;
+
+def bf_MMI_pad1_15 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_15", 64, 0, "UINT">;
+def reg_MMI_pad1_15 : NPUReg40XX_RegisterWrapper<"MMI_pad1_15", 8, 0x244, ["MMI_pad1_15"]>;
+
+def bf_MMI_pad1_16 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_16", 64, 0, "UINT">;
+def reg_MMI_pad1_16 : NPUReg40XX_RegisterWrapper<"MMI_pad1_16", 8, 0x24C, ["MMI_pad1_16"]>;
+
+def bf_MMI_pad1_17 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_17", 64, 0, "UINT">;
+def reg_MMI_pad1_17 : NPUReg40XX_RegisterWrapper<"MMI_pad1_17", 8, 0x254, ["MMI_pad1_17"]>;
+
+def bf_MMI_pad1_18 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_18", 64, 0, "UINT">;
+def reg_MMI_pad1_18 : NPUReg40XX_RegisterWrapper<"MMI_pad1_18", 8, 0x25C, ["MMI_pad1_18"]>;
+
+def bf_MMI_pad1_19 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_19", 64, 0, "UINT">;
+def reg_MMI_pad1_19 : NPUReg40XX_RegisterWrapper<"MMI_pad1_19", 8, 0x264, ["MMI_pad1_19"]>;
+
+def bf_MMI_pad1_20 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_20", 64, 0, "UINT">;
+def reg_MMI_pad1_20 : NPUReg40XX_RegisterWrapper<"MMI_pad1_20", 8, 0x26C, ["MMI_pad1_20"]>;
+
+def bf_MMI_pad1_21 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_21", 64, 0, "UINT">;
+def reg_MMI_pad1_21 : NPUReg40XX_RegisterWrapper<"MMI_pad1_21", 8, 0x274, ["MMI_pad1_21"]>;
+
+def bf_MMI_pad1_22 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_22", 64, 0, "UINT">;
+def reg_MMI_pad1_22 : NPUReg40XX_RegisterWrapper<"MMI_pad1_22", 8, 0x27C, ["MMI_pad1_22"]>;
+
+def bf_MMI_pad1_23 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_23", 64, 0, "UINT">;
+def reg_MMI_pad1_23 : NPUReg40XX_RegisterWrapper<"MMI_pad1_23", 8, 0x284, ["MMI_pad1_23"]>;
+
+def bf_MMI_pad1_24 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_24", 64, 0, "UINT">;
+def reg_MMI_pad1_24 : NPUReg40XX_RegisterWrapper<"MMI_pad1_24", 8, 0x28C, ["MMI_pad1_24"]>;
+
+def bf_MMI_pad1_25 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_25", 64, 0, "UINT">;
+def reg_MMI_pad1_25 : NPUReg40XX_RegisterWrapper<"MMI_pad1_25", 8, 0x294, ["MMI_pad1_25"]>;
+
+def bf_MMI_pad1_26 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_26", 64, 0, "UINT">;
+def reg_MMI_pad1_26 : NPUReg40XX_RegisterWrapper<"MMI_pad1_26", 8, 0x29C, ["MMI_pad1_26"]>;
+
+def bf_MMI_pad1_27 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_27", 64, 0, "UINT">;
+def reg_MMI_pad1_27 : NPUReg40XX_RegisterWrapper<"MMI_pad1_27", 8, 0x2A4, ["MMI_pad1_27"]>;
+
+def bf_MMI_pad1_28 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_28", 64, 0, "UINT">;
+def reg_MMI_pad1_28 : NPUReg40XX_RegisterWrapper<"MMI_pad1_28", 8, 0x2AC, ["MMI_pad1_28"]>;
+
+def bf_MMI_pad1_29 : NPUReg40XX_RegFieldWrapper<"MMI_pad1_29", 32, 0, "UINT">;
+def reg_MMI_pad1_29 : NPUReg40XX_RegisterWrapper<"MMI_pad1_29", 4, 0x2B4, ["MMI_pad1_29"]>;
+
+// uint32_t bootstrap_workitems_count
+def bf_MMI_bootstrap_workitems_count : NPUReg40XX_RegFieldWrapper<"MMI_bootstrap_workitems_count", 32, 0, "UINT">;
+def reg_MMI_bootstrap_workitems_count : NPUReg40XX_RegisterWrapper<"MMI_bootstrap_workitems_count", 4, 0x2B8, ["MMI_bootstrap_workitems_count"]>;
+
+// uint8_t pad2_[4]
+def bf_MMI_pad2_ : NPUReg40XX_RegFieldWrapper<"MMI_pad2_", 32, 0, "UINT">;
+def reg_MMI_pad2_ : NPUReg40XX_RegisterWrapper<"MMI_pad2_", 4, 0x2BC, ["MMI_pad2_"]>;
+
+def reg_mapped_VpuManagedMappedInferenceDescriptor : NPUReg40XX_RegMappedWrapper<"VpuManagedMappedInference",
+    [
+        "MMI_vpu_nnrt_api_ver", "MMI_final_barrier",
+        "taskReferenceR1_MMI_work_item", "taskReferenceR2_MMI_work_item", "taskReferenceR3_MMI_work_item", "taskReferenceAddr_MMI_work_item", "taskReferenceCount_MMI_work_item",
+        "taskReferenceR1_MMI_task_configs", "taskReferenceR2_MMI_task_configs", "taskReferenceR3_MMI_task_configs", "taskReferenceAddr_MMI_task_configs", "taskReferenceCount_MMI_task_configs",
+        "taskReferenceR1_MMI_reserved0_0", "taskReferenceR2_MMI_reserved0_0", "taskReferenceR3_MMI_reserved0_0", "taskReferenceAddr_MMI_reserved0_0", "taskReferenceCount_MMI_reserved0_0",
+        "taskReferenceR1_MMI_reserved0_1", "taskReferenceR2_MMI_reserved0_1", "taskReferenceR3_MMI_reserved0_1", "taskReferenceAddr_MMI_reserved0_1", "taskReferenceCount_MMI_reserved0_1",
+        "taskReferenceR1_MMI_reserved0_2", "taskReferenceR2_MMI_reserved0_2", "taskReferenceR3_MMI_reserved0_2", "taskReferenceAddr_MMI_reserved0_2", "taskReferenceCount_MMI_reserved0_2",
+        "taskReferenceR1_MMI_reserved0_3", "taskReferenceR2_MMI_reserved0_3", "taskReferenceR3_MMI_reserved0_3", "taskReferenceAddr_MMI_reserved0_3", "taskReferenceCount_MMI_reserved0_3",
+        "taskReferenceR1_MMI_barriers_configuration", "taskReferenceR2_MMI_barriers_configuration", "taskReferenceR3_MMI_barriers_configuration", "taskReferenceAddr_MMI_barriers_configuration", "taskReferenceCount_MMI_barriers_configuration",
+        "taskReferenceR1_MMI_num_of_barrier_reprogrammings", "taskReferenceR2_MMI_num_of_barrier_reprogrammings", "taskReferenceR3_MMI_num_of_barrier_reprogrammings", "taskReferenceAddr_MMI_num_of_barrier_reprogrammings", "taskReferenceCount_MMI_num_of_barrier_reprogrammings",
+        "taskReferenceR1_MMI_initial_barriers", "taskReferenceR2_MMI_initial_barriers", "taskReferenceR3_MMI_initial_barriers", "taskReferenceAddr_MMI_initial_barriers", "taskReferenceCount_MMI_initial_barriers",
+        "taskReferenceR1_MMI_nnrt_config", "taskReferenceR2_MMI_nnrt_config", "taskReferenceR3_MMI_nnrt_config", "taskReferenceAddr_MMI_nnrt_config", "taskReferenceCount_MMI_nnrt_config",
+        "MMI_actshv_used", "MMI_dpu_used", "MMI_media_used", "MMI_dma_from_ddr_used", "MMI_dma_from_cmx_used", "MMI_pad0_", "MMI_barrier_programming_mode",
+        "taskReferenceR1_MMI_inference_info", "taskReferenceR2_MMI_inference_info", "taskReferenceR3_MMI_inference_info", "taskReferenceAddr_MMI_inference_info", "taskReferenceCount_MMI_inference_info",
+        "MMI_barrier_configuration_stride", "MMI_pad1_0", "MMI_pad1_1", "MMI_pad1_2", "MMI_pad1_3", "MMI_pad1_4", "MMI_pad1_5", "MMI_pad1_6", "MMI_pad1_7",
+        "MMI_pad1_8", "MMI_pad1_9", "MMI_pad1_10", "MMI_pad1_11", "MMI_pad1_12", "MMI_pad1_13", "MMI_pad1_14", "MMI_pad1_15", "MMI_pad1_16", "MMI_pad1_17",
+        "MMI_pad1_18", "MMI_pad1_19", "MMI_pad1_20", "MMI_pad1_21", "MMI_pad1_22", "MMI_pad1_23", "MMI_pad1_24", "MMI_pad1_25", "MMI_pad1_26", "MMI_pad1_27",
+        "MMI_pad1_28", "MMI_pad1_29", "MMI_bootstrap_workitems_count", "MMI_pad2_"
+    ]>;
 
 #endif

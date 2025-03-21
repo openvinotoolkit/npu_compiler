@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --multi-cluster-strategy-assignment %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @EltwiseAddAssignedSOHOverlapped
@@ -986,4 +985,62 @@ func.func @GatherElementsAssignedClustering(%arg0: tensor<1x1x512x1xf16>) -> ten
     // CHECK:       [[GATHER_ELEMENTS:%.+]] = VPU.GatherElements([[INPUT]], [[INDICES]])
     // CHECK-SAME:         {axis = 2 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>}
     // CHECK:        return [[GATHER_ELEMENTS]] : tensor<1x1x64x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @RemoveClusteringStrategy
+// CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x1x1x77xf16>
+// CHECK-SAME:    [[INPUT1:%.+]]: tensor<77x768xf16>
+func.func @RemoveClusteringStrategy(%arg0: tensor<1x1x1x77xf16>, %arg1: tensor<77x768xf16>) -> tensor<1x768xf16> {
+    %cst = const.Declare tensor<1x1x1x1232xui8> = dense<0> : tensor<1x1x1x1232xui8>
+    %0 = VPU.Convert(%arg0) {dstElemType = si32} : tensor<1x1x1x77xf16> -> tensor<1x1x1x77xsi32>
+    %output_values, %target_shape = VPU.TopK(%0, %cst) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<NONE>} : tensor<1x1x1x77xsi32>, tensor<1x1x1x1232xui8> -> tensor<1x1x1x1xsi32>, tensor<1x1x1x1xsi32>
+    %1 = VPU.AffineReshape(%target_shape) {dim_mapping = [[0], [0], [0], [0]], shape_value = [1]} : tensor<1x1x1x1xsi32> -> tensor<1xsi32>
+    %2 = VPU.Gather(%arg1, %1) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64} : tensor<77x768xf16>, tensor<1xsi32> -> tensor<1x768xf16>
+    return %2 : tensor<1x768xf16>
+
+    // CHECK-DAG: [[TOPK_CST:%.+]] = const.Declare tensor<1x1x1x1232xui8> = dense<0> : tensor<1x1x1x1232xui8>
+    // CHECK: [[CONVERT:%.+]] = VPU.Convert([[INPUT0]])
+    // CHECK-SAME:  {dstElemType = si32} : tensor<1x1x1x77xf16> -> tensor<1x1x1x77xsi32>
+    // CHECK-NOT:   multiClusterStrategy
+
+    // CHECK: [[TOPK_VALUE:%.+]], [[TOPK_SHAPE:%.+]] = VPU.TopK([[CONVERT]], [[TOPK_CST]])
+    // CHECK-SAME: {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<NONE>}
+    // CHECK-NOT:  multiClusterStrategy
+    // CHECK: tensor<1x1x1x77xsi32>, tensor<1x1x1x1232xui8> -> tensor<1x1x1x1xsi32>, tensor<1x1x1x1xsi32>
+
+    // CHECK: [[RESHAPE:%.+]] = VPU.AffineReshape([[TOPK_SHAPE]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [0], [0], [0]], shape_value = [1]} : tensor<1x1x1x1xsi32> -> tensor<1xsi32>
+    // CHECK: [[GATHER:%.+]] = VPU.Gather([[INPUT1]], [[RESHAPE]])
+    // CHECK-SAME: {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 1 : i64}
+    // CHECK-NOT:  multiClusterStrategy
+    // CHECK: tensor<77x768xf16>, tensor<1xsi32> -> tensor<1x768xf16>
+    // CHECK: return [[GATHER]] : tensor<1x768xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @RMSNormAssignedClustering
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x1x1x768xf16>
+func.func @RMSNormAssignedClustering(%arg: tensor<1x1x1x768xf16>) -> tensor<1x1x1x768xf16> {
+    %cst_0 = const.Declare tensor<1x1x1x768xf16> = dense<0.0> : tensor<1x1x1x768xf16>, [#const.Reshape<[1, 1, 1, 768]>, #const.CastElemType<f16>]
+    %0 = VPU.RMS(%arg, %cst_0) {epsilon = 1.0013580322265625E-5 : f64} : tensor<1x1x1x768xf16>, tensor<1x1x1x768xf16> -> tensor<1x1x1x768xf16>
+    return %0 : tensor<1x1x1x768xf16>
+
+    //CHECK:       [[GAMMA:%.+]] = const.Declare tensor<1x1x1x768xf16>
+    //CHECK:       [[RMS:%.+]] = VPU.RMS([[INPUT]], [[GAMMA]]) {
+    //CHECK-SAME:       multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
+}
+
+// -----
+
+// CHECK-LABEL:   @RoPEAssignedSplitOverKernel
+func.func @RoPEAssignedSplitOverKernel(%arg0: tensor<1x32x1x64xf16>, %arg1: tensor<1x1x1x64xf16>, %arg2: tensor<1x1x1x64xf16>) -> tensor<1x32x1x64xf16> {
+    %0 = VPU.RoPE(%arg0, %arg1, %arg2) : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
+    return %0 : tensor<1x32x1x64xf16>
+
+    // CHECK:       %0 = VPU.RoPE(%arg0, %arg1, %arg2)
+    // CHECK-SAME:         {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>}
+    // CHECK:        return %0 : tensor<1x32x1x64xf16>
 }

@@ -5,9 +5,10 @@
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 
-#include "vpux/compiler/core/attributes/indexed_symbol_attr.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
+#include "vpux/compiler/dialect/IERT/types.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
@@ -19,6 +20,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/asm.hpp"
@@ -580,6 +582,10 @@ bool isSupportedIsolatedTiling(VPU::NCEPermuteOp origOp, const OutputTiling& til
     });
 }
 
+bool isSupportedIsolatedTiling(VPU::NCEMatMulOp origOp, const OutputTiling& tiles, Logger log) {
+    return isSupportedIsolatedTilingConvBased(origOp, tiles, log);
+}
+
 bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp origOp,
                                                   const OutputTiling& firstOutputTiles, Logger log) {
     if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
@@ -635,7 +641,7 @@ bool isSupportedIsolatedTilingSwLayer(mlir::Operation* origOp, const OutputTilin
             .Case<VPU::GroupConvolutionOp>([&](VPU::GroupConvolutionOp op) {
                 return isSupportedIsolatedTiling(op, tiles, log);
             })
-            .Case<VPU::AddOp, VPU::MultiplyOp, VPU::SubtractOp, VPU::AndOp>([&](mlir::Operation* op) {
+            .Case<VPU::AddOp, VPU::MultiplyOp, VPU::SubtractOp>([&](mlir::Operation* op) {
                 return isSupportedIsolatedTilingEltwise(op, tiles, log);
             })
             .Case<VPU::DepthToSpaceOp>([&](VPU::DepthToSpaceOp op) {
@@ -708,35 +714,6 @@ bool isLastTileBiggest(mlir::Operation* op, ShapeRef tileAxis, ShapeRef outputSh
     return lastTile->shape[tileDim] > firstTile->shape[tileDim];
 }
 
-bool isDivisibleTile(mlir::Operation* op, ShapeRef tileAxis, Dim tileDim, int64_t kernelSize) {
-    int64_t minChannelSize = 1;
-    if (auto channelsInfo = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
-        minChannelSize = channelsInfo.getOutputChannelAlignment();
-    }
-    auto outputShape = getShape(op->getResult(0));
-    if (tileDim == Dims4D::Act::C) {
-        // If tiling over C and C is not very large, it is possible that tiling over one more dimensions will be more
-        // efficient. Additionally, if C divided by twice minchannel is an odd number, then in this case, if we continue
-        // to strictly enforce the divisible condition, it is highly likely that we will not be able to find such a
-        // divisible value (so we cannot find a more efficient candicate for cost model). This will
-        // hinder the pipeline in many cases, such as 7888, 8016.
-        if (outputShape[tileDim] % (minChannelSize * 2) == 0 ||
-            outputShape[Dims4D::Act::C] < outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W]) {
-            return (outputShape[tileDim] / tileAxis[tileDim] >= minChannelSize) &&
-                   (outputShape[tileDim] % tileAxis[tileDim] == 0) &&
-                   ((outputShape[tileDim] / tileAxis[tileDim]) % minChannelSize == 0);
-        } else {
-            return (outputShape[tileDim] / tileAxis[tileDim] >= minChannelSize);
-        }
-    } else if (tileDim == Dims4D::Act::W && mlir::isa<VPU::NCEPermuteOp>(op)) {
-        return (outputShape[tileDim] / tileAxis[tileDim] >= minChannelSize) &&
-               (outputShape[tileDim] % tileAxis[tileDim] == 0) &&
-               ((outputShape[tileDim] / tileAxis[tileDim]) % minChannelSize == 0);
-    } else {
-        return outputShape[tileDim] / tileAxis[tileDim] >= kernelSize;
-    }
-}
-
 bool checkPrefetchMem(mlir::Operation* op, const OutputTiling& tiles, Logger log) {
     auto parentOp = VPU::getParentComputeOp(op);
     if (parentOp == nullptr) {
@@ -780,8 +757,7 @@ bool isSupportedPrefetchTilingConvBased(ConcreteOp origOp, const OutputTiling& t
         return false;
     }
     auto tileDim = tileDims[0];
-    const auto rawFilterShape = Shape(parseIntArrayAttr<int64_t>(origOp.getRawFilterShape()));
-    return isDivisibleTile(origOp.getOperation(), tileAxis, tileDim, rawFilterShape[tileDim]) && isMemPrefetchable() &&
+    return VPU::isDivisibleTile(origOp.getOperation(), tileAxis, tileDim) && isMemPrefetchable() &&
            !isLastTileBiggest(origOp.getOperation(), tileAxis, outputShape, tileDim);
 }
 
@@ -829,10 +805,8 @@ bool isSupportedPrefetchTiling(VPU::NCEMaxPoolOp origOp, const OutputTiling& til
     auto tileDim = tileDims[0];
     auto outputShape = getShape(origOp.getOutput());
 
-    size_t realKernelIndex = tileDim == Dims4D::Act::H ? 0 : 1;
-    return isDivisibleTile(origOp.getOperation(), tileAxis, tileDim,
-                           parseIntArrayAttr<int64_t>(origOp.getKernelSize())[realKernelIndex]) &&
-           isMemPrefetchable() && !isLastTileBiggest(origOp.getOperation(), tileAxis, outputShape, tileDim);
+    return VPU::isDivisibleTile(origOp.getOperation(), tileAxis, tileDim) && isMemPrefetchable() &&
+           !isLastTileBiggest(origOp.getOperation(), tileAxis, outputShape, tileDim);
 }
 
 bool isSupportedPrefetchTiling(VPU::NCEAveragePoolOp origOp, const OutputTiling& tiles, Logger log,
@@ -860,10 +834,8 @@ bool isSupportedPrefetchTiling(VPU::NCEAveragePoolOp origOp, const OutputTiling&
     auto tileDim = tileDims[0];
     auto outputShape = getShape(origOp.getOutput());
 
-    size_t realKernelIndex = tileDim == Dims4D::Act::H ? 0 : 1;
-    return isDivisibleTile(origOp.getOperation(), tileAxis, tileDim,
-                           parseIntArrayAttr<int64_t>(origOp.getKernelSize())[realKernelIndex]) &&
-           isMemPrefetchable() && !isLastTileBiggest(origOp.getOperation(), tileAxis, outputShape, tileDim);
+    return VPU::isDivisibleTile(origOp.getOperation(), tileAxis, tileDim) && isMemPrefetchable() &&
+           !isLastTileBiggest(origOp.getOperation(), tileAxis, outputShape, tileDim);
 }
 
 bool isSupportedPrefetchTiling(VPU::NCEPermuteOp origOp, const OutputTiling& /*tiles*/, Logger log,
@@ -872,6 +844,10 @@ bool isSupportedPrefetchTiling(VPU::NCEPermuteOp origOp, const OutputTiling& /*t
     // The DPU time of any eltwise operation is too short, it's not worth prefetching.
     log.trace("Op {0} does not support prefetch tiling", origOp->getLoc());
     return false;
+}
+
+bool isSupportedPrefetchTiling(VPU::NCEMatMulOp origOp, const OutputTiling& tiles, Logger log, TilingMode tilingMode) {
+    return isSupportedPrefetchTilingConvBased(origOp, tiles, log, tilingMode);
 }
 
 template <class MainOpType>
@@ -1113,6 +1089,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::NCEEltwiseOp::attachInterface<NCEEltwiseTilingInfoOpModel<VPU::NCEEltwiseOp>>(*ctx);
         VPU::NCEInterpolateOp::attachInterface<NCETilingInfoOpModel<VPU::NCEInterpolateOp>>(*ctx);
         VPU::NCEPermuteOp::attachInterface<NCETilingInfoOpModel<VPU::NCEPermuteOp>>(*ctx);
+        VPU::NCEMatMulOp::attachInterface<NCETilingInfoOpModel<VPU::NCEMatMulOp>>(*ctx);
 
         VPU::ConvolutionOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ConvolutionOp>>(*ctx);
         VPU::GroupConvolutionOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GroupConvolutionOp>>(*ctx);
@@ -1223,6 +1200,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::FloorOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FloorOp>>(*ctx);
         VPU::AccumulateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AccumulateOp>>(*ctx);
         VPU::RMSOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RMSOp>>(*ctx);
+        VPU::RoPEOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RoPEOp>>(*ctx);
         VPU::SigmoidOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::HardSigmoidOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::GridSampleOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -1287,6 +1265,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::PadOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DepthToSpaceOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SpaceToDepthOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::ExperimentalDetectronROIFeatureExtractorOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SpaceToBatch::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::BatchToSpace::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AvgPoolOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -1391,6 +1370,8 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::DeformableConvolutionOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DynamicExpandOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::PopulateWeightTableOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::GenericSwLayerOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::RoPEOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     // When implementing a new SW core, remove the corresponding operation from setupExtraInterfacesAdditional
@@ -1467,7 +1448,7 @@ Byte vpux::VPUIP::SubViewOp::getByteOffset() {
 
         auto origShape = getShape(getSource());
         auto subShape = getShape(getResult());
-        if (origShape.size() != 4 || origShape.size() != subShape.size()) {
+        if ((origShape.size() != 4 && origShape.size() != 5) || origShape.size() != subShape.size()) {
             return std::nullopt;
         }
 

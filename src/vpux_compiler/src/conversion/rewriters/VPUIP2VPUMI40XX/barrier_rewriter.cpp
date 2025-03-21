@@ -21,7 +21,7 @@ mlir::LogicalResult BarrierRewriter::matchAndRewrite(VPURT::ConfigureBarrierOp o
             -1,                                            // nextSameId
             zeroByteAttr,                                  // producerCount,
             zeroByteAttr,                                  // consumerCount,
-            origOp.getIsFinalBarrier());
+            origOp.getIsFinalBarrier(), origOp.getIsStartBarrier());
     return mlir::success();
 }
 

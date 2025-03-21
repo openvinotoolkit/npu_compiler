@@ -2,18 +2,23 @@
 // Copyright (C) 2022 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
+#include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/utils/constant_fusion.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/utils/constant_fusion.hpp"
-
-#include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
-#include "vpux/compiler/utils/error.hpp"
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_FUSECONSTANTS
+#define GEN_PASS_DEF_FUSECONSTANTS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 namespace {
@@ -205,6 +210,11 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
     if (nceOp.getTaskType() == VPUIP::NCETaskType::ELTWISE || nceOp.getTaskType() == VPUIP::NCETaskType::AVEPOOL) {
         return mlir::failure();
     }
+    // TODO Adapt pass in order to support zero offset weight table cases. Ticket E#157078
+    if (nceOp.getIsZeroOffsetWeightsTable()) {
+        _log.trace("Constant fusion is not yet supported for weights table reuse.");
+        return mlir::failure();
+    }
 
     // 1. Find constant inputs
     vpux::ConstantFusing::ConstantVector constantVector(vpux::ConstantFusing::numberOfConstantsToFuse,
@@ -219,7 +229,7 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
     // we simply have to pass something to satisfy API requirements. Since weightTable is
     // assumed to be always present we use its base content.
     VPUX_THROW_UNLESS(constantVector[0].second != nullptr, "No weight table for fusing");
-    auto fakeBaseContent = constantVector[0].second.getContentAttr().getBaseContent();
+    const auto fakeBaseContent = constantVector[0].second.getContentAttr().getBaseContent();
     const auto newLoc = appendLoc(nceOp.getLoc(), "_fused_constant");
     auto newContentAttr = Const::ContentAttr::get(fakeBaseContent);
     auto tensorType = getFusedConstantType(constantVector, rewriter);
@@ -257,7 +267,7 @@ mlir::LogicalResult FuseConstants::matchAndRewrite(VPUIP::NCEClusterTaskOp nceOp
 // FuseConstantsPass
 //
 
-class FuseConstantsPass final : public VPUIP::FuseConstantsBase<FuseConstantsPass> {
+class FuseConstantsPass final : public VPUIP::impl::FuseConstantsBase<FuseConstantsPass> {
 public:
     explicit FuseConstantsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

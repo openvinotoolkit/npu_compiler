@@ -21,8 +21,8 @@ struct TaskConfig {
     VPURT::TaskOp taskOp;
     SmallVector<int64_t> virtBarrierWaits;
     SmallVector<int64_t> virtBarrierUpdates;
-    size_t cycleCost = 0;
-    size_t cycleStart = 0;
+    int64_t cycleCost = 0;
+    int64_t cycleStart = 0;
     SmallVector<size_t> subTasksCycleCost;
     SmallVector<size_t> subTasksCycleStart;
 
@@ -78,7 +78,7 @@ public:
     std::map<TaskQueueType, TaskConfigVec> getQueueTaskMap();
     TaskConfigVec getTaskCycleConfig();
     TaskConfigVec getTaskCycleConfig(VPU::ExecutorKind execKind);
-    size_t getInferenceLatencyInCycles();
+    int64_t getInferenceLatencyInCycles();
     void updateCyclesInIR();
     double getDPUTotalEnergy();
     double getSHAVETotalEnergy();

@@ -16,6 +16,12 @@
 
 #include <algorithm>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ALIGNSCALES
+#define GEN_PASS_DEF_ALIGNSCALES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -203,27 +209,8 @@ bool allFqsHaveTheSameRange(MutableArrayRef<IE::FakeQuantizeOp> fqOpsToAlign) {
     return true;
 }
 
-int64_t calculateZeroPoint(float low, float high, int levels, mlir::IntegerType type) {
-    VPUX_THROW_UNLESS((low <= 0.f) && (high >= 0.f) && (low != high), "Wrong low and high values.");
-    VPUX_THROW_UNLESS(levels <= 256, "Levels must be less then 256.");
-
-    int64_t zeroPoint = 0;
-
-    if (type.isUnsignedInteger()) {
-        float x = -static_cast<float>(levels - 1) * low / (high - low);
-        zeroPoint = static_cast<int>(std::round(x));
-    } else if (type.isSignedInteger()) {
-        float x = -static_cast<float>(levels - 1) * ((high + low) * 0.5f) / (high - low);
-        zeroPoint = static_cast<int>(std::round(x));
-    } else {
-        VPUX_THROW("Unsupported element type {0}.", type);
-    }
-
-    return zeroPoint;
-}
-
 void alignZP(float& min, float& max, int maxLevels, mlir::IntegerType type) {
-    auto zp = calculateZeroPoint(min, max, maxLevels, type);
+    auto zp = calculateZeroPoint(static_cast<double>(min), static_cast<double>(max), maxLevels, type);
     auto scale = (max - min) / (maxLevels - 1);
     min = scale * (-zp);
     max = static_cast<float>(scale * (maxLevels - 1.0 - zp));
@@ -507,7 +494,7 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     return mlir::success();
 }
 
-class AlignScalesPass final : public IE::AlignScalesBase<AlignScalesPass> {
+class AlignScalesPass final : public IE::impl::AlignScalesBase<AlignScalesPass> {
 public:
     explicit AlignScalesPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled), _log(log) {
         _log.setName(Base::getArgumentName());

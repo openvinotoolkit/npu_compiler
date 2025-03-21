@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --merge-fake-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f32, 1.0:0>
 
 // CHECK-LABEL: @PerTensor

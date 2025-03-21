@@ -7,7 +7,7 @@
 #define VPUX_COMPILER_DIALECT_VPURT_TYPES
 
 include "vpux/compiler/dialect/VPURT/dialect.td"
-include "vpux/compiler/core/type_interfaces.td"
+include "vpux/compiler/dialect/core/type_interfaces.td"
 
 include "mlir/IR/AttrTypeBase.td"
 

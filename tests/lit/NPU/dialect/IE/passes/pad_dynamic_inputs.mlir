@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --pad-dynamic-inputs %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: @MaxPool
@@ -443,4 +442,71 @@ func.func @SkipEmptySubgraph(
 
     return %RESHAPE_OUT : tensor<1x16x3x?xf16, {bounds = [1, 16, 3, 32], order = #NCHW}>
     // CHECK:   [[RESHAPE_OUT]] : tensor<1x16x3x?xf16, {bounds = [1, 16, 3, 32], order = #NCHW}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NoStridedSliceAfterStaticSubgraph
+func.func @NoStridedSliceAfterStaticSubgraph(
+    %IN: tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>,
+    %KERNEL: tensor<3x3x1x1xf16>
+) -> tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}> {
+    // CHECK:   [[IN:%.+]]: tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>, [[KERNEL:%.+]]: tensor<3x3x1x1xf16>
+
+    %DIM_8 = const.Declare tensor<1xsi64> = dense<8> : tensor<1xsi64>
+    // CHECK:   [[DIM_8:%.+]] = const.Declare tensor<1xsi64> = dense<8> : tensor<1xsi64>
+    %DIM_3 = const.Declare tensor<1xsi64> = dense<3> : tensor<1xsi64>
+    // CHECK:   [[DIM_3:%.+]] = const.Declare tensor<1xsi64> = dense<3> : tensor<1xsi64>
+    %DIM_1 = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK:   [[DIM_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK:   [[EXPAND:%.+]] = IE.DynamicExpand([[IN]]) :
+    // CHECK-SAME:  tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>
+    // CHECK-SAME:      -> tensor<1x3x8x16xf16>
+
+    %CONV = IE.Convolution(%IN, %KERNEL) {
+        dilations = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        strides = [1, 1]
+    } : tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>, tensor<3x3x1x1xf16>
+        -> tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>
+
+    // CHECK:   [[CONV:%.+]] = IE.Convolution([[EXPAND]], [[KERNEL]])
+    // CHECK-SAME:  tensor<1x3x8x16xf16>, tensor<3x3x1x1xf16> -> tensor<1x3x8x16xf16>
+
+    %TRANSPOSE = IE.Transpose(%CONV) {order_value = #NWCH}
+        : tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}>
+        -> tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>
+
+    // CHECK:   [[TRANSPOSE:%.+]] = IE.Transpose([[CONV]])
+    // CHECK-SAME:  tensor<1x3x8x16xf16> -> tensor<1x16x3x8xf16>
+
+    %SHAPE_OF = IE.ShapeOf(%IN) {
+        dstElemType = si64
+    } : tensor<1x3x8x?xf16, {bounds = [1, 3, 8, 16], order = #NCHW}> -> tensor<4xsi64>
+    // CHECK:   [[SHAPE_OF:%.+]] = IE.ShapeOf([[IN]])
+
+    %DYN_DIM_16 = IE.Slice %SHAPE_OF [3] [1] : tensor<4xsi64> to tensor<1xsi64>
+    // CHECK:   [[DYN_DIM_16:%.+]] = IE.Slice [[SHAPE_OF]] [3] [1]
+
+    %CONCAT = IE.Concat(%DIM_1, %DYN_DIM_16, %DIM_3, %DIM_8) {
+        per_axis = #IE.Concat<axis = 0 : i64>
+    } : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<4xsi64>
+    // CHECK:   [[CONCAT:%.+]] = IE.Concat([[DIM_1]], [[DYN_DIM_16]], [[DIM_3]], [[DIM_8]])
+
+    %RESHAPE_OUT = IE.DynamicReshape(%TRANSPOSE, %CONCAT) {
+        output_bounds = [1, 16, 3, 8],
+        output_shape = [1, -9223372036854775808, 3, 8]
+    } : tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>, tensor<4xsi64>
+        -> tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>
+    // CHECK:   [[RESHAPE_OUT:%.+]] = IE.DynamicReshape([[TRANSPOSE]], [[CONCAT]]) {
+    // CHECK-SAME:  } : tensor<1x16x3x8xf16>, tensor<4xsi64>
+    // CHECK-SAME:      -> tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>
+
+    return %RESHAPE_OUT : tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>
+    // CHECK:   [[RESHAPE_OUT]] : tensor<1x?x3x8xf16, {bounds = [1, 16, 3, 8], order = #NCHW}>
 }

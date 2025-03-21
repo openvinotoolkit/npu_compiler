@@ -6,9 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/dialect/VPUASM/types.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <npu_40xx_nnrt.hpp>

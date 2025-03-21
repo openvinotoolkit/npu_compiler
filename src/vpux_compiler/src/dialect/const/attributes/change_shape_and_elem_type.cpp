@@ -99,3 +99,14 @@ bool vpux::Const::ChangeShapeAndElemTypeAttr::inferOutputSplat(bool inputIsSplat
 Const::Content vpux::Const::ChangeShapeAndElemTypeAttr::transform(vpux::Const::Content& input) const {
     return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
 }
+
+//
+// ChangeShapeAndElemTypeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ChangeShapeAndElemTypeAttr::getStableHashValue() const {
+    const auto shape = parseIntArrayAttr<int64_t>(getShape());
+    const auto type = getElemType();
+    return llvm::hash_combine(getMnemonic(), llvm::hash_combine_range(shape.begin(), shape.end()),
+                              formatv("{0}", type).str());
+}

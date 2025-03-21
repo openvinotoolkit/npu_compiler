@@ -11,6 +11,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPMEMPERMUTEANDEXPAND
+#define GEN_PASS_DEF_SWAPMEMPERMUTEANDEXPAND
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -101,7 +107,7 @@ bool isBeneficialToSwapExpandMemPermute(IE::ExpandOp origExpandOp, mlir::Operati
 // SwapMemPermuteAndExpandPass
 //
 
-class SwapMemPermuteAndExpandPass final : public IE::SwapMemPermuteAndExpandBase<SwapMemPermuteAndExpandPass> {
+class SwapMemPermuteAndExpandPass final : public IE::impl::SwapMemPermuteAndExpandBase<SwapMemPermuteAndExpandPass> {
 public:
     explicit SwapMemPermuteAndExpandPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

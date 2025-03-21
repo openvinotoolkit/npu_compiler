@@ -9,6 +9,12 @@
 #include "vpux/compiler/dialect/IE/utils/convert_op_types.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTPRECISIONTOI32
+#define GEN_PASS_DEF_CONVERTPRECISIONTOI32
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 using namespace IE;
 
@@ -18,7 +24,7 @@ namespace {
 // ConvertPrecisionToI32Pass
 //
 
-class ConvertPrecisionToI32Pass final : public IE::ConvertPrecisionToI32Base<ConvertPrecisionToI32Pass> {
+class ConvertPrecisionToI32Pass final : public IE::impl::ConvertPrecisionToI32Base<ConvertPrecisionToI32Pass> {
 public:
     explicit ConvertPrecisionToI32Pass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

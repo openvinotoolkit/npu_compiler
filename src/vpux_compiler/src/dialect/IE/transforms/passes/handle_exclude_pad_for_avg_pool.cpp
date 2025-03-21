@@ -12,6 +12,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLEEXCLUDEPADFORAVGPOOL
+#define GEN_PASS_DEF_HANDLEEXCLUDEPADFORAVGPOOL
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -222,7 +228,8 @@ mlir::LogicalResult AveragePoolRewriter::matchAndRewrite(IE::AvgPoolOp origOp, m
 // HandleExcludePadForAvgPoolPass
 //
 
-class HandleExcludePadForAvgPoolPass final : public IE::HandleExcludePadForAvgPoolBase<HandleExcludePadForAvgPoolPass> {
+class HandleExcludePadForAvgPoolPass final :
+        public IE::impl::HandleExcludePadForAvgPoolBase<HandleExcludePadForAvgPoolPass> {
 public:
     explicit HandleExcludePadForAvgPoolPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

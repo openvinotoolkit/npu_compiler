@@ -29,4 +29,32 @@ bool needsStaticShape(mlir::Operation* op) {
     return mlir::isa_and_nonnull<ShapeBoundOp>(op);
 }
 
+// Given a dynamic shape and DimsOrder, decide if the dynamic data is contiguous or strided
+// e.g. ?x16x32x4 NCHW -> contiguous
+//      1x32x?x10 NHWC -> contiguous
+//      1x14x10x? NCHW -> strided
+bool isDynamicDataContiguous(vpux::ShapeRef shape, vpux::DimsOrder order) {
+    bool foundDynamicDim = false;
+    for (size_t idx = 0; idx < shape.size(); idx++) {
+        const auto dimPos = order.dimAt(idx);
+
+        if (shape[dimPos] == mlir::ShapedType::kDynamic) {
+            // more than one dynamic dim
+            if (foundDynamicDim) {
+                return false;
+            }
+
+            // outer-most dynamic dim found
+            foundDynamicDim = true;
+        }
+
+        // for dynamic data to be contiguous, the dynamic dim must be the outer-most dim that is not 1
+        if (!foundDynamicDim && shape[dimPos] != 1 && shape[dimPos] != mlir::ShapedType::kDynamic) {
+            return false;
+        }
+    }
+
+    return foundDynamicDim;
+}
+
 }  // namespace vpux::IE

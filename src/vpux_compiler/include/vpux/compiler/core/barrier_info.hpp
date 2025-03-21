@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 #include "vpux/utils/core/logger.hpp"
 #include "vpux/utils/core/small_vector.hpp"
@@ -20,6 +21,24 @@
 
 namespace vpux {
 
+// Declare BarrierInfo utils used for testing purposes
+// BarrierInfoMaps is intended to be used where code (e.g. test) wants to retrieve
+// low level barrier and task data structures.
+using BarrierMap = SmallVector<SmallVector<size_t>>;
+struct BarrierInfoMaps {
+    BarrierMap barrierProducerMap = {};
+    BarrierMap barrierConsumerMap = {};
+    BarrierMap taskUpdateBarriers = {};
+    BarrierMap taskWaitBarriers = {};
+    SmallVector<size_t> syncTasksIds = {};
+    std::map<VPURT::TaskQueueType, SmallVector<uint32_t>> taskQueueTypeMap = {};
+};
+
+class BarrierInfo;
+BarrierInfoMaps getBarrierMaps(BarrierInfo& barrierInfo);
+
+// BarrierInfo class is used to store information about barriers and tasks in the control graph
+// with useful methods to modify, legalize and optimize dependencies
 class BarrierInfo {
 public:
     // TaskSet is used to store barrier's producer/consumer task op index as well as task op's
@@ -31,6 +50,9 @@ public:
     friend class BarrierInfoTest;
     virtual ~BarrierInfo() = default;
 
+private:
+    friend BarrierInfoMaps getBarrierMaps(BarrierInfo& barrierInfo);
+
 public:
     void updateIR();
     void clearAttributes();
@@ -39,6 +61,10 @@ public:
     uint32_t getIndex(VPURT::TaskOp taskOp) const;
     uint32_t getIndex(VPURT::BarrierOpInterface barrierOp) const;
     virtual VPURT::TaskOp getTaskOpAtIndex(size_t opIdx) const;
+    VPURT::TaskQueueType getTaskQueueType(size_t taskInd) const;
+    std::optional<size_t> getPrevTaskOnFifo(size_t taskInd) const;
+    // Return the closest previous task on the same queue that has a wait barrier
+    std::optional<size_t> getPrevTaskOnFifoWithWaitBar(size_t taskInd) const;
     VPURT::BarrierOpInterface getBarrierOpAtIndex(size_t opIdx) const;
     void enableUnevenVariantSplit();
 
@@ -119,12 +145,33 @@ public:
      */
     void shareWaitAndUpdateBarriers(size_t availableSlots);
 
+    /**
+     * @brief initialize task queue type map structure for the queues that should be used when building the map.
+     *
+     * @param executorKind - set of executors for which the map should be initialized
+     */
+    void initializeTaskQueueTypeMap(const mlir::DenseSet<vpux::VPU::ExecutorKind>& executorKind);
+
+    /**
+     * @brief build task queue type map for the initialized executor kinds.
+     *
+     * If the map was previously not initialized, by default the map will be initialized for DMA executor.
+     * If the map is to be built for a different executor than previously initialized, clearTaskQueueTypeMap()
+     * should be called first.
+     */
     void buildTaskQueueTypeMap();
+
+    /**
+     * @brief Remove all entries from task queue task map
+     */
+    void clearTaskQueueTypeMap();
+
     /**
      * @brief build task control map for given task block
      *
      * @param blockIdx block index
      * @param considerTaskFifoDependency
+     * @param ignoreOutOfBlockDependencies - when calculating task control map ignore out of block dependencies.
      * @return std::pair<SmallVector<llvm::BitVector>, size_t> representing
      * taskControlMap - a 2-d array suitable for use with controlPathExistsBetweenTasksInSameBlock()
      * and
@@ -133,7 +180,8 @@ public:
      *
      */
     std::pair<SmallVector<llvm::BitVector>, size_t> buildTaskControlMap(size_t blockIdx,
-                                                                        bool considerTaskFifoDependency = true);
+                                                                        bool considerTaskFifoDependency = true,
+                                                                        bool ignoreOutOfBlockDependencies = false);
     virtual size_t getNumOfTasks() const;
     size_t getNumOfBarrierOps() const;
     virtual size_t getBarrierMaxVariantSum() const;
@@ -174,8 +222,21 @@ public:
                              const TaskSet& barrierProducersB, const TaskSet& barrierConsumersB,
                              ArrayRef<TaskSet> origWaitBarriersMap);
     SmallVector<TaskSet> getWaitBarriersMap();
+    void dumpBarrierDependencies(const SmallVector<BarrierInfo::TaskSet>& depsMap, std::string fileName);
+    void dumpQueues(const std::map<VPURT::TaskQueueType, llvm::BitVector>& queueMap, std::string fileName);
+    void dumpSlots(std::string fileName);
+    void dumpBarriers(std::string fileNamePrefix);
+
     void splitControlGraphToBlocks(const size_t blockSize);
     bool verifyControlGraphSplit();
+
+    /**
+     * @brief Verify barriers required for task descriptor fetch
+     *
+     * @param wlmEnabled if true: verify schedule for WLM. If false, verify schedule for non-WLM.
+     * @return Returns `true` when required barriers exist. Returns `false` otherwise.
+     */
+    bool verifyBarriersForTaskDescriptorFetch(const ExecutionGroupListMap& executionGroups, bool wlmEnabled = true);
 
     /**
      * @brief Adjust dependencies for the provided tasks if they are connected to other tasks in a way that violates
@@ -265,6 +326,9 @@ public:
     /**
      * @brief Block index of barrier's last producer.
      *
+     * If the barrier is sync point update barrier (i.e. its last producer is sync point) then the barrier is considered
+     * to belong to the block following the block of the sync point.
+     *
      * @param barInd barrier index
      * @return return the block index of barrier's latest producer.
      */
@@ -295,6 +359,18 @@ public:
             size_t blockIdx, std::optional<mlir::DenseSet<vpux::VPU::ExecutorKind>> executorKind = std::nullopt);
 
     /**
+     * @brief Create barrier dependencies between task execution groups
+     *
+     * @param blockIdx - task block index for which the dependencies should be generated
+     * @param executorKind - set of FIFO executors that should be taken into account. By default all FIFOs are
+     * @param execGroups - groups of tasks used to split schedule by barriers
+     *
+     * @return Number of newly created barriers
+     */
+    unsigned createBarrierDependenciesBetweenExecutionGroups(size_t blockIdx, vpux::VPU::ExecutorKind executorKind,
+                                                             ExecutionGroupListMap& executionGroups);
+
+    /**
      * @brief Remove barrier representation of dependencies implied FIFOs execution order created by
      * @see createBarrierDependenciesImpliedByFIFO(size_t blockIdx)
      *
@@ -303,6 +379,35 @@ public:
     unsigned removeBarrierDependenciesImpliedByFIFO();
 
 private:
+    /**
+     * @brief check if task group has update barrier required for fetching task descriptors from the subsequent
+     * execution groups.
+     *
+     *                          |->BAR->
+     *                          |
+     *           |  1 --> 2 --> 3   |  4 --> 5 --> 6   |  7 --> 8 --> 9   |
+     *           |------------------|------------------|------------------|
+     *           |                  |                  |                  |
+     *           | CurrentGroup     |   ChildGroup     | GrandChildGroup  |
+     *
+     * @param grpIdx - index of task group to check (CurrentGroup)
+     * @param blockIdx - control graph split block index
+     * @param fifoExecGroups - list of execution groups for given FIFO
+     * @param taskControlMap - task control map calculated for blockIdx (should account for all FIFO dependencies)
+     * @param controlMapOffset - task control map offset
+     * @param wlmEnabled - WLM flag
+     * @return for wlmEnabled=true case return true, if GrandChildGroup does not exist or if GrandChildGroup exists and
+     * the last task from task execution group grpIdx has update barrier.
+     * @return for wlmEnabled=false case return true, if GrandChildGroup does not exist or if GrandChildGroup exists and
+     * the last task from task execution group grpIdx has update barrier and consumption of this barrier does not depend
+     * on any task from GrandChildGroup or later.
+     * @return false, otherwise
+     */
+    bool hasBarrierDependencyRequiredForDescriptorFetch(int grpIdx, size_t blockIdx,
+                                                        const ExecutionGroupList& fifoExecGroups,
+                                                        SmallVector<llvm::BitVector>& taskControlMap,
+                                                        size_t controlMapOffset, bool wlmEnabled);
+
     Logger _log;
     mlir::func::FuncOp _func;
 
@@ -355,37 +460,24 @@ private:
     std::map<VPURT::TaskQueueType, llvm::BitVector> _taskQueueTypeMap;
 };
 
-using BarrierMap = SmallVector<SmallVector<size_t>>;
+// BarrierInfoTest is a test class that inherits from BarrierInfo and provides additional methods and
+// overrides to test low level functioning of BarrierInfo class
 class BarrierInfoTest : public BarrierInfo {
 public:
-    struct BarrierMaps {
-        BarrierMap barrierProducerMap = {};
-        BarrierMap barrierConsumerMap = {};
-        BarrierMap taskUpdateBarriers = {};
-        BarrierMap taskWaitBarriers = {};
-        size_t nTasks = 0;
-        size_t nBarriers = 0;
-        SmallVector<size_t> syncTasksIds = {};
-        std::map<VPURT::TaskQueueType, SmallVector<uint32_t>> taskQueueTypeMap = {};
-    };
-
     explicit BarrierInfoTest(mlir::func::FuncOp func);
-    explicit BarrierInfoTest(BarrierInfoTest::BarrierMaps& barrierMaps);
-    void initializeBarrierMaps(BarrierInfoTest::BarrierMaps& barrierMaps);
+    explicit BarrierInfoTest(BarrierInfoMaps& barrierMaps);
+    void initializeBarrierMaps(BarrierInfoMaps& barrierMaps);
     void setTaskQueueTypeMap(const std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueMaps);
     void setMaxVariantCountPerBarrier(size_t variantCount);
     size_t getNumOfTasks() const override;
     size_t getBarrierMaxVariantSum() const override;
     size_t getNumOfSlotsUsedByTask(VPURT::TaskOp op) const override;
     VPURT::TaskOp getTaskOpAtIndex(size_t opIdx) const override;
-    BarrierInfoTest::BarrierMaps optimizeBarrierProducers(size_t blockIdx);
-    BarrierInfoTest::BarrierMaps optimizeBarriersWithSameProducers(size_t blockIdx, bool checkValidSlotCount = true);
-    BarrierInfoTest::BarrierMaps optimizeBarrierConsumers(size_t blockIdx);
-    BarrierInfoTest::BarrierMaps getBarrierMaps();
-    BarrierInfoTest::BarrierMaps optimizeBarriers(bool checkValidSlotCount = true,
-                                                  bool considerTaskFifoDependency = false);
-    SmallVector<BarrierInfo::TaskSet> toTaskSet(SmallVector<SmallVector<size_t>>& map);
-    SmallVector<SmallVector<size_t>> toTaskVec(SmallVector<BarrierInfo::TaskSet>& map);
+    BarrierInfoMaps optimizeBarrierProducers(size_t blockIdx);
+    BarrierInfoMaps optimizeBarriersWithSameProducers(size_t blockIdx, bool checkValidSlotCount = true);
+    BarrierInfoMaps optimizeBarrierConsumers(size_t blockIdx);
+    BarrierInfoMaps getBarrierMaps();
+    BarrierInfoMaps optimizeBarriers(bool checkValidSlotCount = true, bool considerTaskFifoDependency = false);
 
 private:
     size_t _maxVariantCountPerBarrier = 0;
@@ -394,6 +486,8 @@ private:
 //
 // Helper routines to work with BarrierInfoTest
 //
-void fillProducersAndConsumers(BarrierInfoTest::BarrierMaps& barrierMaps);
+SmallVector<BarrierInfo::TaskSet> toTaskSet(const SmallVector<SmallVector<size_t>>& map);
+SmallVector<SmallVector<size_t>> toTaskVec(const SmallVector<BarrierInfo::TaskSet>& map);
+void fillProducersAndConsumers(BarrierInfoMaps& barrierMaps);
 
 }  // namespace vpux

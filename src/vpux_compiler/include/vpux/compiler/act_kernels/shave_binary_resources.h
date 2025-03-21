@@ -28,6 +28,7 @@ private:
 public:
     ShaveBinaryResources(ShaveBinaryResources const&) = delete;
     void operator=(ShaveBinaryResources const&) = delete;
+    ~ShaveBinaryResources() = default;
 
     template <typename... Args>
     std::string concatenateArgs(Args&&... args) const {

@@ -113,6 +113,13 @@ mlir::LogicalResult insertInvBlockArgs(VPUASM::DPUInvariantOp op, const Logger& 
         invBlockArgsPos[BlockArg::SPR_LOOKUP_TABLE] = invBlock->getNumArguments() - 1;
     }
 
+    // pallet lookup table
+    if (op.getPalletLookupTable()) {
+        auto palletLookupTableType = getBufferType(symRefMap.lookupSymbol(op.getPalletLookupTable().value()));
+        invBlock->addArgument(palletLookupTableType, op.getLoc());
+        invBlockArgsPos[BlockArg::PALLET_LOOKUP_TABLE] = invBlock->getNumArguments() - 1;
+    }
+
     // output activations
     mlir::MemRefType outType;
     if (!op.getIsContinued() && op.getOutput()) {
@@ -140,21 +147,20 @@ mlir::LogicalResult insertInvBlockArgs(VPUASM::DPUInvariantOp op, const Logger& 
 
 namespace vpux {
 namespace VPUIPDPU {
-
 DPUInvariantRewriter::DPUInvariantRewriter(mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap)
         : mlir::OpRewritePattern<VPUASM::DPUInvariantOp>(ctx), _log(log), _symRefMap(symRefMap) {
     setDebugName("DPUInvariant_VPUIPDPURewriter");
 }
-
 mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp op,
                                                           mlir::PatternRewriter& rewriter) const {
     auto inv = rewriter.create<VPUIPDPU::DPUInvariantOp>(
             op.getLoc(), op.getSymNameAttr(), op.getTaskIndexAttr(), op.getTaskLocationAttr(), op.getInputAttr(),
             op.getInputSparsityMapAttr(), op.getInputStorageElementTableAttr(), op.getWeightsAttr(),
-            op.getWeightsSparsityMapAttr(), op.getWeightTableAttr(), op.getWeightTableScaleAttr(),
-            op.getSprLookupTableAttr(), op.getOutputAttr(), op.getOutputSparsityMapAttr(), op.getProfilingDataAttr(),
-            op.getIsZeroOffsetWeightsTableAttr(), op.getMaxPerXyAttr(), op.getMinPerXyAttr(),
-            op.getMinMaxPerTensorAttr(), op.getNceTaskTypeAttr(), op.getIsContinuedAttr());
+            op.getWeightsSparsityMapAttr(), op.getWeightTableAttr(), op.getWeightTableDataPtrAttr(),
+            op.getWeightTableScaleAttr(), op.getSprLookupTableAttr(), op.getPalletLookupTableAttr(), op.getOutputAttr(),
+            op.getOutputSparsityMapAttr(), op.getProfilingDataAttr(), op.getIsZeroOffsetWeightsTableAttr(),
+            op.getMaxPerXyAttr(), op.getMinPerXyAttr(), op.getMinMaxPerTensorAttr(), op.getNceTaskTypeAttr(),
+            op.getIsContinuedAttr());
 
     auto& invRegion = inv.getRegion();
     auto invBlock = rewriter.createBlock(&invRegion);
@@ -179,7 +185,6 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
         if (dpuInvariantExpandIface.expandIDUConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap).failed()) {
             return mlir::failure();
         }
-
         if (insertEntryBlock<VPUIPDPU::MPECfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {
             return mlir::failure();
         }
@@ -193,7 +198,6 @@ mlir::LogicalResult DPUInvariantRewriter::matchAndRewrite(VPUASM::DPUInvariantOp
         if (dpuInvariantExpandIface.expandPPEConfig(rewriter, _log, invBlock, invBlockArgsPos, _symRefMap).failed()) {
             return mlir::failure();
         }
-
         if (insertEntryBlock<VPUIPDPU::ODUCfgOp>(rewriter, invBlock, op.getLoc(), _log).failed()) {
             return mlir::failure();
         }

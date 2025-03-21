@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --compress-spill-dma %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !dataTypeDdr = memref<1x1x1x1xf16, #NCHW, @DDR>

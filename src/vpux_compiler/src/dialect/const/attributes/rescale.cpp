@@ -28,7 +28,7 @@ void vpux::Const::RescaleAttr::print(mlir::AsmPrinter& printer) const {
 }
 
 //
-// PadWithZeroAttr::parse
+// RescaleAttr::parse
 //
 
 mlir::Attribute vpux::Const::RescaleAttr::parse(mlir::AsmParser& parser, mlir::Type) {
@@ -79,4 +79,13 @@ Const::Content vpux::Const::RescaleAttr::transform(vpux::Const::Content& input) 
     }
 
     return output;
+}
+
+//
+// RescaleAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::RescaleAttr::getStableHashValue() const {
+    const auto scale = getScale().getValue();
+    return llvm::hash_combine(getMnemonic(), scale);
 }

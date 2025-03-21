@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @OperandsToAttrs(%arg0: tensor<1x5x10x11xf16>) -> tensor<1x11x12x12xf16> {
     %0 = const.Declare tensor<4xsi64> = dense<[0, 3, 0, 1]> : tensor<4xsi64>
     %1 = const.Declare tensor<4xsi64> = dense<[0, 3, 2, 0]> : tensor<4xsi64>

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-large-conv-to-multi-conv-with-add %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertLargeConvToMultiConvWithAddTile2
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1280x64x64xf16>
 func.func @ConvertLargeConvToMultiConvWithAddTile2(%arg0: tensor<1x1280x64x64xf16>) -> tensor<1x640x64x64xf16> {

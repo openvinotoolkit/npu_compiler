@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -7,9 +7,9 @@
 #define VPUX_COMPILER_DIALECT_IE_ATTRIBUTES
 
 include "mlir/IR/OpBase.td"
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/IE/dialect.td"
-include "vpux/compiler/core/type_interfaces.td"
+include "vpux/compiler/dialect/core/type_interfaces.td"
 
 //
 // Base classes
@@ -452,6 +452,19 @@ def IE_DetectionOutputAttr : IE_Attr<"DetectionOutput"> {
 }
 
 //
+// ExperimentalDetectronROIFeatureExtractorAttr
+//
+
+def IE_ExperimentalDetectronROIFeatureExtractorAttr : IE_Attr<"ExperimentalDetectronROIFeatureExtractor"> {
+    let parameters = (ins
+        "mlir::IntegerAttr":$output_size,
+        "mlir::IntegerAttr":$sampling_ratio,
+        "mlir::BoolAttr":$aligned,
+        "mlir::ArrayAttr":$pyramid_scales
+    );
+}
+
+//
 // PadMode
 //
 
@@ -514,6 +527,10 @@ def IE_PostOpAttr : IE_Attr<"PostOp"> {
         "mlir::StringAttr":$name,
         "mlir::DictionaryAttr":$attrs
     );
+
+    let extraClassDeclaration = [{
+        bool isChannelAgnostic() const;
+    }];
 }
 
 //
@@ -693,6 +710,7 @@ def IE_ScatterElementsUpdateReductionType :
 }
 
 def IE_ScatterElementsUpdateReductionTypeAttr : IE_EnumAttr<IE_ScatterElementsUpdateReductionType, "scatter_elements_update_reduction_type">;
+
 
 //
 // PortMapAttr

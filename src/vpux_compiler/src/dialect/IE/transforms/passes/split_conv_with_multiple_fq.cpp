@@ -12,6 +12,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_SPLITCONVWITHMULTIPLEFQ
+#define GEN_PASS_DEF_SPLITCONVWITHMULTIPLEFQ
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -288,7 +294,7 @@ mlir::LogicalResult SplitConvWithPostOpAndFakeQuant::matchAndRewrite(IE::FakeQua
 // SplitConvWithMultipleFQPass
 //
 
-class SplitConvWithMultipleFQPass final : public IE::SplitConvWithMultipleFQBase<SplitConvWithMultipleFQPass> {
+class SplitConvWithMultipleFQPass final : public IE::impl::SplitConvWithMultipleFQBase<SplitConvWithMultipleFQPass> {
 public:
     explicit SplitConvWithMultipleFQPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

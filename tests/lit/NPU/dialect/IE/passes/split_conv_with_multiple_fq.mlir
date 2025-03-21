@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=ReferenceHW" --split-conv-with-multiple-fq %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --split-conv-with-multiple-fq %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @SplitConvWithOnlyFakeQuantConsumers
 func.func @SplitConvWithOnlyFakeQuantConsumers(%input: tensor<1x3x62x62xf32>) -> (tensor<1x4x60x60xf32>, tensor<1x4x60x60xf32>, tensor<1x4x60x60xf32>) {
     %input_low = const.Declare tensor<f32> = dense<0.0> : tensor<f32>

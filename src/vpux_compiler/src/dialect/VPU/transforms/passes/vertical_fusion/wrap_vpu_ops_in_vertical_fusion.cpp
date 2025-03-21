@@ -3,12 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
 #include <mlir/IR/IRMapping.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_WRAPVERTICALFUSIONREGION
+#define GEN_PASS_DEF_WRAPVERTICALFUSIONREGION
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -48,7 +55,8 @@ void wrapIntoVFRegion(VPU::VerticalFusionOpInterface op, Logger log) {
 // WrapVerticalFusionRegionPass
 //
 
-class WrapVerticalFusionRegionPass final : public WrapVerticalFusionRegionBase<WrapVerticalFusionRegionPass> {
+class WrapVerticalFusionRegionPass final :
+        public VPU::impl::WrapVerticalFusionRegionBase<WrapVerticalFusionRegionPass> {
 public:
     explicit WrapVerticalFusionRegionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

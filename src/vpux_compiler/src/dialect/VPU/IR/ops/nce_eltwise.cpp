@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 
@@ -181,10 +182,6 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
            totalAvailableCMXSize;
 }
 
-bool vpux::VPU::NCEEltwiseOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 vpux::NDTypeInterface vpux::VPU::NCEEltwiseOp::getDistributedTypeForOpOperand(mlir::OpOperand& operand,
                                                                               bool hasExplicitDistributedAttr,
                                                                               SiblingOpsAnalysis& siblingsAnalysis) {
@@ -218,15 +215,8 @@ vpux::NDTypeInterface vpux::VPU::NCEEltwiseOp::getDistributedTypeForOpOperand(ml
 //
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEEltwiseOp::sparsitySupport() {
-    const auto arch = getArch(getOperation());
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        // TODO E#66913: enable input sparsity support once inputs are aligned with respect to storage element size
-        return VPU::SparsitySupport::SPARSE_OUTPUTS;
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    // TODO E#66913: enable input sparsity support once inputs are aligned with respect to storage element size
+    return VPU::SparsitySupport::SPARSE_OUTPUTS;
 }
 //
 // TilingBuilderOpInterface
@@ -315,13 +305,6 @@ mlir::LogicalResult vpux::VPU::NCEEltwiseOp::verifyKernel(IE::SubtractOp origOp,
     auto input2Type = origOp.getInput2().getType().cast<vpux::NDTypeInterface>();
     auto outputType = origOp.getOutput().getType().cast<vpux::NDTypeInterface>();
     return verifyEltwiseKernel(input1Type, input2Type, outputType, false, true, VPU::EltwiseType::SUBTRACT);
-}
-
-mlir::LogicalResult vpux::VPU::NCEEltwiseOp::verifyKernel(IE::AndOp origOp, Logger) {
-    auto input1Type = origOp.getInput1().getType().cast<vpux::NDTypeInterface>();
-    auto input2Type = origOp.getInput2().getType().cast<vpux::NDTypeInterface>();
-    auto outputType = origOp.getOutput().getType().cast<vpux::NDTypeInterface>();
-    return verifyEltwiseKernel(input1Type, input2Type, outputType, false, true, VPU::EltwiseType::AND);
 }
 
 mlir::LogicalResult vpux::VPU::NCEEltwiseOp::verifyEltwiseCMX(mlir::Location loc, mlir::ModuleOp module, bool isInplace,

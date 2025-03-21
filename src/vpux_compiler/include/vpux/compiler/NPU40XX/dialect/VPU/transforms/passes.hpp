@@ -5,10 +5,13 @@
 
 #pragma once
 
-#include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/core/pipelines_options.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/utils/core/logger.hpp"
+
+#include <mlir/Pass/Pass.h>
+
+#include <memory>
 
 namespace vpux {
 namespace VPU {
@@ -46,22 +49,11 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
-// registerVPUPipelines
+// Registration
 //
 
 void registerVPUPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch40xx
 }  // namespace VPU

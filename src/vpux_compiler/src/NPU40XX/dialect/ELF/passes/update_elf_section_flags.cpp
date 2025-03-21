@@ -7,11 +7,18 @@
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_UPDATEELFSECTIONFLAGS
+#define GEN_PASS_DEF_UPDATEELFSECTIONFLAGS
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
 
-class UpdateELFSectionFlagsPass final : public ELF::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
+class UpdateELFSectionFlagsPass final :
+        public ELF::arch40xx::impl::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
 public:
     explicit UpdateELFSectionFlagsPass(Logger log, std::string isShaveDDRAccessEnabled): _log(log) {
         Base::initLogger(log, Base::getArgumentName());

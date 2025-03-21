@@ -9,6 +9,12 @@
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNGROUPSPARSEBUFFERS
+#define GEN_PASS_DEF_UNGROUPSPARSEBUFFERS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -153,7 +159,7 @@ public:
 // UngroupSparseBuffers
 //
 
-class UngroupSparseBuffers final : public VPUIP::UngroupSparseBuffersBase<UngroupSparseBuffers> {
+class UngroupSparseBuffers final : public VPUIP::impl::UngroupSparseBuffersBase<UngroupSparseBuffers> {
 public:
     explicit UngroupSparseBuffers(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

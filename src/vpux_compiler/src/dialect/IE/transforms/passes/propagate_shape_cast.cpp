@@ -3,8 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATESHAPECAST
+#define GEN_PASS_DEF_PROPAGATESHAPECAST
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -475,7 +484,7 @@ mlir::LogicalResult MoveThroughConvBasedOp<ConvBasedOp>::matchAndRewrite(IE::Sha
 // PropagateShapeCast
 //
 
-class PropagateShapeCast final : public IE::PropagateShapeCastBase<PropagateShapeCast> {
+class PropagateShapeCast final : public IE::impl::PropagateShapeCastBase<PropagateShapeCast> {
 public:
     explicit PropagateShapeCast(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -517,7 +526,6 @@ void PropagateShapeCast::safeRunOnFunc() {
     patterns.add<MoveThroughEltwiseOp<IE::SubtractOp>>(&ctx, _log);
     patterns.add<MoveThroughEltwiseOp<IE::AddOp>>(&ctx, _log);
     patterns.add<MoveThroughEltwiseOp<IE::MultiplyOp>>(&ctx, _log);
-    patterns.add<MoveThroughEltwiseOp<IE::AndOp>>(&ctx, _log);
     patterns.add<MoveThroughMVNOp>(&ctx, _log);
     patterns.add<MoveThroughConvBasedOp<IE::GroupConvolutionOp>>(&ctx, _log);
     IE::ShapeCastOp::getCanonicalizationPatterns(patterns, &ctx);

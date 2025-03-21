@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -8,9 +8,17 @@
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_NNDMATILING
+#define GEN_PASS_DEF_NNDMATILING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -89,12 +97,15 @@ void SplitNNDMARewriter::createTiles(VPUIP::NNDMAOp nndmaOp, mlir::PatternRewrit
     const auto singlePlaneSize = fullCopySize / numPlanesOfFullShape;
     // The number of planes DMA could process within one tile. In case of small spatial dimensions of tensor (e.g.
     // 1x2048x8x8) it can exceed CMX_DMA_MAX_NUM_PLANES, so it's necessary to limit this value
-    const auto maxNumPlanes = VPUIP::getMaxNumberPlanes(_arch);
-    const auto desiredPlanesPerTileAmount = (VPUIP::DMA_LIMIT.count() / singlePlaneSize.count());
-    VPUX_THROW_UNLESS(desiredPlanesPerTileAmount != 0,
-                      "Couldn't split a NNDMAOp with single plane size greater than DMA_LIMIT");
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(_arch);
+    const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes() - 1;
 
-    auto numPlanesPerTile = std::min(desiredPlanesPerTileAmount, maxNumPlanes);
+    const auto desiredPlanesPerTileAmount = (dmaMaxLength / singlePlaneSize.count());
+    VPUX_THROW_UNLESS(desiredPlanesPerTileAmount != 0,
+                      "Couldn't split a NNDMAOp with single plane size greater than plane size limit");
+
+    auto numPlanesPerTile = std::min(desiredPlanesPerTileAmount, dmaMaxNumPlanes);
 
     // Adjust numPlanesPerTile for even split, which provides better performance
     auto numTiles = numPlanesOfFullShape / numPlanesPerTile;
@@ -179,9 +190,12 @@ void SplitNNDMARewriter::createTiles(VPUIP::NNDMAOp nndmaOp, mlir::PatternRewrit
 
 mlir::LogicalResult SplitNNDMARewriter::matchAndRewrite(VPUIP::NNDMAOp nndmaOp, mlir::PatternRewriter& rewriter) const {
     // Split NNDMAOp with large tensor size should no happen at the moment because NNDMAOp's data size can't be larger
-    // than VPUIP::DMA_LIMIT, see NNDMAOp::verify()
+    // than max plane size, see NNDMAOp::verify()
     // However, keep this part of code so that it looks similar to the processing logic in copy-op-tiling pass
-    bool needSplitForLargeTensorSize = getDmaSize(nndmaOp) > VPUIP::DMA_LIMIT;
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(_arch);
+    const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+
+    bool needSplitForLargeTensorSize = getDmaSize(nndmaOp) > Byte(dmaMaxLength);
     bool needSplitForLargePlanesNum = VPUIP::isSplitNeededForLargePlanesNum(nndmaOp);
 
     if (!needSplitForLargeTensorSize && !needSplitForLargePlanesNum) {
@@ -198,7 +212,7 @@ mlir::LogicalResult SplitNNDMARewriter::matchAndRewrite(VPUIP::NNDMAOp nndmaOp, 
 // NNDMATilingPass
 //
 
-class NNDMATilingPass final : public VPUIP::NNDMATilingBase<NNDMATilingPass> {
+class NNDMATilingPass final : public VPUIP::impl::NNDMATilingBase<NNDMATilingPass> {
 public:
     explicit NNDMATilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

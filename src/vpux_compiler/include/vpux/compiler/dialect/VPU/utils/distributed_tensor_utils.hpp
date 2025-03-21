@@ -17,6 +17,7 @@
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -27,6 +28,7 @@ namespace VPU {
 constexpr int64_t KMB_DPU_CHANNELS_ALIGNMENT = 16;
 constexpr StringLiteral multiClusterStrategy = "multiClusterStrategy";
 const SmallVector<int64_t> DISTRIBUTED_C_ALIGNMENT = SmallVector<int64_t>{1, 16, 1, 1};
+const SmallVector<int64_t> DISTRIBUTED_N_ALIGNMENT = SmallVector<int64_t>{16, 1, 1, 1};
 
 using TensorDistributionMap = llvm::DenseMap<mlir::Type, VPU::DistributionInfo>;
 
@@ -187,10 +189,10 @@ bool isDWOpAndNeedsAlign(ArchKind arch, VPUIP::NCETaskType nceTaskType);
 bool isEltwiseOpAndNeedsAlign(VPU::ClusteredOpInterface nceOp);
 bool isSWOpChannelAlignmentCompatible(VPU::ClusteredOpInterface swOp, vpux::NDTypeInterface inputType,
                                       vpux::NDTypeInterface outputType);
-bool isSWOpWithAlignedInputChannelReq(VPU::ClusteredOpInterface swOp, vpux::NDTypeInterface inputType = nullptr,
-                                      vpux::NDTypeInterface outputType = nullptr);
-bool isSWOpWithAlignedOutputChannelReq(VPU::ClusteredOpInterface swOp, vpux::NDTypeInterface inputType = nullptr,
-                                       vpux::NDTypeInterface outputType = nullptr);
+
+bool isSWOpWithAlignedChannelReq(VPU::ClusteredOpInterface swOp, vpux::NDTypeInterface inputType = nullptr,
+                                 vpux::NDTypeInterface outputType = nullptr);
+bool isWeightsDequant(mlir::Operation* origOp);
 
 VPU::DistributedTensorType composeDistributedType(VPU::ClusteredOpInterface permuteOp,
                                                   VPU::DistributedTensorType distType, vpux::NDTypeInterface ndType,

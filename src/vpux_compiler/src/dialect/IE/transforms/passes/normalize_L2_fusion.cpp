@@ -8,6 +8,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_NORMALIZEL2FUSION
+#define GEN_PASS_DEF_NORMALIZEL2FUSION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -72,7 +78,7 @@ mlir::LogicalResult NormalizeL2Fusion::matchAndRewrite(IE::ReduceL2Op origOp, ml
 // NormalizeL2FusionPass
 //
 
-class NormalizeL2FusionPass final : public IE::NormalizeL2FusionBase<NormalizeL2FusionPass> {
+class NormalizeL2FusionPass final : public IE::impl::NormalizeL2FusionBase<NormalizeL2FusionPass> {
 public:
     explicit NormalizeL2FusionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

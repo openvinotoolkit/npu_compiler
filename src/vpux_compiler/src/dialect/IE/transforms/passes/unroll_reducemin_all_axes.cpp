@@ -14,6 +14,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNROLLREDUCEMINALLAXES
+#define GEN_PASS_DEF_UNROLLREDUCEMINALLAXES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -65,7 +71,7 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
 // UnrollReduceMinAllAxesPass
 //
 
-class UnrollReduceMinAllAxesPass final : public IE::UnrollReduceMinAllAxesBase<UnrollReduceMinAllAxesPass> {
+class UnrollReduceMinAllAxesPass final : public IE::impl::UnrollReduceMinAllAxesBase<UnrollReduceMinAllAxesPass> {
 public:
     explicit UnrollReduceMinAllAxesPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -88,7 +94,7 @@ void UnrollReduceMinAllAxesPass::safeRunOnFunc() {
         // For ReduceMin, in case all axes are reduced, conversion to MaxPool on NCE shows suboptimal
         // performance than SHAVE when the kernel size exceeds maxKernelSize.
         // Instead, unroll it to multiple ReduceMin ops on single axis can avoid this issue
-        // when totalsize is over REDUCEMIN_DPU_THRESHOLD as profiled in E#126141.
+        // when totalsize is over REDUCEMIN_DPU_THRESHOLD as profiled in E#-126141.
         auto inputTotalSize = getShape(op->getOperand(0)).totalSize();
         if (inputTotalSize < REDUCEMIN_DPU_THRESHOLD) {
             return true;

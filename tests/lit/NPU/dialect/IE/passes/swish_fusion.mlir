@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swish-fusion --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: func @SwishFusion
 // CHECK-SAME:        [[INPUT:%arg0]]: tensor<1x24x640x640xf16>
 func.func @SwishFusion(%arg0: tensor<1x24x640x640xf16>) -> tensor<1x24x640x640xf16> {

@@ -4,9 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <algorithm>
@@ -73,32 +76,43 @@ int64_t VPU::getSESize(int64_t channels, const VPU::SparsityConstraint& sparsity
 // shouldRemoveOutputSparsity
 //
 
-bool VPU::shouldRemoveOutputSparsity(VPU::NCEOpInterface nceOp) {
-    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(nceOp.getOperation());
-    if (clusteredOp == nullptr || !clusteredOp.getMultiClusterStrategy().has_value()) {
-        return false;
+VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
+    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op);
+    if (clusteredOp == nullptr) {
+        return SparsityRemovalFlag::ClusteredOpInterfaceMissingFail;
     }
 
-    const auto strategy = clusteredOp.getMultiClusterStrategy().value();
-    if (strategy != VPU::MultiClusterStrategy::SplitOverKernel) {
-        return false;
+    // First try to retrive the DistributedTensorType (it will be present in the passes post
+    // MakeOpsWithDistributedTensorPass).
+    auto distributedTensorType = clusteredOp->getResult(0).getType().dyn_cast_or_null<VPU::DistributedTensorType>();
+    if (distributedTensorType == nullptr) {
+        if (!clusteredOp.getMultiClusterStrategy().has_value()) {
+            return SparsityRemovalFlag::MultiClusterStrategyMissingFail;
+        }
+
+        const auto strategy = clusteredOp.getMultiClusterStrategy().value();
+        if (strategy != VPU::MultiClusterStrategy::SplitOverKernel) {
+            return SparsityRemovalFlag::SOKMissingFail;
+        }
+
+        const auto outputTensorType = clusteredOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
+        const auto sparseOutputType = outputTensorType.dyn_cast<VPU::SparseTensorType>();
+        if (sparseOutputType == nullptr) {
+            return SparsityRemovalFlag::SparseOutputMissingFail;
+        }
+
+        VPUX_THROW_UNLESS(sparseOutputType.getSparsityMap() != nullptr, "Missing sparsity map from sparse type {0}",
+                          sparseOutputType);
+        VPUX_THROW_UNLESS(sparseOutputType.getStorageElementTable() == nullptr,
+                          "Dynamically populated storage element table is not supported");
+
+        const auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTensorType.getShape(), strategy);
+        const auto distributedDataType = getDistributedOutputTypeFromOp(
+                clusteredOp, sparseOutputType.getData(), numClusters,
+                /*inputTypes*/ {}, /*tileInfo*/ vpux::TileInfo(ShapeRef()), /*hasExplicitDistributedAttr*/ false);
+
+        distributedTensorType = mlir::cast<vpux::VPU::DistributedTensorType>(distributedDataType);
     }
-
-    const auto outputTensorType = clusteredOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
-    const auto sparseOutputType = outputTensorType.dyn_cast<VPU::SparseTensorType>();
-    if (sparseOutputType == nullptr) {
-        return false;
-    }
-
-    VPUX_THROW_UNLESS(sparseOutputType.getSparsityMap() != nullptr, "Missing sparsity map from sparse type {0}",
-                      sparseOutputType);
-    VPUX_THROW_UNLESS(sparseOutputType.getStorageElementTable() == nullptr,
-                      "Dynamically populated storage element table is not supported");
-
-    const auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTensorType.getShape(), strategy);
-    const auto distributedDataType = getDistributedOutputTypeFromOp(
-            clusteredOp, sparseOutputType.getData(), numClusters,
-            /*inputTypes*/ {}, /*tileInfo*/ vpux::TileInfo(ShapeRef()), /*hasExplicitDistributedAttr*/ false);
 
     // Removes SOK layer's output sparsity if SOK layer has different split sizes on clusters excluding the last
     // one. For example, we need to split OC = 128 on 6 tiles, the tiled size will be {32, 32, 16, 16, 16, 16}.
@@ -106,9 +120,8 @@ bool VPU::shouldRemoveOutputSparsity(VPU::NCEOpInterface nceOp) {
     // workload channel excluding the last one. However, two workloads with 16 channels have much worse
     // performance than a workload with 32 channels. If there's no sparsity, we can keep the workload with 32
     // channels.
-    const auto distributedTensorType = mlir::cast<vpux::VPU::DistributedTensorType>(distributedDataType);
     if (distributedTensorType.getDistribution().getUniformDistributedSegments() != nullptr) {
-        return true;
+        return SparsityRemovalFlag::Success;
     }
 
     // Removes SOK layer's output sparsity if SOK layer's output is used by `VPU.Concat`.
@@ -139,7 +152,59 @@ bool VPU::shouldRemoveOutputSparsity(VPU::NCEOpInterface nceOp) {
 
             return false;
         }) != users.end()) {
-        return true;
+        return SparsityRemovalFlag::Success;
     }
-    return false;
+    return SparsityRemovalFlag::CatchAllFail;
+}
+
+bool VPU::isSEOnlyWithoutSMSupported(VPU::ArchKind arch) {
+    return arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX;
+}
+
+mlir::Type VPU::getEffectiveSparseOutputType(mlir::Type sparseType) {
+    mlir::Type dataType;
+    mlir::Type seTableType;
+    if (auto sparseTensorType = mlir::dyn_cast<VPU::SparseTensorType>(sparseType)) {
+        dataType = sparseTensorType.getData();
+        seTableType = sparseTensorType.getStorageElementTable();
+    } else if (auto sparseBufferType = mlir::dyn_cast<VPUIP::SparseBufferType>(sparseType)) {
+        dataType = sparseBufferType.getData();
+        seTableType = sparseBufferType.getStorageElementTable();
+    } else {
+        VPUX_THROW("Expected sparse type. Got {0}", sparseType);
+    }
+
+    if (seTableType == nullptr) {
+        return dataType;
+    }
+
+    auto dataNDType = mlir::cast<NDTypeInterface>(dataType);
+    auto seTableNDType = mlir::cast<NDTypeInterface>(seTableType);
+    auto outShape = Shape(seTableNDType.getShape().raw());
+    outShape[Dims4D::Act::N] = dataNDType.getShape()[Dims4D::Act::N];
+    outShape[Dims4D::Act::C] = dataNDType.getShape()[Dims4D::Act::C];
+
+    auto distributedTypeIf = mlir::cast<VPU::DistributedTypeInterface>(sparseType);
+    if (!distributedTypeIf.containsDistributedTypes()) {
+        return dataNDType.changeShape(outShape);
+    }
+
+    auto getDistribution = [](mlir::Type componentType) -> VPU::DistributionInfoAttr {
+        if (auto distributedTensor = mlir::dyn_cast<VPU::DistributedTensorType>(componentType)) {
+            return distributedTensor.getDistribution();
+        } else if (auto distributedBuffer = mlir::dyn_cast<VPUIP::DistributedBufferType>(componentType)) {
+            return distributedBuffer.getDistribution();
+        }
+
+        VPUX_THROW("Sparse type's component is not distributed, component type = {0}", componentType);
+    };
+
+    auto dataDistribution = getDistribution(dataNDType);
+    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(dataDistribution)) {
+        return dataNDType.changeShape(outShape);
+    }
+
+    auto distributionForEffectiveType = VPU::getExplicitDistrAttrForActualDataFromSparseType(sparseType);
+    return mlir::cast<VPU::DistributedTypeInterface>(dataNDType)
+            .changeShapeForExplicitDistribution(outShape, distributionForEffectiveType);
 }

@@ -15,9 +15,16 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/Operation.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLELARGEKERNELS
+#define GEN_PASS_DEF_HANDLELARGEKERNELS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -1436,7 +1443,7 @@ mlir::LogicalResult ReshapeLargeConvWithGCDRewriter::matchAndRewrite(IE::Convolu
 // HandleLargeKernelsPass
 //
 
-class HandleLargeKernelsPass final : public IE::HandleLargeKernelsBase<HandleLargeKernelsPass> {
+class HandleLargeKernelsPass final : public IE::impl::HandleLargeKernelsBase<HandleLargeKernelsPass> {
 public:
     explicit HandleLargeKernelsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

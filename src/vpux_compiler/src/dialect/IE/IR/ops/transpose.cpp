@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
@@ -342,12 +342,6 @@ void vpux::IE::TransposeOp::getCanonicalizationPatterns(mlir::RewritePatternSet&
 
 mlir::OpFoldResult vpux::IE::TransposeOp::fold(FoldAdaptor adaptor) {
     auto operands = adaptor.getOperands();
-    if (const auto cst = operands[0].dyn_cast_or_null<Const::ContentAttr>()) {
-        if (getOrderValue().has_value()) {
-            const auto orderAttr = DimsOrder::fromAffineMap(getOrderValue().value());
-            return static_cast<Const::ContentAttr>(cst).transform().transpose(orderAttr).get();
-        }
-    }
 
     if (getInput().getType() == getOutput().getType() && getOrderValue().has_value()) {
         const auto inputRank = static_cast<uint32_t>(mlir::cast<mlir::ShapedType>(getInput().getType()).getRank());
@@ -355,6 +349,13 @@ mlir::OpFoldResult vpux::IE::TransposeOp::fold(FoldAdaptor adaptor) {
         const auto orderMap = getOrderValue().value();
         if (idMap == orderMap) {
             return getInput();
+        }
+    }
+
+    if (const auto cst = operands[0].dyn_cast_or_null<Const::ContentAttr>()) {
+        if (getOrderValue().has_value()) {
+            const auto orderAttr = DimsOrder::fromAffineMap(getOrderValue().value());
+            return static_cast<Const::ContentAttr>(cst).transform().transpose(orderAttr).get();
         }
     }
 

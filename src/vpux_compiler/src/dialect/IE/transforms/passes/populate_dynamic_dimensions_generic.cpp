@@ -17,6 +17,12 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_POPULATEDYNAMICDIMENSIONSGENERIC
+#define GEN_PASS_DEF_POPULATEDYNAMICDIMENSIONSGENERIC
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -32,7 +38,8 @@ bool supportsStridedAccess(mlir::Operation* op) {
 
 void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
     mlir::Value result{op->getResult(resultIdx)};
-    const auto resultShape = getShape(result);
+    auto resultType = mlir::cast<NDTypeInterface>(result.getType());
+    const auto resultShape = resultType.getShape();
     if (resultShape.isStatic()) {
         return;
     }
@@ -64,7 +71,7 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
             return reshape.getResult();
         }
 
-        return repackDynamicTensor(builder, op, resultShape, concat);
+        return repackDynamicTensor(builder, op, resultType, concat);
     }();
 
     for (auto oldUse : oldUses) {
@@ -87,7 +94,7 @@ void populateDynamicSizes(mlir::ReifyRankedShapedTypeOpInterface op) {
 namespace {
 
 class PopulateDynamicDimensionsGenericPass final :
-        public IE::PopulateDynamicDimensionsGenericBase<PopulateDynamicDimensionsGenericPass> {
+        public IE::impl::PopulateDynamicDimensionsGenericBase<PopulateDynamicDimensionsGenericPass> {
 public:
     explicit PopulateDynamicDimensionsGenericPass(Logger log): _log(std::move(log)) {
         _log.setName(Base::getArgumentName());

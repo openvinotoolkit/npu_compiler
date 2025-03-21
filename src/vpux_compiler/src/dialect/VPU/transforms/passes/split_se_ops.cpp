@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/se_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
@@ -19,6 +20,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SPLITSEOPS
+#define GEN_PASS_DEF_SPLITSEOPS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -79,7 +86,16 @@ bool SplitInterpolate::isLegalAndBenifitSplitInterpolate(NDTypeInterface inputTy
 
     const auto factors = VPU::getNCEInterpolateFactors(scales, modeAttr, coordModeAttr);
 
-    const auto areFactorsLarge = llvm::all_of(factors, [](const auto factor) {
+    const bool isHalfPixelCoordMode = coordModeAttr.getValue() == IE::InterpolateCoordMode::HALF_PIXEL ||
+                                      coordModeAttr.getValue() == IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL;
+
+    const bool isBilinearHalfPixel = modeAttr.getValue() == VPU::NCEInterpolateMode::BILINEAR && isHalfPixelCoordMode;
+
+    const auto areFactorsLarge = llvm::all_of(factors, [&isBilinearHalfPixel](const auto factor) {
+        // TODO: E156480 - accuracy issue seen for one model without the SE split for Interp Bilinear half pixel
+        if (isBilinearHalfPixel) {
+            return factor >= 2;
+        }
         return factor >= 4;
     });
 
@@ -247,7 +263,7 @@ mlir::LogicalResult SplitRoll::matchAndRewrite(VPU::RollOp origOp, mlir::Pattern
 // SplitSEOpsPass
 //
 
-class SplitSEOpsPass final : public VPU::SplitSEOpsBase<SplitSEOpsPass> {
+class SplitSEOpsPass final : public VPU::impl::SplitSEOpsBase<SplitSEOpsPass> {
 public:
     explicit SplitSEOpsPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _seOpsEnabled(seOpsEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled), _log(log) {

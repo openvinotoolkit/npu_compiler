@@ -10,7 +10,7 @@ include "vpux/compiler/dialect/VPUIP/dialect.td"
 include "vpux/compiler/dialect/VPUIP/attributes.td"
 include "vpux/compiler/dialect/VPU/type_interfaces.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
-include "vpux/compiler/core/type_interfaces.td"
+include "vpux/compiler/dialect/core/type_interfaces.td"
 
 include "mlir/IR/BuiltinTypeInterfaces.td"
 

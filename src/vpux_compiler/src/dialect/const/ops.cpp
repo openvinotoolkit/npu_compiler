@@ -8,8 +8,8 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 
@@ -225,7 +225,7 @@ mlir::LogicalResult vpux::Const::DeclareOp::verifySymbolUses(mlir::SymbolTableCo
     return emitOpError(formatv("symbol '{0}' does not point to a valid 'const.Rodata' op", symName));
 }
 
-const vpux::Const::ContentAttr& vpux::Const::DeclareOp::getContentAttr() const {
+vpux::Const::ContentAttr vpux::Const::DeclareOp::getContentAttr() const {
     // Note: getProperties() is not 'const' in MLIR...
     return const_cast<Const::DeclareOp&>(*this).getProperties().content;
 }

@@ -11,6 +11,12 @@
 
 #include "vpux/utils/core/logger.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_QUERYARGSALLOCATIONANALYSIS
+#define GEN_PASS_DEF_QUERYARGSALLOCATIONANALYSIS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -20,7 +26,7 @@ namespace {
 //
 
 class QueryArgsAllocationAnalysisPass final :
-        public VPUIP::QueryArgsAllocationAnalysisBase<QueryArgsAllocationAnalysisPass> {
+        public VPUIP::impl::QueryArgsAllocationAnalysisBase<QueryArgsAllocationAnalysisPass> {
 public:
     QueryArgsAllocationAnalysisPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

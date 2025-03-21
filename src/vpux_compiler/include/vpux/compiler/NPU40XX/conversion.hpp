@@ -28,27 +28,18 @@ void buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                  Logger log = Logger::global(),
                                  VPU::DPUDryRunMode dpuDryRunMode = VPU::DPUDryRunMode::NONE);
 
-void elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool enablePartialWorkloadManagement,
-                            WlmVpurtEnqueueMode wlmVpurtEnqueue, bool enableDumpStatisticsOfWlmOps, const Logger& log);
+void elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool workloadManagementEnable,
+                            WorkloadManagementMode workloadManagementMode, bool enableDumpStatisticsOfWlmOps,
+                            const Logger& log);
 
-void elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool enablePartialWorkloadManagement, const Logger& log);
+void elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool workloadManagementEnable, const Logger& log);
+
 //
-// registerConversionPipeline
+// Registration
 //
 
 void registerConversionPipeline();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/conversion/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/conversion/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerConversionPasses();
 
 }  // namespace arch40xx
 }  // namespace vpux

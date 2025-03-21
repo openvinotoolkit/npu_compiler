@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK: func.func @ConvertConstToAttr([[ARG:%.*]]: tensor<2x6xf32>)
 func.func @ConvertConstToAttr(%arg: tensor<2x6xf32>) -> (tensor<1x6xf32>, tensor<1x6xf32>) {
     %0 = const.Declare tensor<1xsi64> = dense<0> : tensor<1xsi64>

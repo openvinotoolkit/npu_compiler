@@ -1412,10 +1412,10 @@ std::vector<SEDilatedConvAttrParams> dilatedConvParams = {
      /* outputTileShape = */  { 1, 16, 4, 4 },
 
      /* expectedOutputShape = */            { 1, 16, 4, 3 },
-     /* expectedBackInferredInputShape = */ { 1, 16, 7, 6 },
+     /* expectedBackInferredInputShape = */ { 1, 16, 8, 6 },
 
-     /* expectedInputTileOffset = */ { 0, 0,  0, 1 },
-     /* expectedInputTileShape = */  { 1, 16, 7, 8 },
+     /* expectedInputTileOffset = */ { 0, 0,  0, 0 },
+     /* expectedInputTileShape = */  { 1, 16, 8, 7 },
 
      /* expectedAttrOffsets = */ { 0, 0,  0, 0 },
      /* expectedAttrSizes = */   { 1, 16, 8, 7 },
@@ -1453,10 +1453,10 @@ std::vector<SEDilatedConvAttrParams> dilatedConvParams = {
      /* outputTileShape = */  { 1, 16, 6, 6 },
 
      /* expectedOutputShape = */            { 1, 16, 6,  6 },
-     /* expectedBackInferredInputShape = */ { 1, 16, 11, 11 },
+     /* expectedBackInferredInputShape = */ { 1, 16, 12, 12 },
 
      /* expectedInputTileOffset = */ { 0, 0,  0,  0 },
-     /* expectedInputTileShape = */  { 1, 16, 11, 11 },
+     /* expectedInputTileShape = */  { 1, 16, 12, 12 },
 
      /* expectedAttrOffsets = */ { 0, 0,  0,  0 },
      /* expectedAttrSizes = */   { 1, 16, 12, 12 },
@@ -1498,10 +1498,10 @@ std::vector<SEDilatedConvAttrParams> dilatedConvParams = {
      /* outputTileShape = */  { 1, 16, 16, 1 },
 
      /* expectedOutputShape = */            { 1, 16, 16, 1 },
-     /* expectedBackInferredInputShape = */ { 1, 16, 31, 1 },
+     /* expectedBackInferredInputShape = */ { 1, 16, 32, 1 },
 
      /* expectedInputTileOffset = */ { 0, 0,  0,  0 },
-     /* expectedInputTileShape = */  { 1, 16, 31, 1 },
+     /* expectedInputTileShape = */  { 1, 16, 32, 1 },
 
      /* expectedAttrOffsets = */ { 0, 0,  0,  0 },
      /* expectedAttrSizes = */   { 1, 16, 16, 1 },
@@ -1540,7 +1540,7 @@ std::vector<SEDilatedConvAttrParams> dilatedConvParams = {
      /* expectedOutputShape = */            { 1, 16, 4, 4 },
      /* expectedBackInferredInputShape = */ { 1, 16, 8, 8 },
 
-     /* expectedInputTileOffset = */ { 0, 0,  1, 1 },
+     /* expectedInputTileOffset = */ { 0, 0,  0, 0 },
      /* expectedInputTileShape = */  { 1, 16, 8, 8 },
 
      /* expectedAttrOffsets = */ { 0, 0,  0, 0 },

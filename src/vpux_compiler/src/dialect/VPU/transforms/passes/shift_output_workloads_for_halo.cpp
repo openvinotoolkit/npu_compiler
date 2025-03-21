@@ -4,8 +4,15 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SHIFTOUTPUTWORKLOADSFORHALO
+#define GEN_PASS_DEF_SHIFTOUTPUTWORKLOADSFORHALO
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -85,7 +92,8 @@ void applyClusteringOffset(VPU::DPUWorkloadOp dpuWorkloadOp, ArrayRef<int64_t> c
 // ShiftOutputWorkloadsForHalo
 //
 
-class ShiftOutputWorkloadsForHaloPass final : public ShiftOutputWorkloadsForHaloBase<ShiftOutputWorkloadsForHaloPass> {
+class ShiftOutputWorkloadsForHaloPass final :
+        public VPU::impl::ShiftOutputWorkloadsForHaloBase<ShiftOutputWorkloadsForHaloPass> {
 public:
     explicit ShiftOutputWorkloadsForHaloPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -102,12 +110,10 @@ void ShiftOutputWorkloadsForHaloPass::safeRunOnFunc() {
     auto func = getOperation();
 
     func.walk([&](VPU::NCEOpInterface nceOp) {
-        auto nceClusterTiling = nceOp->getParentOfType<VPU::NCEClusterTilingOp>();
-        if (nceClusterTiling == nullptr) {
+        auto outputTypes = mlir::dyn_cast<VPU::DistributedTypeInterface>(nceOp->getResult(0).getType());
+        if (outputTypes == nullptr) {
             return;
         }
-
-        auto outputTypes = nceClusterTiling.getResult(0).getType().cast<VPU::DistributedTypeInterface>();
         if (!needsHaloWorkloadsCorrection(nceOp, outputTypes)) {
             return;
         }

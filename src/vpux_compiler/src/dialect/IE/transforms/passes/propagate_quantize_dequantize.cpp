@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -12,6 +12,12 @@
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEQUANTIZEDEQUANTIZE
+#define GEN_PASS_DEF_PROPAGATEQUANTIZEDEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -44,6 +50,7 @@ and replaces it with
 fp_tensor -> [Quantize] -> quantized_tensor -> [ElemTypeInfoOpInterface] -> quantized_tensor */
 mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::ElemTypeInfoOpInterface origOp,
                                                        mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got layer: {0}", origOp);
     auto layer = mlir::cast<IE::LayerOpInterface>(origOp.getOperation());
 
     // 1. Get the first quantizeOp.
@@ -66,6 +73,16 @@ mlir::LogicalResult PropagateQuantize::matchAndRewrite(IE::ElemTypeInfoOpInterfa
     }
 
     // 3. Check that operation supports quantization params propagation.
+    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(origOp.getOperation());
+        layerWithPostOp != nullptr && layerWithPostOp.getPostOp().has_value()) {
+        // A quantization-agnostic operation is no longer quantization-agnostic after it is fused with a post-op
+        // (because post-op's are not quantization-agnostic). Since most post-op's will be fused by this time, this
+        // check is here to prevent the propagation of output quantization through both the ElemTypeInfoOp and its
+        // post-op. (At this time MaxPool seems to be the only operation which is both a IE::ElemTypeInfoOpInterface and
+        // a IE::LayerWithPostOpInterface)
+        return mlir::failure();
+    }
+
     const auto quantizedElemType = quantizeOp.getOutput().getType().cast<vpux::NDTypeInterface>().getElementType();
     auto elemTypeInfo = origOp.getElemTypeInfo();
     for (size_t outputInd = 0; outputInd < layer->getNumResults(); outputInd++) {
@@ -187,6 +204,16 @@ mlir::LogicalResult PropagateDequantize::matchAndRewrite(IE::ElemTypeInfoOpInter
     }
 
     // 2. Check if operation supports quantization params propagation.
+    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(origOp.getOperation());
+        layerWithPostOp != nullptr && layerWithPostOp.getPostOp().has_value()) {
+        // A quantization-agnostic operation is no longer quantization-agnostic after it is fused with a post-op
+        // (because post-op's are not quantization-agnostic). Since most post-op's will be fused by this time, this
+        // check is here to prevent the propagation of input quantization through both the ElemTypeInfoOp and its
+        // post-op. (At this time MaxPool seems to be the only operation which is both a IE::ElemTypeInfoOpInterface and
+        // a IE::LayerWithPostOpInterface)
+        return mlir::failure();
+    }
+
     auto elemTypeInfo = origOp.getElemTypeInfo();
 
     SmallVector<mlir::Type> originalTypes;
@@ -259,7 +286,7 @@ mlir::LogicalResult PropagateDequantize::matchAndRewrite(IE::ElemTypeInfoOpInter
 }
 
 class PropagateQuantizeDequantizePass final :
-        public IE::PropagateQuantizeDequantizeBase<PropagateQuantizeDequantizePass> {
+        public IE::impl::PropagateQuantizeDequantizeBase<PropagateQuantizeDequantizePass> {
 public:
     explicit PropagateQuantizeDequantizePass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled) {
         Base::initLogger(log, Base::getArgumentName());

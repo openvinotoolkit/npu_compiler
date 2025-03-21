@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -44,3 +43,34 @@ func.func @MergeParallelPermuteCast(%arg0 : tensor<112x1x1x1xf16, {order = #NHWC
     // CHECK:    [[SLICE:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [100, 1, 1, 1] : tensor<112x1x1x1xf16, {order = #NHWC}> to tensor<100x1x1x1xf16, {order = #NHWC}>
     // CHECK:    return [[PERMUTE_CAST]], [[PERMUTE_CAST]], [[SLICE]]
 }
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+func.func @PermuteCastMemPermute() -> tensor<1x2xf32, { order = #CN }> {
+    %cst = const.Declare tensor<1x2xf32> = dense<[[1.0, 2.0]]> : tensor<1x2xf32>
+    %permute_cast = VPU.PermuteCast(%cst) {dst_order = #CN, mem_perm = #CN} : tensor<1x2xf32> -> tensor<1x2xf32, { order = #CN }>
+    return %permute_cast : tensor<1x2xf32, { order = #CN }>
+}
+
+// CHECK: func.func @PermuteCastMemPermute() -> tensor<1x2xf32, {order = #CN}> {
+// CHECK:    [[CST:%.+]] = const.Declare tensor<1x2xf32, {order = #CN}> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : tensor<1x2xf32>, [#const.MemPermute<#CN, #CN>]
+// CHECK:    return [[CST]] : tensor<1x2xf32, {order = #CN}>
+// CHECK: }
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+func.func @PermuteCastNoOp() -> tensor<1x2xf32> {
+    %cst = const.Declare tensor<1x2xf32> = dense<[[1.0, 2.0]]> : tensor<1x2xf32>
+    %permute_cast_0 = VPU.PermuteCast(%cst) {dst_order = #NC, mem_perm = #NC} : tensor<1x2xf32> -> tensor<1x2xf32>
+    return %permute_cast_0 : tensor<1x2xf32>
+}
+
+// CHECK: func.func @PermuteCastNoOp() -> tensor<1x2xf32> {
+// CHECK:     [[CST:%.+]] = const.Declare tensor<1x2xf32> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : tensor<1x2xf32>
+// CHECK:     return [[CST]] : tensor<1x2xf32>
+// CHECK: }

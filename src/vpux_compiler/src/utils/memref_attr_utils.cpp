@@ -87,3 +87,23 @@ vpux::NDTypeInterface vpux::setAllocSizeAttr(vpux::NDTypeInterface type, int64_t
 
     VPUX_THROW("Unsupported type for storing allocSize setting - {0}", type);
 }
+
+DimsOrder vpux::inferNewDimsOrder(DimsOrder origOrder, size_t numShapeDims) {
+    if (origOrder.isIdentity()) {
+        return DimsOrder::fromNumDims(numShapeDims);
+    }
+    if (numShapeDims == origOrder.numDims()) {
+        return origOrder;
+    }
+    // We can infer new dims order for DMA fusion. In this case we just add new dim and increase mappings by one
+    VPUX_THROW_WHEN(numShapeDims != origOrder.numDims() + 1, "Can't infer new dims order");
+    VPUX_THROW_WHEN(numShapeDims >= vpux::MAX_NUM_DIMS, "Can't expand dims");
+    // Create codeDelta, which is just 0x11111(based on num Dims). To get new DimOrder add this code to original
+    // For example NHWC - 0x1342, new order will be 0x12453(GNHWC)
+    DimsOrder::StorageType codeDelta = 0;
+    for (size_t dim = 0; dim < numShapeDims; ++dim) {
+        codeDelta = (codeDelta << DimsOrder::BITS_PER_DIM) | 1ul;
+    }
+    DimsOrder::StorageType newCode = origOrder.code() + codeDelta;
+    return DimsOrder::fromCode(newCode);
+}

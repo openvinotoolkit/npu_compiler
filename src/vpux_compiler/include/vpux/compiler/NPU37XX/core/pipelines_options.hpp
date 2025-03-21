@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/core/pipelines_options.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 namespace vpux {
 namespace arch37xx {
@@ -45,6 +46,9 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc(
                     "Enable output size ensurance when checking nce op shapes in EnsureNCEOpsSizeRequirements pass"),
             llvm::cl::init(true)};
+    // VPUIP option shared with VPU pass
+    BoolOption enableWeightsSwizzling{*this, "enable-weights-swizzling", ::llvm::cl::desc("Enable weights swizzling"),
+                                      ::llvm::cl::init(true)};
 };
 
 //

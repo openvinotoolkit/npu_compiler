@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_ELFNPU37XX_OPS
 #define VPUX_COMPILER_DIALECT_ELFNPU37XX_OPS
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/ELFNPU37XX/attributes.td"
 include "vpux/compiler/dialect/ELFNPU37XX/dialect.td"
 include "vpux/compiler/dialect/ELFNPU37XX/types.td"

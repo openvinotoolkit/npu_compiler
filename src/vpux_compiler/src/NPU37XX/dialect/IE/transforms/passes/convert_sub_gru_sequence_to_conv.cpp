@@ -5,12 +5,19 @@
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_CONVERTSUBGRUSEQUENCETOCONV
+#define GEN_PASS_DEF_CONVERTSUBGRUSEQUENCETOCONV
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -21,7 +28,7 @@ namespace {
 //
 
 class ConvertSubGRUSequenceToConvPass final :
-        public IE::arch37xx::ConvertSubGRUSequenceToConvBase<ConvertSubGRUSequenceToConvPass> {
+        public IE::arch37xx::impl::ConvertSubGRUSequenceToConvBase<ConvertSubGRUSequenceToConvPass> {
 public:
     explicit ConvertSubGRUSequenceToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

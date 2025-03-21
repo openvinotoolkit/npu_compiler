@@ -14,7 +14,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUREGMAPPED_TYPES
 #define VPUX_COMPILER_DIALECT_VPUREGMAPPED_TYPES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPURegMapped/dialect.td"
 include "vpux/compiler/dialect/VPURegMapped/attributes.td"
 

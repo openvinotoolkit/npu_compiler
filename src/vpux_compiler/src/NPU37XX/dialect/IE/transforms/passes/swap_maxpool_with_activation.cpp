@@ -4,11 +4,19 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_SWAPMAXPOOLWITHACTIVATION
+#define GEN_PASS_DEF_SWAPMAXPOOLWITHACTIVATION
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -67,7 +75,8 @@ mlir::LogicalResult GenericConverter<ConcreteOp>::matchAndRewrite(ConcreteOp ori
 // SwapMaxPoolWithActivation
 //
 
-class SwapMaxPoolWithActivation final : public IE::arch37xx::SwapMaxPoolWithActivationBase<SwapMaxPoolWithActivation> {
+class SwapMaxPoolWithActivation final :
+        public IE::arch37xx::impl::SwapMaxPoolWithActivationBase<SwapMaxPoolWithActivation> {
 public:
     explicit SwapMaxPoolWithActivation(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

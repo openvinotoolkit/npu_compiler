@@ -202,7 +202,7 @@ mlir::LogicalResult TransposeInputs::matchAndRewrite(IE::MatMulOp matmulOp, mlir
     }
 
     rewriter.replaceOpWithNewOp<IE::MatMulOp>(matmulOp, input1, input2, /*transpose_a=*/false,
-                                              /*transpose_b=*/true);
+                                              /*transpose_b=*/true, matmulOp.getPostOpAttr());
 
     return mlir::success();
 }

@@ -73,7 +73,6 @@ TEST_F(EltwiseMultiplyLayerTest, NPU4000) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 typedef Eltwise2InputLayerTest<ov::op::v1::Add> EltwiseAddLayerTest;
 
 TEST_F(EltwiseAddLayerTest, NPU3720) {
@@ -85,4 +84,5 @@ TEST_F(EltwiseAddLayerTest, NPU4000) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+
 }  // namespace ov::test

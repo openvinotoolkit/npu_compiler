@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 #include <llvm/ADT/TypeSwitch.h>
@@ -13,6 +13,8 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 
 using namespace vpux;
 namespace {
@@ -70,21 +72,21 @@ bool isBeneficialForUsingSWDepthToSpace(VPUIP::SwKernelOp swKernelOp, VPU::ArchK
  * operations like MemPermute.
  * @return true if it's beneficial for using DMA, otherwise false.
  */
-bool isBeneficialForUsingPermuteDMA(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap memPerm,
-                                    int64_t dmaPortCount, vpux::Logger log) {
-    auto subShapes = VPUIP::getPermuteDMASubInputShapes(inType, outType, memPerm, dmaPortCount, log);
-    if (!subShapes.has_value()) {
-        return false;
-    }
-    return true;
+bool isBeneficialForUsingPermuteDMA(VPU::ArchKind arch, NDTypeInterface inType, NDTypeInterface outType,
+                                    mlir::AffineMap memPerm, int64_t dmaPortCount, vpux::Logger log) {
+    auto subShapes = VPUIP::getPermuteDMASubInputShapes(arch, inType, outType, memPerm, dmaPortCount, log);
+    return subShapes.has_value();
 }
 
-SmallVector<Shape> computeDMASubShape(ShapeRef shape, Dim numPlaneDim, int64_t dmaPortCount) {
+SmallVector<Shape> computeDMASubShape(VPU::ArchKind arch, ShapeRef shape, Dim numPlaneDim, int64_t dmaPortCount) {
     const auto shapeSize = shape.size();
     VPUX_THROW_UNLESS(shapeSize == 2 || shapeSize == 3 || shapeSize == 4,
                       "Shape size should be 2 or 3 or 4, but got {0}", shapeSize);
     VPUX_THROW_UNLESS(static_cast<size_t>(numPlaneDim.ind()) < shapeSize,
                       "numPlaneDim index {0} doesn't match shape size {1}", numPlaneDim.ind(), shapeSize);
+
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(arch);
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
 
     const auto totalPlaneCount = shape[numPlaneDim];
     // Enforce hardware limitation: Each DMA plane number must be less than 256
@@ -95,7 +97,7 @@ SmallVector<Shape> computeDMASubShape(ShapeRef shape, Dim numPlaneDim, int64_t d
     // Input: 520x16, Output: 16x520, Plane number is 520, DMA Port number is 2
     // With 2 available DMA ports, the initial 'requiredDMACount' is 3, allowing only the first two PermuteDMAs to run
     // concurrently. 'optimizedDMACount' adjusts this to 4 to ensure all DMAs are utilized efficiently
-    auto requiredDMACount = divUp(totalPlaneCount, VPUIP::DMA_MAX_NUMBER_PLANES);
+    auto requiredDMACount = divUp(totalPlaneCount, dmaMaxNumPlanes);
     auto optimizedDMACount = divUp(requiredDMACount, dmaPortCount) * dmaPortCount;
 
     // Aim to distribute the data size as evenly as possible across PermuteDMAs
@@ -234,7 +236,7 @@ std::optional<Shape> vpux::VPUIP::getPermuteDMAOutputShape(NDTypeInterface inTyp
     return mergedOutputShape;
 }
 
-std::optional<SmallVector<Shape>> vpux::VPUIP::getPermuteDMASubInputShapes(NDTypeInterface inType,
+std::optional<SmallVector<Shape>> vpux::VPUIP::getPermuteDMASubInputShapes(VPU::ArchKind arch, NDTypeInterface inType,
                                                                            NDTypeInterface outType,
                                                                            mlir::AffineMap perm, int64_t dmaPortCount,
                                                                            vpux::Logger log) {
@@ -249,7 +251,7 @@ std::optional<SmallVector<Shape>> vpux::VPUIP::getPermuteDMASubInputShapes(NDTyp
     }
 
     auto numPlaneDim = getPermuteDMANumPlaneDim(inType, perm);
-    return computeDMASubShape(newInputShape.value(), numPlaneDim, dmaPortCount);
+    return computeDMASubShape(arch, newInputShape.value(), numPlaneDim, dmaPortCount);
 }
 
 SmallVector<vpux::Shape> vpux::VPUIP::getPermuteDMASubOutputShapes(SmallVector<vpux::Shape> subInputShapes,
@@ -468,16 +470,6 @@ bool vpux::VPUIP::doesPermuteDMATileDimSupportWrapInCluster(vpux::NDTypeInterfac
     return tileDim.has_value();
 }
 
-bool vpux::VPUIP::isCombineAtFront(ShapeRef shape, DimsOrder order) {
-    for (size_t idx = 0; idx < shape.size(); idx++) {
-        if (shape[order.dimAt(idx)] == 1) {
-            continue;
-        }
-        return shape[order.dimAt(idx)] <= DMA_MAX_NUMBER_PLANES;
-    }
-    return false;
-}
-
 bool vpux::VPUIP::doesSWLayerFitIntoCMX(mlir::Operation* op, vpux::Logger log) {
     if (!mlir::isa<IE::DepthToSpaceOp, IE::SpaceToDepthOp, VPUIP::SwKernelOp>(op)) {
         log.trace("unsupported op type at '{0}'", op->getLoc());
@@ -504,6 +496,10 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
     if (VPU::getCompilationMode(op) != VPU::CompilationMode::DefaultHW) {
         return false;
     }
+    const auto arch = VPU::getArch(op);
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(arch);
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+
     return llvm::TypeSwitch<mlir::Operation*, bool>(op)
             .Case<VPU::MemPermuteOp>([&](mlir::Operation* op) {
                 log.trace("Got Permute Op at {0}.", op->getLoc());
@@ -525,7 +521,8 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                 auto module = op->getParentOfType<mlir::ModuleOp>();
                 const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
-                if (!VPUIP::getPermuteDMASubInputShapes(inputType, outputType, memPerm, dmaPortNum, log).has_value()) {
+                if (!VPUIP::getPermuteDMASubInputShapes(arch, inputType, outputType, memPerm, dmaPortNum, log)
+                             .has_value()) {
                     log.trace("MemPermute Op at {0} doesn't support DMA implementation.", op->getLoc());
                     return false;
                 }
@@ -549,7 +546,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
 
                 if (op->hasAttr("mode") && op->hasAttr("block_size")) {
                     const auto blockSize = op->getAttr("block_size").cast<mlir::IntegerAttr>().getInt();
-                    return blockSize <= VPUIP::DMA_MAX_NUMBER_PLANES;
+                    return blockSize <= dmaMaxNumPlanes;
                 }
 
                 log.trace("SpaceToDepthOp at {0} can convert to SpaceToDepthDMA.", op->getLoc());
@@ -566,7 +563,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                     auto dmaDescriptorGenerator = VPUIP::SpaceToDepthDmaDescriptorGenerator(op->getContext(), log);
                     auto dmaDescriptor = dmaDescriptorGenerator.generate(inputType, outputType, mode, blockSize);
                     auto numPlanes = dmaDescriptor.getNumPlanes().getInt();
-                    return numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES;
+                    return numPlanes <= dmaMaxNumPlanes;
                 }
 
                 log.trace("SpaceToDepthOp at {0} can convert to SpaceToDepthDMA.", op->getLoc());
@@ -574,8 +571,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
             })
             .Case<VPUIP::SwKernelOp>([&](VPUIP::SwKernelOp swKernelOp) {
                 // TODO(E#105847): dynamic shape ops cannot be converted to DMA
-                if (!swKernelOp.getDynamicInputShapes().empty() || !swKernelOp.getDynamicOutputShapes().empty() ||
-                    VPUIP::hasDynamicShape(swKernelOp)) {
+                if (VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
                     return false;
                 }
                 if (auto memPerm = getMemPermFromSwKernel(swKernelOp)) {
@@ -588,7 +584,8 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                     auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
                     const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
-                    if (!VPUIP::getPermuteDMASubInputShapes(inputType, outputType, memPerm.value(), dmaPortNum, log)
+                    if (!VPUIP::getPermuteDMASubInputShapes(VPU::getArch(op), inputType, outputType, memPerm.value(),
+                                                            dmaPortNum, log)
                                  .has_value()) {
                         log.trace("SwKernelOp at {0} doesn't support DMA implementation.", op->getLoc());
                         return false;
@@ -626,7 +623,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                     auto dmaDescriptor = dmaDescriptorGenerator.generate(inputType, outputType, mode, blockSize);
                     auto numPlanes = dmaDescriptor.getNumPlanes().getInt();
 
-                    if (numPlanes > VPUIP::DMA_MAX_NUMBER_PLANES) {
+                    if (numPlanes > dmaMaxNumPlanes) {
                         log.trace("{0} at {1} cannot convert to DMA due to numPlanes exceeds limit.", op->getName(),
                                   op->getLoc());
                         return false;
@@ -691,7 +688,8 @@ bool vpux::VPUIP::isLegalAndBeneficialConvertToDMA(mlir::Operation* op, vpux::Lo
 
             const auto inputType = op->getOperand(0).getType().cast<vpux::NDTypeInterface>();
             const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
-            return isBeneficialForUsingPermuteDMA(inputType, outputType, memPerm.value(), dmaPortNum, log);
+            return isBeneficialForUsingPermuteDMA(VPU::getArch(op), inputType, outputType, memPerm.value(), dmaPortNum,
+                                                  log);
         }
 
         return false;
@@ -793,7 +791,11 @@ bool vpux::VPUIP::isCompatibleWithMultiClusterNNDMA(VPU::DepthToSpaceOp op, vpux
         return false;
     }
     const auto inputShape = inputType.getShape();
-    if (inputShape[Dims4D::Act::H] > VPUIP::DMA_MAX_NUMBER_PLANES) {
+
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(op));
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+
+    if (inputShape[Dims4D::Act::H] > dmaMaxNumPlanes) {
         // TODO: split more DMAs when the numPlanes is larger than 256 [Track number: E#57027]
         return false;
     }
@@ -1058,7 +1060,7 @@ std::pair<vpux::Shape, vpux::Shape> vpux::VPUIP::getPerAxisTileDMAMergedShape(vp
     const auto inMemShape = inOrder.toMemoryOrder(inShape);
     const auto outMemShape = outOrder.toMemoryOrder(outShape);
 
-    const auto getMergedShape = [](MemShape shape, int64_t axis) -> Shape {
+    const auto getMergedShape = [](const MemShape& shape, int64_t axis) -> Shape {
         SmallVector<int64_t> mergedShape(3, 1);
         for (auto idx = 0; idx < checked_cast<int64_t>(shape.size()); idx++) {
             const auto mergeAxis = (idx < axis) ? 0 : (idx == axis) ? 1 : 2;
@@ -1071,17 +1073,20 @@ std::pair<vpux::Shape, vpux::Shape> vpux::VPUIP::getPerAxisTileDMAMergedShape(vp
                                    getMergedShape(outMemShape, inOrder.dimPos(Dim(axis))));
 }
 
-SmallVector<vpux::Shape> vpux::VPUIP::getPerAxisTileDMASubShapes(vpux::ShapeRef shape) {
+SmallVector<vpux::Shape> vpux::VPUIP::getPerAxisTileDMASubShapes(VPU::ArchKind arch, vpux::ShapeRef shape) {
     const auto shapeSize = shape.size();
     VPUX_THROW_UNLESS(shapeSize == 3, "PerAxisTile merged Shape size should be 3, but got {0}", shapeSize);
 
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(arch);
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+
     const auto totalNumPlane = shape[Dim(0)];
-    auto numberDMAs = divUp(totalNumPlane, VPUIP::DMA_MAX_NUMBER_PLANES);
+    auto numberDMAs = divUp(totalNumPlane, dmaMaxNumPlanes);
     if (numberDMAs > 1) {
         auto subShape = Shape(shape.raw());
-        subShape[Dim(0)] = VPUIP::DMA_MAX_NUMBER_PLANES;
+        subShape[Dim(0)] = dmaMaxNumPlanes;
         SmallVector<Shape> subOutputShapes(numberDMAs - 1, subShape);
-        subShape[Dim(0)] = totalNumPlane - VPUIP::DMA_MAX_NUMBER_PLANES * (numberDMAs - 1);
+        subShape[Dim(0)] = totalNumPlane - dmaMaxNumPlanes * (numberDMAs - 1);
         subOutputShapes.push_back(subShape);
         return subOutputShapes;
     }
@@ -1101,7 +1106,14 @@ VPURT::DeclareBufferOp vpux::VPUIP::createNewDeclareBuffer(mlir::PatternRewriter
             sectionIndex == -1
                     ? vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPURT::getMemoryKind(section)))
                     : vpux::IndexedSymbolAttr::get(ctx, stringifyEnum(VPURT::getMemoryKind(section)), sectionIndex);
-    newType = newType.changeMemSpace(symbolAttr);
+
+    if (mlir::isa<VPUIP::DistributedBufferType>(newType)) {
+        VPUX_THROW_WHEN(declBuff.getSection() != VPURT::BufferSection::CMX_NN,
+                        "Section of DistributedBufferType should point to CMX_NN!");
+    } else {
+        newType = newType.changeMemSpace(symbolAttr);
+    }
+
     return sectionIndex == -1
                    ? VPURT::createOp<VPURT::DeclareBufferOp>(rewriter, insertionPoint, declBuff->getLoc(), newType,
                                                              section, nullptr, offset, declBuff.getSwizzlingKeyAttr())

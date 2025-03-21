@@ -42,7 +42,7 @@ const std::vector<ov::test::EinsumEquationWithInput> equationsWithInput_PBI = {
         {"ijbn->bnij", ov::test::static_shapes_to_test_representation({{128, 128, 1, 1}})}};
 const std::vector<ov::element::Type> model_types = {
         ov::element::f32, ov::element::i32
-        // ov::element::f16 Unsupported precision [C#138797]
+        // ov::element::f16 Unsupported precision [C-138797]
 };
 const auto params = ::testing::Combine(::testing::ValuesIn(model_types), ::testing::ValuesIn(equationsWithInput_PBI),
                                        ::testing::Values(DEVICE_NPU));

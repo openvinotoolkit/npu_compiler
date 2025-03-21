@@ -220,7 +220,6 @@ const std::vector<ov::element::Type> modelType = {ov::element::f16, ov::element:
                                               testing::Values(std::tuple<int, int>{axis, batch_dims}),             \
                                               testing::ValuesIn(modelType), testing::Values(DEVICE_NPU)),          \
                              Gather8LayerTest_NPU4000::getTestCaseName)
-
 GEN8_TEST(0, (ov::Shape{3, 5, 1, 1}), ({3, 2}), 1, 1);
 GEN8_TEST(1, (ov::Shape{4, 3, 5, 1}), ({4, 4}), 2, 1);
 GEN8_TEST(2, (ov::Shape{3, 2, 1, 1}), ({3, 2}), 1, 1);

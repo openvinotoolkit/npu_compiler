@@ -62,10 +62,7 @@ void vpux::MemLiveRangeInfo::buildRangeInfo(mlir::func::FuncOp funcOp) {
                 continue;
             }
 
-            auto rootBuffers = _aliasInfo.getRoots(buffer);
-            VPUX_THROW_UNLESS(rootBuffers.size() == 1, "Value '{0}' expected to have only one root. Got {1}", buffer,
-                              rootBuffers.size());
-            auto rootBuffer = *rootBuffers.begin();
+            auto rootBuffer = _aliasInfo.getRoot(buffer);
             map[execOp].insert(rootBuffer);
         }
     };

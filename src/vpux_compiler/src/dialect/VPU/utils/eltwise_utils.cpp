@@ -8,6 +8,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
@@ -62,8 +63,8 @@ bool vpux::VPU::isNCEEltwiseSupported(mlir::Operation* op, vpux::NDTypeInterface
                                             ? 1
                                             : vpux::VPU::NCEInvariant::getAlignment(input2Type.getElementType());
 
-        if (!NCEInvariant::isInputActTypeSupported(arch, input1Type, inputAlignmentFirst, false) ||
-            !NCEInvariant::isInputActTypeSupported(arch, input2Type, inputAlignmentSecond, false) ||
+        if (!NCEInvariant::isInputActTypeSupported(input1Type, inputAlignmentFirst, false) ||
+            !NCEInvariant::isInputActTypeSupported(input2Type, inputAlignmentSecond, false) ||
             !NCEInvariant::isOutputActTypeSupported(outputType, outputAlignment)) {
             logCb(formatv("Misaligned tensor shape"));
             return false;

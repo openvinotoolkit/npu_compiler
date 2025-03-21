@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 
@@ -297,22 +298,20 @@ bool vpux::IE::checkRescaledQuantApproximationForConvBasedOp(mlir::Operation* op
     auto outElemType = op->getResult(0).getType().cast<NDTypeInterface>().getElementType();
     auto weightsType = op->getOperand(1).getType().cast<NDTypeInterface>().getElementType();
 
-    auto inQuantScale = inElemType.isa<mlir::quant::QuantizedType>() ? extractScalesAndZeroPoints(inElemType).first
-                                                                     : SmallVector<double>{1.0};
-    auto outQuantScale = outElemType.isa<mlir::quant::QuantizedType>() ? extractScalesAndZeroPoints(outElemType).first
-                                                                       : SmallVector<double>{1.0};
-    auto weightsQuantScales = exractWeightsScales(weightsType);
+    auto inQuantScales = extractScalesOrDefault(inElemType, 1.0);
+    auto outQuantScales = extractScalesOrDefault(outElemType, 1.0);
+    auto weightsQuantScales = extractScalesOrDefault(weightsType, 1.0);
 
     const auto OC = getShape(op->getOperand(1))[Dims4D::Filter::OC];
-    broadcast(inQuantScale, OC);
-    broadcast(outQuantScale, OC);
+    broadcast(inQuantScales, OC);
+    broadcast(outQuantScales, OC);
     broadcast(weightsQuantScales, OC);
 
     for (int64_t i = 0; i < OC; i++) {
         int16_t mult = 0;
         uint8_t shift = 0;
         int8_t postShift = 0;
-        double rescale = (weightsQuantScales[i] * inQuantScale[i]) / outQuantScale[i];
+        double rescale = (weightsQuantScales[i] * inQuantScales[i]) / outQuantScales[i];
         std::tie(mult, shift, postShift) = approximate<decltype(mult)>(15, rescale);
         if (postShift != 0) {
             return false;

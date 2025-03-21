@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --log-op-optimizations %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @InterpolateNearest(%arg0: tensor<1x3x6x6xf16>) -> tensor<1x3x12x12xf16> {
     %0 = IE.Interpolate(%arg0) {
         attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64,

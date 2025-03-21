@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --compute-nce-input-workloads %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !Input_CMX = tensor<1x16x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
@@ -265,22 +264,14 @@ module @ConvInputWorkloadsSOHExtraLines  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg3: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg3) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg4: !InputStub_CMX,
-              %arg1 as %arg5: !Weights_CMX,
-              %arg2 as %arg6: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Convolution(%arg4, %arg5, %arg6) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } -> !Output_NCE {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 11, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 21, 0] outSizes [1, 48, 11, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -288,8 +279,6 @@ module @ConvInputWorkloadsSOHExtraLines  {
               VPU.DPU.Workload outOffsets [0, 0, 42, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 2 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 52, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 2 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -415,17 +404,12 @@ module @SparseConvInputWorkloadsSOHExtraLines  {
   func.func @main(%arg0: !InputData_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !InputSM_CMX) -> !Output_CMX {
     %input_sparse = VPU.GroupSparseTensor(%arg0, %arg3) -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_sparse as %arg4: !InputStub_CMX,
-              %arg1 as %arg5: !Weights_CMX,
-              %arg2 as %arg6: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Convolution(%arg4, %arg5, %arg6) {
+    %output_cmx = VPU.NCE.Convolution(%input_sparse, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } -> !OutputStub_CMX {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 11, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 21, 0] outSizes [1, 48, 11, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -433,8 +417,6 @@ module @SparseConvInputWorkloadsSOHExtraLines  {
               VPU.DPU.Workload outOffsets [0, 0, 42, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 2 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 52, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 2 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -531,29 +513,19 @@ module @ConvInputWorkloadsSOK  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg3: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg3) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg4: !InputStub_CMX,
-              %arg1 as %arg5: !Weights_CMX,
-              %arg2 as %arg6: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 =  VPU.NCE.Convolution(%arg4, %arg5, %arg6) {
+    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [64, 16, 3, 3],
               strides = [1, 1]
-          } -> !Output_NCE {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 16, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
               VPU.DPU.Workload outOffsets [0, 48, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
           }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -640,29 +612,19 @@ module @ConvInputWorkloadsSOHNoExtraLines  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg3: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg3) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg4: !InputStub_CMX,
-              %arg1 as %arg5: !Weights_CMX,
-              %arg2 as %arg6: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 =  VPU.NCE.Convolution(%arg4, %arg5, %arg6) {
+    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } -> !Output_NCE {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 16, 0] outSizes [1, 48, 15, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 31, 0] outSizes [1, 48, 16, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 47, 0] outSizes [1, 48, 15, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
           }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -745,29 +707,19 @@ module @DWInputWorkloadsSOKSEGSEG  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg4: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg4) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg5: !InputStub_CMX,
-              %arg1 as %arg6: !Weights_CMX,
-              %arg2 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 =  VPU.NCE.DepthConvolution(%arg5, %arg6, %arg7) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],
               strides = [1, 1]
-          } -> !OutputStub_CMX {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
           }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -850,29 +802,19 @@ module @DWInputWorkloadsSOKSEGDUP  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg4: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg4) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg5: !InputStub_CMX,
-              %arg1 as %arg6: !Weights_CMX,
-              %arg2 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 =  VPU.NCE.DepthConvolution(%arg5, %arg6, %arg7) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],
               strides = [1, 1]
-          } -> !OutputStub_CMX {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 48, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
               VPU.DPU.Workload outOffsets [0, 64, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
           }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -955,29 +897,19 @@ module @DWInputWorkloadsSOKDUPSEG  {
   }
 
   func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg4: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg4) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_cmx as %arg5: !InputStub_CMX,
-              %arg1 as %arg6: !Weights_CMX,
-              %arg2 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 =  VPU.NCE.DepthConvolution(%arg5, %arg6, %arg7) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],
               strides = [1, 1]
-          } -> !OutputStub_CMX {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
               VPU.DPU.Workload outOffsets [0, 16, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
           }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -1120,23 +1052,17 @@ func.func @NCEPermuteInputWorkloads(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x
 
 // CHECK-LABEL: @NCEPermuteNoExtraLinesAtInput
 func.func @NCEPermuteNoExtraLinesAtInput(%arg0: !Input_DDR) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg1: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg1) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output = VPU.NCE.ClusterTiling (%input_cmx as %arg2: !InputStub_CMX) -> !Output_CMX {
-        %0 = VPU.NCE.Permute(%arg2) {
+    %output = VPU.NCE.Permute(%input_cmx) {
                 dstElemType = !quant.uniform<u8:f16, 1.000000e+00>,
                 dstOrder = #NHWC,
                 expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967300 : i64,
                 ppe = #VPU.PPEStub<>
-        } -> !OutputStub_CMX {
+        } -> !Output_CMX {
           VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
           VPU.DPU.Workload outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %0
-    }
 
     return %output : !Output_CMX
 
@@ -1192,23 +1118,17 @@ func.func @NCEPermuteNoExtraLinesAtInput(%arg0: !Input_DDR) -> !Output_CMX {
 
 // CHECK-LABEL: @NCEPermuteWithAdjustedInputWorkloadForExtraLines
 func.func @NCEPermuteWithAdjustedInputWorkloadForExtraLines(%arg0: !Input_DDR) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg1: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg1) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output = VPU.NCE.ClusterTiling (%input_cmx as %arg2: !InputStub_CMX) -> !Output_CMX {
-        %0 = VPU.NCE.Permute(%arg2) {
+    %output = VPU.NCE.Permute(%input_cmx) {
                 dstElemType = !quant.uniform<u8:f16, 1.000000e+00>,
                 dstOrder = #NHWC,
                 expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967300 : i64,
                 ppe = #VPU.PPEStub<>
-        } -> !OutputStub_CMX {
+        } -> !Output_CMX {
           VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
           VPU.DPU.Workload outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %0
-    }
 
     return %output : !Output_CMX
 
@@ -1270,31 +1190,36 @@ func.func @NCEPermuteWithAdjustedInputWorkloadForExtraLines(%arg0: !Input_DDR) -
 
 // CHECK-LABEL: @NCEPermuteInputWorkloadsSOC
 func.func @NCEPermuteInputWorkloadsSOC(%arg0: !Input_DDR) -> !Output_CMX {
-    %input_cmx = VPU.NCE.ClusterTiling(%arg0 as %arg1: !Input_DDR) -> !Input_CMX {
-        %0 = VPU.Copy(%arg1) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputStub_CMX
-        VPU.Yield %0
-    }
+    %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output = VPU.NCE.ClusterTiling (%input_cmx as %arg2: !InputStub_CMX) -> !Output_CMX {
-        %0 = VPU.NCE.Permute(%arg2) {
+    %output = VPU.NCE.Permute(%input_cmx) {
                 dstElemType = f16,
                 dstOrder = #NHWC,
                 expandedChannels = 128 : i64, minimumHardwareExecutionCost = 5442 : i64,
                 ppe = #VPU.PPEStub<>
-        } -> !OutputStub_CMX {
+        } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 32, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
             VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 32, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
             VPU.DPU.Workload outOffsets [0, 64, 0, 0] outSizes [1, 32, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 2 : i64}
             VPU.DPU.Workload outOffsets [0, 96, 0, 0] outSizes [1, 32, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 3 : i64}
         }
-        VPU.Yield %0
-    }
 
     return %output : !Output_CMX
 
     // CHECK:       VPU.NCE.Permute
     // CHECK-SAME:      dstElemType = f16, dstOrder = #NHWC, expandedChannels = 128 : i64
-    // CHECK-SAME:      -> tensor<1x128x32x64xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+    // CHECK-SAME:      -> !VPU.DistributedTensor<
+    // CHECK-SAME:          1x128x32x64xf16, #NHWC, @CMX_NN, {
+    // CHECK-SAME:          mode = "SEGMENTED",
+    // CHECK-SAME:          num_tiles = [1, 4, 1, 1],
+    // CHECK-SAME:          num_clusters = 4 : i64,
+    // CHECK-SAME:          alignment = [1, 16, 1, 1],
+    // CHECK-SAME:          uniform_distributed_segments,
+    // CHECK-SAME{LITERAL}: compute_shapes = [[1, 32, 32, 64], [1, 32, 32, 64], [1, 32, 32, 64], [1, 32, 32, 64]],
+    // CHECK-SAME{LITERAL}: compute_offsets = [[0, 0, 0, 0], [0, 32, 0, 0], [0, 64, 0, 0], [0, 96, 0, 0]],
+    // CHECK-SAME{LITERAL}: memory_shapes = [[1, 32, 32, 64], [1, 32, 32, 64], [1, 32, 32, 64], [1, 32, 32, 64]],
+    // CHECK-SAME{LITERAL}: memory_offsets = [[0, 0, 0, 0], [0, 32, 0, 0], [0, 64, 0, 0], [0, 96, 0, 0]]
+    // CHECK-SAME:          }> {
 
     // CHECK:       VPU.DPU.Workload
     // CHECK-SAME:      inOffsets [0, 0, 0, 0] inSizes [1, 32, 32, 64]
@@ -1443,23 +1368,16 @@ module @SparseNearestNCEInterpolateInputWorkloadsSOHExtraLines  {
                           initial_output_shape = [1, 16, 64, 64]>}
                     -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_sparse as %arg5: !InputStub_CMX,
-              %arg3 as %arg6: !Weights_CMX,
-              %arg4 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Interpolate(%arg5, %arg6, %arg7) {
+    %output_cmx = VPU.NCE.Interpolate(%input_sparse, %arg3, %arg4) {
               minimumHardwareExecutionCost = 2886 : i64,
               mode = #VPU.nce_interpolate_mode<NEAREST>,
               ppe = #VPU.PPEStub<>,
               rawFilterShape = [16, 16, 1, 1],
               strides = [1, 1]
-          } -> tensor<1x16x64x64xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 32, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -1575,23 +1493,16 @@ module @SparseNearestNCEInterpolateInputWorkloadsSOHExtraLinesWithExplicitOffset
                           initial_output_shape = [1, 16, 64, 64]>}
                     -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_sparse as %arg5: !InputStub_CMX,
-              %arg3 as %arg6: !Weights_CMX,
-              %arg4 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Interpolate(%arg5, %arg6, %arg7) {
+    %output_cmx = VPU.NCE.Interpolate(%input_sparse, %arg3, %arg4) {
               minimumHardwareExecutionCost = 2886 : i64,
               mode = #VPU.nce_interpolate_mode<NEAREST>,
               ppe = #VPU.PPEStub<>,
               rawFilterShape = [16, 16, 1, 1],
               strides = [1, 1]
-          } -> tensor<1x16x64x64xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 32, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -1703,23 +1614,16 @@ module @SparseBilinearNCEInterpolateInputWorkloadsSOHExtraLines  {
                           initial_output_shape = [1, 16, 64, 64]>}
                     -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_sparse as %arg5: !InputStub_CMX,
-              %arg3 as %arg6: !Weights_CMX,
-              %arg4 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Interpolate(%arg5, %arg6, %arg7) {
+    %output_cmx = VPU.NCE.Interpolate(%input_sparse, %arg3, %arg4) {
               minimumHardwareExecutionCost = 14721 : i64,
               mode = #VPU.nce_interpolate_mode<BILINEAR>,
               ppe = #VPU.PPEStub<>,
               rawFilterShape = [16, 16, 4, 4],
               strides = [2, 2]
-          } -> tensor<1x16x64x64xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 32, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }
@@ -1835,23 +1739,16 @@ module @SparseBilinearNCEInterpolateInputWorkloadsSOHExtraLines  {
                           initial_output_shape = [1, 16, 64, 64]>}
                     -> !Input_CMX
 
-    %output_cmx = VPU.NCE.ClusterTiling (
-              %input_sparse as %arg5: !InputStub_CMX,
-              %arg3 as %arg6: !Weights_CMX,
-              %arg4 as %arg7: !WeightsTable_CMX)
-              -> !Output_CMX {
-      %0 = VPU.NCE.Interpolate(%arg5, %arg6, %arg7) {
+    %output_cmx = VPU.NCE.Interpolate(%input_sparse, %arg3, %arg4) {
               minimumHardwareExecutionCost = 14721 : i64,
               mode = #VPU.nce_interpolate_mode<BILINEAR>,
               ppe = #VPU.PPEStub<>,
               rawFilterShape = [16, 16, 4, 4],
               strides = [2, 2]
-          } -> tensor<1x16x64x64xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+          } -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 32, 0] outSizes [1, 16, 32, 64] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-      VPU.Yield %0
-    }
 
     return %output_cmx : !Output_CMX
   }

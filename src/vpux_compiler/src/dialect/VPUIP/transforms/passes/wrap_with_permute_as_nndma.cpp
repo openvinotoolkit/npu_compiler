@@ -1,23 +1,31 @@
 
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Support/LogicalResult.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_WRAPWITHPERMUTEASNNDMA
+#define GEN_PASS_DEF_WRAPWITHPERMUTEASNNDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 namespace {
@@ -187,7 +195,8 @@ bool checkPermuteWithCopyPattern(VPUIP::SwKernelOp swKernelOp, Logger log) {
         auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
         const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
-        auto dmaSubShapes = VPUIP::getPermuteDMASubInputShapes(permuteInType, permuteOutType, memPerm, dmaPortNum, log);
+        auto dmaSubShapes = VPUIP::getPermuteDMASubInputShapes(VPU::getArch(swKernelOp), permuteInType, permuteOutType,
+                                                               memPerm, dmaPortNum, log);
         // If fuse Permute with next Cluster Copy Op and PermuteDMA need unroll to severl Sub DMA tasks,
         // Find a scenerior has regression. Need investigate the root cause and find a cost model for that.
         // For example: Shape size with 1x4420x1x2, mode is DUPLICATED.
@@ -1809,7 +1818,7 @@ private:
 
 mlir::LogicalResult FuseClusterCopyWithMemPermute::matchAndRewrite(VPUIP::SwKernelOp swKernelOp,
                                                                    mlir::PatternRewriter& rewriter) const {
-    if (VPUIP::hasDynamicShape(swKernelOp)) {
+    if (VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp)) {
         return mlir::failure();
     }
 
@@ -2002,7 +2011,7 @@ mlir::LogicalResult FuseClusterMemPermuteWithViewLikeOps::matchAndRewrite(VPUIP:
 // WrapWithPermuteAsNNDMAPass
 //
 
-class WrapWithPermuteAsNNDMAPass final : public VPUIP::WrapWithPermuteAsNNDMABase<WrapWithPermuteAsNNDMAPass> {
+class WrapWithPermuteAsNNDMAPass final : public VPUIP::impl::WrapWithPermuteAsNNDMABase<WrapWithPermuteAsNNDMAPass> {
 public:
     explicit WrapWithPermuteAsNNDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

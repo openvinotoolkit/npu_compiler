@@ -35,8 +35,8 @@ VPU::StrategyCost getSWVPUNNCost(std::shared_ptr<VPUNN::SWOperation> vpunnLayer,
     auto shaveActExec = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
     VPUX_THROW_WHEN(shaveActExec == nullptr, "Act shave kernels are not supported for the platform {0}", archKind);
 
-    auto vpunnStrategy =
-            VPU::getVPULayerStrategy(mcStrategy, dpuExec.getCount(), tileOp.getCount(), shaveActExec.getCount(), false);
+    auto vpunnStrategy = VPU::getVPULayerStrategy(mcStrategy, dpuExec.getCount(), tileOp.getCount(), archKind,
+                                                  shaveActExec.getCount(), false);
     return vpunnCostFunction->Layer(*vpunnLayer, vpunnStrategy);
 }
 
@@ -51,8 +51,8 @@ VPUNN::CyclesInterfaceType getHWVPUNNCost(VPUNN::DPULayer& vpunnLayer, mlir::Mod
     auto shaveActExec = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
     VPUX_THROW_WHEN(shaveActExec == nullptr, "Act shave kernels are not supported for the platform {0}", archKind);
 
-    auto vpunnStrategy =
-            VPU::getVPULayerStrategy(mcStrategy, dpuExec.getCount(), tileOp.getCount(), shaveActExec.getCount(), true);
+    auto vpunnStrategy = VPU::getVPULayerStrategy(mcStrategy, dpuExec.getCount(), tileOp.getCount(), archKind,
+                                                  shaveActExec.getCount(), true);
     return vpunnCostFunction->Layer(vpunnLayer, vpunnStrategy);
 }
 
@@ -277,9 +277,15 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
     const auto dmaPorts = IE::getAvailableExecutor(module.get(), VPU::ExecutorKind::DMA_NN).getCount();
 
     func->walk([&](VPU::NCEConvolutionOp convOp) {
+        auto spillWriteCostPerTile = layerCost.getSpillingWriteCostsForAllTiles(convOp.getOperation(),
+                                                                                VPU::MultiClusterStrategy::Clustering);
+        auto spillWriteCosts = std::accumulate(spillWriteCostPerTile.begin(), spillWriteCostPerTile.end(), 0);
+        auto spillRefCost = getDMACost(convOp.getResult().getType().cast<vpux::NDTypeInterface>(), vpuDevice,
+                                       vpunnCostFunction, dmaPorts);
+
+        EXPECT_EQ(spillWriteCosts, spillRefCost);
         EXPECT_EQ(layerCost.getSpillingWriteCost(convOp.getOperation(), VPU::MultiClusterStrategy::Clustering),
-                  getDMACost(convOp.getResult().getType().cast<vpux::NDTypeInterface>(), vpuDevice, vpunnCostFunction,
-                             dmaPorts));
+                  spillRefCost);
     });
 
     func->walk([&](VPU::NCEMaxPoolOp poolOp) {
@@ -288,6 +294,11 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
         const auto findOperand = [](mlir::Value operand) {
             return operand.getDefiningOp() != nullptr;
         };
+        auto spillReadCostPerTiles = layerCost.getSpillingReadCostsForAllTiles(
+                poolOp.getOperation(), VPU::MultiClusterStrategy::Clustering, nullptr, findOperand);
+        auto spillReadCosts = std::accumulate(spillReadCostPerTiles.begin(), spillReadCostPerTiles.end(), 0);
+
+        EXPECT_EQ(spillReadCosts, spillRefCost);
 
         EXPECT_EQ(layerCost.getSpillingReadCost(poolOp.getOperation(), VPU::MultiClusterStrategy::Clustering,
                                                 poolOp.getOperand(0).getDefiningOp()),

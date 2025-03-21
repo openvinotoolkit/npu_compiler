@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/core/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Pass/PassManager.h>
@@ -21,33 +21,39 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                 Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    pm.addPass(createStartLocationVerifierPass(log, options.locationsVerificationMode));
+    pm.addPass(Core::createStartLocationVerifierPass(log, options.locationsVerificationMode));
 
-    bool isOutliningEnabled = options.functionOutlining.hasValue();
+    // Blob compilation using 'debatcher' method leverages 'outlining' feature so that
+    // it will be turned on unless it was already enabled
+    bool isOutliningEnabled = options.functionOutlining.hasValue() || DebatcherOptions::isAvailable(options);
+    if (options.enableProfiling) {
+        // TODO: E#140041 enable profiling with outlining
+        log.warning("Outlining was disabled due to profiling being enabled");
+        isOutliningEnabled = false;
+    }
     if (isOutliningEnabled) {
         if (options.enableLoopOutliner) {
             pm.addPass(IE::createLoopOutlinerPass(log));
         }
         pm.addPass(mlir::createCanonicalizerPass(grc));
 
-        if (options.enableDebatcher) {
-            pm.addPass(IE::createAndInitDebatcherPass(options.debatcherExtraArgs, log));
-            log.info("Enforce 'function-outlining-mode=batching' as 'debatching' was explicitly requested");
-            pm.addPass(IE::createOutlinerPass("batching", log));
-            pm.addPass(IE::createAndInitDeDebatcherPass(options.debatcherInliningMethod, log));
-            if (options.debatcherInliningMethod == "reordering") {
-                pm.addPass(IE::createOverrideTileExecutorNumPass("override-to-tiles-per-batch", log));
+        auto debatcherOptionsPtr = DebatcherOptions::create(options, log);
+        if (debatcherOptionsPtr) {
+            log.info("DebatcherOptions: {0}", debatcherOptionsPtr->to_string());
+            pm.addPass(IE::createDebatcherPass(*debatcherOptionsPtr, log));
+            pm.addPass(IE::createOutlinerPass(options, log));
+            pm.addPass(IE::createDeDebatcherPass(*debatcherOptionsPtr, log));
+            if (auto reorderingOptionsPtr = IE::DebatcherOpReorderingOptions::create(*debatcherOptionsPtr, log)) {
+                pm.addPass(IE::createOverrideTileExecutorNumPass(*reorderingOptionsPtr, log));
             }
         } else {
-            pm.addPass(IE::createOutlinerPass(options.functionOutlining, log));
+            pm.addPass(IE::createOutlinerPass(options, log));
             pm.addPass(IE::createDuplicateFQAcrossFunctionCallsPass(log));
         }
     }
 
-    // NB: these passes are intentionally placed before the first canonicalizer
-    // so we avoid canonicalizing the dynamic shape ops
-    IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, log);
-
+    // No passes should be run before this pipeline, with very few exceptions.
+    IE::buildPostImportPipeline(pm, log);
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     // Level 3 : Topology
@@ -55,6 +61,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
+    IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, log);
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
     IE::arch37xx::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
@@ -95,20 +102,22 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                     isOptionEnabled(options.enableExperimentalSEPtrsOperations),
                                             log));
     pm.addPass(IE::createSwapPadLayerPass(log));
+    pm.addPass(IE::createConvertDivideToMultiplyPass(log));
+    // Note: apply FuseStaticScale after ConvertDivideToMultiply to increase
+    // the applicability
     pm.addPass(IE::arch37xx::createFuseStaticScalePass(log, false));
     pm.addPass(IE::createSwapOperationsPass(isOptionEnabled(options.enableSEPtrsOperations) ||
                                                     isOptionEnabled(options.enableExperimentalSEPtrsOperations),
                                             log));
-    pm.addPass(IE::createConvertToScaleShiftPass(log));
     pm.addPass(IE::createBroadcastInputForAddPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
     // E#79878: Solve eltwise single layer test failure.
     // SwapOperations pass may generate non-4D AddOp.
     // If AddOp appears here means that it cannot be fused into NCE task.
     // So convert it's shape to 4D and then convert this AddOp to ScaleShift.
     pm.addPass(IE::createConvertShapeTo4DPass(log));
     pm.addPass(IE::createConvertToScaleShiftPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     pm.addPass(IE::createConvertGroupConvToConvPass(log));
     pm.addPass(IE::createSwapOperationsPass(isOptionEnabled(options.enableSEPtrsOperations) ||
@@ -117,9 +126,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     pm.addPass(IE::createConvertDepth2SpaceToTransposedConvPass(log));
     pm.addPass(IE::createSwapD2SAndScaleShiftPass(log));
+    pm.addPass(IE::createConvertReverseToDWConvPass(log));
 
     IE::buildAdjustForVPUPipeline(pm, IE::AdjustForVPUOptions(options), log);
-    pm.addPass(createStopLocationVerifierPass(log));
+    pm.addPass(Core::createStopLocationVerifierPass(log));
 
     pm.addPass(IE::createHandleExcludePadForAvgPoolPass(log));
     pm.addPass(IE::createResolveStridedSlicePass(log));
@@ -160,13 +170,6 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
     IE::arch37xx::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
 
-    // Note: this pass depends on DequantizeConst pass (part of
-    // buildLowPrecisionPipeline) to eliminate potential quantization ops on
-    // constant operands
-    pm.addPass(IE::createConvertDivideToMultiplyPass(log));
-    // Note: apply FuseStaticScale after ConvertDivideToMultiply to increase
-    // the applicability
-    pm.addPass(IE::arch37xx::createFuseStaticScalePass(log));
     pm.addPass(IE::createOptimizeTileOpPass(log));
 
     if (options.enableSEPtrsOperations && options.enableSplitBilinerIntoHAndW) {
@@ -179,9 +182,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createConvertBatchedLayerTo1NPass(log));
-    if (!options.enableDebatcher) {
-        log.debug("Turn off 'UnrollBatchPass' as `DebatcherPass` was explicitly enabled");
-        pm.addPass(IE::arch37xx::createUnrollBatchPass(log, isOptionEnabled(options.skipUnrollBatch)));
+    pm.addPass(IE::createConvertBroadcastToTilePass(log));
+
+    if (auto batchUnrollOptions = BatchUnrollOptions::create(options, log); batchUnrollOptions != nullptr) {
+        pm.addPass(IE::createUnrollBatchPass(log, isOptionEnabled(batchUnrollOptions->skipUnrollBatch)));
     }
 
     if (options.enableUpstreamSlice) {
@@ -209,10 +213,11 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     IE::arch37xx::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(
             pm, IE::ExpandActivationChannelsOptions(options), log);
-    if (!options.enableDebatcher) {
-        log.debug("Turn off 'UnrollBatchPass' as `DebatcherPass` was explicitly enabled");
-        pm.addPass(IE::arch37xx::createUnrollBatchPass(log, isOptionEnabled(options.skipUnrollBatch)));
+
+    if (auto batchUnrollOptions = BatchUnrollOptions::create(options, log); batchUnrollOptions != nullptr) {
+        pm.addPass(IE::createUnrollBatchPass(log, isOptionEnabled(batchUnrollOptions->skipUnrollBatch)));
     }
+
     pm.addPass(IE::createRemoveViewLikeOpsChainPass(log));
     pm.addPass(IE::createOptimizeOpSlicePass(log));
     pm.addPass(IE::createConvertParallelSlicesToGatherPass(log));

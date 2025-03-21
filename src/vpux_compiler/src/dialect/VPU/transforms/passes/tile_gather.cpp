@@ -5,6 +5,7 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
@@ -12,6 +13,12 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_TILEGATHER
+#define GEN_PASS_DEF_TILEGATHER
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -178,7 +185,7 @@ mlir::LogicalResult TileGatherIndices::matchAndRewrite(VPU::GatherOp origOp, mli
 // TileGatherPass
 //
 
-class TileGatherPass final : public VPU::TileGatherBase<TileGatherPass> {
+class TileGatherPass final : public VPU::impl::TileGatherBase<TileGatherPass> {
 public:
     explicit TileGatherPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

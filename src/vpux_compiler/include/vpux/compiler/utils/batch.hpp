@@ -31,6 +31,7 @@ struct DebatchedCallOpData final {
         return totalBatchSize;
     }
 
+    static bool canBeDeserialized(const SmallVector<ValueType>& array);
     static DebatchedCallOpData deserialize(const SmallVector<ValueType>& array);
     SmallVector<ValueType> serialize() const;
 
@@ -67,6 +68,13 @@ public:
     static void setAvailableTilesAttr(mlir::func::CallOp callOp, DebatchedCallOpData::ValueType val);
     static void removeAvailableTilesAttr(mlir::func::CallOp callOp);
     static DebatchedCallOpData::ValueType getAvailableTilesVal(mlir::func::CallOp callOp);
+
+    static constexpr std::string_view reorderingAttrName() {
+        return "reordering";
+    }
+
+    static bool hasReorderingAttr(mlir::func::CallOp callOp);
+    static void setReorderingAttr(mlir::func::CallOp callOp);
 
 private:
     template <class... Args>

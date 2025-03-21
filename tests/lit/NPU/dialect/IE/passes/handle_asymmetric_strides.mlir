@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --handle-asymmetric-strides --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @HandleConvolutionWithAsymmetricStrides
 func.func @HandleConvolutionWithAsymmetricStrides(%arg0: tensor<1x16x64x1024xf16>) -> tensor<1x32x64x512xf16> {
   %0 = const.Declare tensor<32x16x1x3xf16> = dense<1.0> : tensor<32x16x1x3xf16>

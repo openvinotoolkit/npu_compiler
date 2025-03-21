@@ -15,6 +15,12 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_SHRINKMATMULGROUPS
+#define GEN_PASS_DEF_SHRINKMATMULGROUPS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -149,15 +155,14 @@ bool checkAffineReshape(IE::AffineReshapeOp affineReshapeOp) {
     auto inputShape = getShape(affineReshapeOp.getInput());
     auto outputShape = getShape(affineReshapeOp.getOutput());
 
-    const auto dimsMapping = vpux::IE::getReassociationMap(inputShape, outputShape);
-    if (mlir::failed(dimsMapping)) {
+    // ensure the input/output shape of AffineReshapeOp to be 5/4D
+    if (inputShape.size() != 5 || outputShape.size() != 4) {
         return false;
     }
 
-    // AffineReshape should be merging d1 and d2 of 5D tensor, and not change other dims
-    const SmallVector<SmallVector<int64_t>> targetDimsMapping = {{0}, {1}, {1}, {2}, {3}};
-
-    return dimsMapping.value() == targetDimsMapping;
+    // Since Matmul actually happens on 2D tensors, we should only check the last 2 dims
+    return (inputShape[Dims5D::Act::H] == outputShape[Dims4D::Act::H] &&
+            inputShape[Dims5D::Act::W] == outputShape[Dims4D::Act::W]);
 }
 
 bool checkBroadCast(IE::BroadcastOp broadcastOp) {
@@ -243,8 +248,9 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
     }
 
     // Create new group Matmul
-    auto newMatMul = rewriter.create<IE::MatMulOp>(appendLoc(origOp->getLoc(), "new_group_mul"), newLhs, newRhs,
-                                                   origOp.getTransposeA(), origOp.getTransposeB());
+    auto newMatMul =
+            rewriter.create<IE::MatMulOp>(appendLoc(origOp->getLoc(), "new_group_mul"), newLhs, newRhs,
+                                          origOp.getTransposeA(), origOp.getTransposeB(), origOp.getPostOpAttr());
 
     auto outputShape = getShape(origOp.getOutput());
     const auto outputShapeAttr = getIntArrayAttr(ctx, outputShape);
@@ -261,7 +267,7 @@ mlir::LogicalResult ShrinkMatmulGroups::matchAndRewrite(IE::MatMulOp origOp, mli
 // ShrinkMatmulGroupsPass
 //
 
-class ShrinkMatmulGroupsPass final : public IE::ShrinkMatmulGroupsBase<ShrinkMatmulGroupsPass> {
+class ShrinkMatmulGroupsPass final : public IE::impl::ShrinkMatmulGroupsBase<ShrinkMatmulGroupsPass> {
 public:
     explicit ShrinkMatmulGroupsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

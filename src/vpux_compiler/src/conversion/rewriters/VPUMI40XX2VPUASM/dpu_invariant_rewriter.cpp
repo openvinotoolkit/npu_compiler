@@ -56,6 +56,7 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
     auto weightZeroPointsSym = optionalSym(op.getWeightZeroPoints());
 
     auto sprLookupTableSym = optionalSym(op.getSprLookupTable());
+    auto palletLookupTableSym = optionalSym(op.getPalletLookupTable());
 
     auto tileIdx = op.getIndex().getType().cast<VPURegMapped::IndexType>().getTileIdx();
 
@@ -148,14 +149,15 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
     auto invariant = rewriter.create<VPUASM::DPUInvariantOp>(
             op.getLoc(), symName, taskIdx, taskLocation, inputSym, inputSparsityMapSym, inputSETableSym, weightsSym,
             weightsSparsityMapSym, weightTableSym, weightTableDataPtrSym, weightTableSpPtrSym, weightTableScaleSym,
-            weightTableBiasSym, weightZeroPointsSym, sprLookupTableSym, outputSym, outputSparsityMapSym,
-            profilingDataSym, maxPerXYSym, minPerXYSym, minMaxPerTensorAttr, outTypeContAttr, waitAttr, updateAttr,
-            op.getNceTaskTypeAttr(), op.getEltwiseTypeAttr(), op.getMpeFrequentModeAttr(), op.getMpeEngineAttr(),
-            op.getKernelSizeAttr(), op.getKernelStridesAttr(), op.getKernelPaddingAttr(), op.getIsContinuedAttr(),
-            op.getCmSpPatternAttr(), op.getInputChannelsCompressionAttr(), op.getIsZeroOffsetWeightsTableAttr(),
-            op.getOutChannelOffsetAttr(), op.getIsSuperdenseAttr(), op.getIsInplaceAttr(), op.getInputSeSizeAttr(),
-            op.getOutputSeSizeAttr(), op.getIsPermuteQuantizeAttr(), op.getIsSmallKernelOptimizedAttr(),
-            op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr, firstVariantAttr, lastVariantAttr);
+            weightTableBiasSym, weightZeroPointsSym, sprLookupTableSym, palletLookupTableSym, outputSym,
+            outputSparsityMapSym, profilingDataSym, maxPerXYSym, minPerXYSym, minMaxPerTensorAttr, outTypeContAttr,
+            waitAttr, updateAttr, op.getNceTaskTypeAttr(), op.getEltwiseTypeAttr(), op.getMpeFrequentModeAttr(),
+            op.getMpeEngineAttr(), op.getKernelSizeAttr(), op.getKernelStridesAttr(), op.getKernelPaddingAttr(),
+            op.getIsContinuedAttr(), op.getCmSpPatternAttr(), op.getInputChannelsCompressionAttr(),
+            op.getIsZeroOffsetWeightsTableAttr(), op.getOutChannelOffsetAttr(), op.getIsSuperdenseAttr(),
+            op.getIsInplaceAttr(), op.getInputSeSizeAttr(), op.getOutputSeSizeAttr(), op.getIsPermuteQuantizeAttr(),
+            op.getIsSmallKernelOptimizedAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr,
+            firstVariantAttr, lastVariantAttr);
     {
         auto& ppeRegion = invariant.getPpe();
         ppeRegion.emplaceBlock();

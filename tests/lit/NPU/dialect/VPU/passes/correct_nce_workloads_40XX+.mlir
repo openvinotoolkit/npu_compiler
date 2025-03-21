@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --correct-NCE-workloads %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: func.func @ConvLargeSparseOutput
@@ -152,26 +151,29 @@ func.func @OptimizeWorkloadForDepthwiseConvWithU8(%arg0: tensor<1x128x56x56x!qEl
 
 // CHECK-LABEL: @NCEPermuteClustered
 func.func @NCEPermuteClustered(%arg0: !Input_DDR) -> !Output_CMX {
-    %0 = VPU.NCE.ClusterTiling (%arg0 as %arg1: !Input_DDR) -> !Input_CMX {
-      %2 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : !Input_DDR -> !InputStub_CMX
-      VPU.Yield %2
-    }
-    %output = VPU.NCE.ClusterTiling (%0 as %arg1: !InputStub_CMX) -> !Output_CMX {
-        %2 = VPU.NCE.Permute(%arg1) {
+    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !Input_DDR -> !Input_CMX
+
+    %output = VPU.NCE.Permute(%0) {
             dstElemType = !qElemType0, dstOrder = #NHWC,
             expandedChannels = 4 : i64, minimumHardwareExecutionCost = 4294967195 : i64,
             ppe = #VPU.PPEStub<>
-        } -> !OutputStub_CMX {
+        } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
             VPU.DPU.Workload outOffsets [0, 0, 112, 0] outSizes [1, 4, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %2
-    }
+
     return %output : !Output_CMX
 
     // CHECK:       VPU.NCE.Permute
     // CHECK-SAME:      dstElemType = !qElemType, dstOrder = #NHWC, expandedChannels = 4 : i64
-    // CHECK-SAME:      -> tensor<1x4x224x224x!qElemType, {mem_space = @CMX_NN, order = #NHWC}> {
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x4x224x224x!qElemType, #NHWC, @CMX_NN, {
+    // CHECK-SAME:           mode = "OVERLAPPED",
+    // CHECK-SAME:           num_tiles = [1, 1, 2, 1],
+    // CHECK-SAME:           kernel = [7, 7],
+    // CHECK-SAME:           pads = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    // CHECK-SAME:           strides = [1, 1],
+    // CHECK-SAME:           num_clusters = 2 : i64,
+    // CHECK-SAME:           uniform_distributed_segments}>
 
     // CHECK:       VPU.DPU.Workload
     // CHECK-SAME:      outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]
@@ -231,30 +233,18 @@ func.func @DepthConvWithL1aOpt(%arg0: !Input_CMX) -> !Output_CMX {
     %wt = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> =
         dense<10> : tensor<256x1x1x4xsi32>
 
-    %0 = VPU.NCE.ClusterTiling (%cst0 as %arg1: tensor<256x16x1x1xf16, {order = #NHWC}>) -> !Weights_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<256x16x1x1xf16, {order = #NHWC}> -> tensor<256x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-        VPU.Yield %3
-    }
-    %1 = VPU.NCE.ClusterTiling (%wt as %arg1: tensor<256x1x1x4xsi32>) -> !WeightsTable_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32> -> tensor<256x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-        VPU.Yield %3
-    }
+    %0 = VPU.Copy(%cst0) {out_mem_space = @CMX_NN} : tensor<256x16x1x1xf16, {order = #NHWC}> -> !Weights_CMX
 
-    %2 = VPU.NCE.ClusterTiling (
-            %arg0 as %arg1: tensor<1x256x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %0 as %arg2: tensor<256x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %1 as %arg3: tensor<256x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
-        -> !Output_CMX {
-        %3 = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) {
+    %1 = VPU.Copy(%wt) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32, {order = #NCHW}> -> !WeightsTable_CMX
+
+    %2 = VPU.NCE.DepthConvolution(%arg0, %0, %1) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [256, 1, 3, 3],
-            strides = [1, 1]} -> tensor<1x256x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+            strides = [1, 1]} -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 128, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 128, 0, 0] outSizes [1, 128, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %3
-    }
 
     return %2 : !Output_CMX
 
@@ -330,30 +320,17 @@ func.func @DepthConvWithL1aOpt(%arg0: !Input_CMX) -> !Output_CMX {
     %wt = const.Declare tensor<128x1x1x4xsi32, {order = #NCHW}> =
         dense<10> : tensor<128x1x1x4xsi32>
 
-    %0 = VPU.NCE.ClusterTiling (%cst0 as %arg1: tensor<128x16x1x1xf16, {order = #NHWC}>) -> !Weights_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<128x16x1x1xf16, {order = #NHWC}> -> tensor<128x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-        VPU.Yield %3
-    }
-    %1 = VPU.NCE.ClusterTiling (%wt as %arg1: tensor<128x1x1x4xsi32>) -> !WeightsTable_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<128x1x1x4xsi32> -> tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-        VPU.Yield %3
-    }
+    %0 = VPU.Copy(%cst0) {out_mem_space = @CMX_NN} : tensor<128x16x1x1xf16, {order = #NHWC}> -> !Weights_CMX
+    %1 = VPU.Copy(%wt) {out_mem_space = @CMX_NN} : tensor<128x1x1x4xsi32, {order = #NCHW}> -> !WeightsTable_CMX
 
-    %2 = VPU.NCE.ClusterTiling (
-            %arg0 as %arg1: tensor<1x128x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %0 as %arg2: tensor<128x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %1 as %arg3: tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
-        -> !Output_CMX {
-        %3 = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) {
+    %2 = VPU.NCE.DepthConvolution(%arg0, %0, %1) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [128, 1, 3, 3],
-            strides = [1, 1]} -> tensor<1x128x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+            strides = [1, 1]} -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 64, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 64, 0, 0] outSizes [1, 64, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %3
-    }
 
     return %2 : !Output_CMX
 
@@ -420,30 +397,17 @@ func.func @DepthConvWithL1aOpt(%arg0: !Input_CMX) -> !Output_CMX {
     %wt = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> =
         dense<10> : tensor<256x1x1x4xsi32>
 
-    %0 = VPU.NCE.ClusterTiling (%cst0 as %arg1: tensor<256x16x1x1xf16, {order = #NHWC}>) -> !Weights_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<256x16x1x1xf16, {order = #NHWC}> -> tensor<256x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-        VPU.Yield %3
-    }
-    %1 = VPU.NCE.ClusterTiling (%wt as %arg1: tensor<256x1x1x4xsi32>) -> !WeightsTable_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32> -> tensor<256x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-        VPU.Yield %3
-    }
+    %0 = VPU.Copy(%cst0) {out_mem_space = @CMX_NN} : tensor<256x16x1x1xf16, {order = #NHWC}> -> !Weights_CMX
+    %1 = VPU.Copy(%wt) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32, {order = #NCHW}> -> !WeightsTable_CMX
 
-    %2 = VPU.NCE.ClusterTiling (
-            %arg0 as %arg1: tensor<1x256x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %0 as %arg2: tensor<256x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %1 as %arg3: tensor<256x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
-        -> !Output_CMX {
-        %3 = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) {
+    %2 = VPU.NCE.DepthConvolution(%arg0, %0, %1) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [256, 1, 3, 3],
-            strides = [1, 1]} -> tensor<1x256x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+            strides = [1, 1]} -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 128, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 128, 0, 0] outSizes [1, 128, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %3
-    }
 
     return %2 : !Output_CMX
 
@@ -507,30 +471,17 @@ func.func @DepthConvWithoutL1aOpt(%arg0: !Input_CMX) -> !Output_CMX {
     %wt = const.Declare tensor<2048x1x1x4xsi32, {order = #NCHW}> =
         dense<10> : tensor<2048x1x1x4xsi32>
 
-    %0 = VPU.NCE.ClusterTiling (%cst0 as %arg1: tensor<2048x16x1x1xf16, {order = #NHWC}>) -> !Weights_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<2048x16x1x1xf16, {order = #NHWC}> -> tensor<2048x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-        VPU.Yield %3
-    }
-    %1 = VPU.NCE.ClusterTiling (%wt as %arg1: tensor<2048x1x1x4xsi32>) -> !WeightsTable_CMX {
-        %3 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<2048x1x1x4xsi32> -> tensor<2048x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-        VPU.Yield %3
-    }
+    %0 = VPU.Copy(%cst0) {out_mem_space = @CMX_NN} : tensor<2048x16x1x1xf16, {order = #NHWC}> -> !Weights_CMX
+    %1 = VPU.Copy(%wt) {out_mem_space = @CMX_NN} : tensor<2048x1x1x4xsi32, {order = #NCHW}> -> !WeightsTable_CMX
 
-    %2 = VPU.NCE.ClusterTiling (
-            %arg0 as %arg1: tensor<1x2048x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %0 as %arg2: tensor<2048x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-            %1 as %arg3: tensor<2048x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
-        -> !Output_CMX {
-        %3 = VPU.NCE.DepthConvolution(%arg1, %arg2, %arg3) {
+    %2 = VPU.NCE.DepthConvolution(%arg0, %0, %1) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [2048, 1, 3, 3],
-            strides = [1, 1]} -> tensor<1x2048x24x42xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+            strides = [1, 1]} -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 1024, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 1024, 0, 0] outSizes [1, 1024, 24, 42] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %3
-    }
 
     return %2 : !Output_CMX
 

@@ -99,12 +99,11 @@ TEST_P(FuseRMSTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 namespace {
 const std::vector<ov::element::Type> input_precisions = {ov::element::f32};
 
 const std::vector<ov::Shape> input_shapes_basic = {{{1, 2, 6}}, {{2, 2, 6}}};
-const std::vector<ov::Shape> input_shapes = {{{32}}, {{3, 32}}, {{1, 32, 16}}, {{1, 4, 16, 16}}, {{1, 77, 4096}}};
+const std::vector<ov::Shape> input_shapes = {{32}, {{3, 32}}, {{1, 32, 16}}, {{1, 4, 16, 16}}, {{1, 77, 4096}}};
 
 INSTANTIATE_TEST_SUITE_P(precommit_FuseRMS, FuseRMSTestCommon,
                          ::testing::Combine(::testing::ValuesIn(input_shapes_basic),

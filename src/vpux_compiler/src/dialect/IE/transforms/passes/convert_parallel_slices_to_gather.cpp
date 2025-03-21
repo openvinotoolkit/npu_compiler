@@ -4,12 +4,18 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTPARALLELSLICESTOGATHER
+#define GEN_PASS_DEF_CONVERTPARALLELSLICESTOGATHER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -291,7 +297,7 @@ mlir::LogicalResult ConvertToGather::matchAndRewrite(IE::ConcatOp origOp, mlir::
 //
 
 class ConvertParallelSlicesToGatherPass final :
-        public IE::ConvertParallelSlicesToGatherBase<ConvertParallelSlicesToGatherPass> {
+        public IE::impl::ConvertParallelSlicesToGatherBase<ConvertParallelSlicesToGatherPass> {
 public:
     explicit ConvertParallelSlicesToGatherPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

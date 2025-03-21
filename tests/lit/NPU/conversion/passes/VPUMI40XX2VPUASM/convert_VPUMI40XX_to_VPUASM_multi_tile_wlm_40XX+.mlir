@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --convert-VPUMI40XX-to-VPUASM="enable-partial-workload-management=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --convert-VPUMI40XX-to-VPUASM="workload-management-enable=true" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -179,11 +178,11 @@ module @"resnet-320-pytorch" {
     %751 = VPURegMapped.Enqueue previousTaskIdx(%750 : !VPURegMapped.Index<0:0:1>) (%746 -> %746 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:2> {taskType = #VPURegMapped.task_type<DMA>}
     %752 = VPURegMapped.Enqueue previousTaskIdx(%751 : !VPURegMapped.Index<0:0:2>) (%747 -> %747 : <1:1:0> -> <1:1:0>) -> !VPURegMapped.Index<0:0:3> {taskType = #VPURegMapped.task_type<DMA>}
     %753 = VPURegMapped.Enqueue previousTaskIdx(%752 : !VPURegMapped.Index<0:0:3>) at(%691 : !VPURegMapped.Index<0:0:0>) (%712 -> %712 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:4> {taskType = #VPURegMapped.task_type<DPUVariant>}
-    %754 = VPURegMapped.Enqueue previousTaskIdx(%753 : !VPURegMapped.Index<0:0:4>) at(%691 : !VPURegMapped.Index<0:0:0>) (%715 -> %715 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:5> {taskType = #VPURegMapped.task_type<DPUVariant>}
-    %755 = VPURegMapped.Enqueue previousTaskIdx(%754 : !VPURegMapped.Index<0:0:5>) at(%691 : !VPURegMapped.Index<0:0:0>) (%702 -> %702 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:6> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
-    %756 = VPURegMapped.Enqueue previousTaskIdx(%755 : !VPURegMapped.Index<0:0:6>) at(%691 : !VPURegMapped.Index<0:0:0>) (%703 -> %703 : <0:0:1> -> <0:0:1>) -> !VPURegMapped.Index<0:0:7> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
-    %757 = VPURegMapped.Enqueue previousTaskIdx(%756 : !VPURegMapped.Index<0:0:7>) at(%691 : !VPURegMapped.Index<0:0:0>) (%704 -> %704 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:8> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
-    %758 = VPURegMapped.Enqueue previousTaskIdx(%757 : !VPURegMapped.Index<0:0:8>) at(%691 : !VPURegMapped.Index<0:0:0>) (%705 -> %705 : <1:0:1> -> <1:0:1>) -> !VPURegMapped.Index<0:0:9> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
+    %754 = VPURegMapped.Enqueue previousTaskIdx(%753 : !VPURegMapped.Index<0:0:4>) at(%691 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%753 : !VPURegMapped.Index<0:0:4>) (%715 -> %715 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:5> {taskType = #VPURegMapped.task_type<DPUVariant>}
+    %755 = VPURegMapped.Enqueue previousTaskIdx(%754 : !VPURegMapped.Index<0:0:5>) at(%691 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%754 : !VPURegMapped.Index<0:0:5>) (%702 -> %702 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:6> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
+    %756 = VPURegMapped.Enqueue previousTaskIdx(%755 : !VPURegMapped.Index<0:0:6>) at(%691 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%755 : !VPURegMapped.Index<0:0:6>) (%703 -> %703 : <0:0:1> -> <0:0:1>) -> !VPURegMapped.Index<0:0:7> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
+    %757 = VPURegMapped.Enqueue previousTaskIdx(%756 : !VPURegMapped.Index<0:0:7>) at(%691 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%756 : !VPURegMapped.Index<0:0:7>) (%704 -> %704 : <1:0:0> -> <1:0:0>) -> !VPURegMapped.Index<0:0:8> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
+    %758 = VPURegMapped.Enqueue previousTaskIdx(%757 : !VPURegMapped.Index<0:0:8>) at(%691 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%757 : !VPURegMapped.Index<0:0:8>) (%705 -> %705 : <1:0:1> -> <1:0:1>) -> !VPURegMapped.Index<0:0:9> {taskType = #VPURegMapped.task_type<ActKernelInvocation>}
     %759 = VPUMI40XX.Bootstrap inputs(%691 : <0:0:0>) -> !VPURegMapped.Index<0:0:0>
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %766 = VPUMI40XX.MappedInference dmas((%734, %745), (%746, %747) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) invariants(%706, %709 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%712, %715 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) actKernelRanges(%698, %700 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) actKernelInvocations(%702, %704 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) barriers(%691 : !VPURegMapped.Index<0:0:0>) workItemTasks(%749 : !VPURegMapped.Index<0:0:0>) bootstrapTasks(%759 : !VPURegMapped.Index<0:0:0>) actShaveRt(%748 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%648 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[11, 1], [1, 1]]) invariantCount([3, 3]) variantCount([3, 3]) actKernelRangesCount([2, 2]) actKernelInvocationsCount([2, 2]) mediaCount(0) barrierCount(7) workItemCount(10) bootstrapTasksCount(7) bootsrapWorkItemsCount(4) finalBarrierId(6) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
@@ -191,6 +190,17 @@ module @"resnet-320-pytorch" {
     VPUMI40XX.OpRanges
   }
 }
+
+//CHECK: VPUASM.WorkItem @[[Enqueue0:.+]] idx(!VPURegMapped.Index<0:0:0>) real_task_index(!VPURegMapped.Index<0:0:0>) task_type(<DMA>) first_task(@task.dma.0.0::@NNDMA_0_0_0) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue1:.+]] idx(!VPURegMapped.Index<0:0:1>) real_task_index(!VPURegMapped.Index<0:1:0>) task_type(<DMA>) first_task(@task.dma.0.1::@NNDMA_0_1_0) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue2:.+]] idx(!VPURegMapped.Index<0:0:2>) real_task_index(!VPURegMapped.Index<1:0:0>) task_type(<DMA>) first_task(@task.dma.1.0::@NNDMA_1_0_0) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue3:.+]] idx(!VPURegMapped.Index<0:0:3>) real_task_index(!VPURegMapped.Index<1:1:0>) task_type(<DMA>) first_task(@task.dma.1.1::@NNDMA_1_1_0) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue4:.+]] idx(!VPURegMapped.Index<0:0:4>) real_task_index(!VPURegMapped.Index<0:0:0>) next_workitem_idx(!VPURegMapped.Index<0:0:5>) task_type(<DPUVariant>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_DPUVariant_0_0_61) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue5:.+]] idx(!VPURegMapped.Index<0:0:5>) real_task_index(!VPURegMapped.Index<1:0:0>) next_workitem_idx(!VPURegMapped.Index<0:0:6>) task_type(<DPUVariant>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_DPUVariant_1_0_61) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue6:.+]] idx(!VPURegMapped.Index<0:0:6>) real_task_index(!VPURegMapped.Index<0:0:0>) next_workitem_idx(!VPURegMapped.Index<0:0:7>) task_type(<ActKernelInvocation>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelInvocation_0_0_30) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue7:.+]] idx(!VPURegMapped.Index<0:0:7>) real_task_index(!VPURegMapped.Index<0:0:1>) next_workitem_idx(!VPURegMapped.Index<0:0:8>) task_type(<ActKernelInvocation>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelInvocation_0_0_31) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue8:.+]] idx(!VPURegMapped.Index<0:0:8>) real_task_index(!VPURegMapped.Index<1:0:0>) next_workitem_idx(!VPURegMapped.Index<0:0:9>) task_type(<ActKernelInvocation>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelInvocation_1_0_30) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue9:.+]] idx(!VPURegMapped.Index<0:0:9>) real_task_index(!VPURegMapped.Index<1:0:1>) task_type(<ActKernelInvocation>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelInvocation_1_0_31) task_count(1)
 
 //CHECK: VPUASM.ManagedMappedInference
 //CHECK-SAME: actshv_used = 3

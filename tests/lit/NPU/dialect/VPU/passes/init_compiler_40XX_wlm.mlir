@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --init-compiler="vpu-arch=%arch% compilation-mode=ReferenceSW enable-partial-workload-management=true" %s | FileCheck %s --strict-whitespace
+// RUN: vpux-opt --init-compiler="vpu-arch=%arch% compilation-mode=ReferenceSW workload-management-enable=true" %s | FileCheck %s --strict-whitespace
 // REQUIRES: arch-NPU40XX
 
 // CHECK: module @test attributes {VPU.arch = #VPU.arch_kind<NPU40XX>, VPU.compilationMode = #VPU.compilation_mode<ReferenceSW>, VPU.revisionID = #VPU.revision_id<REVISION_NONE>}

@@ -122,11 +122,11 @@ void ReservedMemInfo::reserveFunctionRanges(mlir::func::FuncOp netFunc, MemLiveR
         liveBuffers.insert(buffers.begin(), buffers.end());
 
         // 2. Get unique ranges to reserve
-        const auto ranges = getUniqueRanges(liveBuffers, scanResult);
+        auto ranges = getUniqueRanges(liveBuffers, scanResult);
 
         // 3. Reserve ranges in function
         auto calleeName = callOp.getCallee();
-        _allReservedMemInfo[calleeName][VPU::MemoryKind::DDR] = ranges;
+        _allReservedMemInfo[calleeName][VPU::MemoryKind::DDR] = std::move(ranges);
 
         // 4. Free buffers
         for (auto& buffer : buffers) {

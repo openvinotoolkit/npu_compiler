@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-mvn6-to-mvn1 %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: func.func @ConvertMVN6ToMVN1Case2D
 // CHECK-SAME:       ([[INPUT:%.+]]: tensor<5x17xf16>)
 func.func @ConvertMVN6ToMVN1Case2D(%arg0: tensor<5x17xf16>) -> tensor<5x17xf16> {

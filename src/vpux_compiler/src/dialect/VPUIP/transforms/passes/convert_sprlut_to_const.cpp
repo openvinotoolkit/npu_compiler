@@ -9,6 +9,14 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 
+#include <llvm/ADT/TypeSwitch.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTSPRLUTTOCONST
+#define GEN_PASS_DEF_CONVERTSPRLUTTOCONST
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -85,21 +93,38 @@ mlir::Value SprLUTConverter::createCopyDestination(VPUIP::NCEClusterTaskOp nceCl
                                                    mlir::PatternRewriter& rewriter) const {
     const auto input = VPUIP::getTopBufferOfNCEClusterTiling(nceClusterTask, nceClusterTask.getInput());
     const auto inputType = input.getType();
-    VPUX_THROW_UNLESS(mlir::isa<VPUIP::DistributedBufferType>(inputType),
-                      "{0}: only DistributedBufferType is supported as input, but got {1}", getDebugName(), inputType);
 
-    const auto distributedInfo =
-            createDistributionInfoAttr(mlir::cast<VPUIP::DistributedBufferType>(inputType), nceClusterTask);
-    const auto ditributedBufferType = createDistributedBufferType(distributedInfo, nceClusterTask, sprLUTConst);
+    return llvm::TypeSwitch<mlir::Type, mlir::Value>(inputType)
+            .Case<VPUIP::DistributedBufferType>([&](VPUIP::DistributedBufferType distributedBufferType) {
+                const auto distributedInfo = createDistributionInfoAttr(distributedBufferType, nceClusterTask);
+                const auto ditributedBufferType =
+                        createDistributedBufferType(distributedInfo, nceClusterTask, sprLUTConst);
 
-    auto alignment = vpux::getIntAttr(nceClusterTask.getContext(), VPU::SPRLUT_ALIGNMENT_REQUIREMENT);
+                auto alignment = vpux::getIntAttr(nceClusterTask.getContext(), VPU::SPRLUT_ALIGNMENT_REQUIREMENT);
 
-    if (auto nceClusterTiling = mlir::dyn_cast<VPUIP::NCEClusterTilingOp>(nceClusterTask->getParentOp())) {
-        rewriter.setInsertionPoint(nceClusterTiling);
-    }
-    auto allocDistributed =
-            rewriter.create<VPURT::AllocDistributed>(nceClusterTask.getLoc(), ditributedBufferType, alignment, nullptr);
-    return allocDistributed->getResult(0);
+                if (auto nceClusterTiling = mlir::dyn_cast<VPUIP::NCEClusterTilingOp>(nceClusterTask->getParentOp())) {
+                    rewriter.setInsertionPoint(nceClusterTiling);
+                }
+                auto allocDistributed = rewriter.create<VPURT::AllocDistributed>(
+                        nceClusterTask.getLoc(), ditributedBufferType, alignment, nullptr);
+                return allocDistributed->getResult(0);
+            })
+            .Case<mlir::MemRefType>([&](auto) {
+                const auto constOutType = mlir::dyn_cast<mlir::MemRefType>(sprLUTConst.getType());
+                VPUX_THROW_WHEN(constOutType == nullptr,
+                                "{0}: sprLUT const output type is expected to be MemRefType, but got {1}",
+                                getDebugName(), sprLUTConst.getType());
+                const auto memSpaceCMX = vpux::IndexedSymbolAttr::get(nceClusterTask.getContext(),
+                                                                      stringifyEnum(VPU::MemoryKind::CMX_NN), 0);
+                const auto cmxMemType = mlir::MemRefType::get(constOutType.getShape(), constOutType.getElementType(),
+                                                              constOutType.getLayout(), memSpaceCMX);
+                const auto allocOp = rewriter.create<mlir::memref::AllocOp>(nceClusterTask.getLoc(), cmxMemType);
+                return allocOp->getResult(0);
+            })
+            .Default([&](mlir::Type inputType) {
+                VPUX_THROW("{0}: `{1}` is not supported as an input type", getDebugName(), inputType);
+                return mlir::Value{};
+            });
 }
 
 VPU::DistributionInfoAttr SprLUTConverter::createDistributionInfoAttr(VPUIP::DistributedBufferType inputDistribType,
@@ -168,7 +193,7 @@ VPU::PPEFpAttr SprLUTConverter::createPPEWithoutSprLUT(VPU::PPEFpAttr prevPPE) c
 // ConvertSprLUTToConstPass
 //
 
-class ConvertSprLUTToConstPass final : public VPUIP::ConvertSprLUTToConstBase<ConvertSprLUTToConstPass> {
+class ConvertSprLUTToConstPass final : public VPUIP::impl::ConvertSprLUTToConstBase<ConvertSprLUTToConstPass> {
 public:
     explicit ConvertSprLUTToConstPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -183,7 +208,7 @@ void ConvertSprLUTToConstPass::safeRunOnFunc() {
     auto func = getOperation();
 
     mlir::ConversionTarget target(ctx);
-    target.addLegalOp<Const::DeclareOp, VPUIP::CopyOp, VPURT::AllocDistributed>();
+    target.addLegalOp<Const::DeclareOp, VPUIP::CopyOp, VPURT::AllocDistributed, mlir::memref::AllocOp>();
     target.addDynamicallyLegalOp<VPUIP::NCEClusterTaskOp>([](VPUIP::NCEClusterTaskOp op) {
         if (op.getSprLookupTable() != nullptr) {
             return true;

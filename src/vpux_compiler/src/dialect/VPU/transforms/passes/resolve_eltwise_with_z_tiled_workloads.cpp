@@ -4,11 +4,18 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_RESOLVEELTWISEWITHZTILEDWORKLOADS
+#define GEN_PASS_DEF_RESOLVEELTWISEWITHZTILEDWORKLOADS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -153,14 +160,8 @@ void findOutputValuesByMemoryKind(mlir::Value outputValue, SmallVector<mlir::Val
     };
 
     for (auto userOp : outputValue.getUsers()) {
-        if (auto clusterTilingOp = mlir::dyn_cast<VPU::NCEClusterTilingOp>(userOp)) {
-            if (clusterTilingOp.getInnerTaskOpOfType<VPU::CopyOp>() != nullptr) {
-                addValue(clusterTilingOp->getResult(0));
-            } else {
-                addValue(outputValue);
-            }
-        } else if (auto copyOp = mlir::dyn_cast<VPU::CopyOp>(userOp)) {
-            addValue(copyOp->getResult(0));
+        if (mlir::isa<VPU::CopyOp>(userOp)) {
+            addValue(userOp->getResult(0));
         } else {
             addValue(outputValue);
         }
@@ -240,26 +241,7 @@ mlir::Value createEltwiseSlice(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwi
     return newEltwiseOp.getOutput();
 }
 
-// Creates a copy operation that moves the data to the given memory space
-mlir::Value createCopyOp(mlir::OpBuilder& builder, mlir::Value value, vpux::NDTypeInterface outputType,
-                         const bool isMulticlustering, mlir::Location loc) {
-    if (isMulticlustering) {
-        const auto bodyBuilder = [&](mlir::OpBuilder& innerBuilder, mlir::Location loc,
-                                     mlir::ValueRange innerOperands) {
-            auto newCopyOp = builder.create<VPU::CopyOp>(loc, innerOperands[0], outputType.getMemSpace());
-            innerBuilder.create<VPU::YieldOp>(loc, newCopyOp.getOutput());
-        };
-        auto newClusterTilingOp =
-                builder.create<VPU::NCEClusterTilingOp>(loc, outputType, mlir::ValueRange{value}, bodyBuilder);
-        return newClusterTilingOp->getResult(0);
-    }
-
-    auto newCopyOp = builder.create<VPU::CopyOp>(loc, value, outputType.getMemSpace());
-    return newCopyOp.getOutput();
-}
-
-// Returns the input / output values of the eltwise operation. In case the operation is wrapped into NCEClusterTiling,
-// the outer operands / results are returned.
+// Returns the input / output values of the eltwise operation.
 // Additionally, the function can introduce spills when the input is written directly to CMX as a distributed type.
 // This is necessary since Slice operations will be introduced in order to extract a part of the data for the new
 // eltwise operations. Slice operations get lowered to copies during bufferization and CMX2CMX transfers where both the
@@ -273,17 +255,6 @@ void getOpValues(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwiseOp, mlir::Va
     output = eltwiseOp.getOutput();
     spilledInputs = false;
 
-    auto clusterTilingOp = eltwiseOp->getParentOfType<VPU::NCEClusterTilingOp>();
-    if (clusterTilingOp != nullptr) {
-        auto input1BlockArg = input1.dyn_cast<mlir::BlockArgument>();
-        auto input2BlockArg = input2.dyn_cast<mlir::BlockArgument>();
-        VPUX_THROW_UNLESS(input1BlockArg != nullptr, "Input 1 is not a block argument");
-        VPUX_THROW_UNLESS(input2BlockArg != nullptr, "Input 2 is not a block argument");
-        input1 = clusterTilingOp->getOperand(input1BlockArg.getArgNumber());
-        input2 = clusterTilingOp->getOperand(input2BlockArg.getArgNumber());
-        output = clusterTilingOp->getResult(0);
-    }
-
     const auto maybeCopyToDDR = [&](mlir::Value value) -> mlir::Value {
         if (value.getType().isa<VPU::DistributedTensorType>()) {
             auto valueType = value.getType().cast<vpux::NDTypeInterface>();
@@ -295,7 +266,9 @@ void getOpValues(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwiseOp, mlir::Va
                 auto outputType =
                         mlir::RankedTensorType::get(valueType.getShape().raw(), valueType.getElementType(), tensorAttr)
                                 .cast<vpux::NDTypeInterface>();
-                return createCopyOp(builder, value, outputType, clusterTilingOp != nullptr, eltwiseOp->getLoc());
+                auto newCopyOp =
+                        builder.create<VPU::CopyOp>(eltwiseOp->getLoc(), outputType, value, outputType.getMemSpace());
+                return newCopyOp.getOutput();
             }
         }
         return value;
@@ -306,7 +279,7 @@ void getOpValues(mlir::OpBuilder& builder, VPU::NCEEltwiseOp eltwiseOp, mlir::Va
 
 mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwiseOp, mlir::ValueRange operands,
                          ShapeRef offsets, ShapeRef sizes, ArrayRef<VPU::DPUWorkloadOp> workloadSplit,
-                         const bool isMulticlustering, const bool spilledInputs, mlir::Location loc) {
+                         const bool spilledInputs, mlir::Location loc) {
     // Slice operands and move them to CMX if they are not already there
     SmallVector<mlir::Value> newOperands;
     for (auto operand : operands) {
@@ -327,7 +300,7 @@ mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwise
                         origEltwiseOp.getInput1().getType().cast<vpux::NDTypeInterface>().getMemSpace();
                 copyType = copyType.changeMemSpace(memSpaceCMX);
             }
-            sliceOperand = createCopyOp(builder, sliceOperand, copyType, isMulticlustering, loc);
+            sliceOperand = builder.create<VPU::CopyOp>(loc, copyType, sliceOperand, copyType.getMemSpace()).getOutput();
         }
 
         newOperands.push_back(sliceOperand);
@@ -335,31 +308,20 @@ mlir::Value sliceEltwise(mlir::OpBuilder& builder, VPU::NCEEltwiseOp origEltwise
 
     // Create a new eltwise operation that contains the correct workloads
     mlir::Value sliceOutput;
-    if (isMulticlustering) {
-        const auto bodyBuilder = [&](mlir::OpBuilder& innerBuilder, mlir::Location loc, mlir::ValueRange newArgs) {
-            auto newOutput = createEltwiseSlice(builder, origEltwiseOp, newArgs, workloadSplit, loc);
-            innerBuilder.create<YieldOp>(loc, newOutput);
-        };
-
-        auto clusterTilingOp = origEltwiseOp->getParentOfType<VPU::NCEClusterTilingOp>();
-        auto outputType = clusterTilingOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
-        auto newOutputType = outputType.changeShape(sizes);
-
-        const auto newClusterTilingOp =
-                builder.create<NCEClusterTilingOp>(loc, newOutputType, newOperands, bodyBuilder);
-        sliceOutput = newClusterTilingOp->getResult(0);
-    } else {
-        sliceOutput = createEltwiseSlice(builder, origEltwiseOp, newOperands, workloadSplit, loc);
-    }
+    sliceOutput = createEltwiseSlice(builder, origEltwiseOp, newOperands, workloadSplit, loc);
 
     // Copy the outputs to DDR. This is done to avoid wrong results when the concat is done in CMX
     // Accuracy issue to be investigated in E76283
     auto sliceOutputType = sliceOutput.getType().cast<vpux::NDTypeInterface>();
     auto origEltwiseOutputType = origEltwiseOp.getOutput().getType().cast<vpux::NDTypeInterface>();
+    if (mlir::isa<VPU::DistributedTensorType>(origEltwiseOutputType)) {
+        origEltwiseOutputType = mlir::cast<VPU::DistributedTensorType>(origEltwiseOutputType).getCompactType();
+    }
     auto outputType =
             origEltwiseOutputType.changeShape(sliceOutputType.getShape()).changeMemSpace(VPU::MemoryKind::DDR);
 
-    auto outputCopy = createCopyOp(builder, sliceOutput, outputType, isMulticlustering, loc);
+    auto outputCopy = builder.create<VPU::CopyOp>(loc, outputType, sliceOutput, outputType.getMemSpace()).getOutput();
+
     return outputCopy;
 }
 
@@ -397,7 +359,7 @@ mlir::Type getConcatType(mlir::Value origOutputValue) {
 }
 
 void replaceOrigUses(mlir::OpBuilder& builder, mlir::Value origOutputValue, VPU::ConcatOp concatOp,
-                     bool isMulticlustering, mlir::Location loc) {
+                     mlir::Location loc) {
     SmallVector<mlir::Value> ddrValues;
     SmallVector<mlir::Value> cmxValues;
     findOutputValuesByMemoryKind(origOutputValue, ddrValues, cmxValues);
@@ -405,7 +367,9 @@ void replaceOrigUses(mlir::OpBuilder& builder, mlir::Value origOutputValue, VPU:
     if (!cmxValues.empty()) {
         const auto memSpaceCMX = cmxValues.front().getType().cast<vpux::NDTypeInterface>().getMemSpace();
         auto valueType = concatOp.getOutput().getType().cast<vpux::NDTypeInterface>().changeMemSpace(memSpaceCMX);
-        auto outputCopy = createCopyOp(builder, concatOp.getOutput(), valueType, isMulticlustering, loc);
+        auto outputCopy =
+                builder.create<VPU::CopyOp>(loc, valueType, concatOp.getOutput(), valueType.getMemSpace()).getOutput();
+
         outputCopy.setType(cmxValues.front().getType());
         for (auto value : cmxValues) {
             value.replaceAllUsesWith(outputCopy);
@@ -423,13 +387,7 @@ void eraseOrigOperations(ArrayRef<mlir::Operation*> toErase) {
     const auto findOutputCopyOpsWithoutUses = [](mlir::Value result) -> SmallVector<mlir::Operation*> {
         SmallVector<mlir::Operation*> outputCopyOps;
         for (auto userOp : result.getUsers()) {
-            if (auto clusterTilingOp = mlir::dyn_cast_or_null<VPU::NCEClusterTilingOp>(userOp)) {
-                if (clusterTilingOp.getInnerTaskOpOfType<VPU::CopyOp>() != nullptr) {
-                    if (clusterTilingOp->getResult(0).use_empty()) {
-                        outputCopyOps.push_back(clusterTilingOp);
-                    }
-                }
-            } else if (auto copyOp = mlir::dyn_cast<VPU::CopyOp>(userOp)) {
+            if (auto copyOp = mlir::dyn_cast<VPU::CopyOp>(userOp)) {
                 if (copyOp.getOutput().use_empty()) {
                     outputCopyOps.push_back(copyOp);
                 }
@@ -452,7 +410,7 @@ void eraseOrigOperations(ArrayRef<mlir::Operation*> toErase) {
 //
 
 class ResolveEltwiseWithZTiledWorkloads final :
-        public ResolveEltwiseWithZTiledWorkloadsBase<ResolveEltwiseWithZTiledWorkloads> {
+        public VPU::impl::ResolveEltwiseWithZTiledWorkloadsBase<ResolveEltwiseWithZTiledWorkloads> {
 public:
     explicit ResolveEltwiseWithZTiledWorkloads(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -500,11 +458,6 @@ void ResolveEltwiseWithZTiledWorkloads::safeRunOnFunc() {
         auto workloadSplits = getWorkloadSplits(clusterWorkloads);
 
         mlir::OpBuilder builder(eltwiseOp);
-        auto clusterTilingOp = eltwiseOp->getParentOfType<VPU::NCEClusterTilingOp>();
-        const auto isMulticlustering = clusterTilingOp != nullptr;
-        if (isMulticlustering) {
-            builder.setInsertionPoint(clusterTilingOp);
-        }
 
         mlir::Value input1 = nullptr;
         mlir::Value input2 = nullptr;
@@ -530,25 +483,21 @@ void ResolveEltwiseWithZTiledWorkloads::safeRunOnFunc() {
             const auto sliceLoc = appendLoc(eltwiseOp->getLoc(), "slice {0} - {1}", offsets, sizes);
 
             auto eltwiseSlice = sliceEltwise(builder, eltwiseOp, mlir::ValueRange{input1, input2}, offsets, sizes,
-                                             workloadSplit, isMulticlustering, spilledInputs, sliceLoc);
+                                             workloadSplit, spilledInputs, sliceLoc);
 
             newOutputs.push_back(eltwiseSlice);
             outputSlicesOffsets.push_back(offsets);
         }
 
-        auto origOutputValue = isMulticlustering ? clusterTilingOp->getResult(0) : eltwiseOp.getOutput();
+        auto origOutputValue = eltwiseOp.getOutput();
         auto concatType = getConcatType(origOutputValue);
         auto concatOp = builder.create<VPU::ConcatOp>(eltwiseOp->getLoc(), concatType, mlir::ValueRange(newOutputs),
                                                       ArrayRef(outputSlicesOffsets));
 
-        auto loc = isMulticlustering ? clusterTilingOp->getLoc() : eltwiseOp->getLoc();
-        replaceOrigUses(builder, origOutputValue, concatOp, isMulticlustering, loc);
+        auto loc = eltwiseOp->getLoc();
+        replaceOrigUses(builder, origOutputValue, concatOp, loc);
 
-        if (isMulticlustering) {
-            toErase.push_back(clusterTilingOp);
-        } else {
-            toErase.push_back(eltwiseOp);
-        }
+        toErase.push_back(eltwiseOp);
     });
 
     eraseOrigOperations(toErase);

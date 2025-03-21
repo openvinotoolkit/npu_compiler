@@ -5,7 +5,15 @@
 
 #include "vpux/compiler/dialect/IE/transforms/passes/optimize_slice_expand.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_OPTIMIZESLICEEXPAND
+#define GEN_PASS_DEF_OPTIMIZESLICEEXPAND
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -62,7 +70,7 @@ private:
 // OptimizeSliceExpandPass
 //
 
-class OptimizeSliceExpandPass final : public IE::arch37xx::OptimizeSliceExpandBase<OptimizeSliceExpandPass> {
+class OptimizeSliceExpandPass final : public IE::arch37xx::impl::OptimizeSliceExpandBase<OptimizeSliceExpandPass> {
 public:
     explicit OptimizeSliceExpandPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

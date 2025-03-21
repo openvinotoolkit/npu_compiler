@@ -5,10 +5,10 @@
 
 #pragma once
 
-#include "vpux/compiler/core/attr_interfaces.hpp"
-#include "vpux/compiler/core/attributes/memref_attr.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attr_interfaces.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/attr_interfaces.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 #include "vpux/utils/core/mem_size.hpp"

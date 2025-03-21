@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-viewop-and-clamp %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 0.0022939644607843138>
 !qElemType1 = !quant.uniform<u8:f16, 0.0011469822303921569>
 

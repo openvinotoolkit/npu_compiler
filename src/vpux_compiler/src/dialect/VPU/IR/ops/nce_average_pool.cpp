@@ -85,7 +85,7 @@ bool vpux::VPU::NCEAveragePoolOp::isSupported(IE::AvgPoolOp op, LogCb logCb, boo
 
     if (checkChannelAlignment) {
         auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op.getOperation());
-        if (!NCEInvariant::isInputActTypeSupported(getArch(op), inputType, iface.getInputChannelAlignment(), false) ||
+        if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
             !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
@@ -295,10 +295,6 @@ bool VPU::NCEAveragePoolOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     return fitIntoCMX(distributedInputType, newDistributedTensorType);
 }
 
-bool vpux::VPU::NCEAveragePoolOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 vpux::NDTypeInterface vpux::VPU::NCEAveragePoolOp::getDistributedTypeForOpOperand(
         mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
@@ -332,21 +328,13 @@ vpux::NDTypeInterface vpux::VPU::NCEAveragePoolOp::getDistributedTypeForOpOperan
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEAveragePoolOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }
-
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
 }
 
 mlir::LogicalResult vpux::VPU::NCEAveragePoolOp::verifyKernel(IE::AvgPoolOp origOp, Logger log) {

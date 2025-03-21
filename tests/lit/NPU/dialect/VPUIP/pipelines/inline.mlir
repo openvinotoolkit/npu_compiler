@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file -inline --move-declarations-to-top %s | FileCheck %s --strict-whitespace
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // foo1 -> foo2
 
 // CHECK-LABEL: @TwoFunctions
@@ -564,16 +563,16 @@ module @MultiShaveFunction {
         // CHECK-DAG: [[POST_DMA2_BARRIER:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
         // CHECK: VPURT.Task updates([[FOO1_WAIT]] : !VPURT.Barrier)
-        // CHECK-NEXT:  VPUIP.NNDMA {port = 0 : i64} 
+        // CHECK-NEXT:  VPUIP.NNDMA {port = 0 : i64}
 
         // CHECK: VPURT.Task waits([[FOO1_WAIT]] : !VPURT.Barrier) updates([[FOO1_UPDATE]] : !VPURT.Barrier)
-        // CHECK-NEXT:  VPUIP.SW.Kernel 
+        // CHECK-NEXT:  VPUIP.SW.Kernel
 
         // CHECK: VPURT.Task waits([[FOO1_WAIT]] : !VPURT.Barrier) updates([[FOO1_UPDATE]] : !VPURT.Barrier)
-        // CHECK-NEXT:  VPUIP.SW.Kernel 
+        // CHECK-NEXT:  VPUIP.SW.Kernel
 
         // CHECK: VPURT.Task waits([[FOO1_UPDATE]] : !VPURT.Barrier) updates([[POST_DMA2_BARRIER]] : !VPURT.Barrier)
-        // CHECK-NEXT:  VPUIP.NNDMA {port = 1 : i64} 
+        // CHECK-NEXT:  VPUIP.NNDMA {port = 1 : i64}
 
     }
 }

@@ -4,14 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUMI37XX/ops_interfaces.hpp"
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
-#include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
-
-#include "vpux/utils/core/format.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>
 

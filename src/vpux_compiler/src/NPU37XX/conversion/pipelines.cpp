@@ -7,10 +7,10 @@
 #include "vpux/compiler/NPU37XX/conversion.hpp"
 #include "vpux/compiler/conversion.hpp"
 
-#include "vpux/compiler/core/passes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/Passes.h>

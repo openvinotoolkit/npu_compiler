@@ -6,10 +6,16 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_SETENTRYPOINT
+#define GEN_PASS_DEF_SETENTRYPOINT
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
-class SetEntryPointPass : public ELF::SetEntryPointBase<SetEntryPointPass> {
+class SetEntryPointPass : public ELF::arch40xx::impl::SetEntryPointBase<SetEntryPointPass> {
 public:
     explicit SetEntryPointPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

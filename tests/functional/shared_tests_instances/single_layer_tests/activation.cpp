@@ -95,18 +95,41 @@ namespace {
 const std::vector<ov::element::Type> netPrecisions = {ov::element::f16};
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> activationTypes = {
-        {Sigmoid, {{1.0f}}},     {Sign, {{1.0f}}},         {Tanh, {{1.0f}}},
-        {Sin, {{1.0f}}},         {Cos, {{1.0f}}},          {Relu, {{1.0f}}},
-        {Elu, {{1.0f}}},         {Clamp, {{-1.0f, 1.0f}}}, {HSwish, {{1.0f}}},
-        {Mish, {{1.0f}}},        {SoftPlus, {{1.0f}}},     {Floor, {{1.0f}}},
-        {Sqrt, {{1.0f}}},        {Sinh, {{1.0f}}},         {Cosh, {{1.0f}}},
-        {Asinh, {{1.0f}}},       {Acosh, {{1.0f}}},        {Atanh, {{1.0f}}},
-        {Erf, {{1.0f}}},         {Gelu, {{1.0f}}},         {Exp, {{1.0f}}},
-        {Log, {{1.0f}}},         {Selu, {{1.0f}}},         {Swish, {{1.0f}}},
-        {Negative, {{1.0f}}},    {Abs, {{1.0f}}},          {Atan, {{1.0f}}},
-        {Asin, {{1.0f}}},        {Acos, {{1.0f}}},         {HSigmoid, {{1.0f}}},
-        {HardSigmoid, {{1.0f}}}, {RoundHalfToEven, {}},    {RoundHalfAwayFromZero, {}},
-        {Ceiling, {{1.0f}}},     {Tan, {{1.0f}}},
+        {Sigmoid, {{1.0f}}},
+        {Sign, {{1.0f}}},
+        {Tanh, {{1.0f}}},
+        {Sin, {{1.0f}}},
+        {Cos, {{1.0f}}},
+        {Relu, {{1.0f}}},
+        {Elu, {{1.0f}}},
+        {Clamp, {{-1.0f, 1.0f}}},
+        {HSwish, {{1.0f}}},
+        {Mish, {{1.0f}}},
+        {SoftPlus, {{1.0f}}},
+        {Floor, {{1.0f}}},
+        {Sqrt, {{1.0f}}},
+        {Sinh, {{1.0f}}},
+        {Cosh, {{1.0f}}},
+        {Asinh, {{1.0f}}},
+        {Acosh, {{1.0f}}},
+        {Atanh, {{1.0f}}},
+        {Erf, {{1.0f}}},
+        {Gelu, {{1.0f}}},
+        {Exp, {{1.0f}}},
+        {Log, {{1.0f}}},
+        {Selu, {{1.6732f, 1.0507f}}},
+        {Swish, {{1.0f}}},
+        {Negative, {{1.0f}}},
+        {Abs, {{1.0f}}},
+        {Atan, {{1.0f}}},
+        {Asin, {{1.0f}}},
+        {Acos, {{1.0f}}},
+        {HSigmoid, {{1.0f}}},
+        {HardSigmoid, {{0.2f, 0.5f}}},
+        {RoundHalfToEven, {}},
+        {RoundHalfAwayFromZero, {}},
+        {Ceiling, {{1.0f}}},
+        {Tan, {{1.0f}}},
 };
 
 const std::map<ActivationTypes, std::vector<std::vector<float>>> preluTypes = {
@@ -221,8 +244,6 @@ const auto basicTilingCases = ::testing::Combine(
         ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basicTiling))),
         ::testing::Values(DEVICE_NPU));
 
-// ------ NPU3720/4000 SW FP16 ------
-
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation, ActivationLayerTest_SW_FP16, basicCases,
                          ActivationLayerTest::getTestCaseName);
 
@@ -245,12 +266,9 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_precommit_Activation_Test_Cos0_Shave
 INSTANTIATE_TEST_SUITE_P(smoke_tiling_Activation, ActivationLayerTest_HW_FP16, basicTilingCases,
                          ActivationLayerTest::getTestCaseName);
 
-// ------ NPU3720/4000 SW FP32 ------
-
 INSTANTIATE_TEST_SUITE_P(smoke_Activation, ActivationLayerTest_SW_FP32, basicCasesSWFP32,
                          ActivationLayerTest::getTestCaseName);
 
-// ------ NPU3720/4000 HW FP32 ------
 INSTANTIATE_TEST_SUITE_P(smoke_Activation, ActivationLayerTest_HW_FP32, basicCasesHWFP32,
                          ActivationLayerTest::getTestCaseName);
 

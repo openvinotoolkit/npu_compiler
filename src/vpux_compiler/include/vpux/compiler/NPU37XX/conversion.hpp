@@ -30,22 +30,11 @@ void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBuff
                                  Logger log = Logger::global());
 
 //
-// registerConversionPipeline
+// Registration
 //
 
 void registerConversionPipeline();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/conversion/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/conversion/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerConversionPasses();
 
 }  // namespace arch37xx
 }  // namespace vpux

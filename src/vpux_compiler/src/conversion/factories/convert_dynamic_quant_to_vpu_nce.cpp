@@ -15,6 +15,12 @@
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/utils/core/error.hpp"
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTDYNAMICQUANTTOVPUNCE
+#define GEN_PASS_DEF_CONVERTDYNAMICQUANTTOVPUNCE
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -74,7 +80,8 @@ mlir::LogicalResult DynamicQuantToVPUNCE::matchAndRewrite(IE::ConvolutionOp orig
 // ConvertDynamicQuantToVPUNCEPass
 //
 
-class ConvertDynamicQuantToVPUNCEPass final : public ConvertDynamicQuantToVPUNCEBase<ConvertDynamicQuantToVPUNCEPass> {
+class ConvertDynamicQuantToVPUNCEPass final :
+        public impl::ConvertDynamicQuantToVPUNCEBase<ConvertDynamicQuantToVPUNCEPass> {
 public:
     explicit ConvertDynamicQuantToVPUNCEPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -97,6 +104,8 @@ void ConvertDynamicQuantToVPUNCEPass::safeRunOnFunc() {
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<vpux::IE::IEDialect>();
     target.addLegalDialect<vpux::VPU::VPUDialect>();
+    target.addLegalDialect<mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<mlir::math::MathDialect>();
 
     target.addDynamicallyLegalOp<IE::ConvolutionOp>([&](IE::ConvolutionOp op) {
         return !VPU::NCEConvolutionOp::isSupported(op, logCb, /*checkLayout=*/true, /*checkChannelAlignment=*/true) ||

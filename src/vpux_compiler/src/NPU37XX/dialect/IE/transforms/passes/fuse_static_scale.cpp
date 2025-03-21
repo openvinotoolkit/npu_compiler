@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -13,6 +14,12 @@
 #include "vpux/utils/core/logger.hpp"
 
 #include <tuple>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_FUSESTATICSCALE
+#define GEN_PASS_DEF_FUSESTATICSCALE
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -208,7 +215,7 @@ mlir::LogicalResult FuseStaticScale<ParentOp>::matchAndRewrite(IE::MultiplyOp or
     return mlir::success();
 }
 
-class FuseStaticScalePass final : public IE::arch37xx::FuseStaticScaleBase<FuseStaticScalePass> {
+class FuseStaticScalePass final : public IE::arch37xx::impl::FuseStaticScaleBase<FuseStaticScalePass> {
 public:
     explicit FuseStaticScalePass(Logger log, bool moveScaleBeforeConcat)
             : _moveScaleBeforeConcat(moveScaleBeforeConcat) {

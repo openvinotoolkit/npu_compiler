@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-transposed-conv-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertTransposedConv2DToConv2D
 func.func @ConvertTransposedConv2DToConv2D(%input: tensor<1x32x23x30xf16>) -> tensor<1x16x46x60xf16> {
     %weights = const.Declare tensor<16x32x2x2xf16> = dense<1.000000e+00> : tensor<16x32x2x2xf16>
@@ -316,4 +315,31 @@ func.func @ConvertTransposedConv2DWithOutputShapeToConv2D(%input: tensor<1x32x12
     // CHECK-SAME:      tensor<1x32x255x255xf16>, tensor<64x32x2x2xf16> -> tensor<1x64x254x254xf16>
     // CHECK:       [[SLICE:%.+]] = IE.Slice [[CONV]] [0, 0, 63, 63] [1, 64, 128, 128] : tensor<1x64x254x254xf16> to tensor<1x64x128x128xf16>
     // CHECK:       return [[SLICE]]
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertTransposedConv2DWithNonConstFilterToConv2D
+// CHECK-SAME:      ([[INPUT0:%.+]]: tensor<1x512x4x4xf16>, [[INPUT1:%.+]]: tensor<256x512x3x3xf16>)
+func.func @ConvertTransposedConv2DWithNonConstFilterToConv2D(%input0: tensor<1x512x4x4xf16>, %input1: tensor<256x512x3x3xf16>) -> tensor<1x256x9x9xf16> {
+    %output = IE.TransposedConvolution(%input0, %input1) {
+            dilations = [1, 1], operandSegmentSizes = array<i32: 1, 1, 0, 0>, output_padding = [0, 0], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]
+        } : tensor<1x512x4x4xf16>, tensor<256x512x3x3xf16> -> tensor<1x256x9x9xf16>
+
+    return %output : tensor<1x256x9x9xf16>
+
+    // CHECK-NOT:   IE.TransposedConvolution
+    // CHECK:       [[UPS:%.+]] = IE.Upsampling([[INPUT0]])
+    // CHECK-SAME:      #IE.UpsamplingPad<pads_channel = [0, 0], pads_height = [2, 2], pads_width = [2, 2]>
+    // CHECK-SAME:      upsampling_factor = [2, 2, 1]
+    // CHECK-SAME:      tensor<1x512x4x4xf16> -> tensor<1x512x11x11xf16>
+
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[UPS]], [[INPUT1]])
+    // CHECK-SAME:      dilations = [1, 1]
+    // CHECK-SAME:      pads_begin = [0, 0]
+    // CHECK-SAME:      pads_end = [0, 0]
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      tensor<1x512x11x11xf16>, tensor<256x512x3x3xf16> -> tensor<1x256x9x9xf16>
+
+    // CHECK:       return [[CONV]]
 }

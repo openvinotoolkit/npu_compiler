@@ -127,15 +127,18 @@ private:
 
     mlir::Value inputValue = nullptr;            // Input of the WD structure (sometimes with Convert Op)
     SmallVector<mlir::Operation*> opChain = {};  // The operations that are part of WD structure
+    bool inputIsConst = true;
 
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::MultiplyOp& multiplyOp);
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::SubtractOp& subtractOp);
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::ConvertOp& convertOp);
+    [[nodiscard]] mlir::LogicalResult initializeStructure(IE::AffineReshapeOp& affineReshapeOp);
+    [[nodiscard]] mlir::LogicalResult initializeStructure(IE::TransposeOp& transposeOp);
     [[nodiscard]] mlir::LogicalResult initializeStructure(Const::DeclareOp& declareOp);
 
     vpux::NDTypeInterface getInputType() const;
 
-    WeightsDequantizeStructureInfo(const Logger& log);
+    WeightsDequantizeStructureInfo(bool constInput, const Logger& log);
 
 public:
     const Logger log;
@@ -163,6 +166,7 @@ public:
 
     mlir::Value getDynamicScale() const;
     mlir::Value getDynamicShift() const;
+    Const::ContentAttr getScale() const;
     Const::ContentAttr getShift() const;
 };
 

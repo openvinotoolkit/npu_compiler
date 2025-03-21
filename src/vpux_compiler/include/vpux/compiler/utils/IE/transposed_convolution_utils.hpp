@@ -11,7 +11,6 @@
 namespace vpux {
 namespace IE {
 
-mlir::FailureOr<Const::DeclareOp> getConstFilter(IE::TransposedConvolutionOp transposedConv);
 mlir::LogicalResult canConvertTransposedConvToConv(IE::TransposedConvolutionOp transposedConv);
 mlir::LogicalResult canConvertGroupTransposedConvToGroupConv(IE::GroupTransposedConvolutionOp groupTransposedConv);
 

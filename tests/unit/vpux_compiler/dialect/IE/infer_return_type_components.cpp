@@ -156,7 +156,7 @@ public:
             auto input = prepareInput(builder, baseParams);
             auto weights = prepareWeights(builder, baseParams);
             return builder.create<IE::MatMulOp>(loc, input.value(), weights.value(), matmulParams->m_transpose_a,
-                                                matmulParams->m_transpose_b);
+                                                matmulParams->m_transpose_b, /*post_op=*/nullptr);
         }
         return nullptr;
     }

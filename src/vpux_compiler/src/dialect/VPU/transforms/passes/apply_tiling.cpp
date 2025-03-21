@@ -4,10 +4,17 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_APPLYTILING
+#define GEN_PASS_DEF_APPLYTILING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -66,7 +73,7 @@ mlir::LogicalResult ApplyTiling::matchAndRewrite(VPU::TilingBuilderOpInterface o
 //
 // ApplyTilingPass
 //
-class ApplyTilingPass final : public VPU::ApplyTilingBase<ApplyTilingPass> {
+class ApplyTilingPass final : public VPU::impl::ApplyTilingBase<ApplyTilingPass> {
 public:
     explicit ApplyTilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

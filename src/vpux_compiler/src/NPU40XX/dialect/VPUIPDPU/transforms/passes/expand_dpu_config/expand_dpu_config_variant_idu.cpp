@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_variant_idu.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_variant.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
@@ -10,11 +11,13 @@
 
 namespace {
 
-using namespace VPUIPDPU;
-
 int64_t size(int64_t start, int64_t end) {
     return end - start + 1;
 }
+
+}  // namespace
+
+namespace vpux::VPUIPDPU::arch40xx::IDU {
 
 mlir::LogicalResult buildIDUWorkloadSet(mlir::OpBuilder& builder, const mlir::Location& loc,
                                         const SmallVector<int64_t>&& inStart, const SmallVector<int64_t>&& inEnd) {
@@ -49,6 +52,7 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
     switch (taskType) {
     case VPUIP::NCETaskType::REDUCEMEAN:
     case VPUIP::NCETaskType::REDUCESUMSQUARE:
+    case VPUIP::NCETaskType::REDUCESUM:
     case VPUIP::NCETaskType::CONV: {
         weightSize = kernelX * kernelY;
         if (inActType.getShape()[Dims4D::Act::C] < 16) {
@@ -168,7 +172,9 @@ mlir::LogicalResult buildIDUConvContinue(mlir::OpBuilder& builder, const mlir::L
     return mlir::success();
 }
 
-}  // namespace
+}  // namespace vpux::VPUIPDPU::arch40xx::IDU
+
+using namespace vpux::VPUIPDPU::arch40xx::IDU;
 
 mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUVariantIDU(VPUASM::DPUVariantOp origVarOp,
                                                                  mlir::OpBuilder& builder, const Logger& log,

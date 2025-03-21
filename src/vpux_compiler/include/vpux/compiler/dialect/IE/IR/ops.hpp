@@ -6,11 +6,11 @@
 #pragma once
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Quant/QuantOps.h>

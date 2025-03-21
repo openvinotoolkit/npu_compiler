@@ -49,17 +49,25 @@ Const::Content vpux::Const::DequantizeAttr::transform(vpux::Const::Content& inpu
     const auto qVals = input.getValues<int64_t>();
     auto realVals = output.getTempBuf<float>();
 
-    if (const auto uniformType = qElemType.dyn_cast<mlir::quant::UniformQuantizedType>()) {
+    if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(qElemType)) {
         const auto scale = uniformType.getScale();
         const auto zeroPoint = uniformType.getZeroPoint();
 
-        for (size_t i = 0; i < realVals.size(); ++i) {
-            realVals[i] = dequantize(qVals[i], scale, zeroPoint);
+        if (const auto quantileUniformType = mlir::dyn_cast<mlir::quant::QuantileQuantizedType>(qElemType)) {
+            const auto quantilesLUT = quantileUniformType.getQuantiles();
+            for (size_t i = 0; i < realVals.size(); ++i) {
+                realVals[i] = dequantizeDouble(quantilesLUT[qVals[i]], scale, zeroPoint);
+            }
+        } else {
+            for (size_t i = 0; i < realVals.size(); ++i) {
+                realVals[i] = dequantize(qVals[i], scale, zeroPoint);
+            }
         }
-    } else if (const auto uniformType = qElemType.dyn_cast<mlir::quant::UniformQuantizedPerAxisType>()) {
-        const auto scales = uniformType.getScales();
-        const auto zeroPoints = uniformType.getZeroPoints();
-        const auto axis = Dim(uniformType.getQuantizedDimension());
+
+    } else if (const auto uniformPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(qElemType)) {
+        const auto scales = uniformPerAxisType.getScales();
+        const auto zeroPoints = uniformPerAxisType.getZeroPoints();
+        const auto axis = Dim(uniformPerAxisType.getQuantizedDimension());
 
         const auto dimsOrder = input.getType().getDimsOrder();
         const auto memAxis = dimsOrder.toMemDim(axis);
@@ -93,16 +101,37 @@ Const::Content vpux::Const::DequantizeAttr::transform(vpux::Const::Content& inpu
         // Middle loop goes through the quantized axis. Scale/ZP are updated based on this index.
         // Innermost loop goes through the volume of the innermost dimensions, which share the same quantization
         // parameters.
-        loop_3d(LoopExecPolicy::Parallel, getContext(), outerSize, quantAxisSize, innerSize,
-                [&](int64_t outerInd, int64_t quantAxisInd, int64_t innerInd) {
-                    const auto scale = scales[quantAxisInd];
-                    const auto zp = zeroPoints[quantAxisInd];
-                    const auto idx = outerInd * quantAxisTotalSize + quantAxisInd * innerSize + innerInd;
-                    realVals[idx] = dequantize(qVals[idx], scale, zp);
-                });
+        if (const auto quantilePerAxisType = mlir::dyn_cast<mlir::quant::QuantileQuantizedPerAxisType>(qElemType)) {
+            const auto quantilesLUT = quantilePerAxisType.getQuantiles();
+            loop_3d(LoopExecPolicy::Parallel, getContext(), outerSize, quantAxisSize, innerSize,
+                    [&](int64_t outerInd, int64_t quantAxisInd, int64_t innerInd) {
+                        const auto scale = scales[quantAxisInd];
+                        const auto zp = zeroPoints[quantAxisInd];
+                        const auto idx = outerInd * quantAxisTotalSize + quantAxisInd * innerSize + innerInd;
+                        realVals[idx] = dequantizeDouble(quantilesLUT[qVals[idx]], scale, zp);
+                    });
+
+        } else {
+            loop_3d(LoopExecPolicy::Parallel, getContext(), outerSize, quantAxisSize, innerSize,
+                    [&](int64_t outerInd, int64_t quantAxisInd, int64_t innerInd) {
+                        const auto scale = scales[quantAxisInd];
+                        const auto zp = zeroPoints[quantAxisInd];
+                        const auto idx = outerInd * quantAxisTotalSize + quantAxisInd * innerSize + innerInd;
+                        realVals[idx] = dequantize(qVals[idx], scale, zp);
+                    });
+        }
+
     } else {
         VPUX_THROW("Unsupported Quantized Type '{0}'", qElemType);
     }
 
     return output;
+}
+
+//
+// DequantizeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::DequantizeAttr::getStableHashValue() const {
+    return llvm::hash_value(getMnemonic());
 }

@@ -3,8 +3,9 @@
 # SPDX-License-Identifier: Apache 2.0
 #
 
-add_subdirectory(vpux/compiler/core)
+add_subdirectory(vpux/compiler/dialect/core)
 add_subdirectory(vpux/compiler/conversion)
+add_subdirectory(vpux/compiler/ShaveCodeGen)
 add_subdirectory(vpux/compiler/dialect/const)
 add_subdirectory(vpux/compiler/dialect/IE)
 add_subdirectory(vpux/compiler/dialect/VPU)

@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPURT_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPURT_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPURT/dialect.td"
 
 //
@@ -43,6 +43,8 @@ def VPURT_BufferSection :
                 I64EnumAttrCase<"CMX_NN",           7>,
                 I64EnumAttrCase<"Register",         8>,
                 I64EnumAttrCase<"MAC_Accumulators", 9>,
+                I64EnumAttrCase<"FunctionInput",    10>,
+                I64EnumAttrCase<"FunctionOutput",   11>,
             ]
         > {
 }

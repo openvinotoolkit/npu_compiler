@@ -27,7 +27,7 @@ public:
     /*
     Initialize the strategy optimization algorithm with State provider and temperature
     */
-    SimulatedAnnealingStrategy(const std::shared_ptr<IStateProvider> provider, const size_t temp, const size_t steps)
+    SimulatedAnnealingStrategy(const std::shared_ptr<IStateProvider>& provider, const size_t temp, const size_t steps)
             : _stateProvider(provider), _temperature(temp), _steps(steps) {
     }
 

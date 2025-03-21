@@ -17,17 +17,12 @@ namespace vpux::VPURT::arch40xx {
 std::unique_ptr<mlir::Pass> createInsertSyncTasksPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeSyncTasksPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFindWlmEnqueueBarrierPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOrderBarriersForWlmPass(Logger log = Logger::global());
 
 //
-// Generated
+// Registration
 //
 
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU40XX/dialect/VPURT/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU40XX/dialect/VPURT/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace vpux::VPURT::arch40xx

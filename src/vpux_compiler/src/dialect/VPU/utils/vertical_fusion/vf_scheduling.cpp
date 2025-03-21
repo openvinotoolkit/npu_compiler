@@ -181,7 +181,7 @@ StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConf
                 prefetchedCost += costFunction->getSpillingTypeCost(
                         config.getOperationTypes(operation, parameters._tiling[0],
                                                  parameters._operandsTiling[0])[input.index()],
-                        parameters._tiling[0].axis);
+                        parameters._operandsTiling[0][input.index()].axis);
             }
         }
     }

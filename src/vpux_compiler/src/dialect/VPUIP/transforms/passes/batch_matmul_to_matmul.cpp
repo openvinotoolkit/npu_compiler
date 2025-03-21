@@ -5,6 +5,12 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_BATCHMATMULTOMATMUL
+#define GEN_PASS_DEF_BATCHMATMULTOMATMUL
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -184,7 +190,7 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
     return mlir::success();
 }
 
-class BatchMatMulToMatMul final : public VPUIP::BatchMatMulToMatMulBase<BatchMatMulToMatMul> {
+class BatchMatMulToMatMul final : public VPUIP::impl::BatchMatMulToMatMulBase<BatchMatMulToMatMul> {
 public:
     explicit BatchMatMulToMatMul(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -37,6 +37,8 @@ struct NceOpTensorShape {
 
 vpux::VPUIP::WorkloadCostParams buildWorkloadCost(const NceOpTensorShape& tensorShape, mlir::MLIRContext* ctx) {
     vpux::VPUIP::WorkloadCostParams costParams;
+    costParams.inOrder = vpux::DimsOrder::NHWC;
+    costParams.outOrder = vpux::DimsOrder::NHWC;
     costParams.inDataType = mlir::Float16Type::get(ctx);
     costParams.outDataType = mlir::Float16Type::get(ctx);
     costParams.fullInputShape = tensorShape.inputShape;

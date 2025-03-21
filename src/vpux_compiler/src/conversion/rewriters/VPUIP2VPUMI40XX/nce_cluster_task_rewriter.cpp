@@ -51,41 +51,6 @@ void checkAllDPUTasksHaveTheSameClusterID(RangeT dpuTasks) {
     });
 }
 
-void minimizeWorkloadSize(mlir::OpBuilder& builder, VPUMI40XX::DPUVariantOp variant, VPUIP::NCETaskType taskType,
-                          std::optional<mlir::ArrayAttr> kernelSize) {
-    auto newInEnd = parseIntArrayAttr<int64_t>(variant.getInStart());
-    auto newOutEnd = parseIntArrayAttr<int64_t>(variant.getStart());
-
-    int64_t minX = 1, minY = 1;
-    if (kernelSize.has_value()) {
-        const auto kernelSizeArray = parseIntArrayAttr<int64_t>(kernelSize.value());
-        minX = kernelSizeArray[1];
-        minY = kernelSizeArray[0];
-    }
-
-    const auto pad = variant.getPad();
-    minX -= pad.getLeft().getInt();
-    minX -= pad.getRight().getInt();
-    minY -= pad.getTop().getInt();
-    minY -= pad.getBottom().getInt();
-
-    newInEnd[0] += minX - 1;
-    newInEnd[1] += minY - 1;
-
-    if (taskType == VPUIP::NCETaskType::ELTWISE) {
-        // Eltwise doesn't support splitting over Z, so we leave it the same
-        newInEnd[2] = parseIntArrayAttr<int64_t>(variant.getInEnd())[2];
-        newOutEnd[2] = parseIntArrayAttr<int64_t>(variant.getEnd())[2];
-    } else {
-        constexpr int minWorkloadZ = 16;
-        newInEnd[2] += minWorkloadZ - 1;
-        newOutEnd[2] += minWorkloadZ - 1;
-    }
-
-    variant.setInEndAttr(getIntArrayAttr(builder, newInEnd));
-    variant.setEndAttr(getIntArrayAttr(builder, newOutEnd));
-}
-
 }  // namespace
 
 namespace vpux::vpuip2vpumi40xx {
@@ -129,6 +94,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     auto weightTableBias = convertOrExtractBuffer(rewriter, adaptor.getWeightTableBias(), tileIndex);
     auto weightZeroPoints = convertOrExtractBuffer(rewriter, adaptor.getWeightZeroPoints(), tileIndex);
     auto sprLookupTable = convertOrExtractBuffer(rewriter, adaptor.getSprLookupTable(), tileIndex);
+    auto palletLookupTable = convertOrExtractBuffer(rewriter, adaptor.getPalletLookupTable(), tileIndex);
     auto taskTypeAttr = adaptor.getTaskTypeAttr();
 
     auto invariant = rewriter.create<VPUMI40XX::DPUInvariantOp>(
@@ -140,7 +106,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             convertOrExtractBuffer(rewriter, adaptor.getInputStorageElementTable(), tileIndex), weights,
             convertOrExtractBuffer(rewriter, adaptor.getWeightsSparsityMap(), tileIndex), weightTable,
             weightTableDataPtr, weightTableSpPtr, weightTableScale, weightTableBias, weightZeroPoints, sprLookupTable,
-            convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff()),
+            palletLookupTable, convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff()),
             convertOrUnrollBuffer(rewriter, adaptor.getOutputSparsityMapBuff()), adaptor.getProfilingData(),
             adaptor.getMaxPerXy(), adaptor.getMinPerXy(), adaptor.getMinMaxPerTensor(), taskTypeAttr,
             adaptor.getEltwiseTypeAttr(), mpeModeAttr, adaptor.getMpeEngineAttr(), adaptor.getKernelSizeAttr(),
@@ -157,8 +123,9 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             nullptr              // enqueueBarrier
     );
 
-    auto createVPUMI40XXVariant = [&](auto dpuTask, mlir::UnitAttr lutRead, mlir::UnitAttr forceInvRead) {
-        return rewriter.create<VPUMI40XX::DPUVariantOp>(
+    auto createVPUMI40XXVariant = [&](auto dpuTask, mlir::UnitAttr sprLutRead = nullptr,
+                                      mlir::UnitAttr palletLutRead = nullptr, mlir::UnitAttr forceInvRead = nullptr) {
+        rewriter.create<VPUMI40XX::DPUVariantOp>(
                 dpuTask.getLoc(), indexWithOnlyTileSet,
                 nullptr,  // taskLocation
                 nullptr,  // previousVariant
@@ -166,19 +133,16 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
                 weightTableBias, weightZeroPoints, taskTypeAttr, dpuTask.getInStartAttr(), dpuTask.getInEndAttr(),
                 dpuTask.getOutStartAttr(), dpuTask.getOutEndAttr(), dpuTask.getPadAttr(), mpeModeAttr,
                 mlir::IntegerAttr::get(getUInt64Type(ctx), tileIndex), dpuTask.getHaloRegionsAttr(),
-                dpuTask.getWorkloadIdAttr(), lutRead, forceInvRead);
+                dpuTask.getWorkloadIdAttr(), sprLutRead, palletLutRead, forceInvRead);
     };
 
-    // As sprLUT is prefetched before all the barriers for the DPU are produced (see DPU FSM diagram in
-    // HAS), We need some way to make sure that once we read sprLUT, the DMA task that brings it is
-    // finished. This is done by adding an additional dummy DPU variant, which exists purely for waiting
-    // until all the barriers are produced.
-    if (sprLookupTable) {
-        auto dummyVariant = createVPUMI40XXVariant(*dpuTasks.begin(), /*lutRead=*/nullptr, /*forceInvRead=*/nullptr);
-        minimizeWorkloadSize(rewriter, dummyVariant, invariant.getNceTaskType(), invariant.getKernelSize());
-    }
+    auto dpuTasksIt = dpuTasks.begin();
 
-    for (auto dpuTask : dpuTasks) {
+    if (sprLookupTable || palletLookupTable) {
+        // Processing dummy DPU task (see more info in AddDummyDPUTaskForSprLUT pass)
+        if (sprLookupTable) {
+            createVPUMI40XXVariant(*(dpuTasksIt++));
+        }
         // For the first variant that goes after the dummy one, two additional registers are set:
         // - lut_read enables the read of sprLUT (it can only be done once per invariant as other variants will
         // just reuse the loaded one)
@@ -186,10 +150,14 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
         // read (see DPU FSM diagram in HAS) and Invariant read may be skipped if it's already loaded. As Dummy
         // DPU variant loads Invariant for this workload, without it read of sprLUT may be skipped as well, no
         // matter what we set in readLut.
-        createVPUMI40XXVariant(dpuTask, /*lutRead=*/sprLookupTable ? mlir::UnitAttr::get(ctx) : nullptr,
-                               /*forceInvRead=*/sprLookupTable ? mlir::UnitAttr::get(ctx) : nullptr);
-        sprLookupTable = nullptr;
+        createVPUMI40XXVariant(*(dpuTasksIt++), /*sprLutRead=*/sprLookupTable ? mlir::UnitAttr::get(ctx) : nullptr,
+                               /*palletLutRead=*/palletLookupTable ? mlir::UnitAttr::get(ctx) : nullptr,
+                               /*forceInvRead=*/mlir::UnitAttr::get(ctx));
     }
+
+    std::for_each(dpuTasksIt, dpuTasks.end(), [&](auto dpuTask) {
+        createVPUMI40XXVariant(dpuTask);
+    });
 
     {
         mlir::OpBuilder::InsertionGuard guard(rewriter);

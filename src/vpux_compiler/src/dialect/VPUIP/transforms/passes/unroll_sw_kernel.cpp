@@ -1,7 +1,9 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
+
+#include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -14,6 +16,12 @@
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLSWKERNEL
+#define GEN_PASS_DEF_UNROLLSWKERNEL
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -23,23 +31,40 @@ bool hasMultiSwKernelRun(VPUIP::SwKernelOp swKernelOp) {
     return std::distance(swKernelRun.begin(), swKernelRun.end()) > 1;
 }
 
-SmallVector<mlir::Value> getOuterMostMappingOperand(VPUIP::SwKernelRun swKernelRun) {
+bool isOperandFromList(mlir::ValueRange rangeList, mlir::Value operand) {
+    return llvm::find(rangeList, operand) != rangeList.end();
+}
+
+SmallVector<mlir::Value> getOuterMostMappingOperand(VPUIP::SwKernelRun swKernelRun, bool isDynamic) {
     auto swKernelOp = swKernelRun->getParentOfType<VPUIP::SwKernelOp>();
     VPUX_THROW_WHEN(swKernelOp == nullptr, "Cannot find VPUIP.SwKernelOp at '{0}'", swKernelRun->getLoc());
 
     SmallVector<mlir::Value> outerMostOperands;
+    auto swKernelOpOperands = swKernelOp.getOperands();
+
+    auto getOuterOperand = [&](mlir::BlockArgument blockArg) {
+        auto index = blockArg.getArgNumber();
+        if (isDynamic) {
+            auto dynShapesInStart = llvm::find_if(swKernelOpOperands, [&](auto operand) {
+                return isOperandFromList(swKernelOp.getDynamicInputShapes(), operand);
+            });
+            // Since we only require Inputs and OutputBuffs, we need to consider the following order of
+            // operands in the case of dynamic shapes: inputs, dynamicInputShapes, outputBuffs, dynamicOutputShapes.
+            auto dynShapesStartInIndex = std::distance(swKernelOpOperands.begin(), dynShapesInStart);
+            if (index >= dynShapesStartInIndex) {
+                index += swKernelOp.getDynamicInputShapes().size();
+            }
+        }
+        return swKernelOp->getOperand(index);
+    };
 
     for (auto operand : swKernelRun->getOperands()) {
         auto blockArg = operand.dyn_cast<mlir::BlockArgument>();
         VPUX_THROW_WHEN(blockArg == nullptr, "Matching argument was not identified");
-        auto outerOperand = swKernelOp->getOperand(blockArg.getArgNumber());
-        outerMostOperands.push_back(outerOperand);
+        outerMostOperands.push_back(getOuterOperand(blockArg));
     }
-    return outerMostOperands;
-}
 
-bool isOperandFromList(mlir::ValueRange rangeList, mlir::Value operand) {
-    return llvm::find(rangeList, operand) != rangeList.end();
+    return outerMostOperands;
 }
 
 VPUIP::SwProfilingMetadataAttr getUpdatedSwProfilingMetadataAttr(VPUIP::SwProfilingMetadataAttr attr, size_t tileId,
@@ -102,15 +127,34 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
                                                 VPURT::TaskOp origTaskOp, mlir::PatternRewriter& rewriter,
                                                 size_t index) const {
     auto opLoc = swKernelOp->getLoc();
-    auto outerOperand = getOuterMostMappingOperand(swKernelRun);
+    auto isDynamic = VPUIP::hasBoundedBuffers(swKernelOp) || VPUIP::hasUngroupedBoundedBuffers(swKernelOp);
+
+    auto outerOperand = getOuterMostMappingOperand(swKernelRun, isDynamic);
     auto iter = llvm::find_if(outerOperand, [&](auto operand) {
         return isOperandFromList(swKernelOp.getOutputBuffs(), operand);
     });
     VPUX_THROW_WHEN(iter == outerOperand.end(), "Cannot find operand for output buffer at '{0}'", opLoc);
 
     auto outBufferStartIndex = std::distance(outerOperand.begin(), iter);
+
+    SmallVector<mlir::Value> swKernelInputDynamicShapes, swKernelOutputDynamicShapes;
+    SmallVector<int32_t> swKernelInputDynamicShapesMap, swKernelOutputDynamicShapesMap;
+
     auto newInputs = SmallVector<mlir::Value>(outerOperand.begin(), outerOperand.begin() + outBufferStartIndex);
     auto newOutBuffers = SmallVector<mlir::Value>(outerOperand.begin() + outBufferStartIndex, outerOperand.end());
+
+    if (isDynamic) {
+        auto fullInputShapes = swKernelOp.getDynamicInputShapes();
+        auto fullOutputShapes = swKernelOp.getDynamicOutputShapeBuffs();
+        auto fullInputShapesMap = swKernelOp.getDynamicInputShapesMap().value_or(ArrayRef<int32_t>());
+        auto fullOutputShapesMap = swKernelOp.getDynamicOutputShapesMap().value_or(ArrayRef<int32_t>());
+
+        swKernelInputDynamicShapes = to_small_vector(fullInputShapes);
+        swKernelOutputDynamicShapes = to_small_vector(fullOutputShapes);
+
+        swKernelInputDynamicShapesMap = to_small_vector(fullInputShapesMap);
+        swKernelOutputDynamicShapesMap = to_small_vector(fullOutputShapesMap);
+    }
 
     mlir::Value newProfilingBuffer = nullptr;
     VPUIP::SwProfilingMetadataAttr maybeProfMeta = nullptr;
@@ -143,10 +187,20 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
     }
     opLoc = appendLoc(opLoc, "tile_{0}", index);
 
-    auto newSwKernelOp = VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
-            rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs, newOutBuffers,
-            newProfilingBuffer, swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(),
-            swKernelOp.getStridesAttr());
+    VPUIP::SwKernelOp newSwKernelOp = [&] {
+        if (isDynamic) {
+            return VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
+                    rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs,
+                    newOutBuffers, swKernelInputDynamicShapes, swKernelInputDynamicShapesMap,
+                    swKernelOutputDynamicShapes, swKernelOutputDynamicShapesMap, newProfilingBuffer,
+                    swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(), swKernelOp.getStridesAttr());
+        }
+        return newSwKernelOp = VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
+                       rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs,
+                       newOutBuffers, newProfilingBuffer, swKernelOp.getKernelFunctionAttr(),
+                       swKernelOp.getTileIndexAttr(), swKernelOp.getStridesAttr());
+    }();
+
     if (maybeProfMeta != nullptr) {
         newSwKernelOp.setProfilingMetadataAttr(maybeProfMeta);
     }
@@ -158,7 +212,7 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
 // UnrollSwKernelPass
 //
 
-class UnrollSwKernelPass final : public VPUIP::UnrollSwKernelBase<UnrollSwKernelPass> {
+class UnrollSwKernelPass final : public VPUIP::impl::UnrollSwKernelBase<UnrollSwKernelPass> {
 public:
     explicit UnrollSwKernelPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

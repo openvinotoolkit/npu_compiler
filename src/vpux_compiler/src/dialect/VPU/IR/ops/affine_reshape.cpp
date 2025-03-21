@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
@@ -86,8 +87,9 @@ mlir::LogicalResult vpux::VPU::AffineReshapeOp::inferReturnTypes(
     const auto ndInType = inType.cast<vpux::NDTypeInterface>();
     const auto inOrder = DimsOrder::fromValue(input);
 
-    const auto outputLayout = inferAffineReshapeOutputLayout(inOrder.toPermutation(), affineReshape.getDimMapping());
-    if (mlir::failed(outputLayout)) {
+    const auto outputLayout =
+            Const::inferAffineReshapeOutputLayout(inOrder.toPermutation(), affineReshape.getDimMapping());
+    if (!outputLayout.has_value()) {
         return mlir::failure();
     }
 

@@ -6,11 +6,19 @@
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <mlir/IR/Builders.h>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_SETUPPROFILINGVPUMI40XX
+#define GEN_PASS_DEF_SETUPPROFILINGVPUMI40XX
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -20,7 +28,8 @@ namespace {
 // SetupProfilingVPUMI40XXPass
 //
 
-class SetupProfilingVPUMI40XXPass final : public VPUMI40XX::SetupProfilingVPUMI40XXBase<SetupProfilingVPUMI40XXPass> {
+class SetupProfilingVPUMI40XXPass final :
+        public VPUMI40XX::impl::SetupProfilingVPUMI40XXBase<SetupProfilingVPUMI40XXPass> {
 public:
     explicit SetupProfilingVPUMI40XXPass(DMAProfilingMode dmaProfilingMode, Logger log)
             : _dmaProfilingMode(dmaProfilingMode) {

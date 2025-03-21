@@ -4,11 +4,18 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/VPU/IR/se_attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_COMPUTESEBASEPTRS
+#define GEN_PASS_DEF_COMPUTESEBASEPTRS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -30,6 +37,7 @@ void computeBasePtrs(VPUIP::StorageElementTableOp seTableOp, vpux::NDTypeInterfa
 
     SmallVector<Shape> perClusterOffsets{};
     SmallVector<Shape> perClusterShapes{};
+    Dim distributedTilingAxis(0);
 
     if (auto inputDistType = inputType.dyn_cast<VPUIP::DistributedBufferType>()) {
         perClusterOffsets = inputDistType.getPerClusterMemoryShapeOffsets();
@@ -37,26 +45,68 @@ void computeBasePtrs(VPUIP::StorageElementTableOp seTableOp, vpux::NDTypeInterfa
         VPUX_THROW_UNLESS(perClusterOffsets.size() == perClusterShapes.size(),
                           "Mismatch between per cluster offsets '{0}' and shapes '{1}", perClusterOffsets.size(),
                           perClusterShapes.size());
+
+        auto distributionAttr = inputDistType.getDistribution();
+        if (auto numTiles = distributionAttr.getNumTiles()) {
+            distributedTilingAxis = Dim(VPU::getDistributedTilingAxis(parseIntArrayAttr<int64_t>(numTiles)));
+        }
     }
 
-    const auto findCluster = [&](const int64_t h, const int64_t w) -> int32_t {
+    int64_t padLeft = 0;
+    int64_t padTop = 0;
+    const auto sePaddingAttr = mlir::dyn_cast_or_null<VPU::SEPaddingAttr>(seTableOp.getSeAttr().value_or(nullptr));
+    if (sePaddingAttr != nullptr) {
+        const auto padding = parseIntArrayAttr<int64_t>(sePaddingAttr.getPadding());
+        padLeft = padding[VPU::SE_PAD_LEFT];
+        padTop = padding[VPU::SE_PAD_TOP];
+    }
+
+    // SEPaddingAttr has a specific scenario compared to other SEAttr
+    // Example: Pad Op with 'Reflect' mode and padLeft/padRight is 2
+    //
+    // Input Data:                             |  1  |  2  |  3  |  4  |
+    // Effective Data:             |  3  |  2  |  1  |  2  |  3  |  4  |  3  |  2  |
+    //
+    // If equally tiled into two clusters, each cluster has size 4
+    // Input Data in Cluster 0:                |  1  |  2  |  3  |
+    // Input Data in Cluster 1:                      |  2  |  3  |  4  |
+    //
+    // If searching clusters from front to end according to the input data shape and offsets
+    // BASE_PTR in Cluster 0:      |  0  |  0  |  0  |  0  |
+    // BASE_PTR in Cluster 1:                              |  0  |  1  |  0  |  0  |
+    //
+    // BASE_PTR in Cluster 1 has an issue, expected value: |  0  |  1  |  1  |  1  |
+    // Update logic to use the last cluster index when the coordinate is at the SEPadding end
+    // and input spans multiple clusters
+
+    const auto findCluster = [&](const int64_t inH, const int64_t inW, const int64_t outH,
+                                 const int64_t outW) -> int32_t {
         if (perClusterOffsets.empty() || perClusterShapes.empty()) {
             return static_cast<int32_t>(0);
         }
 
-        for (auto p : zip(perClusterOffsets, perClusterShapes) | indexed) {
-            const auto offsets = std::get<0>(p.value());
-            const auto shape = std::get<1>(p.value());
+        const auto isCoordAtSEPaddingEnd =
+                (sePaddingAttr != nullptr) &&
+                ((distributedTilingAxis == Dims4D::Act::H && outH >= padTop + inputShape[Dims4D::Act::H.ind()]) ||
+                 (distributedTilingAxis == Dims4D::Act::W && outW >= padLeft + inputShape[Dims4D::Act::W.ind()]));
 
-            auto containsH = offsets[Dims4D::Act::H] <= h && h < (offsets[Dims4D::Act::H] + shape[Dims4D::Act::H]);
-            auto containsW = offsets[Dims4D::Act::W] <= w && w < (offsets[Dims4D::Act::W] + shape[Dims4D::Act::W]);
+        int32_t clusterIdx = -1;
+        for (const auto& [index, value] : zip(perClusterOffsets, perClusterShapes) | indexed) {
+            const auto& [offsets, shape] = value;
+
+            auto containsH = offsets[Dims4D::Act::H] <= inH && inH < (offsets[Dims4D::Act::H] + shape[Dims4D::Act::H]);
+            auto containsW = offsets[Dims4D::Act::W] <= inW && inW < (offsets[Dims4D::Act::W] + shape[Dims4D::Act::W]);
 
             if (containsH && containsW) {
-                return checked_cast<int32_t>(p.index());
+                clusterIdx = checked_cast<int32_t>(index);
+                if (isCoordAtSEPaddingEnd) {
+                    continue;
+                }
+                return clusterIdx;
             }
         }
 
-        return static_cast<int32_t>(-1);
+        return clusterIdx;
     };
 
     const auto outputNDType = seTableOp.getType().cast<vpux::NDTypeInterface>();
@@ -90,9 +140,10 @@ void computeBasePtrs(VPUIP::StorageElementTableOp seTableOp, vpux::NDTypeInterfa
                 auto inputCoord =
                         (seAttr != nullptr) ? seAttr.backInferInputCoord(outputCoord, Shape(inputShape)) : outputCoord;
 
-                const auto seSpatialOffset = (h * outputW + w) * seDepth;
+                const auto seOffset = (h * outputW + w) * seDepth + se;  // HWC
 
-                basePtrs[seSpatialOffset + se] = findCluster(inputCoord[Dims4D::Act::H], inputCoord[Dims4D::Act::W]);
+                basePtrs[seOffset] = findCluster(inputCoord[Dims4D::Act::H], inputCoord[Dims4D::Act::W],
+                                                 outputCoord[Dims4D::Act::H], outputCoord[Dims4D::Act::W]);
             });
 
     const auto basePtrType =
@@ -107,7 +158,7 @@ void computeBasePtrs(VPUIP::StorageElementTableOp seTableOp, vpux::NDTypeInterfa
 // ComputeSEBasePtrsPass
 //
 
-class ComputeSEBasePtrsPass final : public VPUIP::ComputeSEBasePtrsBase<ComputeSEBasePtrsPass> {
+class ComputeSEBasePtrsPass final : public VPUIP::impl::ComputeSEBasePtrsBase<ComputeSEBasePtrsPass> {
 public:
     explicit ComputeSEBasePtrsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

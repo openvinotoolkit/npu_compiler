@@ -19,6 +19,12 @@
 
 #include <npu_40xx_nnrt.hpp>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUIPDPU2NPUREG40XX
+#define GEN_PASS_DEF_CONVERTVPUIPDPU2NPUREG40XX
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 using namespace vpux::VPURegMapped;
 using namespace vpux::vpuipdpu2npureg40xx;
@@ -30,7 +36,8 @@ namespace {
 // ConvertVPUIPDPU2NPUReg40XXPass
 //
 
-class ConvertVPUIPDPU2NPUReg40XXPass final : public ConvertVPUIPDPU2NPUReg40XXBase<ConvertVPUIPDPU2NPUReg40XXPass> {
+class ConvertVPUIPDPU2NPUReg40XXPass final :
+        public impl::ConvertVPUIPDPU2NPUReg40XXBase<ConvertVPUIPDPU2NPUReg40XXPass> {
 public:
     explicit ConvertVPUIPDPU2NPUReg40XXPass(Logger log, VPU::DPUDryRunMode dpuDryRunMode)
             : _dpuDryRunMode(dpuDryRunMode) {

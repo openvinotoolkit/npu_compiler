@@ -17,12 +17,8 @@ std::unique_ptr<VPU::ShaveKernelInfo> VPU::getShaveKernelInfo(mlir::Operation* o
     case VPU::ArchKind::NPU37XX: {
         return std::make_unique<VPU::arch37xx::ShaveKernelInfo>(op);
     }
-    case VPU::ArchKind::NPU40XX: {
-        return std::make_unique<VPU::arch40xx::ShaveKernelInfo>(op);
-    }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
+        return std::make_unique<VPU::arch40xx::ShaveKernelInfo>(op);
     }
     }
 }

@@ -6,10 +6,17 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SPLITGRUSEQUENCE
+#define GEN_PASS_DEF_SPLITGRUSEQUENCE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -64,7 +71,7 @@ bool fitInCMXAfterSplit(VPU::GRUSequenceOp op, Logger log) {
 // SplitGRUSequencePass
 //
 
-class SplitGRUSequencePass final : public VPU::SplitGRUSequenceBase<SplitGRUSequencePass> {
+class SplitGRUSequencePass final : public VPU::impl::SplitGRUSequenceBase<SplitGRUSequencePass> {
 public:
     explicit SplitGRUSequencePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

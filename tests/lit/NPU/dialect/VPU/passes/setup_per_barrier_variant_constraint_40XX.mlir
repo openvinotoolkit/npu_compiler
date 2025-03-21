@@ -4,7 +4,7 @@
 //
 
 
-// RUN: vpux-opt --vpu-arch=%arch% --setup-per-barrier-variant-constraint %s | FileCheck %s
+// RUN: vpux-opt --vpu-arch=%arch% --setup-npu-constraint %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
 module @mainModule attributes { VPU.arch = #VPU.arch_kind<NPU40XX> } {

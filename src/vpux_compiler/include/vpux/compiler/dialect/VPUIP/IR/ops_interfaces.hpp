@@ -75,13 +75,19 @@ struct KernelInfo final {
     SmallVector<mlir::Attribute> args;
     SmallString entryName;
     SmallString sourceFileName;
+    SmallString layerName;
+
+    KernelInfo(const SmallVector<mlir::Attribute>& opArgs, const SmallString& entryPointName,
+               const SmallString& sourceName, const SmallString& kernelName)
+            : args(opArgs), entryName(entryPointName), sourceFileName(sourceName), layerName(kernelName) {
+    }
 
     KernelInfo(const SmallVector<mlir::Attribute>& opArgs, const SmallString& entryPointName,
                const SmallString& sourceName)
-            : args(opArgs), entryName(entryPointName), sourceFileName(sourceName) {
+            : args(opArgs), entryName(entryPointName), sourceFileName(sourceName), layerName(entryPointName) {
     }
     KernelInfo(const SmallVector<mlir::Attribute>& opArgs, const SmallString& kernelName)
-            : args(opArgs), entryName(kernelName), sourceFileName(kernelName) {
+            : args(opArgs), entryName(kernelName), sourceFileName(kernelName), layerName(kernelName) {
         sourceFileName.append(".cpp");
     }
 };

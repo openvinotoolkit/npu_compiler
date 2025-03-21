@@ -5,14 +5,20 @@
 
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 
 using namespace vpux;
 
+namespace vpux::Const {
+#define GEN_PASS_DECL_APPLYSWIZZLING
+#define GEN_PASS_DEF_APPLYSWIZZLING
+#include "vpux/compiler/dialect/const/passes.hpp.inc"
+}  // namespace vpux::Const
+
 namespace {
 
-class ApplySwizzlingPass final : public Const::ApplySwizzlingBase<ApplySwizzlingPass> {
+class ApplySwizzlingPass final : public Const::impl::ApplySwizzlingBase<ApplySwizzlingPass> {
 public:
     explicit ApplySwizzlingPass() {
     }

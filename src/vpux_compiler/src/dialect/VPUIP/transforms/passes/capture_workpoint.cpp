@@ -10,6 +10,12 @@
 
 #include "vpux/utils/profiling/common.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CAPTUREWORKPOINT
+#define GEN_PASS_DEF_CAPTUREWORKPOINT
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 //  CaptureWorkpointPass
 //
 
-class CaptureWorkpointPass final : public VPUIP::CaptureWorkpointBase<CaptureWorkpointPass> {
+class CaptureWorkpointPass final : public VPUIP::impl::CaptureWorkpointBase<CaptureWorkpointPass> {
 public:
     explicit CaptureWorkpointPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

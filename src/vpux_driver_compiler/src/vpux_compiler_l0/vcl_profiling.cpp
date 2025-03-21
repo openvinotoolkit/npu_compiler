@@ -40,13 +40,12 @@ vcl_result_t VPUXProfilingL0::getTaskInfo(p_vcl_profiling_output_t profOutput) {
 
     if (_taskInfo.empty()) {
         try {
-            auto taskInfo = profiling::getTaskInfo(_blobData, _blobSize, _profData, _profSize,
-                                                   profiling::VerbosityLevel::HIGH, false);
+            auto taskInfo =
+                    profiling::getTaskInfo(_blobData, _blobSize, _profData, _profSize, profiling::VerbosityLevel::LOW);
             _taskInfo.reserve(taskInfo.size());
             for (auto task : taskInfo) {
                 _taskInfo.push_back(convertTaskInfo(task));
             }
-
         } catch (const std::exception& error) {
             _logger->outputError(error.what());
             return VCL_RESULT_ERROR_UNKNOWN;

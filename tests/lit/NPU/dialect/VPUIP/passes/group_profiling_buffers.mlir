@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --group-profiling-buffers %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @GroupProfilingBuffers
 module @GroupProfilingBuffers {
     IE.CNNNetwork entryPoint : @main inputsInfo :  {

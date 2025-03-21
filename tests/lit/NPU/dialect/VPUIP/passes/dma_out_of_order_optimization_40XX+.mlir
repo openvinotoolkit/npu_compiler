@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --dma-out-of-order-optimization %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !type_DDR = memref<1x3x64x64xf16, #NHWC, @DDR>

@@ -16,7 +16,9 @@
 #include "intel_npu/config/compiler.hpp"
 #include "npu_driver_compiler.h"
 #include "ov_ops/rms.hpp"
+#include "ov_ops/rotary_positional_embeddings.hpp"
 #include "vcl_compiler.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 
 namespace {
 
@@ -154,6 +156,7 @@ ov::element::Type_t BuildInfo::stringToOVPrecision(std::string value, bool& matc
             {"U16", ov::element::Type_t::u16},
             {"U32", ov::element::Type_t::u32},
             {"U64", ov::element::Type_t::u64},
+            {"NF4", ov::element::Type_t::nf4},
     };
 
     return getElementFromCon<std::string, ov::element::Type_t>(value, matched, supported_precisions,
@@ -195,6 +198,19 @@ vcl_result_t BuildInfo::parseIOOption(const std::vector<std::string>& ioInfoOpti
 
 vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
     const std::size_t configSeparator = descOptions.find(KEY_CONFIGS);
+
+    /// If user sepecify preferred log level, update our logger
+    std::string logMark = "LOG_LEVEL=\"";
+    size_t start = descOptions.find(logMark);
+    if (start != std::string::npos) {
+        start += logMark.length();
+        size_t end = descOptions.find('"', start);
+        if (end != std::string::npos) {
+            ov::log::Level level;
+            std::stringstream{descOptions.substr(start, end - start)} >> level;
+            logger->setLevel(getLogLevel(level));
+        }
+    }
 
     /// Parse the compilation options
     std::vector<std::string> options;
@@ -258,7 +274,7 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
         }
         /// Save the last option
         if (singleOption.compare("") != 0) {
-            options.push_back(singleOption);
+            options.push_back(std::move(singleOption));
         }
     }
 
@@ -269,6 +285,20 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
 
     /// Save the parsed configs from user
     std::map<std::string, std::string> config;
+    vcl_compiler_desc_t compilerDesc = pvc->getCompilerDesc();
+    vcl_device_desc_t deviceDesc = pvc->getDeviceDesc();
+    if (static_cast<size_t>(deviceDesc.size) != sizeof(vcl_device_desc_t)) {
+        logger->warning("Host VCL version:{0}.{1}, device VCL version:{2}.{3}", compilerDesc.version.major,
+                        compilerDesc.version.minor, VCL_COMPILER_VERSION_MAJOR, VCL_COMPILER_VERSION_MINOR);
+    }
+
+    /// Set default value of NPU_STEPPING property, -1u is invalid value
+    if (deviceDesc.revision != static_cast<uint16_t>(-1)) {
+        config[ov::intel_npu::stepping.name()] = std::to_string(deviceDesc.revision);
+    }
+
+    /// Set default value of NPU_MAX_TILES property
+    config[ov::intel_npu::max_tiles.name()] = std::to_string(deviceDesc.tileCount);
 
     /// Pase compilation options and save to config
     /// User options will overwrite default values in config
@@ -319,18 +349,20 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
     // Use platform information provided by driver if platform config is either not found or set on AUTO_DETECT
     if (config.find(ov::intel_npu::platform.name()) == config.end() ||
         "AUTO_DETECT" == config[ov::intel_npu::platform.name()]) {
-        // Set platform
-        switch (pvc->getCompilerDesc().platform) {
-        case VCL_PLATFORM_VPU3720:
+        /// Set NPU_PLATFORM and DEVICE_ID
+        /// Value from VpuFamilyId.h
+        switch (deviceDesc.deviceID) {
+        case 0x7D1D:
+        case 0xAD1D:
             config[ov::intel_npu::platform.name()] = "3720";
             config[ov::device::id.name()] = "3720";
             break;
-        case VCL_PLATFORM_VPU4000:
+        case 0x643E:
             config[ov::intel_npu::platform.name()] = "4000";
             config[ov::device::id.name()] = "4000";
             break;
         default:
-            logger->outputError(formatv("Unrecognized platform! {0}", pvc->getCompilerDesc().platform));
+            logger->outputError(formatv("Unrecognized device ID! 0x{0:X}", deviceDesc.deviceID));
             return VCL_RESULT_ERROR_INVALID_ARGUMENT;
         };
     }
@@ -353,10 +385,9 @@ vcl_result_t BuildInfo::prepareConfig(const std::string& descOptions) {
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    /// If user sepecify preferred log level, update our logger
-    if (iter != config.end()) {
-        logger->setLevel(getLogLevel(parsedConfig));
-    }
+    logger->debug("Current compiler desc: deviceID:{0:X}, revision:{1}, tileCount:{2}", deviceDesc.deviceID,
+                  deviceDesc.revision, deviceDesc.tileCount);
+    logger->debug("Final compilation configs: {0}", parsedConfig.toString());
     return VCL_RESULT_SUCCESS;
 }
 
@@ -532,7 +563,8 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
         // core needs to add internal operators via extensions
         // might need to refactor if extension list will have many elements
         core.add_extension(
-                std::vector<ov::Extension::Ptr>({std::make_shared<ov::OpExtension<ov::op::internal::RMS>>()}));
+                std::vector<ov::Extension::Ptr>({std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
+                                                 std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>()}));
 
         StopWatch stopWatch;
         if (enableProfiling) {

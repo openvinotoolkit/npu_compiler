@@ -4,8 +4,16 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MOVEDYNAMICDEQUANTIZETOUSER
+#define GEN_PASS_DEF_MOVEDYNAMICDEQUANTIZETOUSER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -117,7 +125,7 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
 //
 
 class MoveDynamicDequantizeToUserPass final :
-        public vpux::IE::MoveDynamicDequantizeToUserBase<MoveDynamicDequantizeToUserPass> {
+        public vpux::IE::impl::MoveDynamicDequantizeToUserBase<MoveDynamicDequantizeToUserPass> {
 public:
     explicit MoveDynamicDequantizeToUserPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

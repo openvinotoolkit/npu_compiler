@@ -13,6 +13,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTFCTOCONV
+#define GEN_PASS_DEF_CONVERTFCTOCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -21,7 +27,7 @@ namespace {
 // ConvertFCToConvPass
 //
 
-class ConvertFCToConvPass final : public IE::ConvertFCToConvBase<ConvertFCToConvPass> {
+class ConvertFCToConvPass final : public IE::impl::ConvertFCToConvBase<ConvertFCToConvPass> {
 public:
     explicit ConvertFCToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -24,6 +24,7 @@ struct WorkloadCostParams {
     VPUIP::NCETaskType nceTaskType;
     mlir::Type inDataType;
     mlir::Type outDataType;
+    std::optional<mlir::Type> weightsDataType = std::nullopt;
     DimsOrder inOrder;
     DimsOrder outOrder;
     VPU::ArchKind arch;

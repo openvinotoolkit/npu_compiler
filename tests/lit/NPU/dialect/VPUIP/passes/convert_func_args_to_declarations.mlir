@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-func-args-to-declarations --canonicalize --move-declarations-to-top %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module @WithoutInputs {
     IE.CNNNetwork entryPoint : @main
     inputsInfo : {

@@ -27,30 +27,45 @@ module @OneDMAWithoutAttributes attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} 
 }
 
 //CHECK-LABEL: @main
-//CHECK: NPUReg40XX.ConfigureBarrier
-//CHECK: next_same_id_ offset 0 size 4 = UINT 0xFFFFFFFF
-//CHECK: producer_count_ offset 4 size 2 = UINT 3
-//CHECK: consumer_count_ offset 6 size 2 = UINT 1
-//CHECK: real_id_ offset 8 size 1 = UINT 0
-//CHECK-NOT:  tb_work_item_idx
-
-//CHECK: NPUReg40XX.ConfigureBarrier
-//CHECK: next_same_id_ offset 0 size 4 = UINT 0xC
-//CHECK: producer_count_ offset 4 size 2 = UINT 0x22
-//CHECK: consumer_count_ offset 6 size 2 = UINT 0x2B
-//CHECK: real_id_ offset 8 size 1 = UINT 0x11
-//CHECK-NOT:  tb_work_item_idx
-
-//CHECK: NPUReg40XX.ManagedBarrier
-//CHECK: tb_next_same_id offset 0 size 4 = UINT 0xFFFFFFFF
-//CHECK: tb_producer_count offset 4 size 2 = UINT 4
-//CHECK: tb_consumer_count offset 6 size 2 = UINT 5
-//CHECK: tb_real_id offset 8 size 1 = UINT 0
-//CHECK: tb_work_item_idx offset 12 size 4 = UINT 0x3E7
-
-//CHECK: NPUReg40XX.ManagedBarrier
-//CHECK: tb_next_same_id offset 0 size 4 = UINT 4
-//CHECK: tb_producer_count offset 4 size 2 = UINT 0x17
-//CHECK: tb_consumer_count offset 6 size 2 = UINT 0x20
-//CHECK: tb_real_id offset 8 size 1 = UINT 1
-//CHECK: tb_work_item_idx offset 12 size 4 = UINT 0
+//CHECK: "NPUReg40XX.ConfigureBarrier"() <{descriptor = #NPUReg40XX.VpuBarrierCountConfig<
+//CHECK:         VpuBarrierCountConfig {
+//CHECK:           next_same_id_ = UINT 0xFFFFFFFF,
+//CHECK:           producer_count_ = UINT 3,
+//CHECK:           consumer_count_ = UINT 1,
+//CHECK:           real_id_ = UINT 0,
+//CHECK:           barcfg_pad_3_ = UINT 0
+//CHECK:         } requires 11:4:10
+//CHECK:       >, sym_name = "ConfigureBarrier_0_0"}> : () -> ()
+//CHECK:       "NPUReg40XX.ConfigureBarrier"() <{descriptor = #NPUReg40XX.VpuBarrierCountConfig<
+//CHECK:         VpuBarrierCountConfig {
+//CHECK:           next_same_id_ = UINT 0xC,
+//CHECK:           producer_count_ = UINT 0x22,
+//CHECK:           consumer_count_ = UINT 0x2B,
+//CHECK:           real_id_ = UINT 0x11,
+//CHECK:           barcfg_pad_3_ = UINT 0
+//CHECK:         } requires 11:4:10
+//CHECK:       >, sym_name = "ConfigureBarrier_0_1"}> : () -> ()
+//CHECK:       "NPUReg40XX.ManagedBarrier"() <{descriptor = #NPUReg40XX.VpuTaskBarrierMap<
+//CHECK:         VpuTaskBarrierMap {
+//CHECK:           tb_next_same_id = UINT 0xFFFFFFFF,
+//CHECK:           tb_producer_count = UINT 4,
+//CHECK:           tb_consumer_count = UINT 5,
+//CHECK:           tb_real_id = UINT 0,
+//CHECK:           tb_pad3 = UINT 0,
+//CHECK:           tb_work_item_idx = UINT 0x3E7,
+//CHECK:           tb_enqueue_count = UINT 0,
+//CHECK:           tb_reserved_next_enqueue_id = UINT 0
+//CHECK:         } requires 11:4:10
+//CHECK:       >, sym_name = "ConfigureBarrier_0_2"}> : () -> ()
+//CHECK:       "NPUReg40XX.ManagedBarrier"() <{descriptor = #NPUReg40XX.VpuTaskBarrierMap<
+//CHECK:         VpuTaskBarrierMap {
+//CHECK:           tb_next_same_id = UINT 4,
+//CHECK:           tb_producer_count = UINT 0x17,
+//CHECK:           tb_consumer_count = UINT 0x20,
+//CHECK:           tb_real_id = UINT 1,
+//CHECK:           tb_pad3 = UINT 0,
+//CHECK:           tb_work_item_idx = UINT 0,
+//CHECK:           tb_enqueue_count = UINT 0,
+//CHECK:           tb_reserved_next_enqueue_id = UINT 0
+//CHECK:         } requires 11:4:10
+//CHECK:       >, sym_name = "ConfigureBarrier_0_3"}> : () -> ()

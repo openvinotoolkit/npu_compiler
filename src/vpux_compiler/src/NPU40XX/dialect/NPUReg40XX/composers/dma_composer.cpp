@@ -60,10 +60,10 @@ void setDMAConversionMode(DMARegister& initValues, mlir::Type inputType, uint64_
     initValues.write<Fields::dma_cfg_fields_conversion_cfg>(conversionCfg);
 }
 
-uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp) {
+uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap) {
     auto actCompressionSizeEntry = dmaOp.getActCompressionSizeEntry();
     if (actCompressionSizeEntry.has_value()) {
-        auto actCompBufferRef = mlir::SymbolTable::lookupNearestSymbolFrom(dmaOp, actCompressionSizeEntry.value());
+        auto actCompBufferRef = symRefMap.lookupSymbol(actCompressionSizeEntry.value());
         VPUX_THROW_UNLESS(actCompBufferRef, "Could not find symbol name entry for {0} of {1}",
                           actCompressionSizeEntry.value(), dmaOp);
 
@@ -76,7 +76,7 @@ uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp) {
 }
 
 void setDMAAccelerationCompress(DMARegister& initValues, VPUASM::NNDMAOp origOp, mlir::MemRefType inputType,
-                                mlir::MemRefType outputType) {
+                                mlir::MemRefType outputType, ELF::SymbolReferenceMap& symRefMap) {
     const auto dmaDescriptor = origOp.getDmaDescriptorAttr();
     VPUX_THROW_UNLESS(dmaDescriptor, "NNDMAOp missing DMADescriptorAttr");
     const auto srcWidth = dmaDescriptor.getSrcWidth().getInt();
@@ -92,7 +92,7 @@ void setDMAAccelerationCompress(DMARegister& initValues, VPUASM::NNDMAOp origOp,
 
     if (origOp.getActCompressionSizeEntry().has_value()) {
         initValues.write<Fields::dma_cfg_fields_rws_en>(true);
-        initValues.write<Fields::dma_remote_width_store>(getActCompressionEntryTileMask(origOp));
+        initValues.write<Fields::dma_remote_width_store>(getActCompressionEntryTileMask(origOp, symRefMap));
     }
 
     initValues.write<Fields::dma_cfg_fields_acceleration_cfg>(DMA_ACCEL_COMPRESS);
@@ -100,11 +100,12 @@ void setDMAAccelerationCompress(DMARegister& initValues, VPUASM::NNDMAOp origOp,
     initValues.write<Fields::dma_acc_info_compress_bitc_en>(1);
 }
 
-void setDMAAccelerationDecompress(DMARegister& initValues, VPUASM::NNDMAOp origOp, mlir::MemRefType outputType) {
+void setDMAAccelerationDecompress(DMARegister& initValues, VPUASM::NNDMAOp origOp, mlir::MemRefType outputType,
+                                  ELF::SymbolReferenceMap& symRefMap) {
     auto actCompressionSizeEntry = origOp.getActCompressionSizeEntry();
     if (actCompressionSizeEntry.has_value()) {
         initValues.write<Fields::dma_cfg_fields_rwf_en>(true);
-        initValues.write<Fields::dma_remote_width_fetch>(getActCompressionEntryTileMask(origOp));
+        initValues.write<Fields::dma_remote_width_fetch>(getActCompressionEntryTileMask(origOp, symRefMap));
     }
 
     initValues.write<Fields::dma_cfg_fields_acceleration_cfg>(DMA_ACCEL_DECOMPRESS);
@@ -113,17 +114,17 @@ void setDMAAccelerationDecompress(DMARegister& initValues, VPUASM::NNDMAOp origO
 }
 
 void setDMAAccelerationMode(DMARegister& initValues, VPUASM::NNDMAOp origOp, mlir::MemRefType inputType,
-                            mlir::MemRefType outputType) {
+                            mlir::MemRefType outputType, ELF::SymbolReferenceMap& symRefMap) {
     auto accMode = origOp.getAccelerationMode();
     switch (accMode) {
     case VPUIP::DMAAccMode::DISABLE:
         // nothing to do
         break;
     case VPUIP::DMAAccMode::COMPRESSION:
-        setDMAAccelerationCompress(initValues, origOp, inputType, outputType);
+        setDMAAccelerationCompress(initValues, origOp, inputType, outputType, symRefMap);
         break;
     case VPUIP::DMAAccMode::DECOMPRESSION:
-        setDMAAccelerationDecompress(initValues, origOp, outputType);
+        setDMAAccelerationDecompress(initValues, origOp, outputType, symRefMap);
         break;
     default:
         VPUX_THROW("{0} acceleration mode is not supported", accMode);
@@ -379,6 +380,13 @@ DMARegister compose(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap) 
     descriptor.write<Registers::dma_barriers_sched, Fields::start_after_>(origOp.getStartAfter());
     descriptor.write<Registers::dma_barriers_sched, Fields::clean_after_>(origOp.getCleanAfter());
 
+    // In the case of SyncDMA (a DMA that does nothing),
+    // the compiler must set an extra bit in dma_cfg to indicate that this DMA is not real,
+    // and the SRC_ADDR should be ignored. More details in E152711
+    if (npu4config.srcDimSizes[0] == 0 && npu4config.srcDimSizes[0] == npu4config.dstDimSizes[0]) {
+        descriptor.write<Fields::dma_cfg_fields_memset_en>(1);
+    }
+
     if (auto enableMemorySideCaching = origOp.getEnableMscAttr()) {
         setEnableMemorySideCaching(descriptor);
     }
@@ -426,7 +434,7 @@ DMARegister compose(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap) 
                                     npu4config.srcDimSizes[2] != 0 || npu4config.dstDimSizes[2] != 0 ||
                                     npu4config.srcStrides[2] != 0 || npu4config.dstStrides[2] != 0,
                             "Activation compression is supported only for 1D DMAs");
-            setDMAAccelerationMode(descriptor, origOp, inputType, outputType);
+            setDMAAccelerationMode(descriptor, origOp, inputType, outputType, symRefMap);
         } else {
             // Conversion
             setDMAConversionMode(descriptor, inputType.getElementType(), totalInSizeBits.to<Byte>().count(),

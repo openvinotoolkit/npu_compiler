@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTLAYOUTS
+#define GEN_PASS_DEF_ADJUSTLAYOUTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -82,7 +89,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::LayoutInfoOpInterface ori
 // AdjustLayoutsPass
 //
 
-class AdjustLayoutsPass final : public IE::AdjustLayoutsBase<AdjustLayoutsPass> {
+class AdjustLayoutsPass final : public IE::impl::AdjustLayoutsBase<AdjustLayoutsPass> {
 public:
     explicit AdjustLayoutsPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _seOpsEnabled(seOpsEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled) {

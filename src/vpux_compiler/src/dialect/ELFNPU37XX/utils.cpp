@@ -268,7 +268,8 @@ namespace {
 const std::unordered_map<VPU::ArchKind, elf::platform::ArchKind> vpuToElfArchEnumMap = {
         {VPU::ArchKind::UNKNOWN, elf::platform::ArchKind::UNKNOWN},
         {VPU::ArchKind::NPU37XX, elf::platform::ArchKind::VPUX37XX},
-        {VPU::ArchKind::NPU40XX, elf::platform::ArchKind::VPUX40XX}};
+        {VPU::ArchKind::NPU40XX, elf::platform::ArchKind::VPUX40XX},
+};
 }  // namespace
 
 elf::platform::ArchKind vpux::ELFNPU37XX::mapVpuArchKindToElfArchKind(const VPU::ArchKind& archKind) {

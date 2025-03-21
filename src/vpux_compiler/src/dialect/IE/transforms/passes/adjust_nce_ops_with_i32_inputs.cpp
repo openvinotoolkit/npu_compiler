@@ -10,6 +10,12 @@
 
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTNCEOPSWITHI32INPUTS
+#define GEN_PASS_DEF_ADJUSTNCEOPSWITHI32INPUTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -64,7 +70,8 @@ mlir::LogicalResult ConvertPrecisionToFP16<ConcreteOp>::matchAndRewrite(Concrete
 // AdjustNCEOpsWithI32InputsPass
 //
 
-class AdjustNCEOpsWithI32InputsPass final : public IE::AdjustNCEOpsWithI32InputsBase<AdjustNCEOpsWithI32InputsPass> {
+class AdjustNCEOpsWithI32InputsPass final :
+        public IE::impl::AdjustNCEOpsWithI32InputsBase<AdjustNCEOpsWithI32InputsPass> {
 public:
     explicit AdjustNCEOpsWithI32InputsPass(Logger log, bool enableConvertFCToConv)
             : _enableConvertFCToConv(enableConvertFCToConv) {

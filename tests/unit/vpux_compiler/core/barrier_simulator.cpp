@@ -34,8 +34,8 @@ using BarrierSimulatorTests = ::testing::Test;
  *          |
  *          t6
  */
-BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandler() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckBarrierWlmHandler() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},     // task 0
@@ -58,8 +58,6 @@ BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandler() {
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType1{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dmaType2{VPU::ExecutorKind::DMA_NN, 1};
@@ -107,8 +105,8 @@ TEST_F(BarrierSimulatorTests, CheckBarrierWlmHandler) {
  *       |
  *      t8
  */
-BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranches() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranches() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},  // task 0
@@ -135,8 +133,6 @@ BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranches() 
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
@@ -179,8 +175,8 @@ TEST_F(BarrierSimulatorTests, CheckBarrierWlmHandlerWithDepsTwoBranches) {
  *       |
  *       t6
  */
-BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranchesThroughFifo() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranchesThroughFifo() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0, 1},  // task 0
@@ -203,8 +199,6 @@ BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithDepsTwoBranchesThr
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
@@ -260,8 +254,8 @@ TEST_F(BarrierSimulatorTests, CheckBarrierWlmHandlerWithDepsTwoBranchesThroughFi
  *           |
  *          t11
  */
-BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithMultipleBranches() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckBarrierWlmHandlerWithMultipleBranches() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},     // task 0
@@ -294,8 +288,6 @@ BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithMultipleBranches()
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dpuType1{VPU::ExecutorKind::DPU, 0};
     const VPURT::TaskQueueType dpuType2{VPU::ExecutorKind::DPU, 1};
@@ -357,8 +349,8 @@ TEST_F(BarrierSimulatorTests, CheckBarrierWlmHandlerWithMultipleBranches) {
  *    |
  *    t10
  */
-BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithGraphSplit() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckBarrierWlmHandlerWithGraphSplit() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0, 1},  // task 0
@@ -389,8 +381,6 @@ BarrierInfoTest::BarrierMaps graphToCheckBarrierWlmHandlerWithGraphSplit() {
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
     barrierMapsConfig.syncTasksIds = {3, 7};
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};

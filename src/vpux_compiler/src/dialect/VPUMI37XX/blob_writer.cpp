@@ -4,27 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPUMI37XX/blob_writer.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/device.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
-#include "vpux/compiler/utils/strings.hpp"
 
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/custom_float.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/format.hpp"
-#include "vpux/utils/core/helper_macros.hpp"
-#include "vpux/utils/core/numeric.hpp"
-#include "vpux/utils/core/small_string.hpp"
 #include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/Dialect/Quant/QuantTypes.h>
@@ -91,6 +78,8 @@ VPUIP::MemoryLocation createMemoryLocation(VPURT::BufferSection section) {
         return VPUIP::MemoryLocation_GraphFile;
     case VPURT::BufferSection::SW_KernelText:
         return VPUIP::MemoryLocation_GFEmbeddedKernel;
+    case VPURT::BufferSection::FunctionInput:
+    case VPURT::BufferSection::FunctionOutput:
     case VPURT::BufferSection::DDR:
         return VPUIP::MemoryLocation_VPU_DDR_Heap;
     case VPURT::BufferSection::CSRAM:

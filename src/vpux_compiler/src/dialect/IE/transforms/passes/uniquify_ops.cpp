@@ -11,6 +11,12 @@
 
 #include <mlir/IR/PatternMatch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNIQUIFYOPS
+#define GEN_PASS_DEF_UNIQUIFYOPS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -64,6 +70,8 @@ mlir::LogicalResult RemoveDuplicatingGeneric<ConcreteOp>::matchAndRewrite(Concre
         }
     }
 
+    mlir::DenseSet<mlir::Operation*> usersToRemove;
+
     for (auto user : llvm::make_early_inc_range(firstUser->getOperand(0).getUsers())) {
         if (user == firstUser) {
             continue;
@@ -71,20 +79,23 @@ mlir::LogicalResult RemoveDuplicatingGeneric<ConcreteOp>::matchAndRewrite(Concre
 
         if (auto currOp = mlir::dyn_cast<ConcreteOp>(user)) {
             if (isDuplicatedOperation(firstUser, currOp, _log)) {
-                _log.trace("Current node has a duplicate. Eliminate usage of current node:\n{0} {1}\n{2} {3}",
-                           firstUser.getLoc(), firstUser, currOp.getLoc(), currOp);
-
-                eliminateDuplicatedOperation(firstUser, currOp, rewriter);
-
-                // Operation can contain the same operand in list of operands many times. For example IE.Add(%0, %0)
-                // In this case, the next operation is the same as current one
-                // Break loop to avoid removing current operation several times
-                return mlir::success();
+                usersToRemove.insert(currOp);
             }
         }
     }
 
-    return mlir::failure();
+    if (usersToRemove.size() == 0) {
+        return mlir::failure();
+    }
+
+    for (auto user : usersToRemove) {
+        auto userOp = mlir::dyn_cast<ConcreteOp>(user);
+        _log.trace("Current node has a duplicate. Eliminate usage of current node:\n{0} {1}\n{2} {3}",
+                   firstUser.getLoc(), firstUser, userOp.getLoc(), userOp);
+        eliminateDuplicatedOperation(firstUser, userOp, rewriter);
+    }
+
+    return mlir::success();
 }
 
 //
@@ -321,7 +332,7 @@ bool RemoveDuplicatingExpand::isDuplicatedOperation(IE::ExpandOp firstOp, IE::Ex
 // UniquifyOpsPass
 //
 
-class UniquifyOpsPass final : public IE::UniquifyOpsBase<UniquifyOpsPass> {
+class UniquifyOpsPass final : public IE::impl::UniquifyOpsBase<UniquifyOpsPass> {
 public:
     explicit UniquifyOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -345,6 +356,7 @@ void UniquifyOpsPass::safeRunOnFunc() {
     patterns.add<RemoveDuplicatingGeneric<IE::PermuteQuantizeOp>>(&ctx, _log);
     patterns.add<RemoveDuplicatingGeneric<IE::TileOp>>(&ctx, _log);
     patterns.add<RemoveDuplicatingGeneric<IE::FloorOp>>(&ctx, _log);
+    patterns.add<RemoveDuplicatingGeneric<IE::ConvertOp>>(&ctx, _log);
     patterns.add<RemoveDuplicatingCommutativeEltwise<IE::AddOp>>(&ctx, _log);
     patterns.add<RemoveDuplicatingCommutativeEltwise<IE::AndOp>>(&ctx, _log);
     patterns.add<RemoveDuplicatingPooling<IE::AvgPoolOp>>(&ctx, _log);
@@ -355,9 +367,7 @@ void UniquifyOpsPass::safeRunOnFunc() {
     patterns.add<RemoveDuplicatingExpand>(&ctx, _log);
 
     auto func = getOperation();
-    auto greedyRewriteConfig = getDefaultGreedyRewriteConfig();
-    greedyRewriteConfig.maxIterations *= 2;
-    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), greedyRewriteConfig))) {
+    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

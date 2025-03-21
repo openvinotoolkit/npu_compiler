@@ -105,6 +105,29 @@ public:
     }
 };
 
+//
+// DDRAccessGridSampleOpModel
+//
+
+class DDRAccessGridSampleOpModel final : public VPU::DDRAccessOpInterface::FallbackModel<DDRAccessGridSampleOpModel> {
+public:
+    bool isDDRAccessNecessaryOrBeneficial(mlir::Operation* op, Logger log) const {
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
+        const auto inputShape = inputType.getShape();
+
+        // For GridSample op, input cannot be tiled over H&W since grid coordinates are based on input size. So if
+        // GridSample's input spatial size is larger than CMX size, DDR access is necessary.
+        const auto totalSize = inputType.getTotalAllocSize();
+        const auto spatialSize = totalSize / (inputShape[Dims4D::Act::N] * inputShape[Dims4D::Act::C]);
+
+        if (spatialSize > vpux::VPU::getTotalCMXSize(op)) {
+            log.nest(1).trace("GridSample op cannot be tiled, need DDR access");
+            return true;
+        }
+        return false;
+    }
+};
+
 }  // namespace
 
 //
@@ -114,6 +137,7 @@ public:
 void vpux::VPU::arch37xx::registerDDRAccessOpModelInterface(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::GatherOp::attachInterface<DDRAccessGatherOpModel>(*ctx);
+        VPU::GridSampleOp::attachInterface<DDRAccessGridSampleOpModel>(*ctx);
         VPU::GRUSequenceOp::attachInterface<DDRAccessGRUSequenceOpModel>(*ctx);
         VPU::GRUSequenceLastPartOp::attachInterface<DDRAccessGRUSequenceLastPartOpModel>(*ctx);
     });

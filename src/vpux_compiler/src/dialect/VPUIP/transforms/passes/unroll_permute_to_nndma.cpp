@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -12,10 +12,17 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <numeric>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLPERMUTETONNDMA
+#define GEN_PASS_DEF_UNROLLPERMUTETONNDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -204,7 +211,8 @@ mlir::LogicalResult PermuteRewriter::rewritePermuteDMA(VPUIP::PermuteDMAOp permu
         portIsAlreadyAssigned = false;
     }
 
-    auto subInput = VPUIP::getPermuteDMASubInputShapes(inType, outType, memPerm, _dmaPortCount, _log);
+    auto subInput =
+            VPUIP::getPermuteDMASubInputShapes(VPU::getArch(permuteOp), inType, outType, memPerm, _dmaPortCount, _log);
     VPUX_THROW_UNLESS(subInput.has_value(), "Cannot get unrolled subInputShapes for PermuteDMA op {0}", permuteOp);
     auto subInputShapes = subInput.value();
     auto subOutputShapes = VPUIP::getPermuteDMASubOutputShapes(subInputShapes, inType, outType, memPerm);
@@ -741,7 +749,7 @@ mlir::LogicalResult PermuteRewriter::unrollDuplicatedInput(VPUIP::PermuteDMAOp p
 // UnrollPermuteToNNDMAPass
 //
 
-class UnrollPermuteToNNDMAPass final : public VPUIP::UnrollPermuteToNNDMABase<UnrollPermuteToNNDMAPass> {
+class UnrollPermuteToNNDMAPass final : public VPUIP::impl::UnrollPermuteToNNDMABase<UnrollPermuteToNNDMAPass> {
 public:
     explicit UnrollPermuteToNNDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

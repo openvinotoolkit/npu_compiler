@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --merge-fully-connected %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 #HWC = affine_map<(d0, d1, d2) -> (d1, d2, d0)>
 #map = affine_map<(d0, d1, d2) -> (d2, d0, d1)>
 

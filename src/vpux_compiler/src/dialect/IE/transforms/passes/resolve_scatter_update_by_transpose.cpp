@@ -10,6 +10,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_RESOLVESCATTERUPDATEBYTRANSPOSE
+#define GEN_PASS_DEF_RESOLVESCATTERUPDATEBYTRANSPOSE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -17,7 +23,7 @@ namespace {
 // Resolve scatter_update by transpose pass
 //
 class ResolveScatterUpdateByTransposePass final :
-        public IE::ResolveScatterUpdateByTransposeBase<ResolveScatterUpdateByTransposePass> {
+        public IE::impl::ResolveScatterUpdateByTransposeBase<ResolveScatterUpdateByTransposePass> {
 public:
     explicit ResolveScatterUpdateByTransposePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

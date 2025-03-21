@@ -9,6 +9,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_CONSTANTDPUPROFHWPBASE
+#define GEN_PASS_DEF_CONSTANTDPUPROFHWPBASE
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 //
 
 class ConstantDpuProfHwpBasePass final :
-        public VPUIP::arch40xx::ConstantDpuProfHwpBaseBase<ConstantDpuProfHwpBasePass> {
+        public VPUIP::arch40xx::impl::ConstantDpuProfHwpBaseBase<ConstantDpuProfHwpBasePass> {
 public:
     explicit ConstantDpuProfHwpBasePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -60,9 +66,11 @@ void ConstantDpuProfHwpBasePass::safeRunOnFunc() {
         profDeclBuff.setByteOffsetAttr(vpux::getIntAttr(ctx, 0));
 
         nceClusterTaskOp.walk([&](VPUIP::DPUTaskOp dpuTaskOp) {
-            VPUX_THROW_UNLESS(dpuTaskOp.getWorkloadId().has_value(),
-                              "NCEClusterTask at '{0}' does not have workload ids configured",
-                              nceClusterTaskOp->getLoc());
+            // We only consider DPUTaskOps with workload_id set to be profiling targets.
+            // For example, dummy DPU tasks injected by add-dummy-dpu-task-for-sprlut are not profiled
+            if (!dpuTaskOp.getWorkloadId().has_value()) {
+                return;
+            }
             // Adjust workload_id to represent total offset in CMX
             auto newWorkloadId = workloadIdOffset + dpuTaskOp.getWorkloadId().value();
             dpuTaskOp.setWorkloadIdAttr(vpux::getIntAttr(ctx, newWorkloadId));

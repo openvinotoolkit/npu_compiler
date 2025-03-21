@@ -13,6 +13,12 @@
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_FUSEDDRCOPIESINTOCONCATS
+#define GEN_PASS_DEF_FUSEDDRCOPIESINTOCONCATS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -133,7 +139,7 @@ mlir::LogicalResult FuseCopies::matchAndRewrite(VPUIP::ConcatViewOp origConcatOp
 // FuseDDRCopiesIntoConcats
 //
 
-class FuseDDRCopiesIntoConcats final : public VPUIP::FuseDDRCopiesIntoConcatsBase<FuseDDRCopiesIntoConcats> {
+class FuseDDRCopiesIntoConcats final : public VPUIP::impl::FuseDDRCopiesIntoConcatsBase<FuseDDRCopiesIntoConcats> {
 public:
     explicit FuseDDRCopiesIntoConcats(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

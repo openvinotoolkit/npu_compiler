@@ -6,9 +6,16 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <vpux/compiler/utils/rewriter.hpp>
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_BROADCASTINPUTFORADD
+#define GEN_PASS_DEF_BROADCASTINPUTFORADD
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -116,7 +123,7 @@ mlir::LogicalResult BroadcastInputRewriter::matchAndRewrite(IE::AddOp origOp, ml
 //
 // BroadcastInputForAddPass
 //
-class BroadcastInputForAddPass final : public IE::BroadcastInputForAddBase<BroadcastInputForAddPass> {
+class BroadcastInputForAddPass final : public IE::impl::BroadcastInputForAddBase<BroadcastInputForAddPass> {
 public:
     explicit BroadcastInputForAddPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

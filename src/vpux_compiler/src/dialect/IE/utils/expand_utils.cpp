@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/logger.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>

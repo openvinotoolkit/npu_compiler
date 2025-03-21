@@ -5,10 +5,10 @@
 
 #include "vpux/compiler/core/cycle_cost_info.hpp"
 
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 using namespace vpux;
 

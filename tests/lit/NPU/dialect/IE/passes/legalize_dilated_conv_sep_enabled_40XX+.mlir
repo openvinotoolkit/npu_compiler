@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --legalize-dilated-conv="enable-sep-dilated-group-conv=true" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @DontLegalizeDilatedGroupConvolution
 // CHECK-SAME: [[ARG0:%.+]]: tensor<1x3x30x30xf16>
 func.func @DontLegalizeDilatedGroupConvolution(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30xf16> {

@@ -10,6 +10,7 @@
 
 #include "vpux/utils/core/type/bfloat16.hpp"
 #include "vpux/utils/core/type/float16.hpp"
+#include "vpux_elf/utils/version.hpp"
 
 namespace vpux::VPURegMapped::detail {
 
@@ -126,7 +127,6 @@ struct FieldPrinter {
         printer.printNewline();
         printer << vpux::VPURegMapped::stringifyEnum(Field::_type) << " " << Field::_name << " = "
                 << getFormattedValue(descriptor.template read<Register, Field>());
-        printVersionIfCustom(printer, descriptor);
 
         if constexpr (index < size - 1) {
             printer << ',';
@@ -134,16 +134,33 @@ struct FieldPrinter {
 
         return mlir::success();
     }
+};
 
-    template <class Descriptor>
-    static void printVersionIfCustom(mlir::AsmPrinter& printer, const Descriptor& descriptor) {
-        const auto& customVersions = descriptor.customFieldsVersions;
-        if (!customVersions.contains(Field::_name)) {
-            return;
+template <class Field, size_t size = 1, size_t index = 0>
+struct FieldVersion {
+    template <class Register, class Descriptor>
+    static auto call(std::optional<elf::Version>& maxVersion, const Descriptor& descriptor) {
+        static_assert(contains<Register, typename Field::Registers>::value,
+                      "Given register doesn't contain this field");
+        static_assert(contains<Descriptor, typename Register::Descriptors>::value,
+                      "Given descriptor doesn't contain this register");
+
+        if (descriptor.template read<Register, Field>()) {
+            maxVersion = std::max(maxVersion.value_or(Field::_defaultVersion), Field::_defaultVersion);
         }
-        const auto& customVersion = customVersions.at(Field::_name);
-        printer << " requires " << customVersion.getMajor() << ':' << customVersion.getMinor() << ':'
-                << customVersion.getPatch();
+
+        return mlir::success();
+    }
+};
+
+template <class Register, size_t size = 1, size_t index = 0>
+struct RegisterVersion {
+    template <class Descriptor>
+    static auto call(std::optional<elf::Version>& maxVersion, const Descriptor& descriptor) {
+        static_assert(contains<Descriptor, typename Register::Descriptors>::value,
+                      "Given descriptor doesn't contain this register");
+
+        return Mapper<typename Register::Fields, FieldVersion, Register>::map(maxVersion, descriptor);
     }
 };
 
@@ -199,7 +216,7 @@ struct FieldParser {
             }
         }
 
-        result.template write<Register, Field>(value, maybeVersion);
+        result.template write<Register, Field>(value);
         return mlir::success();
     }
 };
@@ -221,7 +238,6 @@ struct RegisterPrinter {
         if constexpr (Register::_name == FirstFieldType::_name && bitSize == FirstFieldType::_size) {
             printer << " = " << vpux::VPURegMapped::stringifyEnum(FirstFieldType::_type) << ' '
                     << getFormattedValue(descriptor.template read<Register, FirstFieldType>());
-            FieldPrinter<FirstFieldType>::printVersionIfCustom(printer, descriptor);
         } else {
             printer << " {";
             printer.increaseIndent();
@@ -252,9 +268,14 @@ struct RegisterParser {
                     << "invalid register name \"" << name << "\", expected " << Register::_name;
         }
 
-        if (parser.parseOptionalKeyword("allowOverlap").succeeded()) {
-            // ignoring
-            ;
+        StringRef keyword;
+        if (parser.parseOptionalKeyword(&keyword).succeeded()) {
+            if (keyword != "allowOverlap") {
+                parser.emitError(parser.getCurrentLocation())
+                        << "unknown keyword \"" << keyword << "\", expected \"allowOverlap\"";
+                return mlir::failure();
+            }
+            // ignoring the keyword for now
         }
 
         if (parser.parseOptionalEqual().succeeded()) {
@@ -282,7 +303,7 @@ struct RegisterParser {
                 return mlir::failure();
             }
 
-            result.template write<Register, SingleFieldType>(value, maybeVersion);
+            result.template write<Register, SingleFieldType>(value);
         } else {
             if (parser.parseLBrace().failed()) {
                 return mlir::failure();
@@ -322,7 +343,7 @@ public:
     }
 
     template <class Register, class Field, class U>
-    void write(U userValue, const std::optional<elf::Version>& version = {}) {
+    void write(U userValue) {
         using ::vpux::VPURegMapped::RegFieldDataType;
         using namespace ::vpux::type;
 
@@ -404,15 +425,13 @@ public:
         } else {
             assert(false && "unsupported value type");
         }
-
-        updateVersion<Field>(version);
     }
 
     template <class Field, class U>
-    void write(U&& userValue, const std::optional<elf::Version>& version = {}) {
+    void write(U&& userValue) {
         static_assert(std::tuple_size_v<typename Field::Registers> == 1,
                       "Ambiguous call to write, field has more than one parent register");
-        write<std::tuple_element_t<0, typename Field::Registers>, Field>(std::forward<U>(userValue), version);
+        write<std::tuple_element_t<0, typename Field::Registers>, Field>(std::forward<U>(userValue));
     }
 
     template <class Register, class Field>
@@ -492,6 +511,13 @@ public:
         printer.decreaseIndent();
         printer.printNewline();
         printer << "}";
+
+        const auto maybeVersion = getDescriptorVersion();
+        if (maybeVersion.has_value()) {
+            printer << " requires " << maybeVersion.value().getMajor() << ":" << maybeVersion.value().getMinor() << ":"
+                    << maybeVersion.value().getPatch();
+        }
+
         printer.decreaseIndent();
         printer.printNewline();
         printer << '>';
@@ -524,11 +550,28 @@ public:
             return {};
         }
 
+        const auto [status, maybeVersion] = parseVersion(parser);
+        if (status.failed()) {
+            return {};
+        }
+
         if (parser.parseGreater().failed()) {
             return {};
         }
 
         return result;
+    }
+
+    std::optional<elf::Version> getDescriptorVersion() const {
+        std::optional<elf::Version> maxVersion;
+
+        if (Mapper<typename Descriptor::Registers, RegisterVersion>::map(maxVersion,
+                                                                         static_cast<const Descriptor&>(*this))
+                    .failed()) {
+            return std::nullopt;
+        }
+
+        return maxVersion;
     }
 
     llvm::hash_code hash_value() const {
@@ -666,20 +709,7 @@ private:
         }
     }
 
-    template <class Field>
-    void updateVersion(const std::optional<elf::Version>& version) {
-        if (!version.has_value() || version.value() == Field::_defaultVersion) {
-            return;
-        }
-
-        customFieldsVersions[Field::_name] = version.value();
-    }
-
     mlir::SmallVector<std::uint8_t> storage;
-    llvm::SmallDenseMap<llvm::StringRef, elf::Version> customFieldsVersions;
-
-    template <class, size_t, size_t>
-    friend struct FieldPrinter;
 };
 
 template <class Descriptor>

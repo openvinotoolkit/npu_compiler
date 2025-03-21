@@ -12,15 +12,15 @@ using namespace npu40xx;
 using namespace vpux;
 
 void vpux::NPUReg40XX::WorkItemOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    nn_public::VpuWorkItem workItem = {};
-    auto workItemDesc = getWorkItemDescriptor().getRegMapped();
-    auto serializedworkItemDesc = workItemDesc.serialize();
+    auto workItemDesc = getDescriptor().getRegMapped();
 
-    memcpy(reinterpret_cast<uint8_t*>(&workItem), serializedworkItemDesc.data(), serializedworkItemDesc.size());
+    VPUX_THROW_UNLESS(sizeof(nn_public::VpuWorkItem) == workItemDesc.size(),
+                      "HW VpuWorkItem size {0} != regMapped representation size {1}.", sizeof(nn_public::VpuWorkItem),
+                      workItemDesc.size());
 
-    auto ptrCharTmp = reinterpret_cast<uint8_t*>(&workItem);
+    auto serializedDescriptor = workItemDesc.getStorage();
 
-    binDataSection.appendData(ptrCharTmp, getBinarySize(VPU::ArchKind::NPU40XX));
+    binDataSection.appendData(serializedDescriptor.data(), getBinarySize(VPU::ArchKind::NPU40XX));
 }
 
 size_t vpux::NPUReg40XX::WorkItemOp::getBinarySize(VPU::ArchKind) {
@@ -28,18 +28,7 @@ size_t vpux::NPUReg40XX::WorkItemOp::getBinarySize(VPU::ArchKind) {
 }
 
 size_t vpux::NPUReg40XX::WorkItemOp::getAlignmentRequirements(VPU::ArchKind) {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::WorkItemOp::getSectionSignature() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-bool vpux::NPUReg40XX::WorkItemOp::hasMemoryFootprint() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
+    return alignof(nn_public::VpuWorkItem);
 }
 
 std::vector<ELF::RelocationInfo> vpux::NPUReg40XX::WorkItemOp::getRelocationInfo(ELF::SymbolReferenceMap& symRefMap) {

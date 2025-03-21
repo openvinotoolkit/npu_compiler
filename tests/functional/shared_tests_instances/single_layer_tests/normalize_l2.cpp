@@ -1,15 +1,11 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation
+// Copyright (C) 2022-2025 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "single_op_tests/normalize_l2.hpp"
-#include <string_view>
 #include <vector>
-#include "intel_npu/npu_private_properties.hpp"
 #include "vpu_ov2_layer_test.hpp"
-#include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/mem_size.hpp"
 
 using namespace ov::test::utils;
 
@@ -19,90 +15,30 @@ class NormalizeL2LayerTestCommon : public NormalizeL2LayerTest, virtual public V
 class NormalizeL2LayerTest_6DPU : public NormalizeL2LayerTestCommon {};
 class NormalizeL2LayerTest_2DPU : public NormalizeL2LayerTestCommon {};
 
-using namespace vpux;
-
-static Byte cmxSize(std::string_view platform) {
-    if (platform == Platform::NPU3720) {
-        return 2_MB;
-    }
-    return 1500_KB;
-}
-
-// Tracking E#148339
-struct SkipTiling {
-    SkipTiling(NormalizeL2LayerTest::ParamType params, std::string_view platform)
-            : params(std::move(params)), platform(platform) {
-    }
-
-    inline void operator()(std::stringstream& skip) const {
-        const auto axes = std::get<0>(params);
-        if (axes.empty()) {
-            return;
-        }
-
-        const auto modelType = std::get<4>(params);
-
-        const auto inputShapes = std::get<3>(params);
-        for (auto& inputShape : inputShapes) {
-            const auto staticShapes = inputShape.second;
-            VPUX_THROW_UNLESS(staticShapes.size() == 1, "Expected to have 1 static shape, got {0}",
-                              staticShapes.size());
-
-            const auto& staticShape = staticShapes[0];
-
-            if (axes.size() != staticShape.size()) {
-                return;
-            }
-
-            const auto totalSize = ov::shape_size(staticShape);
-
-            const auto cmxSizeBytes = cmxSize(platform).to<Byte>().count();
-            const auto numTensors = 2;  // input and output
-            const auto elemSize = modelType.size();
-            const auto tensorSizeFitCmx = cmxSizeBytes / numTensors / elemSize;
-
-            if (totalSize > tensorSizeFitCmx) {
-                skip << "NormalizeL2 doesn't fit CMX and has no axis to be tiled on.";
-            }
-        }
-    }
-
-    NormalizeL2LayerTest::ParamType params;
-    std::string_view platform;
-};
-
 TEST_P(NormalizeL2LayerTestCommon, NPU3720_HW) {
-    setSkipCompilationCallback(SkipTiling(GetParam(), Platform::NPU3720));
-
     abs_threshold = 0.02;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
 TEST_P(NormalizeL2LayerTestCommon, NPU4000_HW) {
-    setSkipCompilationCallback(SkipTiling(GetParam(), Platform::NPU4000));
-
     abs_threshold = 0.02;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
 TEST_P(NormalizeL2LayerTest_6DPU, NPU4000_HW) {
-    setSkipCompilationCallback(SkipTiling(GetParam(), Platform::NPU4000));
-
     abs_threshold = 0.02;
     setDefaultHardwareMode();
-    run(Platform::NPU4000);
     configuration["NPU_TILES"] = "6";
+    run(Platform::NPU4000);
 }
 
 TEST_P(NormalizeL2LayerTest_2DPU, NPU4000_HW) {
-    setSkipCompilationCallback(SkipTiling(GetParam(), Platform::NPU4000));
-
     abs_threshold = 0.02;
     setDefaultHardwareMode();
-    run(Platform::NPU4000);
     configuration["NPU_TILES"] = "2";
+    run(Platform::NPU4000);
 }
 }  // namespace test
 }  // namespace ov

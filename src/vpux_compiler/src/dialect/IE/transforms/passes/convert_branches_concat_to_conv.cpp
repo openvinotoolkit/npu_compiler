@@ -7,15 +7,21 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTBRANCHESCONCATTOCONV
+#define GEN_PASS_DEF_CONVERTBRANCHESCONCATTOCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -875,7 +881,7 @@ mlir::LogicalResult OptimizeSliceMultiplyConcat::matchAndRewrite(IE::ConcatOp or
 //
 
 class ConvertBranchesConcatToConvPass final :
-        public IE::ConvertBranchesConcatToConvBase<ConvertBranchesConcatToConvPass> {
+        public IE::impl::ConvertBranchesConcatToConvBase<ConvertBranchesConcatToConvPass> {
 public:
     explicit ConvertBranchesConcatToConvPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());

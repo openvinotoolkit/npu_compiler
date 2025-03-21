@@ -17,7 +17,7 @@ PRETTY_PARAM(InputType, ov::element::Type);
 
 using NonZeroLayerTestParams = std::tuple<BoundedShape, InputType>;
 
-class NonZeroLayerTest : public testing::WithParamInterface<NonZeroLayerTestParams>, public VpuOv2LayerTest {
+class NonZeroLayerTestCommon : public testing::WithParamInterface<NonZeroLayerTestParams>, public VpuOv2LayerTest {
 public:
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         inputs.clear();
@@ -58,18 +58,24 @@ protected:
     }
 };
 
-TEST_P(NonZeroLayerTest, NPU3720_HW) {
+TEST_P(NonZeroLayerTestCommon, NPU3720_HW) {
     abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
+TEST_P(NonZeroLayerTestCommon, NPU4000_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
 const std::vector<InputType> inputPrecision = {ov::element::f32, ov::element::i32};
 
 const std::vector<BoundedShape> inShapesStatic = {staticShape(120), staticShape(8, 32), staticShape(4, 8, 20),
-                                                  staticShape(1, 3, 3)};
+                                                  staticShape(1, 3, 3), staticShape(2, 4, 8, 20)};
 
-INSTANTIATE_TEST_SUITE_P(smoke, NonZeroLayerTest,
+INSTANTIATE_TEST_SUITE_P(smoke, NonZeroLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(inShapesStatic), ::testing::ValuesIn(inputPrecision)),
                          PrintTestCaseName());
 

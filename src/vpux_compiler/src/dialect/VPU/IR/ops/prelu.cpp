@@ -62,9 +62,10 @@ vpux::InputTiling vpux::VPU::PReluOp::backInferTileInfo(const vpux::TileInfo& ou
     TileInfo slopeTile(getShape(getNegativeSlope()));
     inputTile = outputTile;
     if (outputTile.shape[Dims4D::Act::C] != slopeTile.shape[Dims4D::Act::C]) {
-        VPUX_THROW("Tiling per channel output is not supported for now, proposed {0} channel shape does not match the "
-                   "slope value {1}.",
-                   outputTile.shape[Dims4D::Act::C], slopeTile.shape[Dims4D::Act::C]);
+        // Tile slope by channel, align the offsets and axis to outputTile
+        slopeTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
+        slopeTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
+        slopeTile.axis[Dims4D::Act::C] = outputTile.axis[Dims4D::Act::C];
     }
 
     return TilingInfo{{std::move(inputTile), std::move(slopeTile)}};

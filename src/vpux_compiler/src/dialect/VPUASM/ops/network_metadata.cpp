@@ -32,7 +32,10 @@ void vpux::VPUASM::NetworkMetadataOp::serialize(elf::writer::BinaryDataSection<u
 }
 
 void vpux::VPUASM::NetworkMetadataOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-    // TODO: E#80148 after interface refactoring should we not require serialization for NetworkMetadataOp
+    // The NetworkMetadataOp has binaryOpInterface, this binaryOpInterface serialize need to be
+    // implemented otherwise the build will failed due to the extra definition for the serialize.
+    // TODO: E#153150
+    VPUX_THROW("NetworkMetadataOp BinaryOpInterface method serialize should not be called! E#153150");
 #ifdef VPUX_DEVELOPER_BUILD
     auto logger = Logger::global();
     logger.warning("Serializing {0} op, which may mean invalid usage");

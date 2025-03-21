@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -12,14 +12,6 @@ using namespace vpux;
 //
 // DeclareBufferOp
 //
-
-void VPUASM::DeclareBufferOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-#ifdef VPUX_DEVELOPER_BUILD
-    auto logger = Logger::global();
-    logger.warning("Serializing {0} op, which may mean invalid usage");
-#endif
-    return;
-}
 
 size_t VPUASM::DeclareBufferOp::getBinarySize(VPU::ArchKind) {
     const auto type = getBufferType().getMemref().cast<vpux::NDTypeInterface>();
@@ -56,6 +48,9 @@ std::optional<ELF::SectionSignature> vpux::VPUASM::DeclareBufferOp::getSectionSi
         type = ELF::SectionTypeAttr::VPU_SHT_CMX_WORKSPACE;
         flags = ELF::SectionFlagsAttr::SHF_NONE;
         break;
+    case VPURT::BufferSection::FunctionInput:
+    case VPURT::BufferSection::FunctionOutput:
+        VPUX_THROW("BufferSection::FunctionInput/BufferSection::FunctionOutput must not apprear in this context");
     case VPURT::BufferSection::DDR:
         type = ELF::SectionTypeAttr::SHT_NOBITS;
         flags = ELF::SectionFlagsAttr::SHF_WRITE | ELF::SectionFlagsAttr::SHF_ALLOC;
@@ -87,7 +82,7 @@ std::optional<ELF::SectionSignature> vpux::VPUASM::DeclareBufferOp::getSectionSi
         name = ELF::generateSignature("io", buffType);
     }
 
-    return ELF::SectionSignature(name, flags, type);
+    return ELF::SectionSignature(std::move(name), flags, type);
 }
 
 bool vpux::VPUASM::DeclareBufferOp::hasMemoryFootprint() {

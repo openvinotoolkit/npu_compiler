@@ -1,14 +1,21 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <intel_npu/prefix.hpp>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTASSIGNREADVALUETORETURNSANDINPUTS
+#define GEN_PASS_DEF_CONVERTASSIGNREADVALUETORETURNSANDINPUTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -132,7 +139,7 @@ mlir::LogicalResult ReadValueRewriter::matchAndRewrite(IE::ReadValueOp origOp, m
 //
 
 class ConvertAssignReadValueToReturnsAndInputs final :
-        public IE::ConvertAssignReadValueToReturnsAndInputsBase<ConvertAssignReadValueToReturnsAndInputs> {
+        public IE::impl::ConvertAssignReadValueToReturnsAndInputsBase<ConvertAssignReadValueToReturnsAndInputs> {
 public:
     explicit ConvertAssignReadValueToReturnsAndInputs(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

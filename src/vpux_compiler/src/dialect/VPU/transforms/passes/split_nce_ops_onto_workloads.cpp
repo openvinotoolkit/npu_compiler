@@ -8,6 +8,7 @@
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
@@ -16,16 +17,16 @@
 
 #include "vpux/utils/core/enums.hpp"
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SPLITNCEOPSONTOWORKLOADS
+#define GEN_PASS_DEF_SPLITNCEOPSONTOWORKLOADS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 using namespace VPU;
 
 namespace {
-
-//
-// Upper bound for workload numbers
-//
-
-constexpr int64_t MAX_SPLIT_NUMBER = 50;
 
 //
 // generateWorkloads
@@ -62,7 +63,7 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
         // cluster 0: outOffsets [0, 0, 0, 0, 0]  outSizes [32, 1, 16, 16, 1]
         // cluster 1: outOffsets [32, 0, 0, 0, 0] outSizes [32, 1, 16, 16, 1]
         // cluster 2: outOffsets [64, 0, 0, 0, 0] outSizes [32, 1, 16, 16, 1]
-        const Shape offsets = {cluster * costParams.outputShape.front(), 0, 0, 0, 0};
+        const Shape offsets = subTensorOffset.empty() ? Shape{0, 0, 0, 0, 0} : Shape(subTensorOffset);
         auto tilePad = VPU::getPaddingAttr(builder.getContext(), 0, 0, 0, 0);
         origOp.addWorkload(builder, origOp.getLoc(), offsets, costParams.outputShape, tilePad,
                            VPU::MPEMode::CUBOID_16x16, getIntAttr(origOp->getContext(), cluster));
@@ -71,11 +72,7 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
         dpuTiler.tileOverH(costParams.numDPU, splitPoolSet);
         // Invariants that produce sparse activations must have the same number of channels across the variants
         const auto requiresEqualZ = (origOp->getResult(0).getType().dyn_cast<VPU::SparseTensorType>() != nullptr);
-
-        const auto splitNumPool =
-                (costParams.arch == VPU::ArchKind::NPU37XX || costParams.arch == VPU::ArchKind::NPU40XX)
-                        ? dpuTiler.generateSplitNumberPool(costParams.numDPU, 1)
-                        : dpuTiler.generateSplitNumberPool(costParams.numDPU, MAX_SPLIT_NUMBER);
+        const auto splitNumPool = dpuTiler.generateSplitNumberPool(costParams.numDPU, 1);
 
         for (const auto& splitNum : splitNumPool) {
             if (isTileOverDimsSupported[Dims4D::Act::W.ind()] == true &&
@@ -206,8 +203,8 @@ void splitOntoWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp, VP
             costParams.inputShape = inputSubTensorShapes[clusterId];
             costParams.outputShape = outputSubTensorShapes[clusterId];
             costParams.numTiles = distributionAttr.getNumClusters().getInt();
-
-            if (costParams.arch == VPU::ArchKind::NPU37XX &&
+            // #E129156 once with the update of VPUNN to provide MPE mode explicitly
+            if (costParams.arch != VPU::ArchKind::NPU40XX &&
                 mlir::isa<VPU::NCEConvolutionOp, VPU::NCECompressConvolutionOp, VPU::NCEInterpolateOp>(origOp)) {
                 mpeMode = origOp.getMpeMode(nullptr, nullptr, outputSubTensorShapes[clusterId]);
             }
@@ -281,7 +278,8 @@ mlir::LogicalResult GenericNCERewrite::matchAndRewrite(VPU::NCEOpInterface nceOp
 // SplitNCEOpsOntoWorkloads
 //
 
-class SplitNCEOpsOntoWorkloadsPass final : public SplitNCEOpsOntoWorkloadsBase<SplitNCEOpsOntoWorkloadsPass> {
+class SplitNCEOpsOntoWorkloadsPass final :
+        public VPU::impl::SplitNCEOpsOntoWorkloadsBase<SplitNCEOpsOntoWorkloadsPass> {
 public:
     explicit SplitNCEOpsOntoWorkloadsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

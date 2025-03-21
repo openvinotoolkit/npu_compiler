@@ -31,6 +31,12 @@
 
 #include <vector>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUIP2VPUMI40XX
+#define GEN_PASS_DEF_CONVERTVPUIP2VPUMI40XX
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 using namespace vpux::vpuip2vpumi40xx;
 
@@ -429,7 +435,7 @@ void foldActKernelTextAndEntry(mlir::func::FuncOp funcOp) {
     });
 }
 
-class ConvertVPUIP2VPUMI40XXPass final : public ConvertVPUIP2VPUMI40XXBase<ConvertVPUIP2VPUMI40XXPass> {
+class ConvertVPUIP2VPUMI40XXPass final : public impl::ConvertVPUIP2VPUMI40XXBase<ConvertVPUIP2VPUMI40XXPass> {
 public:
     ConvertVPUIP2VPUMI40XXPass(Logger log, bool enableMemorySideCache, AllocateShaveStackFrames allocateShaveStack)
             : _enableMemorySideCacheOption(enableMemorySideCache), _allocateShaveStackFrames(allocateShaveStack) {

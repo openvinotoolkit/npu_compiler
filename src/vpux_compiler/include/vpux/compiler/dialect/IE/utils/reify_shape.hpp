@@ -15,7 +15,7 @@ namespace vpux {
 IE::ConcatOp buildConcat(mlir::Location loc, mlir::OpBuilder& builder, ShapeRef producerShape,
                          mlir::ValueRange dynamicOperands);
 
-mlir::Value repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, ShapeRef operandShape,
+mlir::Value repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, NDTypeInterface operandType,
                                 IE::ConcatOp newShapeValue);
 
 }  // namespace vpux

@@ -49,7 +49,6 @@ echo ""
 echo "Executing tests on NPU40XX platform: $CMD_NPU40XX_TESTS"
 eval "$CMD_NPU40XX_TESTS"; EXIT_CODE=$(($EXIT_CODE + $?))
 echo ""
-
 if [ $EXIT_CODE -ne 0 ]
 then
     echo "FAILURES identified"

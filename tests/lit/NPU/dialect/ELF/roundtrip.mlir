@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" %s | vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @elf_roundtrip() {
   ELF.Main @ELFMain {
     ELF.CreateSection @data1 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_EXECINSTR) {

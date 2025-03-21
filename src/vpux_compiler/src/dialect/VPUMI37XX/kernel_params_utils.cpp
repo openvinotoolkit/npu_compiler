@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/VPUMI37XX/kernel_params_utils.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
+#include "vpux/compiler/dialect/IERT/ops.hpp"
+
 namespace vpux {
 namespace VPUMI37XX {
 

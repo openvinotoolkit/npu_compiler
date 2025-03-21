@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -26,6 +26,29 @@ bool checkForQuantization(mlir::Operation* op, mlir::Operation* postOp) {
     return (isFakeQuantizeOpOutput && isFakeQuantizeOpInput) || isQuantizedElemType;
 };
 
+bool hasPerChannelQuantizedOutput(mlir::Operation* op) {
+    for (auto user : op->getUsers()) {
+        auto fq = mlir::dyn_cast<IE::FakeQuantizeOp>(user);
+        if (fq == nullptr) {
+            continue;
+        }
+
+        auto inLow = fq.getInputLow().getDefiningOp<Const::DeclareOp>();
+        auto inHigh = fq.getInputHigh().getDefiningOp<Const::DeclareOp>();
+        auto outLow = fq.getOutputLow().getDefiningOp<Const::DeclareOp>();
+        auto outHigh = fq.getOutputHigh().getDefiningOp<Const::DeclareOp>();
+        VPUX_THROW_WHEN(inLow == nullptr || inHigh == nullptr || outLow == nullptr || outHigh == nullptr,
+                        "Got FakeQuantize with non-constant parameters, loc: {0}", fq->getLoc());
+
+        if (!inLow.getContentAttr().isSplat() || !inHigh.getContentAttr().isSplat() ||
+            !outLow.getContentAttr().isSplat() || !outHigh.getContentAttr().isSplat()) {
+            return true;
+        }
+    }
+
+    return false;
+};
+
 bool isSupportedHWClampOp(mlir::Operation* mainOp, mlir::Operation* clampOp, const LogCb& logCb) {
     if (auto clamp = mlir::dyn_cast<IE::ClampOp>(clampOp)) {
         const auto minVal = clamp.getMinAttr().getValueAsDouble();
@@ -36,12 +59,12 @@ bool isSupportedHWClampOp(mlir::Operation* mainOp, mlir::Operation* clampOp, con
             return false;
         }
         // Disable MaxPool fused with Clamp since it is not fully supported by firmware.
-        // Tracking Number: E#145636
+        // Tracking Number: E#-145636
         if (mlir::isa<IE::MaxPoolOp>(mainOp)) {
             const auto maxVal = clamp.getMaxAttr().getValueAsDouble();
             const auto maxValueFP16 = checked_cast<double>(std::numeric_limits<vpux::type::float16>::max());
             // Given upper bound as fp16 max value, keep fusing Clamp into MaxPool to pass CI
-            // Tracking Number: E#146652
+            // Tracking Number: E#-146652
             if ((!isDoubleEqual(maxVal, maxValueFP16))) {
                 logCb(llvm::formatv("{0} at `{1}` cannot be fused into MaxPool due to lack of firmware support",
                                     clampOp->getName(), clampOp->getLoc()));

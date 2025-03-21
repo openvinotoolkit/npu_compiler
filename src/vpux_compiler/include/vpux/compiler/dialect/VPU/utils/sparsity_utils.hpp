@@ -5,11 +5,14 @@
 
 #pragma once
 
-#include <vpux/compiler/utils/passes.hpp>
-#include "vpux/compiler/dialect/VPU/interfaces/sparsity_constraint.hpp"
-#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
-
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/sparsity_constraint.hpp"
+#include "vpux/compiler/utils/options.hpp"
+
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/Types.h>
+
+#include <string>
 
 namespace vpux {
 namespace VPU {
@@ -33,48 +36,20 @@ int64_t getSESize(int64_t channels, const VPU::SparsityConstraint& sparsityConst
 
     Effective output type will have shape: [1, 16, 64, 64]
 */
-template <typename T, std::enable_if_t<std::disjunction_v<std::is_same<VPU::SparseTensorType, T>,
-                                                          std::is_same<VPUIP::SparseBufferType, T>>,
-                                       bool> = true>
-NDTypeInterface getEffectiveSparseOutputType(T sparseType) {
-    auto dataNDType = sparseType.getData().template cast<NDTypeInterface>();
-    auto seTableType = sparseType.getStorageElementTable();
+mlir::Type getEffectiveSparseOutputType(mlir::Type sparseType);
 
-    if (seTableType == nullptr) {
-        return dataNDType;
-    }
+enum SparsityRemovalFlag {
+    Success,
+    ClusteredOpInterfaceMissingFail,
+    MultiClusterStrategyMissingFail,
+    SOKMissingFail,
+    SparseOutputMissingFail,
+    CatchAllFail
+};
 
-    auto seTableNDType = seTableType.template cast<NDTypeInterface>();
-    auto outShape = Shape(seTableNDType.getShape().raw());
-    outShape[Dims4D::Act::N] = dataNDType.getShape()[Dims4D::Act::N];
-    outShape[Dims4D::Act::C] = dataNDType.getShape()[Dims4D::Act::C];
+SparsityRemovalFlag shouldRemoveOutputSparsity(mlir::Operation* op);
 
-    auto distributedTypeIf = sparseType.template cast<VPU::DistributedTypeInterface>();
-    if (!distributedTypeIf.containsDistributedTypes()) {
-        return dataNDType.changeShape(outShape);
-    }
-
-    auto getDistribution = [](mlir::Type componentType) -> VPU::DistributionInfoAttr {
-        if (auto distributedTensor = componentType.dyn_cast<VPU::DistributedTensorType>()) {
-            return distributedTensor.getDistribution();
-        } else if (auto distributedBuffer = componentType.dyn_cast<VPUIP::DistributedBufferType>()) {
-            return distributedBuffer.getDistribution();
-        }
-
-        VPUX_THROW("Sparse type's component is not distributed, component type = {0}", componentType);
-    };
-
-    auto dataDistribution = getDistribution(dataNDType);
-    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(dataDistribution)) {
-        return dataNDType.changeShape(outShape);
-    }
-
-    auto distributionForEffectiveType = VPU::getExplicitDistrAttrForActualDataFromSparseType(sparseType);
-    return dataNDType.template cast<VPU::DistributedTypeInterface>().changeShapeForExplicitDistribution(
-            outShape, distributionForEffectiveType);
-}
-
-bool shouldRemoveOutputSparsity(VPU::NCEOpInterface nceOp);
+bool isSEOnlyWithoutSMSupported(VPU::ArchKind arch);
 
 }  // namespace VPU
 }  // namespace vpux

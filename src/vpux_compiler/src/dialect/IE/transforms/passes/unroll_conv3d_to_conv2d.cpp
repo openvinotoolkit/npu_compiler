@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
@@ -14,6 +15,12 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNROLLCONV3DTOCONV2D
+#define GEN_PASS_DEF_UNROLLCONV3DTOCONV2D
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -524,7 +531,7 @@ mlir::LogicalResult TransposedConvGeneralRewriter::matchAndRewrite(IE::Transpose
     return mlir::success();
 }
 
-class UnrollConv3dToConv2dPass final : public IE::UnrollConv3dToConv2dBase<UnrollConv3dToConv2dPass> {
+class UnrollConv3dToConv2dPass final : public IE::impl::UnrollConv3dToConv2dBase<UnrollConv3dToConv2dPass> {
 public:
     explicit UnrollConv3dToConv2dPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

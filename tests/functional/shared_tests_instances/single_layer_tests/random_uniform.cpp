@@ -44,7 +44,8 @@ class RandomLayerTestCommon : public RandomUniformLayerTest, virtual public VpuO
         ov::Shape inputShape;
         int64_t globalSeed;
         int64_t opSeed;
-        std::tie(inputShape, randomUniformParams, globalSeed, opSeed, std::ignore) = this->GetParam();
+        std::tie(inputShape, randomUniformParams, globalSeed, opSeed, std::ignore /*PhiloxAlignment*/, std::ignore) =
+                this->GetParam();
         auto model_type = randomUniformParams.model_type;
 
         VpuOv2LayerTest::init_input_shapes(static_shapes_to_test_representation({inputShape}));
@@ -105,13 +106,19 @@ const std::vector<int64_t> opSeeds = {11, 876};
 
 const std::vector<ov::Shape> outputShapes = {{1, 200}, {1, 4, 64, 64}};
 
-const auto randParams = ::testing::Combine(
-        ::testing::ValuesIn(outputShapes), ::testing::ValuesIn(randomUniformSpecificParams),
-        ::testing::ValuesIn(globalSeeds), ::testing::ValuesIn(opSeeds), ::testing::Values(DEVICE_NPU));
+// FIXME(E#151501): this param is ignored by the tests
+const std::vector<ov::op::PhiloxAlignment> philoxAlignments = {ov::op::PhiloxAlignment::TENSORFLOW,
+                                                               ov::op::PhiloxAlignment::PYTORCH};
 
-const auto randParamsF32 = ::testing::Combine(
-        ::testing::Values(outputShapes[1]), ::testing::ValuesIn(randomUniformSpecificParamsF32),
-        ::testing::Values(globalSeeds[0]), ::testing::Values(opSeeds[1]), ::testing::Values(DEVICE_NPU));
+const auto randParams =
+        ::testing::Combine(::testing::ValuesIn(outputShapes), ::testing::ValuesIn(randomUniformSpecificParams),
+                           ::testing::ValuesIn(globalSeeds), ::testing::ValuesIn(opSeeds),
+                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(DEVICE_NPU));
+
+const auto randParamsF32 =
+        ::testing::Combine(::testing::Values(outputShapes[1]), ::testing::ValuesIn(randomUniformSpecificParamsF32),
+                           ::testing::Values(globalSeeds[0]), ::testing::Values(opSeeds[1]),
+                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(DEVICE_NPU));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_RandomUniform, RandomLayerTestCommon, randParams,
                          RandomLayerTestCommon::getTestCaseName);

@@ -26,6 +26,12 @@
 
 #include <utility>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_LEGALIZEREPEATINGFUNCCALLS
+#define GEN_PASS_DEF_LEGALIZEREPEATINGFUNCCALLS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -405,7 +411,8 @@ private:
     const DenseMap<mlir::Value, mlir::Value>& _rootsForOperands;
 };
 
-struct LegalizeRepeatingFuncCallsPass final : VPUIP::LegalizeRepeatingFuncCallsBase<LegalizeRepeatingFuncCallsPass> {
+struct LegalizeRepeatingFuncCallsPass final :
+        VPUIP::impl::LegalizeRepeatingFuncCallsBase<LegalizeRepeatingFuncCallsPass> {
     LegalizeRepeatingFuncCallsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }

@@ -6,6 +6,7 @@
 #include "vpux/compiler/utils/sparsity.hpp"
 
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 

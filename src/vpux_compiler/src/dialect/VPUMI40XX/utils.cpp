@@ -142,7 +142,7 @@ size_t reindexEnqueueList(VPURegMapped::EnqueueOp head) {
 
 uint32_t generateTileMask(mlir::ArrayRef<uint32_t> usedTileIndexes) {
     // this offset is actually maybe generation-specific, so shouldn't be
-    // exposed to VPUMI40XX dialect that is generic for NPU4+ gens
+    // exposed to VPUMI40XX dialect that is generic for NPU40XX gens
     // E#146739
     constexpr auto CMX_TILE_SELECT_OFFSET = uint32_t{21};
     auto tileMask = uint32_t{0};

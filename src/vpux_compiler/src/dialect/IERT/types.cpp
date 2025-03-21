@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IERT/types.hpp"
 
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/IERT/ops.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>

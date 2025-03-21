@@ -12,6 +12,16 @@
 using namespace vpux;
 
 //
+// PostImport
+//
+
+void vpux::IE::buildPostImportPipeline(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(IE::createPropagateFQPass(log));
+    pm.addPass(IE::createCleanupFQPass(log));
+    pm.addPass(IE::createConvertVariadicSplitToStridedSlicePass(log));
+}
+
+//
 // AdjustPrecision
 //
 
@@ -58,7 +68,7 @@ void vpux::IE::buildAdjustForVPUPipeline(mlir::OpPassManager& pm, const AdjustFo
     pm.addPass(IE::createConvertLargeConvToMultiConvWithAddPass(log));
     pm.addPass(IE::createConvertUpsamplingToStridedConcatPass(log));
     pm.addPass(IE::createMergeWeightsSharedConvPass(log));
-    pm.addPass(IE::createConvertReflectPadToSliceAndConcatPass(
+    pm.addPass(IE::createConvertNonConstantPadToSliceAndConcatPass(
             /*enableSEPPad=*/isOptionEnabled(options.enableExperimentalSEPtrsOperations), log));
     pm.addPass(IE::createFusePadOpsPass(log));
     pm.addPass(IE::createConvertPadToConcatPass(log));
@@ -118,6 +128,15 @@ void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const I
 //
 
 void vpux::IE::registerIEPipelines() {
+    mlir::PassPipelineRegistration<mlir::EmptyPipelineOptions>(
+            "post-import",
+            "[LEGALIZATION] The post import pipeline contains passes that were historically ngraph passes. It's "
+            "considered a legalization step because it converts the imported IR into an IR format that is supported by "
+            "the other passes. No other passes should be run before it (with very few exceptions).",
+            [](mlir::OpPassManager& pm) {
+                IE::buildPostImportPipeline(pm);
+            });
+
     mlir::PassPipelineRegistration<AdjustPrecisionOptions>(
             "adjust-precision", "[LEGALIZATION] Adjust IR precision for VPU target",
             [](mlir::OpPassManager& pm, const AdjustPrecisionOptions& options) {
@@ -140,8 +159,8 @@ void vpux::IE::registerIEPipelines() {
 
     mlir::PassPipelineRegistration<OperationConversionOptions>(
             "operation-conversion",
-            "[OPTIMIZATION] Operation Coversion pipeline is responsible for changing type of existing operations. Main "
-            "purpose is reducing subset of ops"
+            "[OPTIMIZATION] Operation Conversion pipeline is responsible for changing type of existing operations."
+            "Main purpose is reducing subset of ops"
             "which using in our graph for improve pattern matching of next passes ",
             [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
                 IE::buildOperationConversionPipeline(pm, options);

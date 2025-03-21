@@ -4,10 +4,17 @@
 //
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MOVEPERMUTEPOSTELTWISE
+#define GEN_PASS_DEF_MOVEPERMUTEPOSTELTWISE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 using namespace IE;
@@ -52,7 +59,7 @@ bool isEltwiseGroupConvolution(IE::GroupConvolutionOp groupConvOp) {
     return !std::any_of(padsEnd.begin(), padsEnd.end(), hasPadding);
 }
 
-class MovePermutePostEltwisePass final : public MovePermutePostEltwiseBase<MovePermutePostEltwisePass> {
+class MovePermutePostEltwisePass final : public IE::impl::MovePermutePostEltwiseBase<MovePermutePostEltwisePass> {
 public:
     MovePermutePostEltwisePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -409,29 +416,6 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
 
             return shapeCastOp.getResult();
         }
-        // In case IE.mempermute -> IE.GroupConvolution0() ... IE.GroupConvolutionN() return last Eltwise
-        // GroupConvolution()
-        if (auto groupConvolutionOp = mlir::dyn_cast<IE::GroupConvolutionOp>(*output.getUsers().begin())) {
-            if (isEltwiseGroupConvolution(groupConvolutionOp)) {
-                while (true) {
-                    // If GroupConvolution is not eligible, skip those GroupConvolution ops.
-                    const auto hasEltwiseTrait = groupConvolutionOp->template hasTrait<IE::EltwiseOp>();
-                    if (!(hasEltwiseTrait || (_verifyFunc && _verifyFunc(groupConvolutionOp.getOperation())))) {
-                        return output;
-                    }
-                    if (auto nextOp = mlir::dyn_cast<IE::GroupConvolutionOp>(
-                                *groupConvolutionOp.getOutput().getUsers().begin())) {
-                        if (!isEltwiseGroupConvolution(nextOp)) {
-                            break;
-                        }
-                        groupConvolutionOp = nextOp;
-                    } else {
-                        break;
-                    }
-                }
-                return groupConvolutionOp.getOutput();
-            }
-        }
         return output;
     };
     auto outputValue = getInsertPoint();
@@ -593,6 +577,8 @@ void MovePermutePostEltwisePass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<PermuteEltwiseRewriter<IE::AddOp>>(&ctx, nullptr, 2, _log);
+    patterns.add<PermuteEltwiseRewriter<IE::MultiplyOp>>(&ctx, nullptr, 2, _log);
+    patterns.add<PermuteEltwiseRewriter<IE::SubtractOp>>(&ctx, nullptr, 2, _log);
     patterns.add<PermuteEltwiseRewriter<IE::GroupConvolutionOp>>(&ctx, verifyGroupConv, 1, _log);
     patterns.add<PermuteEltwiseRewriter<IE::AvgPoolOp>>(&ctx, verifyAvgPool, 1, _log);
 

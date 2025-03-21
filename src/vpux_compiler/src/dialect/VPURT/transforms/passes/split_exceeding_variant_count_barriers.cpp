@@ -8,12 +8,18 @@
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_SPLITEXCEEDINGVARIANTCOUNTBARRIERS
+#define GEN_PASS_DEF_SPLITEXCEEDINGVARIANTCOUNTBARRIERS
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
 
 class SplitExceedingVariantCountBarriersPass final :
-        public VPURT::SplitExceedingVariantCountBarriersBase<SplitExceedingVariantCountBarriersPass> {
+        public VPURT::impl::SplitExceedingVariantCountBarriersBase<SplitExceedingVariantCountBarriersPass> {
 public:
     explicit SplitExceedingVariantCountBarriersPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -58,7 +64,7 @@ void SplitExceedingVariantCountBarriersPass::safeRunOnFunc() {
 
     barrierInfo.splitBarriersWithExceedingVariantCount(availableSlots, maxSlotsSum, maxAvailableSlots);
 
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);

@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/vf_axis_increment.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -12,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -21,6 +23,12 @@
 #include <llvm/ADT/SmallSet.h>
 
 #include <mlir/IR/IRMapping.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_MERGEVFSUBGRAPHS
+#define GEN_PASS_DEF_MERGEVFSUBGRAPHS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -407,6 +415,24 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
                                           isPrevOperationEarlyScheduled(vfConfig.getSubgraph().getOperation(), user);
                                });
 
+        auto spillReadWriteCanBeOverlapped = [&]() {
+            if (operations.size() != 1 || costParameters._tiling.size() <= 1) {
+                return false;
+            }
+
+            const auto arch = VPU::getArch(operation);
+            if (!VPU::spillingCopyOpsCanBeOverlapped(arch)) {
+                return false;
+            }
+            if (auto tilingOpInterface = mlir::dyn_cast<VPU::TilingInfoOpInterface>(operation)) {
+                return tilingOpInterface.isSupportedTiling(tiles, TilingMode::PIPELINING, _log);
+            }
+            return false;
+        }();
+
+        SmallVector<StrategyCost> perTileSpillReadCost(costParameters._tiling.size());
+        SmallVector<StrategyCost> perTileSpillWriteCost(costParameters._tiling.size());
+
         if (spilling || hasSpilledParents) {
             for (auto operandValue : operands | indexed) {
                 auto operand = operandValue.value();
@@ -418,19 +444,52 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
                         continue;
                     }
                 }
-                cost += _vpunnCostFunction->getSpillingReadCost(
-                        operation, costParameters, operand, [&](const auto& tileInfo) {
-                            return vfConfig.getOperationTypes(operation, tileInfo, {})[operandValue.index()];
-                        });
+                auto getOperandType = [&](const auto& tileInfo) {
+                    return vfConfig.getOperationTypes(operation, tileInfo, {})[operandValue.index()];
+                };
+
+                if (!spillReadWriteCanBeOverlapped) {
+                    cost += _vpunnCostFunction->getSpillingReadCost(operation, costParameters, operand, getOperandType);
+                } else {
+                    auto spillReadCostForCurOperand = _vpunnCostFunction->getSpillingReadCostsForAllTiles(
+                            operation, costParameters, nullptr,
+                            [&](mlir::Value item) {
+                                return item == operand;
+                            },
+                            getOperandType);
+                    llvm::transform(irange(spillReadCostForCurOperand.size()), perTileSpillReadCost.begin(),
+                                    [&](size_t index) {
+                                        return spillReadCostForCurOperand[index] + perTileSpillReadCost[index];
+                                    });
+                }
             }
         }
 
         if (spilling || hasSpilledUsers) {
-            cost += _vpunnCostFunction->getSpillingWriteCost(operation, costParameters, [&](const auto& tileInfo) {
+            auto getOutputType = [&](const auto& tileInfo) {
                 auto types = vfConfig.getOperationTypes(operation, tileInfo, {});
                 VPUX_THROW_WHEN(types.empty(), "Cannot get types for {0}", *operation);
                 return types.back();
-            });
+            };
+            if (!spillReadWriteCanBeOverlapped) {
+                cost += _vpunnCostFunction->getSpillingWriteCost(operation, costParameters, getOutputType);
+            } else {
+                perTileSpillWriteCost =
+                        _vpunnCostFunction->getSpillingWriteCostsForAllTiles(operation, costParameters, getOutputType);
+            }
+        }
+        if (spillReadWriteCanBeOverlapped) {
+            for (auto tileInd : irange(perTileSpillReadCost.size())) {
+                if (tileInd == 0) {
+                    cost += perTileSpillReadCost[tileInd];
+                } else {
+                    cost += std::max(perTileSpillReadCost[tileInd], perTileSpillWriteCost[tileInd - 1]);
+                }
+            }
+            // Add the spilling write cost for the last tile's output
+            if (!perTileSpillWriteCost.empty()) {
+                cost += perTileSpillWriteCost.back();
+            }
         }
 
         return cost;
@@ -465,17 +524,6 @@ bool MergeVFRegionRewriter::checkVFCostFunction(VPU::VerticalFusionOp prevOp, VP
     auto prevOpConfig = VFConfig(prevOp, _enablePrefetchTiling);
     auto currentOpConfig = VFConfig(currentOp, _enablePrefetchTiling);
 
-    // Inaccurate INT4 cost, skip and merge
-    auto isNCEWithInt4Weights = [](mlir::Operation* op) {
-        return VPU::isNCEWithInt4Weights(op);
-    };
-    auto newOps = currentOpConfig.getOperationsForTiling();
-    auto oldOps = prevOpConfig.getOperationsForTiling();
-    if (llvm::any_of(newOps, isNCEWithInt4Weights) || llvm::any_of(oldOps, isNCEWithInt4Weights)) {
-        mergedCase.approveScheduling();
-        return true;
-    }
-
     const auto prevCost = extractVFCost(prevOpConfig);
     const auto currentCost = extractVFCost(currentOpConfig);
 
@@ -497,6 +545,9 @@ bool MergeVFRegionRewriter::checkVFCostFunction(VPU::VerticalFusionOp prevOp, VP
     mergedCase.getConfig().invalidatePointers();
 
     if (mergedVFCost > prevCost + currentCost) {
+        _log.trace("Failed to merge VerticalFusionOp due to higher cost: mergedVFCost ({0}) > prevCost ({1}) + "
+                   "currentCost ({2})",
+                   mergedVFCost, prevCost, currentCost);
         return false;
     }
 
@@ -794,7 +845,7 @@ mlir::FailureOr<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionO
                     mergedCase.setTilingStorage(std::move(minStorage));
                     return mergedCase;
                 }
-                for (auto check : currentCheck->nextChecks() | reversed) {
+                for (const auto& check : currentCheck->nextChecks() | reversed) {
                     schedulingChecks.push_front(check);
                 }
                 minTiles = numTiles.value();
@@ -878,7 +929,7 @@ void MergeVFRegionRewriter::fuseBlocks(mlir::PatternRewriter& rewriter, VPU::Ver
 
 mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp vfOp,
                                                            mlir::PatternRewriter& rewriter) const {
-    _log.trace("Vertical fusion region {0}", vfOp);
+    _log.trace("Starting vertical fusion for region with VerticalFusionOp {0} at location {1}", vfOp, vfOp->getLoc());
 
     VPU::VerticalFusionOp vfBlock = nullptr;
     VPU::VerticalFusionOp parentVFOp = nullptr;
@@ -890,7 +941,8 @@ mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp
             continue;
         }
 
-        _log.trace("Analyze vf region {0}", parentVFOp);
+        _log.trace("Analyzing vertical fusion region with parent VerticalFusionOp {0} at location {1}", parentVFOp,
+                   parentVFOp->getLoc());
 
         const bool allInOldBlock = llvm::all_of(parentVFOp->getUsers(), [&](auto user) {
             return user == vfOp;
@@ -932,7 +984,7 @@ mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp
 // MergeVfSubgraphsPass
 //
 
-class MergeVfSubgraphsPass final : public MergeVfSubgraphsBase<MergeVfSubgraphsPass> {
+class MergeVfSubgraphsPass final : public VPU::impl::MergeVfSubgraphsBase<MergeVfSubgraphsPass> {
 public:
     explicit MergeVfSubgraphsPass(bool enableVerticalFusionPipelining, bool enablePrefetchTiling, Logger log)
             : _enableVerticalFusionPipelining(enableVerticalFusionPipelining),

@@ -405,8 +405,8 @@ SmallVector<VPURT::TaskConfig, 1> vpux::VPURT::InferenceExecutionSimulator::getT
     return allQueueTaskConfig;
 }
 
-size_t vpux::VPURT::InferenceExecutionSimulator::getInferenceLatencyInCycles() {
-    size_t latency = 0;
+int64_t vpux::VPURT::InferenceExecutionSimulator::getInferenceLatencyInCycles() {
+    int64_t latency = 0;
     for (auto& queueTypeTasks : _queueTasksMap) {
         auto& queueTasks = queueTypeTasks.second;
 

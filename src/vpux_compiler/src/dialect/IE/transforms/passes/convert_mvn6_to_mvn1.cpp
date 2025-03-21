@@ -10,6 +10,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTMVN6TOMVN1
+#define GEN_PASS_DEF_CONVERTMVN6TOMVN1
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -183,7 +189,7 @@ mlir::LogicalResult ConvertMVN6ToMVN1::matchAndRewrite(IE::MVN6Op origOp, mlir::
 // ConvertMVN6ToMVN1Pass
 //
 
-class ConvertMVN6ToMVN1Pass final : public IE::ConvertMVN6ToMVN1Base<ConvertMVN6ToMVN1Pass> {
+class ConvertMVN6ToMVN1Pass final : public IE::impl::ConvertMVN6ToMVN1Base<ConvertMVN6ToMVN1Pass> {
 public:
     explicit ConvertMVN6ToMVN1Pass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

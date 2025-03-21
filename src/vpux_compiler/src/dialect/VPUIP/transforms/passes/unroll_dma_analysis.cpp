@@ -11,6 +11,12 @@
 #include <mlir/Pass/AnalysisManager.h>
 #include "vpux/utils/core/logger.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLDMAANALYSIS
+#define GEN_PASS_DEF_UNROLLDMAANALYSIS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -19,7 +25,7 @@ namespace {
 // UnrollDMAAnalysis
 //
 
-class UnrollDMAAnalysisPass final : public VPUIP::UnrollDMAAnalysisBase<UnrollDMAAnalysisPass> {
+class UnrollDMAAnalysisPass final : public VPUIP::impl::UnrollDMAAnalysisBase<UnrollDMAAnalysisPass> {
 public:
     UnrollDMAAnalysisPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

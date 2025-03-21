@@ -15,6 +15,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLEASYMMETRICSTRIDES
+#define GEN_PASS_DEF_HANDLEASYMMETRICSTRIDES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -166,7 +172,7 @@ mlir::LogicalResult ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp origO
 // HandleAsymmetricStridesPass
 //
 
-class HandleAsymmetricStridesPass final : public IE::HandleAsymmetricStridesBase<HandleAsymmetricStridesPass> {
+class HandleAsymmetricStridesPass final : public IE::impl::HandleAsymmetricStridesBase<HandleAsymmetricStridesPass> {
 public:
     explicit HandleAsymmetricStridesPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

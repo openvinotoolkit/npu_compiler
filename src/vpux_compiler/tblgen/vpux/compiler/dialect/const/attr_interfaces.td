@@ -61,6 +61,12 @@ def Const_TransformAttrInterface : AttrInterface<"TransformAttrInterface"> {
             (ins), [{}], [{
                 return false;
             }]
+        >,
+
+        InterfaceMethod<
+            "In contrast to Attribute::hash_value, this method returns the same value for different contexts(e.g. in case of different runs)",
+            "llvm::hash_code", "getStableHashValue",
+            (ins)
         >
     ];
 }

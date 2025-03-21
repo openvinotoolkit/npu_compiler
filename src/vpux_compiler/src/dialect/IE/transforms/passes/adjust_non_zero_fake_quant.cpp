@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -11,6 +12,12 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTNONZEROFAKEQUANT
+#define GEN_PASS_DEF_ADJUSTNONZEROFAKEQUANT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -114,7 +121,7 @@ mlir::LogicalResult AdjustFakeQuant::matchAndRewrite(IE::FakeQuantizeOp fakeQuan
 // AdjustNonZeroFakeQuantPass
 //
 
-class AdjustNonZeroFakeQuantPass final : public IE::AdjustNonZeroFakeQuantBase<AdjustNonZeroFakeQuantPass> {
+class AdjustNonZeroFakeQuantPass final : public IE::impl::AdjustNonZeroFakeQuantBase<AdjustNonZeroFakeQuantPass> {
 public:
     explicit AdjustNonZeroFakeQuantPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

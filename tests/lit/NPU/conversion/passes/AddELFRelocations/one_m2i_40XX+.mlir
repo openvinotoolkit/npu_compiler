@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @OneM2IWithoutAttributes {
   IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<1x256x256x4xf16>

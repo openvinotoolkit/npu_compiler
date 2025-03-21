@@ -37,10 +37,7 @@ bool checkSupportedOutputDataType(const mlir::Type outputType) {
 }
 
 std::vector<int64_t> expandShape(const ShapeRef shape, const int64_t expandedChannels) {
-    const std::vector<int64_t> targetShape = {shape[Dims4D::Act::N], expandedChannels, shape[Dims4D::Act::H],
-                                              shape[Dims4D::Act::W]};
-
-    return targetShape;
+    return {shape[Dims4D::Act::N], expandedChannels, shape[Dims4D::Act::H], shape[Dims4D::Act::W]};
 }
 }  // namespace
 
@@ -68,17 +65,6 @@ bool vpux::VPU::NCEPermuteOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
 
 bool vpux::VPU::NCEPermuteOp::isSupported(IE::PermuteQuantizeOp op, LogCb logCb, bool checkLayout,
                                           bool checkAlignment) {
-    // First of all, this operation makes sense only when ODU permutation is supported.
-    const auto arch = getArch(op);
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
-        logCb(formatv("Target architecture {0} does not support ODU permutations", arch));
-        return false;
-    }
-
     // Check supported output data type : quant uniform or FP16 or FP32.
     if (!checkSupportedOutputDataType(op.getOutput().getType())) {
         logCb(formatv("Unsupported output data type. Got: {0}", op.getOutput().getType()));
@@ -136,7 +122,7 @@ bool vpux::VPU::NCEPermuteOp::isSupported(IE::PermuteQuantizeOp op, LogCb logCb,
         }
     }
 
-    const auto superdense = VPU::NCESparsity::isSuperdenseRequired(arch, outputOrder, outputShape, outElemType);
+    const auto superdense = VPU::NCESparsity::isSuperdenseRequired(outputOrder, outputShape, outElemType);
     if (superdense && op.getOutput().getType().isa<VPU::SparseTensorType>()) {
         logCb(formatv("Super-dense mode cannot have sparse output."));
         return false;
@@ -167,14 +153,6 @@ mlir::LogicalResult vpux::VPU::NCEPermuteOp::verify() {
         return mlir::failure();
     }
 
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
-        return errorAt(op, "Target architecture {0} does not support ODU permutations", arch);
-    }
-
     const auto outElemType = getOutput().getType().cast<vpux::NDTypeInterface>().getElementType();
     const auto alignment = VPU::NCEInvariant::getAlignment(outElemType);
     const auto inputShape = getShape(getInput());
@@ -203,7 +181,7 @@ mlir::LogicalResult vpux::VPU::NCEPermuteOp::verify() {
         return errorAt(op, "Unsupported output layout. Expected: '{0}', got: '{1}'", expectedOutOrder, outputOrder);
     }
 
-    const auto superdense = VPU::NCESparsity::isSuperdenseRequired(arch, outputOrder, outputShape, outElemType);
+    const auto superdense = VPU::NCESparsity::isSuperdenseRequired(outputOrder, outputShape, outElemType);
     if (superdense && getOutput().getType().isa<VPU::SparseTensorType>()) {
         return errorAt(op, "Super-dense mode cannot have sparse output.");
     }
@@ -294,12 +272,12 @@ mlir::FailureOr<OutputTiling> vpux::VPU::NCEPermuteOp::getTilingStrategy(TilingM
 
 bool vpux::VPU::NCEPermuteOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
     const auto arch = getArch(getOperation());
-    // SOK is only enabled on 40XX+, but 37XX also supports it, need to enable and refactor.
+    // SOK is only enabled on 40XX, but 37XX also supports it, need to enable and refactor.
     // Tracked by: E116491
     const auto origInputShape = getShape(this->getInput());
     const auto expandedChannels = this->getExpandedChannels();
     return strategy == VPU::MultiClusterStrategy::SplitOverHeightOverlapped ||
-           (arch == VPU::ArchKind::NPU40XX && strategy == VPU::MultiClusterStrategy::SplitOverKernel &&
+           (arch >= VPU::ArchKind::NPU40XX && strategy == VPU::MultiClusterStrategy::SplitOverKernel &&
             origInputShape[Dims4D::Act::C] == expandedChannels);
 }
 
@@ -364,19 +342,12 @@ vpux::NDTypeInterface vpux::VPU::NCEPermuteOp::getDistributedTypeForOpOperand(ml
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEPermuteOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }
 
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
 }

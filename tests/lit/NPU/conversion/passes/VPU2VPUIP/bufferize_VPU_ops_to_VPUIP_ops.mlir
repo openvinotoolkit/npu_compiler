@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --one-shot-bufferize-VPU-to-VPUIP %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL:  func.func @ConstantLayer
 // CHECK-SAME:       ([[ARG:%.+]]: memref<1x2x2x2xf16>)
 func.func @ConstantLayer(%input: tensor<1x2x2x2xf16>) -> tensor<1x2x2x2xf16> {
@@ -1431,4 +1430,30 @@ func.func @UngroupSparseTensor(%arg0: !SparseTensor) -> (!DataTensor, !SMTensor,
 
     // CHECK:  [[DATA:%.+]], [[SM:%.+]], [[SE:%.+]] = VPUIP.UngroupSparseBuffer([[ARG0]]) {resultSegmentSizes = array<i32: 1, 1, 1>} -> memref<1x16x32x32xf16>, memref<1x16x32x32xi1>, memref<1x1x32x32xi32>
     // CHECK:  return [[DATA]], [[SM]], [[SE]]
+}
+
+// -----
+
+// CHECK-LABEL:  func.func @StridedConcat
+// CHECK-SAME:       ([[ARG0:%.+]]: memref<1x16x16x16xf16>, [[ARG1:%.+]]: memref<1x16x16x16xf16>)
+func.func @StridedConcat(%input0: tensor<1x16x16x16xf16>, %input1: tensor<1x16x16x16xf16>) -> tensor<1x16x16x32xf16> {
+    %output = VPU.Concat(%input0, %input1) {
+        static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1]],
+        strides = [[1, 1, 1, 2], [1, 1, 1, 2]]}
+        : tensor<1x16x16x16xf16>, tensor<1x16x16x16xf16> -> tensor<1x16x16x32xf16>
+    return %output : tensor<1x16x16x32xf16>
+
+    // CHECK:       [[ALLOC:%.+]] = memref.alloc() : memref<1x16x16x32xf16>
+    // CHECK:       [[SUBVIEW_0:%.+]] = VPUIP.SubView [[ALLOC]] [0, 0, 0, 0] [1, 16, 16, 16] [1, 1, 1, 2]
+    // CHECK-SAME:      : memref<1x16x16x32xf16> to memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>
+    // CHECK:       [[COPY_0:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x16x16x16xf16>) outputs([[SUBVIEW_0]] : memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>)
+    // CHECK-SAME:      -> memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>
+    // CHECK:       [[SUBVIEW_1:%.+]] = VPUIP.SubView [[ALLOC]] [0, 0, 0, 1] [1, 16, 16, 16] [1, 1, 1, 2]
+    // CHECK-SAME:      : memref<1x16x16x32xf16> to memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>
+    // CHECK:       [[COPY_1:%.+]] = VPUIP.Copy inputs([[ARG1]] : memref<1x16x16x16xf16>) outputs([[SUBVIEW_1]] : memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>)
+    // CHECK-SAME:      -> memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>
+    // CHECK:       [[CONCAT:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:      inputs([[COPY_0]], [[COPY_1]] : memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>, memref<1x16x16x16xf16, {order = #NCHW, strides = [8192, 512, 32, 2]}>)
+    // CHECK-SAME:      outputs([[ALLOC]] : memref<1x16x16x32xf16>) -> memref<1x16x16x32xf16>
+    // CHECK:       return [[CONCAT:%.+]] : memref<1x16x16x32xf16>
 }

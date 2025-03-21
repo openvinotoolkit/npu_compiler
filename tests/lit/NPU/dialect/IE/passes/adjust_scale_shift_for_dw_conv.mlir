@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-scale-shift-for-dw-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @AdjustScaleShiftForDWConvWithInputIsConst
 func.func @AdjustScaleShiftForDWConvWithInputIsConst(%arg0: tensor<1x77x1x1xf16>) -> tensor<77x77x3x3xf16> {
     %input_const = const.Declare tensor<77x77x3x3xf16> = dense<1.000000e+00> : tensor<77x77x3x3xf16>

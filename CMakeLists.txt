@@ -88,10 +88,13 @@ include(cmake/bundle_static_library.cmake)
 include(cmake/embed_bin_file.cmake)
 include(cmake/add_tool_target.cmake)
 include(cmake/coverage.cmake)
+include(cmake/log_level.cmake)
 
 if(ENABLE_PRIVATE_TESTS)
     enable_testing()
 endif()
+
+set_log_level()
 
 print_enabled_npu_features()
 

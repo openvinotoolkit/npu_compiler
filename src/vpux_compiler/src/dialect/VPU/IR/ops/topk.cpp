@@ -71,6 +71,12 @@ InputTiling vpux::VPU::TopKOp::backInferTileInfo(const vpux::TileInfo& outputTil
         inputTiles.push_back(kTile);
     }
 
+    if (getLineBuffer()) {
+        const auto topKBufferShape = getShape(getLineBuffer());
+        auto topKBufferTile = TileInfo(topKBufferShape);
+        inputTiles.push_back(topKBufferTile);
+    }
+
     return TilingInfo{inputTiles};
 }
 
@@ -168,9 +174,6 @@ vpux::VPU::DistributionInfo vpux::VPU::TopKOp::getExplicitDistributionInfoAttr(
 //
 
 bool vpux::VPU::TopKOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    VPUX_THROW_UNLESS(buffers.size() == 3, "TopKOp requires 1 inputs and 2 outputs, but the number of buffer is {0}",
-                      buffers.size());
-
     SmallVector<Byte> buffersSize;
     std::transform(buffers.begin(), buffers.end(), std::back_inserter(buffersSize), [](const auto buffer) {
         return buffer.getTotalAllocSize();

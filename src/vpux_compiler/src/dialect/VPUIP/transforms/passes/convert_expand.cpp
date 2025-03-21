@@ -3,13 +3,22 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/Quant/QuantTypes.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTEXPAND
+#define GEN_PASS_DEF_CONVERTEXPAND
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -25,6 +34,7 @@ public:
     PaddingContext(const PaddingContext&&) = delete;
     PaddingContext& operator=(const PaddingContext&) = delete;
     PaddingContext& operator=(const PaddingContext&&) = delete;
+    ~PaddingContext() = default;
 
     const mlir::Location _loc;
     ShapeRef _inShape;
@@ -36,7 +46,7 @@ public:
 // ConvertExpandPass
 //
 
-class ConvertExpandPass final : public VPUIP::ConvertExpandBase<ConvertExpandPass> {
+class ConvertExpandPass final : public VPUIP::impl::ConvertExpandBase<ConvertExpandPass> {
 public:
     explicit ConvertExpandPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -102,7 +112,9 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
     const auto newLayoutType = newShapeType.changeDimsOrder(expandOutBufferType.getDimsOrder());
     const auto dstOrderAttr =
             mlir::AffineMapAttr::get(expandOutBufferType.getDimsOrder().toAffineMap(reshapeOp.getContext()));
-    const auto memPermAttr = mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(reshapeOp.getContext()));
+    const auto memPermAttr = mlir::AffineMapAttr::get(
+            DimsOrder::fromNumDims(mlir::cast<NDTypeInterface>(reshapeOp.getOutput().getType()).getRank())
+                    .toAffineMap(reshapeOp.getContext()));
     auto permuteCastOp =
             builder.create<VPUIP::PermuteCastOp>(appendLoc(location, "_constant_permute_{0}_{1}", padAxis, padValue),
                                                  newLayoutType, reshapeOp.getOutput(), dstOrderAttr, memPermAttr);

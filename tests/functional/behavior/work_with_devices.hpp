@@ -106,7 +106,8 @@ TEST_P(TestCompileModelWithoutDeviceNPU, NoThrowIfNoDeviceAndButPlatformPassed) 
 
 const std::map<std::string_view, std::array<std::string_view, 2>> wrongDevice = {
         // {orig, {wrong for MLIR}}
-        {"VPU4000", {"VPU0000"}}};
+        {"VPU4000", {"VPU0000"}},
+};
 
 std::string getWrongDevice(const std::string_view platform, const CompilerType&) {
     // here we mix up devices in order to test the check on the runtime side
@@ -120,7 +121,8 @@ std::string getWrongDevice(const std::string_view platform, const CompilerType&)
 
 const std::map<std::string_view, std::array<std::string_view, 2>> validDevice = {
         // {orig, {valid for MLIR}}
-        {"VPU4000", {"VPU4000"}}};
+        {"VPU4000", {"VPU4000"}},
+};
 
 std::string getValidDevice(const std::string_view platform, const CompilerType&) {
     auto device = validDevice.find(platform);

@@ -28,6 +28,7 @@ enum class BlockArg {
     WEIGHTS,
     WEIGHTS_SPARSE_MAP,
     SPR_LOOKUP_TABLE,
+    PALLET_LOOKUP_TABLE,
     ACT_OUT,
     ACT_SPARSE_MAP_OUT,
     Count

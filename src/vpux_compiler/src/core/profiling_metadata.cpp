@@ -233,9 +233,9 @@ struct RtDialectProvider40XX : public RtDialectProvider {
 template <typename TaskType>
 using FbVector = flatbuffers::Offset<flatbuffers::Vector<flatbuffers::Offset<TaskType>>>;
 
-std::string cleanSwTaskType(std::string origType) {
+std::string cleanSwTaskType(const std::string& origType) {
     const std::vector<std::pair<std::string, std::string>> REPLACE_PAIRS = {{"VPUIP.", ""}};
-    return std::accumulate(REPLACE_PAIRS.cbegin(), REPLACE_PAIRS.cend(), std::move(origType),
+    return std::accumulate(REPLACE_PAIRS.cbegin(), REPLACE_PAIRS.cend(), origType,
                            [](std::string a, const auto& replacement) {
                                const auto pos = a.find(replacement.first);
                                if (pos == std::string::npos) {
@@ -469,10 +469,8 @@ flatbuffers::DetachedBuffer buildProfilingMeta(IE::CNNNetworkOp netOp, mlir::fun
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
         return ::buildProfilingMetaVPURTGeneral<RtDialectProvider37XX>(netOp, funcOp, log);
-    case VPU::ArchKind::NPU40XX:
-        return ::buildProfilingMetaVPURTGeneral<RtDialectProvider40XX>(netOp, funcOp, log);
     default:
-        VPUX_THROW("Unknown architecture: {0}", arch);
+        return ::buildProfilingMetaVPURTGeneral<RtDialectProvider40XX>(netOp, funcOp, log);
     }
 }
 

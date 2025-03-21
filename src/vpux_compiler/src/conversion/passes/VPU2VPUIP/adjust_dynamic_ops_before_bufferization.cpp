@@ -13,6 +13,12 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
+namespace vpux {
+#define GEN_PASS_DECL_ADJUSTDYNAMICOPSBEFOREBUFFERIZATION
+#define GEN_PASS_DEF_ADJUSTDYNAMICOPSBEFOREBUFFERIZATION
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -65,7 +71,7 @@ mlir::LogicalResult UnsqueezeRewrite::matchAndRewrite(VPU::UnsqueezeOp origOp, m
 //
 
 class AdjustDynamicOpsBeforeBufferizationPass final :
-        public AdjustDynamicOpsBeforeBufferizationBase<AdjustDynamicOpsBeforeBufferizationPass> {
+        public impl::AdjustDynamicOpsBeforeBufferizationBase<AdjustDynamicOpsBeforeBufferizationPass> {
 private:
     void safeRunOnModule() final;
 };

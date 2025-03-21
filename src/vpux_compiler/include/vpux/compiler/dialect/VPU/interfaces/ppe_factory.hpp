@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -66,6 +66,12 @@ struct IPpeAdapterFpPreluAlpha {
     [[nodiscard]] virtual SmallVector<double> getFpPreluAlpha(vpux::VPU::PPEAttr orig) const = 0;
     [[nodiscard]] virtual vpux::VPU::PPEAttr updateFpPreluAlpha(vpux::VPU::PPEAttr orig,
                                                                 ArrayRef<double> fpPreluAlpha) const = 0;
+
+    [[nodiscard]] virtual bool hasQuantScalingThroughPreluAlpha(vpux::VPU::PPEAttr orig) const = 0;
+    // Helper which strips (sets to 1.0) the quantization scale of a type if the given PPEAttr applies quantization
+    // scale through pReluAlpha. Useful when the type's scale is used for other computations, like generating the scale
+    // table.
+    [[nodiscard]] mlir::Type adaptTypeForPreluAlphaScaling(vpux::VPU::PPEAttr orig, mlir::Type elemType) const;
 
     virtual ~IPpeAdapterFpPreluAlpha() = default;
 };

@@ -9,12 +9,19 @@
 #include "vpux/compiler/dialect/IE/utils/handle_kernels_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTREDUCETOPOOLING
+#define GEN_PASS_DEF_CONVERTREDUCETOPOOLING
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -277,14 +284,14 @@ private:
 mlir::LogicalResult ReduceMeanRewriter::matchAndRewrite(IE::ReduceMeanOp origOp,
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMean layer at '{1}'", getDebugName(), origOp->getLoc());
-    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-    return generalReduceRewrite(
-            origOp, rewriter, axes, [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
-                return rewriter.create<IE::AvgPoolOp>(appendLoc(loc, "as_avgpool"), input, attr.kernelAttr,
-                                                      attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr,
-                                                      attr.roundingAttr, attr.excludePadsAttr, nullptr, nullptr,
-                                                      nullptr, nullptr, nullptr);
-            });
+    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    return generalReduceRewrite(origOp, rewriter, std::move(axes),
+                                [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
+                                    return rewriter.create<IE::AvgPoolOp>(
+                                            appendLoc(loc, "as_avgpool"), input, attr.kernelAttr, attr.stridesAttr,
+                                            attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, attr.excludePadsAttr,
+                                            nullptr, nullptr, nullptr, nullptr, nullptr);
+                                });
 }
 
 //
@@ -305,13 +312,14 @@ private:
 
 mlir::LogicalResult ReduceMaxRewriter::matchAndRewrite(IE::ReduceMaxOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMax layer at '{1}'", getDebugName(), origOp->getLoc());
-    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
-    return generalReduceRewrite(
-            origOp, rewriter, axes, [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
-                return rewriter.create<IE::MaxPoolOp>(appendLoc(loc, "as_maxpool"), input, attr.kernelAttr,
-                                                      attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr,
-                                                      attr.roundingAttr, nullptr, nullptr, nullptr, nullptr);
-            });
+    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    return generalReduceRewrite(origOp, rewriter, std::move(axes),
+                                [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
+                                    return rewriter.create<IE::MaxPoolOp>(
+                                            appendLoc(loc, "as_maxpool"), input, attr.kernelAttr, attr.stridesAttr,
+                                            attr.padBeginAttr, attr.padEndAttr, attr.roundingAttr, nullptr, nullptr,
+                                            nullptr, nullptr);
+                                });
 }
 
 //
@@ -332,9 +340,10 @@ private:
 
 mlir::LogicalResult ReduceSumRewriter::matchAndRewrite(IE::ReduceSumOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceSum layer at '{1}'", getDebugName(), origOp->getLoc());
-    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
     return generalReduceRewrite(
-            origOp, rewriter, axes, [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
+            origOp, rewriter, std::move(axes),
+            [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                 input = rewriter.create<IE::AvgPoolOp>(appendLoc(loc, "as_avgpool"), input, attr.kernelAttr,
                                                        attr.stridesAttr, attr.padBeginAttr, attr.padEndAttr,
                                                        attr.roundingAttr, attr.excludePadsAttr, nullptr, nullptr,
@@ -382,9 +391,10 @@ private:
 
 mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got ReduceMin layer at '{1}'", getDebugName(), origOp->getLoc());
-    const auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    auto axes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
     return generalReduceRewrite(
-            origOp, rewriter, axes, [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
+            origOp, rewriter, std::move(axes),
+            [&](mlir::Location loc, mlir::Value input, PoolingAttr attr) -> mlir::Operation* {
                 auto scale1 = rewriter.create<IE::NegativeOp>(appendLoc(loc, "inv_in"), input.getType(), input);
                 auto maxPool = rewriter.create<IE::MaxPoolOp>(
                         appendLoc(loc, "as_maxpool"), scale1.getOutput(), attr.kernelAttr, attr.stridesAttr,
@@ -398,7 +408,7 @@ mlir::LogicalResult ReduceMinRewriter::matchAndRewrite(IE::ReduceMinOp origOp, m
 // ConvertReduceToPoolingPass
 //
 
-class ConvertReduceToPoolingPass final : public IE::ConvertReduceToPoolingBase<ConvertReduceToPoolingPass> {
+class ConvertReduceToPoolingPass final : public IE::impl::ConvertReduceToPoolingBase<ConvertReduceToPoolingPass> {
 public:
     explicit ConvertReduceToPoolingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -418,7 +428,7 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
         };
 
         /*To do: remove this check and implement E#129361*/
-        if (mlir::isa<IE::ReduceMeanOp>(op)) {
+        if (mlir::isa<IE::ReduceMeanOp, IE::ReduceSumOp>(op)) {
             if (VPU::isReduceOpSupportedOnNCE(op) && VPU::isNCEReduceSupported(op, logCb)) {
                 return true;
             }
@@ -463,8 +473,7 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
                                    : vpux::IE::isPoolingKernelSizeValid(mergedDim, maxKernelSize);
         const auto dpuCompatible = isKernelSizeDpuCompatible && isDataTypeDpuCompatible;
 
-        const bool isHWCompilationMode = VPU::getCompilationMode(op) == VPU::CompilationMode::ReferenceHW ||
-                                         VPU::getCompilationMode(op) == VPU::CompilationMode::DefaultHW;
+        const bool isHWCompilationMode = VPU::getCompilationMode(op) == VPU::CompilationMode::DefaultHW;
 
         // Apply the conversion only if the resulting Pooling operation can run on DPU
         return !(dpuCompatible && isHWCompilationMode);

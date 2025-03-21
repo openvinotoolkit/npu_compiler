@@ -79,31 +79,34 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
             // Located SPILL_WRITE for compute op
             size_t spillWriteIndex = opIndex;
             std::optional<size_t> origOpIndex;
-            std::optional<size_t> prevTime;
+            std::optional<int64_t> prevTime;
             size_t prevTimeFirstOpIndex = 0;
             std::optional<size_t> spillReadIndex;
-            std::optional<size_t> nextTime;
+            std::optional<int64_t> nextTime;
 
             // Search for corresponding ORIGINAL op and check
             // if it is at closest previous time
-            for (size_t i = opIndex - 1; i < scheduledOps.size(); i--) {
-                if (!prevTime.has_value() && scheduledOps[i].cycleBegin_ < scheduledOps[spillWriteIndex].cycleBegin_) {
+            auto prevOpIdx = static_cast<int64_t>(opIndex) - 1;
+            for (; prevOpIdx >= 0 && prevOpIdx < static_cast<int64_t>(scheduledOps.size()); --prevOpIdx) {
+                if (!prevTime.has_value() &&
+                    scheduledOps[prevOpIdx].cycleBegin_ < scheduledOps[spillWriteIndex].cycleBegin_) {
                     // Identified previous time value
-                    prevTime = scheduledOps[i].cycleBegin_;
+                    prevTime = scheduledOps[prevOpIdx].cycleBegin_;
                 }
 
                 if (prevTime.has_value()) {
-                    if (scheduledOps[i].cycleBegin_ < prevTime) {
+                    if (scheduledOps[prevOpIdx].cycleBegin_ < prevTime) {
                         // Time of op in given iteration is smaller than closest previous time
                         // In such case break early as that means that COMPUTEOP -> SPILL_WRITE
                         // sequence does not appear immediately one after the other
-                        prevTimeFirstOpIndex = i + 1;
+                        prevTimeFirstOpIndex = static_cast<size_t>(prevOpIdx) + 1;
                         break;
                     }
 
-                    if (scheduledOps[i].op_ == scheduledOps[spillWriteIndex].op_ && scheduledOps[i].isOriginalOp()) {
+                    if (scheduledOps[prevOpIdx].op_ == scheduledOps[spillWriteIndex].op_ &&
+                        scheduledOps[prevOpIdx].isOriginalOp()) {
                         // Identified original COMPUTEOP that appears just before SPILL_WRITE
-                        origOpIndex = i;
+                        origOpIndex = static_cast<size_t>(prevOpIdx);
                     }
                 }
             }
@@ -219,11 +222,7 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
                             continue;
                         }
 
-                        const auto rootBuffers = _aliasInfo.getRoots(output);
-                        VPUX_THROW_UNLESS(rootBuffers.size() == 1,
-                                          "Value '{0}' expected to have only one root. Got {1}", output,
-                                          rootBuffers.size());
-                        const auto rootBuffer = *rootBuffers.begin();
+                        const auto rootBuffer = _aliasInfo.getRoot(output);
 
                         if (rootBuffer != spillBuf) {
                             // This is not an output that is going to be spilled. Move
@@ -262,10 +261,7 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
             // the spill buffer may have multiple write users. If yes, skip the optimization.
             bool hasSharedOutputBuffer = false;
 
-            const auto spillRootBuffers = _aliasInfo.getRoots(spillBuf);
-            VPUX_THROW_UNLESS(spillRootBuffers.size() == 1, "Value '{0}' expected to have only one root. Got {1}",
-                              spillBuf, spillRootBuffers.size());
-            const auto spillRootBuffer = *spillRootBuffers.begin();
+            const auto spillRootBuffer = _aliasInfo.getRoot(spillBuf);
 
             auto origExecOp = _depsInfo.getExecuteOpAtIndex(origOp.op_);
             const auto allAlias = _aliasInfo.getAllAliases(spillRootBuffer);
@@ -428,8 +424,8 @@ void FeasibleMemorySchedulerSpilling::optimizeDataOpsSpills(FeasibleMemorySchedu
                 dataOpIt->second.push_back(opIndex);
             } else {
                 // If this is spilling of new op, find source op and check if this is dataOp
-                int origOpIndex;
-                for (origOpIndex = opIndex - 1; origOpIndex >= 0; origOpIndex--) {
+                auto origOpIndex = static_cast<int>(opIndex) - 1;
+                for (; origOpIndex >= 0; origOpIndex--) {
                     auto schedOrigOp = scheduledOps[origOpIndex];
                     if (schedOrigOp.isOriginalOp() && schedOrigOp.op_ == op.op_) {
                         // As a first element store index to original operation
@@ -498,11 +494,7 @@ void FeasibleMemorySchedulerSpilling::optimizeDataOpsSpills(FeasibleMemorySchedu
                             continue;
                         }
 
-                        auto rootBuffers = _aliasInfo.getRoots(operand);
-                        VPUX_THROW_UNLESS(rootBuffers.size() == 1,
-                                          "Value '{0}' expected to have only one root. Got {1}", operand,
-                                          rootBuffers.size());
-                        if (*rootBuffers.begin() == buffer) {
+                        if (_aliasInfo.getRoot(operand) == buffer) {
                             isBufferUsedAsArgument = true;
                             break;
                         }
@@ -519,10 +511,7 @@ void FeasibleMemorySchedulerSpilling::optimizeDataOpsSpills(FeasibleMemorySchedu
                         continue;
                     }
 
-                    auto rootBuffers = _aliasInfo.getRoots(res);
-                    VPUX_THROW_UNLESS(rootBuffers.size() == 1, "Value '{0}' expected to have only one root. Got {1}",
-                                      res, rootBuffers.size());
-                    if (*rootBuffers.begin() == buffer) {
+                    if (_aliasInfo.getRoot(res) == buffer) {
                         isBufferUsedAsResult = true;
                         break;
                     }
@@ -664,10 +653,7 @@ SmallVector<mlir::Value> FeasibleMemorySchedulerSpilling::getAsyncResultsForBuff
 mlir::Value FeasibleMemorySchedulerSpilling::getBufferFromAsyncResult(mlir::Value asyncResult) {
     const auto resultType = asyncResult.getType();
     VPUX_THROW_UNLESS(resultType.isa<mlir::async::ValueType>(), "This is not async result. Got: '{0}'", resultType);
-    const auto roots = _aliasInfo.getRoots(asyncResult);
-    VPUX_THROW_UNLESS(roots.size() == 1, "Value '{0}' expected to have only one root. Got {1}", asyncResult,
-                      roots.size());
-    return *roots.begin();
+    return _aliasInfo.getRoot(asyncResult);
 }
 
 mlir::async::ExecuteOp FeasibleMemorySchedulerSpilling::insertSpillWriteDmaOp(mlir::async::ExecuteOp opThatWasSpilled,

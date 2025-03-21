@@ -218,7 +218,7 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
 
     rewriter.eraseOp(op);
 
-    return SymbolizationResult(newOp, refsToUpdate);
+    return SymbolizationResult(newOp, std::move(refsToUpdate));
 }
 
 }  // namespace vpumi40xx2vpuasm

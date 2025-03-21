@@ -5,18 +5,26 @@
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_ADDFETCHOPS
+#define GEN_PASS_DEF_ADDFETCHOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
 namespace {
-class AddFetchOpsPass : public VPUMI40XX::AddFetchOpsBase<AddFetchOpsPass> {
+class AddFetchOpsPass : public VPUMI40XX::impl::AddFetchOpsBase<AddFetchOpsPass> {
 public:
     explicit AddFetchOpsPass(Logger log): _log(log) {
     }
@@ -201,12 +209,15 @@ mlir::LogicalResult addFetchTasks(VPUMI40XX::MappedInferenceOp mpi, const int64_
         auto firstDmaTaskOp = mlir::cast<VPURegMapped::TaskOpInterface>(firstDma.getDefiningOp());
 
         builder.setInsertionPoint(firstDma.getDefiningOp());
+        size_t groupIdx = 0;
 
+        auto uint64Type = getUInt64Type(ctx);
         auto firstFetch = builder.create<VPURegMapped::FetchTaskOp>(
                 firstGroup.getLoc(), dummyIndexType,
                 nullptr,  // no previous
                 firstGroup.getStartIndexes()[0], firstGroup.getEndIndexes()[0], firstGroup.getStartIndexes()[1],
-                firstGroup.getEndIndexes()[1]);
+                firstGroup.getEndIndexes()[1], VPURegMapped::TaskTypeAttr::get(builder.getContext(), taskType),
+                mlir::IntegerAttr::get(uint64Type, tileIdx), mlir::IntegerAttr::get(uint64Type, groupIdx));
         firstDmaTaskOp.setPreviousTask(firstFetch);
 
         VPURegMapped::ExecutionGroupOp parentGroup = firstGroup;
@@ -214,6 +225,7 @@ mlir::LogicalResult addFetchTasks(VPUMI40XX::MappedInferenceOp mpi, const int64_
 
         // iterate over remaining
         auto travelingGroup = VPUMI40XX::getNextGroup(firstGroup);
+        ++groupIdx;
         while (travelingGroup) {
             // In case grandParentGroup is nullptr that means the parentGroup is only second Execution group and we can
             // allow it to use firstDMA as insertion point for Fetch This is because the first execution group goes to
@@ -241,10 +253,13 @@ mlir::LogicalResult addFetchTasks(VPUMI40XX::MappedInferenceOp mpi, const int64_
 
             // set the insertion point after the finalDMA
             builder.setInsertionPointAfter(insertionDma.getOperation());
+
             auto fetchTaskOp = builder.create<VPURegMapped::FetchTaskOp>(
                     travelingGroup.getLoc(), dummyIndexType, insertionDma.getResult(),
                     travelingGroup.getStartIndexes()[0], travelingGroup.getEndIndexes()[0],
-                    travelingGroup.getStartIndexes()[1], travelingGroup.getEndIndexes()[1]);
+                    travelingGroup.getStartIndexes()[1], travelingGroup.getEndIndexes()[1],
+                    VPURegMapped::TaskTypeAttr::get(ctx, taskType), mlir::IntegerAttr::get(uint64Type, tileIdx),
+                    mlir::IntegerAttr::get(uint64Type, groupIdx));
 
             // set the previousIdx to the fetchOp
             insertionDma.getResult().replaceAllUsesExcept(fetchTaskOp.getIndex(), fetchTaskOp.getOperation());
@@ -254,6 +269,7 @@ mlir::LogicalResult addFetchTasks(VPUMI40XX::MappedInferenceOp mpi, const int64_
             parentGroup = travelingGroup;
 
             travelingGroup = VPUMI40XX::getNextGroup(travelingGroup);
+            ++groupIdx;
         }
         reindexList(mpi, firstFetch, fetchTaskTileIdx, fetchTaskListIdx);
     }

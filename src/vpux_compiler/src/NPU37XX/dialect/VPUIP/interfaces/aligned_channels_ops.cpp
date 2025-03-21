@@ -108,7 +108,6 @@ void vpux::VPUIP::arch37xx::registerAlignedChannelsOpInterfaces(mlir::DialectReg
         IE::AddOp::attachInterface<AlignedChannelsOpModel<IE::AddOp>>(*ctx);
         IE::MultiplyOp::attachInterface<AlignedChannelsOpModel<IE::MultiplyOp>>(*ctx);
         IE::SubtractOp::attachInterface<AlignedChannelsOpModel<IE::SubtractOp>>(*ctx);
-        IE::AndOp::attachInterface<AlignedChannelsOpModel<IE::AndOp>>(*ctx);
         IE::InterpolateOp::attachInterface<AlignedChannelsOpModel<IE::InterpolateOp>>(*ctx);
         IE::TransposedConvolutionOp::attachInterface<AlignedChannelsOpModel<IE::TransposedConvolutionOp>>(*ctx);
         IE::PadOp::attachInterface<AlignedChannelsOpModel<IE::PadOp>>(*ctx);

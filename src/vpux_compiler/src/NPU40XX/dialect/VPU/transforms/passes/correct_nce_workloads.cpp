@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/workload_splitter_base.hpp"
@@ -13,6 +14,12 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+
+namespace vpux::VPU::arch40xx {
+#define GEN_PASS_DECL_CORRECTNCEWORKLOADS
+#define GEN_PASS_DEF_CORRECTNCEWORKLOADS
+#include "vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch40xx
 
 using namespace vpux;
 using namespace VPU;
@@ -121,7 +128,7 @@ namespace {
 // CorrectNCEWorkloads
 //
 
-class CorrectNCEWorkloadsPass final : public VPU::arch40xx::CorrectNCEWorkloadsBase<CorrectNCEWorkloadsPass> {
+class CorrectNCEWorkloadsPass final : public VPU::arch40xx::impl::CorrectNCEWorkloadsBase<CorrectNCEWorkloadsPass> {
 public:
     explicit CorrectNCEWorkloadsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

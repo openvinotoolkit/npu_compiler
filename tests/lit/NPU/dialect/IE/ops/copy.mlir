@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @Fold
 func.func @Fold(%arg0: tensor<1x3x16x16xf32>) -> tensor<1x3x16x16xf32> {
     %0 = IE.Copy(%arg0) : tensor<1x3x16x16xf32> -> tensor<1x3x16x16xf32>

@@ -70,27 +70,6 @@ bool vpux::VPU::supportsSparseData(mlir::Operation* op) {
     return supportsSparseInputs(op) && supportsSparseOutputs(op);
 }
 
-//
-// NCEOpInterface
-//
-
-mlir::LogicalResult vpux::VPU::details::validatePrecisionForNCE(mlir::Operation* op) {
-    const auto arch = getArch(op);
-
-    const auto logCb = [op](const formatv_object_base& msg) {
-        std::ignore = errorAt(op, "{0}", msg.str());
-    };
-
-    if (!NCEInvariant::isPrecisionSupported(arch, op->getOperands(), logCb)) {
-        return mlir::failure();
-    }
-    if (!NCEInvariant::isPrecisionSupported(arch, op->getResults(), logCb)) {
-        return mlir::failure();
-    }
-
-    return mlir::success();
-}
-
 mlir::LogicalResult vpux::VPU::details::validateWorkloadsRegion(mlir::Location loc, mlir::Region& workloads) {
     for (auto& workloadOp : workloads.getOps()) {
         if (!mlir::isa<DPUWorkloadOp>(workloadOp)) {
@@ -119,7 +98,6 @@ mlir::Operation* vpux::VPU::details::addWorkload(mlir::Region& workloads, mlir::
 
 mlir::LogicalResult vpux::VPU::details::verifyInputTypeOp(mlir::Operation* op, vpux::NDTypeInterface inputType) {
     // TODO: #123810 split verifier into arch-specific parts
-    const auto arch = getArch(op);
     bool supportsInputActCompression = false;
     auto alignment = VPU::NCEInvariant::getAlignment(inputType.getElementType());
     if (mlir::isa<VPU::NCECompressConvolutionOp>(op)) {
@@ -128,7 +106,7 @@ mlir::LogicalResult vpux::VPU::details::verifyInputTypeOp(mlir::Operation* op, v
     }
 
     return mlir::success(
-            vpux::VPU::NCEInvariant::isInputActTypeSupported(arch, inputType, alignment, supportsInputActCompression));
+            vpux::VPU::NCEInvariant::isInputActTypeSupported(inputType, alignment, supportsInputActCompression));
 }
 
 //
@@ -210,9 +188,6 @@ mlir::LogicalResult vpux::VPU::verifyNCEOp(mlir::Operation* op) {
     }
 
     auto nceOp = mlir::cast<VPU::NCEOpInterface>(op);
-    if (vpux::VPU::details::validatePrecisionForNCE(nceOp).failed()) {
-        return mlir::failure();
-    }
     if (vpux::VPU::details::validateWorkloadsRegion(nceOp->getLoc(), nceOp.getWorkloads()).failed()) {
         return mlir::failure();
     }

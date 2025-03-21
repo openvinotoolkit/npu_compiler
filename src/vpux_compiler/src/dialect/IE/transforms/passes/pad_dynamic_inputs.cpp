@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PADDYNAMICINPUTS
+#define GEN_PASS_DEF_PADDYNAMICINPUTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -16,22 +23,28 @@ void padInput(mlir::Operation* firstOp) {
     firstOp->setOperand(0, expand.getOutput());
 }
 
-SmallVector<mlir::Operation*> getDynamicOperations(mlir::Operation* op) {
+SmallVector<mlir::Operation*> getDynamicOperations(mlir::Operation* op, Logger log) {
     mlir::Operation* next = op;
     SmallVector<mlir::Operation*> dynamicOps;
     while (IE::needsStaticShape(next)) {
         auto bounds = getBounds(next->getResult(0));
         if (bounds == nullptr) {
+            log.trace("Op {0} at loc {1} does not have output bounds.", next->getName(), next->getLoc());
             return {};
         }
+
+        log.nest().trace("Adding Op {0} at loc {1} to dynamic ops vec.", next->getName(), next->getLoc());
         dynamicOps.push_back(next);
         // Only data operand (operand 0) must be dynamic. Other operands must be static.
         // FIXME generalize this approach to cover any combination of static and dynamic operands.
         if (getShape(next->getOperand(0)).isStatic()) {
+            log.trace("Op {0} at loc {1} does not have dynamic operand 0.", next->getName(), next->getLoc());
             return {};
         }
         for (unsigned idx = 1; idx < next->getNumOperands(); idx++) {
             if (getShape(next->getOperand(idx)).isDynamic()) {
+                log.trace("Op {0} of type {1} has dynamic shapes on inputs that are not the first one.", next->getLoc(),
+                          next->getName());
                 return {};
             }
         }
@@ -48,27 +61,35 @@ void freezeOutputShape(mlir::Operation* op) {
     op->getResult(0).setType(newType);
 }
 
-void traverseDynamicSubgraph(IE::DynamicReshapeOp dynReshape) {
+void traverseDynamicSubgraph(IE::DynamicReshapeOp dynReshape, Logger log) {
+    log.debug("Got '{0}' at '{1}'", dynReshape->getName(), dynReshape->getLoc());
+
+    auto nestedLog = log.nest();
     mlir::Value dynReshapeInput{dynReshape.getInput()};
     if (mlir::isa<mlir::BlockArgument>(dynReshapeInput)) {
+        nestedLog.trace("DynamicReshape has BlockArg input");
         return;
     }
-    auto slice = dynReshapeInput.getDefiningOp<IE::StridedSliceOp>();
-    if (slice == nullptr) {
+    auto dynReshapeParent = dynReshapeInput.getDefiningOp();
+    if (!mlir::isa_and_nonnull<IE::StridedSliceOp>(dynReshapeParent) && !IE::needsStaticShape(dynReshapeParent)) {
+        nestedLog.trace("DynamicReshape's parent is not StridedSlice.");
         return;
     }
-    auto producer = slice.getInput().getDefiningOp();
-    const auto dynamicOps = getDynamicOperations(producer);
+    auto producer = mlir::isa<IE::StridedSliceOp>(dynReshapeParent) ? dynReshapeParent->getOperand(0).getDefiningOp()
+                                                                    : dynReshapeParent;
+    const auto dynamicOps = getDynamicOperations(producer, nestedLog);
     if (dynamicOps.empty()) {
+        nestedLog.trace("No dynamic ops found.");
         return;
     }
     std::for_each(dynamicOps.begin(), dynamicOps.end(), freezeOutputShape);
 
+    nestedLog.debug("Adding dynamic padding to the input of the first op in chain.");
     mlir::Operation* firstOp = dynamicOps.back();
     padInput(firstOp);
 }
 
-class PadDynamicInputsPass final : public IE::PadDynamicInputsBase<PadDynamicInputsPass> {
+class PadDynamicInputsPass final : public IE::impl::PadDynamicInputsBase<PadDynamicInputsPass> {
 public:
     explicit PadDynamicInputsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -82,7 +103,9 @@ private:
 };
 
 void PadDynamicInputsPass::safeRunOnFunc() {
-    getOperation()->walk(traverseDynamicSubgraph);
+    getOperation()->walk([&](IE::DynamicReshapeOp dynReshape) {
+        traverseDynamicSubgraph(dynReshape, _log);
+    });
 }
 };  // namespace
 

@@ -1,5 +1,5 @@
 #
-# Copyright (C) 2024 Intel Corporation.
+# Copyright (C) 2024-2025 Intel Corporation.
 # SPDX-License-Identifier: Apache 2.0
 #
 
@@ -15,7 +15,16 @@ include(AddLLVM)
 set(LLVM_LINK_COMPONENTS Support TableGen)
 add_llvm_executable(${TARGET_NAME} main.cpp)
 
+add_dependencies(${TARGET_NAME}
+    MLIRVPUXVPUAttrIncGen
+    MLIRSupport)
 target_compile_features(${TARGET_NAME} PRIVATE cxx_std_17)
 enable_warnings_as_errors(${TARGET_NAME})
-target_include_directories(${TARGET_NAME} SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
-target_link_libraries(${TARGET_NAME} PRIVATE ${llvm_libs} npu_core_utils)
+target_include_directories(${TARGET_NAME} SYSTEM PRIVATE
+    ${MLIR_INCLUDE_DIRS}
+    ${LLVM_INCLUDE_DIRS}
+    ${PROJECT_BINARY_DIR}/src/vpux_compiler/tblgen)
+target_link_libraries(${TARGET_NAME} PRIVATE
+    ${llvm_libs}
+    npu_core_utils
+    MLIRIR)

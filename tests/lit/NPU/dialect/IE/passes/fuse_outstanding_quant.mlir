@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-outstanding-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 0.0039215686274509803>
 
 // CHECK-LABEL: func.func @SoftMaxAddWithOutstandingQuantHasOneUser

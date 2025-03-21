@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -14,8 +14,9 @@ namespace IE {
 // D2SToTransposedConvVerifierBase
 //
 
-bool D2SToTransposedConvVerifierBase::isBeneficialConversion(IE::DepthToSpaceOp) const {
-    return true;
+mlir::LogicalResult D2SToTransposedConvVerifierBase::isBeneficialConversion(Logger, mlir::PatternRewriter&,
+                                                                            IE::DepthToSpaceOp) const {
+    return mlir::success();
 }
 
 std::unique_ptr<D2SToTransposedConvVerifierBase> createD2SToTransposedConvVerifier(VPU::ArchKind arch) {
@@ -26,9 +27,8 @@ std::unique_ptr<D2SToTransposedConvVerifierBase> createD2SToTransposedConvVerifi
     case VPU::ArchKind::NPU40XX: {
         return std::make_unique<IE::arch40xx::D2SToTransposedConvVerifier>();
     }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
+        return std::make_unique<D2SToTransposedConvVerifierBase>();
     }
     }
 }

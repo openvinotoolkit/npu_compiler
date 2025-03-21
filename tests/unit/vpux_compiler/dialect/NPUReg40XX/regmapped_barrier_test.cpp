@@ -5,46 +5,36 @@
 
 #include <gtest/gtest.h>
 
-#include <npu_40xx_nnrt.hpp>
 #include "common/utils.hpp"
-#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/types.hpp"
+#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/descriptors.hpp"
+
+#include <cstring>
+#include <npu_40xx_nnrt.hpp>
 
 using namespace npu40xx;
+using namespace vpux::NPUReg40XX;
 
-#define CREATE_HW_DMA_DESC(field, value)                                           \
-    [] {                                                                           \
-        nn_public::VpuBarrierCountConfig hwBarrierDesc;                            \
-        memset(reinterpret_cast<void*>(&hwBarrierDesc), 0, sizeof(hwBarrierDesc)); \
-        hwBarrierDesc.field = value;                                               \
-        return hwBarrierDesc;                                                      \
-    }()
+class NPUReg40XX_VpuBarrierConfigCount :
+        public NPUReg_RegisterUnitBase<npu40xx::nn_public::VpuBarrierCountConfig,
+                                       vpux::NPUReg40XX::Descriptors::VpuBarrierCountConfig> {};
 
-class NPUReg40XX_NpuBarrierCountConfigTest :
-        public MLIR_RegMappedNPUReg40XXUnitBase<nn_public::VpuBarrierCountConfig,
-                                                vpux::NPUReg40XX::RegMapped_VpuBarrierCountConfigType> {};
+#define TEST_NPU4_BAR_CFG_REG_FIELD(FieldType, DescriptorMember)                                                     \
+    HELPER_TEST_NPU_REGISTER_FIELD(NPUReg40XX_VpuBarrierConfigCount, FieldType, vpux::NPUReg40XX::Fields::FieldType, \
+                                   DescriptorMember, 0)
 
-TEST_P(NPUReg40XX_NpuBarrierCountConfigTest, CheckFieldsConsistency) {
-    this->compare();
+TEST_NPU4_BAR_CFG_REG_FIELD(next_same_id_, next_same_id_)
+TEST_NPU4_BAR_CFG_REG_FIELD(producer_count_, producer_count_)
+TEST_NPU4_BAR_CFG_REG_FIELD(consumer_count_, consumer_count_)
+TEST_NPU4_BAR_CFG_REG_FIELD(real_id_, real_id_)
+
+TEST_F(NPUReg40XX_VpuBarrierConfigCount, BarrierConfigCount) {
+    // Could not be tested through the macro as this fields are arrays
+    const auto value = 0xFFFFFF;
+    actual.write<vpux::NPUReg40XX::Fields::barcfg_pad_3_>(value);
+    const auto actualValue = actual.read<vpux::NPUReg40XX::Fields::barcfg_pad_3_>();
+    EXPECT_EQ(actualValue, value);
+
+    std::memset(reference.pad_, 0xFF, 3);
+
+    ASSERT_TRUE(isContentEqual());
 }
-
-std::vector<std::pair<MappedRegValues, nn_public::VpuBarrierCountConfig>> barrierFieldSet = {
-        {{
-                 {"next_same_id_", {{"next_same_id_", 0xFFFFFFFF}}},
-         },
-         CREATE_HW_DMA_DESC(next_same_id_, 0xFFFFFFFF)},
-        {{
-                 {"producer_count_", {{"producer_count_", 0xFFFF}}},
-         },
-         CREATE_HW_DMA_DESC(producer_count_, 0xFFFF)},
-        {{
-                 {"consumer_count_", {{"consumer_count_", 0xFFFF}}},
-         },
-         CREATE_HW_DMA_DESC(consumer_count_, 0xFFFF)},
-        {{
-                 {"real_id_", {{"real_id_", 0xFF}}},
-         },
-         CREATE_HW_DMA_DESC(real_id_, 0xFF)},
-};
-
-INSTANTIATE_TEST_SUITE_P(NPUReg40XX_MappedRegs, NPUReg40XX_NpuBarrierCountConfigTest,
-                         testing::ValuesIn(barrierFieldSet));

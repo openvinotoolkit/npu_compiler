@@ -6,7 +6,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @Model20 {
   IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "Input" : tensor<1x50x1x1xf16>

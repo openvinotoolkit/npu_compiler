@@ -39,6 +39,21 @@ def OptimizeCopies : PassBase<"optimize-copies", "vpux::FunctionPass"> {
 }
 
 //
+// UniquifyWeightsTableCopies
+//
+
+def UniquifyWeightsTableCopies : PassBase<"uniquify-weights-table-copies", "vpux::FunctionPass"> {
+    let summary = "Removes Copy Ops of shared constant weights table";
+
+    let description = [{
+        This pass checks if Copy Op can be optimized out to reduce the amount of unnecessary DMAs
+        and intermediate buffers when having weights table reuse enabled.
+    }];
+
+    let constructor = "vpux::VPUIP::createUniquifyWeightsTableCopiesPass()";
+}
+
+//
 // MoveSubViewBeforeSparseBuffer
 //
 
@@ -420,11 +435,6 @@ def DPUProfiling : PassBase<"dpu-profiling", "vpux::ModulePass"> {
     }];
 
 }
-
-//
-// M2IProfiling
-//
-
 def LegalizeRepeatingFuncCalls : PassBase<"legalize-repeating-func-calls", "vpux::FunctionPass"> {
     let summary = "Ensure repeating func calls adhere to VPUIP constaints";
 
@@ -624,6 +634,43 @@ def OptimizeTileOpAsNNDMA: PassBase<"optimize-tile-op-as-nndma", "vpux::Function
 }
 
 //
+// OptimizeExpandSubview
+//
+
+def OptimizeExpandSubview : PassBase<"optimize-expand-subview", "vpux::FunctionPass"> {
+    let summary = "Optimize Expand-Subview patterns on the same dimension to minimize large data concatenation in DDR";
+
+    let description = [{
+        This pass optimizes the Expand-Subview pattern when both Expand and Subview operate on the same dimension
+        A Subview within the non-expanded part can directly connect to the input of the Expand operation
+        A Subview that includes the expanded part can connect with a small data concatenation
+        This optimization avoids large data concatenation operations in DDR memory
+
+        Target Pattern:
+                                            Input (C: m)
+                                                 |
+                                            Expand (At C: m + q)
+             ____________________________________|____________________________________________
+            |                                    |                                            |
+        Subview_0 (At C: p0 < m)   Subview_1 (At C: p0 + p1 < m)   ...   Subview_n (At C: p0 + p1 + ... + pn > m)
+
+        Convert to:
+                                            Input (C: m)
+             ____________________________________|____________________________________________________________________________
+            |                                    |                                               |                            |
+        Subview_0 (At C: p0 < m)   Subview_1 (At C: p0 + p1 < m)   ...   Subview_n-1 (At C: p0 + p1 + ... + p_n-1 < m)     Subview_n
+                                                                                                                              |
+                                                                                                                            Expand
+    }];
+
+    let constructor = "vpux::VPUIP::createOptimizeExpandSubviewPass()";
+
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect"
+    ];
+}
+
+//
 // ConvertExpand
 //
 
@@ -774,38 +821,6 @@ def UnwrapClusterTiling : PassBase<"unwrap-cluster-tiling", "vpux::FunctionPass"
 
 }
 
-//
-// UnrollDepthToSpaceDMA
-//
-
-def UnrollDepthToSpaceDMA : PassBase<"unroll-depth-to-space-dma", "vpux::FunctionPass"> {
-    let summary = "Split DepthToSpaceDMA task with several NN DMA tasks";
-
-    let description = [{
-        This pass spilt DepthToSpaceDMA tasks with several NN DMA tasks, which are functionally equivalent.
-        Each sub DepthToSpaceDMA will be converted to a NNDMA.
-        1. if input/output layout is NHWC with model block_first, number of sub DepthToSpaceDMA is same as block_size.
-        2. if input/output layout is NHWC with model depth_first, number of sub DepthToSpaceDMA is OH * OW / block_size.
-        block_size is the size of the spatial block. It is an attribution of DepthToSpace.
-    }];
-
-    let constructor = "vpux::VPUIP::createUnrollDepthToSpaceDMAPass()";
-}
-
-//
-// UnrollSpaceToDepthDMA
-//
-
-def UnrollSpaceToDepthDMA : PassBase<"unroll-space-to-depth-dma", "vpux::FunctionPass"> {
-    let summary = "Split SpaceToDepthDMA task with several NN DMA tasks";
-
-    let description = [{
-        This pass splits SpaceToDepthDMA tasks into several NN DMA tasks, which are functionally equivalent.
-        Each sub SpaceToDepthDMA will be converted to a NNDMA.
-    }];
-
-    let constructor = "vpux::VPUIP::createUnrollSpaceToDepthDMAPass()";
-}
 
 //
 // UnrollExpandDMA
@@ -933,6 +948,30 @@ def ConvertViewOpsToDeclarations : PassBase<"convert-view-ops-to-declarations", 
 }
 
 //
+// LinearizeCallOps
+//
+
+def LinearizeCallOps : PassBase<"linearize-call-ops", "vpux::FunctionPass"> {
+    let summary = "Ensure Call operations are executed sequentially";
+
+    let description = [{
+        Ensures the Call operations found in the function have dependencies between each other,
+        so that they are executed sequentially. This is necessary to ensure that the
+        operations found within the called functions are called in a deterministic order,
+        after the calls are inlined.
+
+        Note: this pass expects the function to contain only Call operations.
+    }];
+
+    let constructor = "vpux::VPUIP::createLinearizeCallOpsPass()";
+
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect",
+        "vpux::VPURT::VPURTDialect"
+    ];
+}
+
+//
 // ConvertAsyncOpsToTasks
 //
 
@@ -951,6 +990,7 @@ def ConvertAsyncOpsToTasks : PassBase<"convert-async-ops-to-tasks", "vpux::Funct
         "vpux::VPURT::VPURTDialect"
     ];
 }
+
 
 //
 // UnrollPermuteToNNDMA

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-matmul-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @Convert3dMatMulToConvAndPermutecast_transpose_b
 func.func @Convert3dMatMulToConvAndPermutecast_transpose_b(%arg0: tensor<64x100x64xf16>, %arg1: tensor<64x64xf16>) -> tensor<64x100x64xf16> {
   %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<64x100x64xf16>, tensor<64x64xf16> -> tensor<64x100x64xf16>

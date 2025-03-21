@@ -3,10 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ADJUSTMEMORYSPACE
+#define GEN_PASS_DEF_ADJUSTMEMORYSPACE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 namespace vpux {
 namespace VPU {
@@ -115,7 +122,7 @@ mlir::LogicalResult CopiesForM2iOp::matchAndRewrite(VPU::M2ITaskOp origOp, mlir:
 // AdjustMemorySpacePass
 //
 
-class AdjustMemorySpacePass final : public AdjustMemorySpaceBase<AdjustMemorySpacePass> {
+class AdjustMemorySpacePass final : public VPU::impl::AdjustMemorySpaceBase<AdjustMemorySpacePass> {
 public:
     explicit AdjustMemorySpacePass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

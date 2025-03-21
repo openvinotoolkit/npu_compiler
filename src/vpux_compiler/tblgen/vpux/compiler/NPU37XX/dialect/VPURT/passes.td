@@ -9,21 +9,6 @@
 include "mlir/Pass/PassBase.td"
 
 //
-// AddUpdateBarrierForSwKernels
-//
-
-def AddUpdateBarrierForSwKernels : PassBase<"add-update-barrier-for-sw-kernels", "vpux::FunctionPass"> {
-    let summary = "Adds a dummy update barrier for the SwKernels that don't have any";
-
-    let description = [{
-        Adds a dummy update barrier for the SW Kernels that don't have any. The update barrier is the
-        only mechanism through which the VPU runtime can know if a SW Kernel has completed the execution or not.
-    }];
-
-    let constructor = "vpux::VPURT::arch37xx::createAddUpdateBarrierForSwKernelsPass()";
-}
-
-//
 // AddFinalBarrier
 //
 

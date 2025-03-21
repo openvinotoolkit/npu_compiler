@@ -6,11 +6,12 @@
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 namespace vpux {
 namespace VPU {

@@ -84,27 +84,24 @@ func.func @ConvLargeSparseOutput(%input_ddr: tensor<1x64x40x40xf16, {order = #NH
 
 // CHECK-LABEL: @NCEPermuteClustered
 func.func @NCEPermuteClustered(%arg0: !Input_DDR) -> !Output_CMX {
-    %0 = VPU.NCE.ClusterTiling (%arg0 as %arg1: !Input_DDR) -> !Input_CMX {
-      %2 = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : !Input_DDR -> !InputStub_CMX
-      VPU.Yield %2
-    }
-    %output = VPU.NCE.ClusterTiling (%0 as %arg1: !InputStub_CMX) -> !Output_CMX {
-        %2 = VPU.NCE.Permute(%arg1) {
+    %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !Input_DDR -> !Input_CMX
+    %output = VPU.NCE.Permute(%0) {
             dstElemType = f16, dstOrder = #NHWC, expandedChannels = 3 : i64,
             minimumHardwareExecutionCost = 4294967195 : i64,
             ppe = #VPU.PPEStub<>
-        } -> !OutputStub_CMX {
+        } -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
             VPU.DPU.Workload outOffsets [0, 0, 112, 0] outSizes [1, 3, 112, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 1 : i64}
         }
-        VPU.Yield %2
-    }
 
     return %output : !Output_CMX
 
     // CHECK:       VPU.NCE.Permute
     // CHECK-SAME:      dstElemType = f16, dstOrder = #NHWC, expandedChannels = 3 : i64
-    // CHECK-SAME:      -> tensor<1x3x224x224xf16, {mem_space = @CMX_NN, order = #NHWC}> {
+    // CHECK-SAME:      -> !VPU.DistributedTensor<1x3x224x224xf16, #NHWC, @CMX_NN, {
+    // CHECK-SAME:          mode = "SEGMENTED",
+    // CHECK-SAME:          num_tiles = [1, 1, 2, 1],
+    // CHECK-SAME:          num_clusters = 2 : i64}>
 
     // CHECK:       VPU.DPU.Workload
     // CHECK-SAME:      outOffsets [0, 0, 0, 0] outSizes [1, 3, 112, 224]

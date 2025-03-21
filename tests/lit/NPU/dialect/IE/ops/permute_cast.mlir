@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL:   @FoldPermuteCast
@@ -64,3 +63,34 @@ func.func @FuseMemPermAndPermCast(%arg0: tensor<1x1000x1x1xf32, {order = #NHWC}>
     // CHECK:     %[[VAL_0:.*]] = IE.PermuteCast(%arg0) {dst_order = #NCHW, mem_perm = #NHWC} : tensor<1x1000x1x1xf32, {order = #NHWC}> -> tensor<1x1x1000x1xf32>
     // CHECK:     return %[[VAL_0]] : tensor<1x1x1000x1xf32>
 }
+
+// -----
+
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+func.func @PermuteCastMemPermute() -> tensor<1x2xf32, { order = #CN }> {
+    %cst = const.Declare tensor<1x2xf32> = dense<[[1.0, 2.0]]> : tensor<1x2xf32>
+    %permute_cast = IE.PermuteCast(%cst) {dst_order = #CN, mem_perm = #CN} : tensor<1x2xf32> -> tensor<1x2xf32, { order = #CN }>
+    return %permute_cast : tensor<1x2xf32, { order = #CN }>
+}
+
+// CHECK: func.func @PermuteCastMemPermute() -> tensor<1x2xf32, {order = #CN}> {
+// CHECK:    [[CST:%.+]] = const.Declare tensor<1x2xf32, {order = #CN}> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : tensor<1x2xf32>, [#const.MemPermute<#CN, #CN>]
+// CHECK:    return [[CST]] : tensor<1x2xf32, {order = #CN}>
+// CHECK: }
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+func.func @PermuteCastNoOp() -> tensor<1x2xf32> {
+    %cst = const.Declare tensor<1x2xf32> = dense<[[1.0, 2.0]]> : tensor<1x2xf32>
+    %permute_cast_0 = IE.PermuteCast(%cst) {dst_order = #NC, mem_perm = #NC} : tensor<1x2xf32> -> tensor<1x2xf32>
+    return %permute_cast_0 : tensor<1x2xf32>
+}
+
+// CHECK: func.func @PermuteCastNoOp() -> tensor<1x2xf32> {
+// CHECK:     [[CST:%.+]] = const.Declare tensor<1x2xf32> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : tensor<1x2xf32>
+// CHECK:     return [[CST]] : tensor<1x2xf32>
+// CHECK: }

@@ -7,7 +7,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-conv-with-slice %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @FuseConvWithSliceSingleUser
 func.func @FuseConvWithSliceSingleUser(%arg0: tensor<1x16x80x80xf16>) -> tensor<1x32x80x80xf16> {
     %weights = const.Declare tensor<64x16x3x3xf16> = dense<1.0> : tensor<64x16x3x3xf16>

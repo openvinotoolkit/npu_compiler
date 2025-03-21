@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --verify-diagnostics --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // Note: these tests verify that constant materialization routine works
 // correctly on top of our own custom constant infrastructure.
 

@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
@@ -23,7 +24,7 @@ using namespace vpux;
 
 mlir::LogicalResult IE::generalRewrite(mlir::Operation* origOp, mlir::PatternRewriter& rewriter,
                                        FuncRef<mlir::Operation*(mlir::Value, int64_t)> opCreator,
-                                       FuncRef<SmallVector<int64_t>(mlir::Operation*, Shape)> calcOutputSliceOffset,
+                                       FuncRef<SmallVector<int64_t>(mlir::Operation*, ShapeRef)> calcOutputSliceOffset,
                                        FuncRef<void()> autopadAttributeModifier, Logger log) {
     auto* ctx = origOp->getContext();
 
@@ -39,7 +40,8 @@ mlir::LogicalResult IE::generalRewrite(mlir::Operation* origOp, mlir::PatternRew
     log.trace("Output padding : {0}", outPadsEnd);
 
     if (inPadsEnd[Dims4D::Act::C] == 0 && outPadsEnd[Dims4D::Act::C] == 0) {
-        if (VPU::canAutopadOutput(origOp) && !origOp->hasAttr(VPU::outChanAttrName)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp) &&
+            !origOp->hasAttr(VPU::outChanAttrName)) {
             autopadAttributeModifier();
             return mlir::success();
         }
@@ -99,7 +101,7 @@ mlir::LogicalResult IE::MaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp origOp, m
         const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 
@@ -159,7 +161,7 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
         const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 
@@ -169,7 +171,7 @@ mlir::LogicalResult IE::ConvolutionRewriter::matchAndRewrite(IE::ConvolutionOp o
                 origOp.getClampAttr(), origOp.getStaticScaleAttr(), outChanBeforeAttr, origOp.getInputChannelsAttr());
     };
 
-    const auto calcOutputSliceOffset = [&](mlir::Operation*, Shape outPadsEnd) -> SmallVector<int64_t> {
+    const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
         SmallVector<int64_t> offsets(outPadsEnd.size(), 0);
 
         return offsets;
@@ -275,7 +277,7 @@ mlir::LogicalResult IE::MatMulRewriter::matchAndRewrite(IE::MatMulOp origOp, mli
     auto newOutputType = inferOutputType(outputChannelPad);
 
     auto newOp = rewriter.create<IE::MatMulOp>(origOp.getLoc(), newOutputType, expandedInput1, expandedInput2,
-                                               origOp.getTransposeA(), origOp.getTransposeB());
+                                               origOp.getTransposeA(), origOp.getTransposeB(), origOp.getPostOpAttr());
 
     sliceOutput(newOp);
 
@@ -337,7 +339,7 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
         const auto newConvOutShape = newOutputType.getShape().toValues();
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 
@@ -392,7 +394,7 @@ mlir::LogicalResult IE::InterpolateRewriter::matchAndRewrite(IE::InterpolateOp o
         }
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 
@@ -403,7 +405,7 @@ mlir::LogicalResult IE::InterpolateRewriter::matchAndRewrite(IE::InterpolateOp o
                 outChanBeforeAttr);
     };
 
-    const auto calcOutputSliceOffset = [&](mlir::Operation*, Shape outPadsEnd) -> SmallVector<int64_t> {
+    const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
         SmallVector<int64_t> offsets(outPadsEnd.size(), 0);
 
         return offsets;
@@ -456,7 +458,7 @@ mlir::LogicalResult IE::TransposedConvolutionRewriter::matchAndRewrite(IE::Trans
         const auto newOutputType = outputType.pad(outPadBefore, outPadAfter);
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), outputType.getShape()[Dims4D::Act::C]);
         }
 
@@ -467,7 +469,7 @@ mlir::LogicalResult IE::TransposedConvolutionRewriter::matchAndRewrite(IE::Trans
                 origOp.getInputChannelsAttr());
     };
 
-    const auto calcOutputSliceOffset = [&](mlir::Operation*, Shape outPadsEnd) -> SmallVector<int64_t> {
+    const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
         return SmallVector<int64_t>(outPadsEnd.size(), 0);
     };
 
@@ -496,7 +498,7 @@ mlir::LogicalResult IE::PadRewriter::matchAndRewrite(IE::PadOp origOp, mlir::Pat
         const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 
@@ -506,7 +508,7 @@ mlir::LogicalResult IE::PadRewriter::matchAndRewrite(IE::PadOp origOp, mlir::Pat
                                           origOp.getModeAttr(), outChanBeforeAttr);
     };
 
-    const auto calcOutputSliceOffset = [&](mlir::Operation*, Shape outPadsEnd) -> SmallVector<int64_t> {
+    const auto calcOutputSliceOffset = [&](mlir::Operation*, ShapeRef outPadsEnd) -> SmallVector<int64_t> {
         return SmallVector<int64_t>(outPadsEnd.size(), 0);
     };
 
@@ -536,7 +538,7 @@ mlir::LogicalResult IE::AvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp origOp, m
         const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 

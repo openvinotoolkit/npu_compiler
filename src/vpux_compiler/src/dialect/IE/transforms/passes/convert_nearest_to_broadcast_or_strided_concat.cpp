@@ -14,6 +14,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTNEARESTTOSTRIDEDCONCAT
+#define GEN_PASS_DEF_CONVERTNEARESTTOSTRIDEDCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 //
 
 class ConvertNearestToBroadcastOrStridedConcatPass final :
-        public IE::ConvertNearestToStridedConcatBase<ConvertNearestToBroadcastOrStridedConcatPass> {
+        public IE::impl::ConvertNearestToStridedConcatBase<ConvertNearestToBroadcastOrStridedConcatPass> {
 public:
     explicit ConvertNearestToBroadcastOrStridedConcatPass(const bool interpolateAsSEOp, Logger log)
             : _interpolateAsSEOp(interpolateAsSEOp) {

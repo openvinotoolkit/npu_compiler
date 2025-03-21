@@ -47,7 +47,7 @@ class GridSampleLayerTestCommon : public GridSampleLayerTest, virtual public Vpu
         VpuOv2LayerTest::init_input_shapes(static_shapes_to_test_representation({dataShape, gridShape}));
 
         auto data = std::make_shared<ov::op::v0::Parameter>(modelType, VpuOv2LayerTest::inputDynamicShapes[0]);
-        // C#133057
+        // C-133057
         // `grid` element type should not be hardcoded to `f32`
         auto grid = std::make_shared<ov::op::v0::Parameter>(ov::element::f32, VpuOv2LayerTest::inputDynamicShapes[1]);
         auto gridSample = std::make_shared<ov::op::v9::GridSample>(
@@ -61,9 +61,6 @@ class GridSampleLayerTestCommon : public GridSampleLayerTest, virtual public Vpu
     }
 };
 
-class GridSampleLayerTest_Tiling : public GridSampleLayerTestCommon {};
-class GridSampleLayerTest_no_Tiling : public GridSampleLayerTestCommon {};
-
 TEST_P(GridSampleLayerTestCommon, NPU3720_HW) {
     VpuOv2LayerTest::abs_threshold = 0.8;
     VpuOv2LayerTest::setDefaultHardwareMode();
@@ -75,6 +72,7 @@ TEST_P(GridSampleLayerTestCommon, NPU4000_HW) {
     VpuOv2LayerTest::setDefaultHardwareMode();
     VpuOv2LayerTest::run(Platform::NPU4000);
 }
+
 }  // namespace test
 }  // namespace ov
 
@@ -125,12 +123,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample, GridSampleLayerTestCommon, 
                          GridSampleLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample_Tiling, GridSampleLayerTestCommon, paramsTiling,
-                         GridSampleLayerTest::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample, GridSampleLayerTest_no_Tiling, params,
-                         GridSampleLayerTest::getTestCaseName);
-
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample_Tiling, GridSampleLayerTest_Tiling, paramsTiling,
                          GridSampleLayerTest::getTestCaseName);
 
 }  // namespace

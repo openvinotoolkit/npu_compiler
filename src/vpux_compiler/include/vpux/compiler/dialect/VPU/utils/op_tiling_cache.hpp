@@ -19,6 +19,10 @@ namespace VPU {
 
 using OutputTilingCacheItem = mlir::FailureOr<OutputTiling>;
 
+using NTilesOnDim = Shape;
+
+using PerClusterShapeCacheItem = std::optional<SmallVector<Shape>>;
+
 /*
 Cache for possible tiling strategies for an operation with specified multi cluster strategy, tiling dim order and
 tiling mode.
@@ -37,31 +41,37 @@ public:
 
     void enableIfNecessary(bool enable);
 
-    llvm::hash_code calculateOpHash(mlir::Operation* op, const std::optional<TilingMode>& mode = std::nullopt,
-                                    const std::optional<DimArrRef>& dimOrder = std::nullopt,
+    llvm::hash_code calculateOpHash(mlir::Operation* op, const std::optional<DimArrRef>& dimOrder = std::nullopt,
                                     const std::optional<OutputTiling>& outputTile = std::nullopt);
+    llvm::hash_code updateOpHashWithTilingMode(mlir::Operation* op, llvm::hash_code opHash, TilingMode mode);
 
     llvm::hash_code calculateVPUNNLayerHash(const VPUNN::DPULayer& vpunnLayer,
                                             const VPUNN::VPULayerStrategy& vpunnStrategy);
 
-    mlir::FailureOr<OutputTiling> getHWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode tilingMode,
-                                                                           DimArrRef tileDimOrder, Logger log);
+    llvm::hash_code calculateShapeAndDistributionHash(ShapeRef shape, const VPU::DistributionInfo& distribution);
+
+    OutputTilingCacheItem getHWLayerTilingStrategyWithTileDimOrder(
+            mlir::Operation* op, llvm::hash_code opHash, TilingMode tilingMode, DimArrRef tileDimOrder,
+            ShapeRef outputShape, const std::optional<OutputTilingCacheItem>& isolatedTiles, Logger log);
 
     std::optional<OutputTilingCacheItem> getOutputTiling(llvm::hash_code opHash, mlir::Operation* op,
                                                          ShapeRef outputShape);
 
     std::optional<SmallVector<uint32_t>> getOpDpuCost(llvm::hash_code opHash);
 
+    std::optional<PerClusterShapeCacheItem> getPerClusterMemoryShapes(llvm::hash_code shapeHash);
+
     std::optional<uint32_t> getVPUNNLayerCost(llvm::hash_code layerHash);
 
-    void updateOutputTiling(const std::optional<llvm::hash_code>& opHash, mlir::Operation* op,
-                            const mlir::FailureOr<OutputTiling>& outputTile);
+    void updateOutputTiling(const llvm::hash_code opHash, mlir::Operation* op, const OutputTilingCacheItem& outputTile);
 
     void updateOpDPUCost(llvm::hash_code opHash, ArrayRef<uint32_t> cost);
 
     void updateVPUNNLayerCost(llvm::hash_code layerHash, uint32_t cost);
 
-    bool isCacheSupported(mlir::Operation* op);
+    void updatePerClusterShape(llvm::hash_code shapeHash, const PerClusterShapeCacheItem& perClusterShape);
+
+    bool isCacheSupported();
 
     void cleanUp();
 
@@ -71,15 +81,17 @@ private:
     OpTilingCache() = default;
 
     std::optional<llvm::hash_code> calculateInputOutputModeHash(mlir::Operation* op,
-                                                                const mlir::FailureOr<OutputTiling>& outputTiling);
+                                                                const OutputTilingCacheItem& outputTiling);
 
     std::mutex _tilingMutex;
     std::mutex _dpuMutex;
     std::mutex _vpunnLayerMutex;
-    DenseMap<llvm::hash_code, std::optional<Shape>> _tilingCache;
+    std::mutex _perClusterShapeMutex;
+    DenseMap<llvm::hash_code, std::optional<NTilesOnDim>> _tilingCache;
     DenseMap<llvm::hash_code, std::optional<llvm::hash_code>> _opHashToInputOutputModeHash;
     DenseMap<llvm::hash_code, SmallVector<uint32_t>> _opDpuCostCache;
     DenseMap<llvm::hash_code, uint32_t> _vpunnLayerCostCache;
+    DenseMap<llvm::hash_code, PerClusterShapeCacheItem> _perClusterShapeCache;
 
     bool _enableCache{false};
 
@@ -91,6 +103,9 @@ private:
 
     std::atomic<uint64_t> _vpunnLayerCostHitCount{0};
     std::atomic<uint64_t> _vpunnLayerCostAccessCount{0};
+
+    std::atomic<uint64_t> _perClusterShapeHitCount{0};
+    std::atomic<uint64_t> _perClusterShapeAccessCount{0};
 };
 }  // namespace VPU
 }  // namespace vpux

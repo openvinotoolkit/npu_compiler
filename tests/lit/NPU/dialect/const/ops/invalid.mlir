@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize --verify-diagnostics
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @EraseTiledInfoInvalid
 
 #I = affine_map<(i) -> (i)>

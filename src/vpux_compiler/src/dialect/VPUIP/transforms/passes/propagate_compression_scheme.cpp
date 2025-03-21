@@ -9,6 +9,12 @@
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_PROPAGATESPARSITYCOMPRESSION
+#define GEN_PASS_DEF_PROPAGATESPARSITYCOMPRESSION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 //
 
 class PropagateSparsityCompression final :
-        public VPUIP::PropagateSparsityCompressionBase<PropagateSparsityCompression> {
+        public VPUIP::impl::PropagateSparsityCompressionBase<PropagateSparsityCompression> {
 public:
     explicit PropagateSparsityCompression(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

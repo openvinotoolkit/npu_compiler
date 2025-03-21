@@ -1,25 +1,22 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/frontend/IE.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/attributes/strides.hpp"
-#include "vpux/compiler/core/attributes/tensor_attr.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/core/types/quantile_float/dialect.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/sub_byte.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/cal_range_data.hpp"
@@ -29,21 +26,13 @@
 #include "vpux/compiler/utils/strings.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
-#include "vpux/passes/clean_up_fq.hpp"
-#include "vpux/passes/convert_variadic_split_to_strided_slice.hpp"
-#include "vpux/passes/fuse_scale_in_previous_weights_fq.hpp"
-#include "vpux/passes/fuse_scaleshift.hpp"
-#include "vpux/passes/propagate_fq.hpp"
-#include "vpux/passes/remove_split_concat.hpp"
-#include "vpux/passes/replace_onnx_pattern_to_reorg.hpp"
-
-#include "vpux/utils/IE/config.hpp"
-#include "vpux/utils/IE/format.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+
+#include "intel_npu/config/config.hpp"
 
 #include <mlir/IR/AsmState.h>
 #include <mlir/IR/BuiltinDialect.h>
@@ -60,8 +49,6 @@
 #include <openvino/pass/manager.hpp>
 #include <openvino/pass/serialize.hpp>
 
-#include "vpux/passes/fuse_mvn.hpp"
-
 #include <transformations/common_optimizations/add_fake_quantize_fusion.hpp>
 #include <transformations/common_optimizations/batch_to_space_fusion.hpp>
 #include <transformations/common_optimizations/conv_mul_fusion.hpp>
@@ -69,6 +56,7 @@
 #include <transformations/common_optimizations/depth_to_space_fusion.hpp>
 #include <transformations/common_optimizations/dropout_with_random_uniform_replacer.hpp>
 #include <transformations/common_optimizations/fq_mul_fusion.hpp>
+#include <transformations/common_optimizations/fuse_rotary_positional_embeddings.hpp>
 #include <transformations/common_optimizations/lin_op_sequence_fusion.hpp>
 #include <transformations/common_optimizations/moc_transformations.hpp>
 #include <transformations/common_optimizations/mul_conv_fusion.hpp>
@@ -79,6 +67,7 @@
 #include <transformations/common_optimizations/reduce_reshape_fusion.hpp>
 #include <transformations/common_optimizations/relu_fake_quantize_fusion.hpp>
 #include <transformations/common_optimizations/rms_fusion.hpp>
+#include <transformations/common_optimizations/shared_ops_optimization.hpp>
 #include <transformations/common_optimizations/shuffle_channels_fusion.hpp>
 #include <transformations/common_optimizations/space_to_batch_fusion.hpp>
 #include <transformations/common_optimizations/strides_optimization.hpp>
@@ -147,6 +136,34 @@ ResType getSparsityStatsFieldChecked(const std::shared_ptr<ov::Model>& model, co
                       primaryKey, secondaryKey);
     return model->get_rt_info<ResType>(NGRAPH_ACT_SPARSITY_STATS_KEY, primaryKey, secondaryKey);
 }
+
+SmallVector<int64_t> importShape(const ov::PartialShape& shape) {
+    VPUX_THROW_UNLESS(shape.rank().is_static(), "Dynamically ranked tensors are not supported");
+
+    SmallVector<int64_t> out(checked_cast<size_t>(shape.rank().get_length()));
+    std::transform(shape.begin(), shape.end(), out.begin(), [](const ov::Dimension& dim) {
+        return dim.is_static() ? dim.get_length() : mlir::ShapedType::kDynamic;
+    });
+
+    return out;
+}
+
+ov::Dimension toBoundedDim(ov::Dimension dim) {
+    if (dim.is_static()) {
+        return dim;
+    }
+    auto max = dim.get_interval().get_max_val();
+    VPUX_THROW_WHEN(max == ov::Interval::s_max, "Upper bounds were not specified, got the default value - '{0}'", max);
+    return max;
+}
+
+template <typename T, typename InputType>
+std::shared_ptr<const T> getParentNodeAs(InputType input) {
+    auto sourceOutput = input.get_source_output();
+    auto parentNode = sourceOutput.get_node_shared_ptr();
+    return ov::as_type_ptr<const T>(parentNode);
+}
+
 }  // namespace
 
 NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Node>& op) {
@@ -261,6 +278,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset2::ROIPooling),
             MAP_ENTRY(ov::opset1::PSROIPooling),
             MAP_ENTRY(ov::op::v9::ROIAlign),
+            MAP_ENTRY(ov::opset6::ExperimentalDetectronROIFeatureExtractor),
             MAP_ENTRY(ov::opset1::StridedSlice),
             MAP_ENTRY(ov::opset1::PRelu),
             MAP_ENTRY(ov::opset4::Swish),
@@ -329,6 +347,8 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::op::internal::RMS),
             MAP_ENTRY(ov::opset14::Inverse),
             MAP_ENTRY(ov::opset8::DeformableConvolution),
+            MAP_ENTRY(ov::opset1::VariadicSplit),
+            MAP_ENTRY(ov::op::internal::RoPE),
     };
 
 #undef MAP_ENTRY
@@ -385,22 +405,6 @@ mlir::Type importPrecision(mlir::MLIRContext* ctx, const ov::element::Type& prec
 //
 // buildMainFunc
 //
-
-ov::Dimension toBoundedDim(ov::Dimension dim) {
-    if (dim.is_static()) {
-        return dim;
-    }
-    auto max = dim.get_interval().get_max_val();
-    VPUX_THROW_WHEN(max == ov::Interval::s_max, "Upper bounds were not specified, got the default value - '{0}'", max);
-    return max;
-}
-
-template <typename T, typename InputType>
-std::shared_ptr<const T> getParentNodeAs(InputType input) {
-    auto sourceOutput = input.get_source_output();
-    auto parentNode = sourceOutput.get_node_shared_ptr();
-    return ov::as_type_ptr<const T>(parentNode);
-}
 
 void NGraphImporter::saveInfoAboutBounds(mlir::OpBuilder& builder, const OrigNodePtr& origNode) {
     auto inputs = getInputs(origNode);
@@ -725,7 +729,6 @@ void NGraphImporter::buildBlockFromRegion(mlir::Location loc, mlir::OpBuilder& b
         blockOutputs.push_back(resultInputs[0]);
     }
     builder.create<IE::YieldOp>(loc, blockOutputs);
-    return;
 }
 
 void NGraphImporter::buildBlockFromBody(mlir::Location loc, mlir::OpBuilder& builder, mlir::Block* block) {
@@ -789,7 +792,6 @@ void NGraphImporter::buildBlockFromBody(mlir::Location loc, mlir::OpBuilder& bui
         blockOutputs.push_back(resultInputs[0]);
     }
     builder.create<IE::LoopTerminatorOp>(loc, blockOutputs);
-    return;
 }
 
 SmallVector<mlir::Type> NGraphImporter::getRegionResults() {
@@ -1055,7 +1057,7 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
                       origNode->get_friendly_name(), inputs.size());
 
     auto op = builder.create<IE::MatMulOp>(createLocation(origNode), inputs[0], inputs[1], origNode->get_transpose_a(),
-                                           origNode->get_transpose_b());
+                                           origNode->get_transpose_b(), nullptr);
     addOutputs(origNode, op);
 }
 
@@ -2354,6 +2356,26 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     addOutputs(origNode, op);
 }
 
+void NGraphImporter::parseNode(mlir::OpBuilder& builder,
+                               const std::shared_ptr<ov::opset6::ExperimentalDetectronROIFeatureExtractor>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type,
+                               ov::op::v6::ExperimentalDetectronROIFeatureExtractor>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(
+            (inputs.size() == 2) || (inputs.size() == 3) || (inputs.size() == 4),
+            "nGraph ExperimentalDetectronROIFeatureExtractor node '{0}' has unsupported number of inputs '{1}'",
+            origNode->get_friendly_name(), inputs.size());
+
+    const auto expDetectronROIFeatureExtractAttr = importExpDetectronROIFeatureExtractAttrs(origNode->get_attrs());
+
+    auto op = builder.create<IE::ExperimentalDetectronROIFeatureExtractorOp>(createLocation(origNode), inputs,
+                                                                             expDetectronROIFeatureExtractAttr);
+
+    addOutputs(origNode, op);
+}
+
 void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Concat>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v0::Concat>::value,
                   "opset operation mismatch");
@@ -2833,7 +2855,7 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     const auto& autob = origNode->get_autob();
 
     auto op = builder.create<IE::AndOp>(createLocation(origNode), inputs[0], inputs[1],
-                                        importBroadcastType(autob.m_type), nullptr, nullptr, nullptr, nullptr);
+                                        importBroadcastType(autob.m_type));
     addOutputs(origNode, op);
 }
 
@@ -2937,6 +2959,17 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
                       origNode->get_friendly_name(), inputs.size());
 
     auto op = builder.create<IE::RMSOp>(createLocation(origNode), inputs[0], inputs[1], epsilon);
+    addOutputs(origNode, op);
+}
+
+void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::internal::RoPE>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::RoPE>::value,
+                  "opset operation mismatch");
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph RoPE node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
     addOutputs(origNode, op);
 }
 
@@ -3115,7 +3148,14 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph BitwiseNot node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::BitwiseNotOp>(createLocation(origNode), inputs[0]);
+    auto inputType = inputs[0].getType().cast<vpux::NDTypeInterface>();
+    mlir::Operation* op;
+    if (inputType.getElementType().isSignlessInteger()) {
+        op = builder.create<IE::LogicalNotOp>(createLocation(origNode), inputs[0]);
+    } else {
+        op = builder.create<IE::BitwiseNotOp>(createLocation(origNode), inputs[0]);
+    }
+
     addOutputs(origNode, op);
 }
 
@@ -3845,6 +3885,35 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder,
     addOutputs(origNode, op);
 }
 
+void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::VariadicSplit>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::opset1::VariadicSplit>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph node '{0}' has unsupported number of inputs '{1}'.",
+                      origNode->get_friendly_name(), inputs.size());
+
+    // Assumed to be always constant
+    const auto axisNode = ov::as_type_ptr<ov::op::v0::Constant>(origNode->input_value(1).get_node_shared_ptr());
+    VPUX_THROW_UNLESS(axisNode != nullptr,
+                      "nGraph VariadicSplit node '{0}' has unsupported axis input. It must be a Constant node.",
+                      origNode->get_friendly_name());
+    const auto axis = axisNode->cast_vector<int64_t>().front();
+
+    const auto splitLengthsNode = ov::as_type_ptr<ov::op::v0::Constant>(origNode->input_value(2).get_node_shared_ptr());
+    VPUX_THROW_UNLESS(
+            splitLengthsNode != nullptr,
+            "nGraph VariadicSplit node '{0}' has unsupported split_lengths input. It must be a Constant node.",
+            origNode->get_friendly_name());
+    const auto splitLengths = splitLengthsNode->cast_vector<int64_t>();
+
+    const auto input = inputs[0];
+    auto op = builder.create<IE::VariadicSplitOp>(createLocation(origNode), input, axis,
+                                                  getIntArrayAttr(builder, splitLengths));
+
+    addOutputs(origNode, op);
+}
+
 //
 // IR builder helpers
 //
@@ -3880,18 +3949,6 @@ mlir::Location NGraphImporter::createLocation(const OrigNodePtr& node) {
 //
 // nGraph attributes importers
 //
-
-SmallVector<int64_t> NGraphImporter::importShape(const ov::PartialShape& shape) {
-    VPUX_THROW_UNLESS(shape.rank().is_static(), "Dynamically ranked tensors are not supported");
-
-    SmallVector<int64_t> out(checked_cast<size_t>(shape.rank().get_length()));
-    for (const auto ind : irange(out.size())) {
-        const auto& dim = shape[ind];
-        out[ind] = dim.is_static() ? dim.get_length() : mlir::ShapedType::kDynamic;
-    }
-
-    return out;
-}
 
 mlir::RankedTensorType NGraphImporter::importTensor(const ov::PartialShape& shape, const ov::element::Type& elemType) {
     return mlir::RankedTensorType::get(ArrayRef(importShape(shape)), importPrecision(_ctx, elemType));
@@ -4173,6 +4230,17 @@ IE::DetectionOutputAttr NGraphImporter::importDetectionOutputAttrs(const ov::op:
                                         objectnessScoreAttr);
 }
 
+IE::ExperimentalDetectronROIFeatureExtractorAttr NGraphImporter::importExpDetectronROIFeatureExtractAttrs(
+        const ov::op::v6::ExperimentalDetectronROIFeatureExtractor::Attributes& val) {
+    const auto outputSizeAttr = getIntAttr(_ctx, val.output_size);
+    const auto samplingRatioAttr = getIntAttr(_ctx, val.sampling_ratio);
+    const auto pyramidScalesAttr = getIntArrayAttr(_ctx, val.pyramid_scales);
+    const auto alignedAttr = mlir::BoolAttr::get(_ctx, val.aligned);
+
+    return IE::ExperimentalDetectronROIFeatureExtractorAttr::get(_ctx, outputSizeAttr, samplingRatioAttr, alignedAttr,
+                                                                 pyramidScalesAttr);
+}
+
 IE::ROIPoolingMethodAttr NGraphImporter::importROIPoolingMethod(const std::string& method) {
     IE::ROIPoolingMethodAttr attr;
     if (method == "max") {
@@ -4420,17 +4488,38 @@ IE::ScatterElementsUpdateReductionTypeAttr NGraphImporter::importScatterElements
 }
 
 mlir::RankedTensorType importUserTensor(mlir::MLIRContext* ctx, const ov::descriptor::Tensor& tensor) {
-    const ov::Shape ovShape = tensor.get_partial_shape().get_max_shape();
-    const vpux::Shape shape(ovShape.begin(), ovShape.end());
+    const auto& partialShape = tensor.get_partial_shape();
+
+    const auto importedShape = importShape(partialShape);
+    const vpux::Shape shape(importedShape.begin(), importedShape.end());
     const auto precision = importPrecision(ctx, tensor.get_element_type());
-    return getTensorType(shape, precision, DimsOrder::fromNumDims(ovShape.size()), nullptr);
+    auto importedTensor = getTensorType(shape, precision, DimsOrder::fromNumDims(shape.size()), nullptr);
+
+    if (partialShape.is_dynamic()) {
+        ov::PartialShape boundedOutShape;
+        try {
+            std::transform(partialShape.begin(), partialShape.end(), std::back_inserter(boundedOutShape), toBoundedDim);
+        } catch (...) {
+            // FIXME(E#151586) remove this try-catch block
+            Logger::global().error("Found partialShape without bounds: {0}", partialShape.to_string());
+            return importedTensor;
+        }
+
+        auto boundedTensorType = mlir::cast<vpux::BoundedTypeInterface>(importedTensor);
+        boundedTensorType = boundedTensorType.changeBounds(
+                getIntArrayAttr(importedTensor.getContext(), boundedOutShape.to_shape()));
+
+        return mlir::cast<mlir::RankedTensorType>(boundedTensorType);
+    }
+
+    return importedTensor;
 }
 
 //
 // runNGraphPasses
 //
 
-static void addCommonOptimizationsPasses(ov::pass::Manager& manager, bool isDynamic) {
+static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
     // MOCTransformations contain StridedSliceOptimization transformation,
     // so we must call SliceToStridedSlice before MOCTransformations call
     manager.register_pass<ov::pass::SliceToStridedSlice>(true);
@@ -4470,9 +4559,6 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager, bool isDyna
     decomp->add_matcher<ov::pass::Gelu7Downgrade>();
     decomp->add_matcher<ov::pass::BidirectionalGRUSequenceDecomposition>();
     decomp->add_matcher<ov::pass::BidirectionalRNNSequenceDecomposition>();
-    if (isDynamic) {
-        decomp->add_matcher<ov::pass::BidirectionalLSTMSequenceDecomposition>();
-    }
     decomp->add_matcher<ov::pass::ConvertBroadcastToTiles>();
     decomp->add_matcher<ov::pass::ConvertConvertLike>();
     decomp->add_matcher<ov::pass::BatchNormDecomposition>();
@@ -4522,37 +4608,24 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
 
     ov::pass::Manager manager;
     manager.register_pass<ov::pass::InitNodeInfo>();
-    manager.register_pass<vpux::passes::ConvertInstanceNormToMVN>();
-    manager.register_pass<vpux::pass::RemoveSplitConcat>();
     ov::element::TypeVector decompression_precisions{
             ov::element::u4, ov::element::i4, ov::element::nf4, ov::element::u8, ov::element::i8,
     };
-    manager.register_pass<ov::pass::MarkDequantizationSubgraph>(decompression_precisions, /*fold_subtract_const=*/true);
+
+    manager.register_pass<ov::pass::MarkDequantization>(decompression_precisions, /*fold_subtract_const=*/true);
+    manager.register_pass<ov::pass::KeepConstsPrecision>(decompression_precisions, /*fold_subtract_const=*/true);
+    manager.register_pass<ov::pass::SharedOpOptimization>();
     manager.register_pass<ov::pass::ConvertQuantizeDequantize>();
     manager.register_pass<ov::pass::ConstantFolding>();
-    manager.register_pass<vpux::pass::FuseScaleShift>();
     manager.register_pass<ov::pass::ConvertScatterElementsUpdate12ToScatterElementsUpdate3>();
     manager.register_pass<ov::pass::ConvertInterpolate1ToInterpolate4>();
     manager.register_pass<ov::pass::ConvertInterpolate11ToInterpolate4>();
     manager.register_pass<ov::pass::ConvertTopK11ToTopK3>();
     manager.register_pass<ov::pass::ConvertPad12ToPad1>();
     manager.register_pass<ov::pass::ConstantFolding>();
-    manager.register_pass<vpux::passes::OnnxReorgPatternToDarkNetReorg>();
-    manager.register_pass<vpux::pass::FuseScaleAfterClamp>();
-    addCommonOptimizationsPasses(manager, netGraph->is_dynamic());
-
-    manager.register_pass<vpux::passes::PropagateFQ>();
-
-    // we need additionally propagate FQs because some ReLUs may be removed
-    manager.register_pass<vpux::passes::PropagateFQ>();
-    manager.register_pass<vpux::passes::CleanUpFQ>();
+    addCommonOptimizationsPasses(manager);
 
     manager.register_pass<ov::pass::ConvertSoftMax1ToSoftMax8>();
-
-    // MVN Conversion passes
-    manager.register_pass<vpux::passes::ConvertLayerNormToMVN>();
-
-    manager.register_pass<vpux::passes::ConvertVariadicSplitToStridedSliceOp>();
 
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
     if (const auto serializeCanonicalModel = std::getenv("NPU_SERIALIZE_CANONICAL_MODEL")) {

@@ -190,4 +190,10 @@ SmallVector<SmallVector<T>> parseFPArrayOfArrayAttr(mlir::ArrayAttr arr) {
     return arrayOfArray;
 }
 
+/// Returns a dense_resource<> key.
+mlir::StringRef getResourceName(mlir::DenseResourceElementsAttr attr);
+/// Returns a dense_resource<> key. If the attribute is not a resource, an empty
+/// string is returned.
+mlir::StringRef getResourceName(mlir::ElementsAttr attr);
+
 }  // namespace vpux

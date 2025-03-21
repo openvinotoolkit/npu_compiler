@@ -8,12 +8,18 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CALCULATEASYNCREGIONCYCLECOST
+#define GEN_PASS_DEF_CALCULATEASYNCREGIONCYCLECOST
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
 
 class CalculateAsyncRegionCycleCostPass final :
-        public VPUIP::CalculateAsyncRegionCycleCostBase<CalculateAsyncRegionCycleCostPass> {
+        public VPUIP::impl::CalculateAsyncRegionCycleCostBase<CalculateAsyncRegionCycleCostPass> {
 public:
     explicit CalculateAsyncRegionCycleCostPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

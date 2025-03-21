@@ -8,11 +8,15 @@
 
 using namespace vpux;
 
+bool DebatchedCallOpData::canBeDeserialized(const SmallVector<ValueType>& array) {
+    constexpr uint32_t minElementsInArray = 2;
+    return array.size() >= minElementsInArray;
+}
+
 DebatchedCallOpData DebatchedCallOpData::deserialize(const SmallVector<ValueType>& array) {
-    static constexpr uint32_t minElementsInArray = 2;
-    VPUX_THROW_UNLESS(array.size() >= minElementsInArray,
-                      "Cannot deserialzie DebatchedCallOpData from array, expected elements count: {0}, got {1}",
-                      minElementsInArray, array.size());
+    VPUX_THROW_UNLESS(DebatchedCallOpData::canBeDeserialized(array),
+                      "Cannot deserialzie DebatchedCallOpData from array. More elements expected, got {1}",
+                      array.size());
     return DebatchedCallOpData{array[0], array[1]};
 }
 
@@ -82,4 +86,17 @@ DebatchedCallOpData::ValueType DebatchedCallOpAttributeView::getAvailableTilesVa
                     .cast<mlir::IntegerAttr>()
                     .getValue()
                     .getSExtValue());
+}
+
+bool DebatchedCallOpAttributeView::hasReorderingAttr(mlir::func::CallOp callOp) {
+    return callOp->hasAttr(DebatchedCallOpAttributeView::reorderingAttrName());
+}
+
+void DebatchedCallOpAttributeView::setReorderingAttr(mlir::func::CallOp callOp) {
+    auto newAttr = getIntAttr(callOp->getContext(), 1);
+
+    VPUX_THROW_UNLESS(newAttr != nullptr, "Failed to create new 'DebatchedCallOpAttributeView' attribute \"{0}\"",
+                      DebatchedCallOpAttributeView::reorderingAttrName());
+
+    callOp->setAttr(DebatchedCallOpAttributeView::reorderingAttrName(), newAttr);
 }

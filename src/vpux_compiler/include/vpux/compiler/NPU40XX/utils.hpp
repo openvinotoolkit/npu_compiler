@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -20,14 +20,12 @@ bool isConvertSupportedOnDMA(T convertOp) {
     auto module = convertOp.getOperation();
     // ConvertSWLayers2VPUIPSWKernelPass still rely on arch check logic here
     // Remove arch check when one-shot enabled, TODO: E#113196
-    auto archKind = VPU::getArch(module);
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(archKind) <= 0) {
-        // Feature is only tested on NPU40XX
+    auto arch = VPU::getArch(module);
+    if (arch < VPU::ArchKind::NPU40XX) {
+        // Feature is only tested on 40XX
         return false;
     }
+
     auto inputElementType = convertOp.getInput().getType().template cast<NDTypeInterface>().getElementType();
     auto outputElementType = convertOp.getDstElemType();
 

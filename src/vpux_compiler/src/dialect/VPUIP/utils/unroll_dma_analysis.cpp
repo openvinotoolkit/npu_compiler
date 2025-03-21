@@ -4,8 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/utils/unroll_dma_analysis.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 using namespace vpux;
 namespace {

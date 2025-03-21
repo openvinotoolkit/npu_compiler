@@ -4,9 +4,11 @@
 //
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -15,15 +17,17 @@ using namespace vpux;
 
 namespace {
 
-mlir::LogicalResult verifyTensorSize(mlir::Location loc, mlir::Value tensor) {
+mlir::LogicalResult verifyTensorSize(VPU::ArchKind arch, mlir::Location loc, mlir::Value tensor) {
     const auto size = static_cast<Byte>(getCompactSize(tensor));
 
-    if (size <= VPUIP::DMA_LIMIT) {
+    auto maxTransferSize = VPUIP::DMA::getEngineLimits(arch).getTransferLimits().max();
+
+    if (size <= maxTransferSize) {
         return mlir::success();
     }
 
     return errorAt(loc, "The size of the DMA transaction {0} for a {1} tensor is greater than the limit {2}", size,
-                   getShape(tensor), VPUIP::DMA_LIMIT);
+                   getShape(tensor), maxTransferSize);
 }
 
 mlir::LogicalResult verifyInOutElementType(mlir::Location loc, mlir::Value inTensor, mlir::Value outTensor) {
@@ -73,7 +77,7 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
     build(builder, state, input, output_buff, /*port=*/nullptr, /*is_out_of_order=*/false,
           /*is_critical=*/false,
           /*spillId=*/nullptr, /*compress_candidate=*/nullptr, /*dma_hwp_id=*/nullptr, /* profilingMetadata= */ nullptr,
-          /*split_candidate=*/false);
+          /*split_candidate=*/false, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -82,7 +86,7 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
           /*is_out_of_order=*/false,
           /*is_critical=*/false,
           /*spillId=*/nullptr, /*compress_candidate=*/nullptr, /*dma_hwp_id=*/nullptr, /* profilingMetadata= */ nullptr,
-          /*split_candidate=*/false);
+          /*split_candidate=*/false, /*profiling_buffer_mgmt=*/false, /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -91,7 +95,8 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
           /*is_out_of_order=*/false,
           /*is_critical=*/false,
           /*spillId=*/nullptr, /*compress_candidate=*/nullptr, vpux::getIntAttr(builder, dma_hwp_id),
-          /* profilingMetadata= */ nullptr, /*split_candidate=*/false);
+          /* profilingMetadata= */ nullptr, /*split_candidate=*/false, /*profiling_buffer_mgmt=*/false,
+          /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -100,7 +105,8 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
     build(builder, state, input, output_buff, /*port=*/port,
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/nullptr, /*dma_hwp_id=*/nullptr,
-          /* profilingMetadata= */ nullptr, /*split_candidate=*/nullptr);
+          /* profilingMetadata= */ nullptr, /*split_candidate=*/nullptr, /*profiling_buffer_mgmt=*/nullptr,
+          /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -110,7 +116,8 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/compress_candidate,
           /*dma_hwp_id=*/nullptr,
-          /* profilingMetadata= */ nullptr, /*split_candidate=*/false);
+          /* profilingMetadata= */ nullptr, /*split_candidate=*/false, /*profiling_buffer_mgmt=*/false,
+          /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
@@ -119,17 +126,19 @@ void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState&
     build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/nullptr, /*dma_hwp_id=*/nullptr,
-          /* profilingMetadata=*/nullptr, /*split_candidate=*/false);
+          /* profilingMetadata=*/nullptr, /*split_candidate=*/false, /*profiling_buffer_mgmt=*/false,
+          /*fusionId=*/nullptr);
 }
 
 void vpux::VPUIP::NNDMAOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Value input,
                                  mlir::Value output_buff, int64_t port, bool is_out_of_order, bool is_critical,
-                                 mlir::IntegerAttr spillId, mlir::UnitAttr compress_candidate, bool split_candidate) {
+                                 mlir::IntegerAttr spillId, mlir::UnitAttr compress_candidate, bool split_candidate,
+                                 mlir::IntegerAttr fusionId) {
     build(builder, state, input, output_buff, /*port=*/vpux::getIntAttr(builder, port),
           /*is_out_of_order=*/is_out_of_order,
           /*is_critical=*/is_critical, /*spillId=*/spillId, /*compress_candidate=*/compress_candidate,
           /*dma_hwp_id=*/nullptr,
-          /* profilingMetadata=*/nullptr, split_candidate);
+          /* profilingMetadata=*/nullptr, split_candidate, /*profiling_buffer_mgmt=*/false, fusionId);
 }
 
 mlir::LogicalResult vpux::VPUIP::NNDMAOp::verify() {
@@ -154,7 +163,7 @@ mlir::LogicalResult vpux::VPUIP::NNDMAOp::verify() {
         }
     }
 
-    return verifyTensorSize(loc, getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), loc, getInput());
 }
 
 size_t vpux::VPUIP::NNDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -187,7 +196,7 @@ void vpux::VPUIP::PermuteDMAOp::build(mlir::OpBuilder& builder, mlir::OperationS
 }
 
 mlir::LogicalResult vpux::VPUIP::PermuteDMAOp::verify() {
-    return verifyTensorSize(getLoc(), getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
 }
 
 size_t vpux::VPUIP::PermuteDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -234,8 +243,8 @@ mlir::LogicalResult vpux::VPUIP::GatherDMAOp::verify() {
         return mlir::success();
     }
 
-    // TODO: #E#86281 move to 40xx
-    if (arch != VPU::ArchKind::NPU40XX) {
+    // TODO: E#-86281 move to 40xx
+    if (arch < VPU::ArchKind::NPU40XX) {
         return errorAt(loc, "Operation {0} is only supported for NPU40XX but got {1}.", getOperationName(), arch);
     }
 
@@ -256,7 +265,7 @@ mlir::LogicalResult vpux::VPUIP::GatherDMAOp::verify() {
                        DMA_MAX_INDICES_LIST_LENGTH_ARCH_BASED);
     }
 
-    return verifyTensorSize(loc, getOutput());
+    return verifyTensorSize(VPU::getArch(getOperation()), loc, getOutput());
 }
 
 size_t vpux::VPUIP::GatherDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -302,17 +311,17 @@ mlir::LogicalResult vpux::VPUIP::ConvertDMAOp::verify() {
     auto inputType = getInput().getType().cast<vpux::NDTypeInterface>();
     const auto inputElementType = inputType.getElementType();
 
-    if ((arch != VPU::ArchKind::NPU40XX) || !inputElementType.isF32() ||
+    if ((arch < VPU::ArchKind::NPU40XX) || !inputElementType.isF32() ||
         (!outputElementType.isF16() && !outputElementType.isBF16())) {
         return errorAt(loc,
-                       "Operation {0} is only supported for NPU40XX arch for F32 to F16/BF16 "
+                       "Operation {0} is only supported for NPU arch for F32 to F16/BF16 "
                        "conversion. "
                        "Got arch {1} "
                        "and conversion from {2} to {3}",
                        getOperationName(), arch, inputElementType, outputElementType);
     }
 
-    return verifyTensorSize(loc, getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), loc, getInput());
 }
 
 size_t vpux::VPUIP::ConvertDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -407,7 +416,7 @@ mlir::LogicalResult vpux::VPUIP::DecompressDMAOp::verify() {
     }
 
     if (mlir::failed(verifyInOutElementType(loc, getInput(), getOutput())) ||
-        mlir::failed(verifyTensorSize(loc, getInput()))) {
+        mlir::failed(verifyTensorSize(VPU::getArch(getOperation()), loc, getInput()))) {
         return mlir::failure();
     }
 
@@ -476,7 +485,7 @@ mlir::LogicalResult vpux::VPUIP::CompressDMAOp::verify() {
     }
 
     if (mlir::failed(verifyInOutElementType(loc, getInput(), getOutput())) ||
-        mlir::failed(verifyTensorSize(loc, getInput()))) {
+        mlir::failed(verifyTensorSize(VPU::getArch(getOperation()), loc, getInput()))) {
         return mlir::failure();
     }
 
@@ -522,7 +531,7 @@ void vpux::VPUIP::DepthToSpaceDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::Op
 }
 
 mlir::LogicalResult vpux::VPUIP::DepthToSpaceDMAOp::verify() {
-    return verifyTensorSize(getLoc(), getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
 }
 
 size_t vpux::VPUIP::DepthToSpaceDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -557,7 +566,7 @@ void vpux::VPUIP::SpaceToDepthDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::Op
 }
 
 mlir::LogicalResult vpux::VPUIP::SpaceToDepthDMAOp::verify() {
-    return verifyTensorSize(getLoc(), getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
 }
 
 size_t vpux::VPUIP::SpaceToDepthDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -595,11 +604,11 @@ void vpux::VPUIP::ExpandDMAOp::build(mlir::OpBuilder& builder, mlir::OperationSt
 }
 
 mlir::LogicalResult vpux::VPUIP::ExpandDMAOp::verify() {
-    // In case ExpandDMA with input size large than VPUIP::DMA_LIMIT (16MB).
+    // In case ExpandDMA with input size large than max plane size.
     // It should be tiled with several sub ExpandDMA that will be done at Unroll Pass.
     // Descriptor is generated at Unroll pass so using Descriptor as a flag to check the tensor size.
     if (getDmaDescriptor().has_value()) {
-        return verifyTensorSize(getLoc(), getInput());
+        return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
     }
 
     return mlir::success();
@@ -637,7 +646,7 @@ void vpux::VPUIP::PerAxisTileDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::Ope
 }
 
 mlir::LogicalResult vpux::VPUIP::PerAxisTileDMAOp::verify() {
-    return verifyTensorSize(getLoc(), getInput());
+    return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
 }
 
 size_t vpux::VPUIP::PerAxisTileDMAOp::getOperationCycleCost(std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
@@ -685,11 +694,11 @@ void vpux::VPUIP::UpsamplingDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::Oper
 }
 
 mlir::LogicalResult vpux::VPUIP::UpsamplingDMAOp::verify() {
-    // In case UpsamplingDMA with input size large than VPUIP::DMA_LIMIT (16MB).
+    // In case UpsamplingDMA with input size large than max plane size.
     // It should be tiled with several sub UpsamplingDMA that will be done at Unroll Pass.
     // Descriptor is generated at Unroll pass so using Descriptor as a flag to check the tensor size.
     if (getDmaDescriptor().has_value()) {
-        return verifyTensorSize(getLoc(), getInput());
+        return verifyTensorSize(VPU::getArch(getOperation()), getLoc(), getInput());
     }
 
     return mlir::success();

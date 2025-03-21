@@ -4,7 +4,7 @@
 //
 //
 
-#include "vpux/compiler/core/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/locations_verifier.hpp"
 

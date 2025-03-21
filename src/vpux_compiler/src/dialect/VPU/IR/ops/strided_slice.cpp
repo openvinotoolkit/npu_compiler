@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/empty_node.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"

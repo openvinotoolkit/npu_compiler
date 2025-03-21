@@ -164,7 +164,6 @@ TEST_P(MatMulWithDynQDWTestCommon, NPU4000_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 const std::vector<DynQuantShapes> shapes = {
         /*case1=*/{
                 /*_arg0=*/{1, 1, 3072},

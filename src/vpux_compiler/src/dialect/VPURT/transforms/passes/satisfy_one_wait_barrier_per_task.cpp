@@ -11,16 +11,22 @@
 
 #include <llvm/ADT/SetOperations.h>
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_SATISFYONEWAITBARRIERPERTASK
+#define GEN_PASS_DEF_SATISFYONEWAITBARRIERPERTASK
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
 
 class SatisfyOneWaitBarrierPerTaskPass final :
-        public VPURT::SatisfyOneWaitBarrierPerTaskBase<SatisfyOneWaitBarrierPerTaskPass> {
+        public VPURT::impl::SatisfyOneWaitBarrierPerTaskBase<SatisfyOneWaitBarrierPerTaskPass> {
 public:
-    explicit SatisfyOneWaitBarrierPerTaskPass(std::optional<int> virtualBarrierThresholdforWlm,
+    explicit SatisfyOneWaitBarrierPerTaskPass(std::optional<int> virtualBarrierThresholdForWlm,
                                               const bool unevenVariantSplitFlag, Logger log)
-            : _virtualBarrierThresholdforWlm(virtualBarrierThresholdforWlm),
+            : _virtualBarrierThresholdForWlm(virtualBarrierThresholdForWlm),
               _unevenVariantSplitFlag(unevenVariantSplitFlag) {
         Base::initLogger(log, Base::getArgumentName());
     }
@@ -29,7 +35,7 @@ private:
     void safeRunOnFunc() final;
     bool _mergeWaitBarriersIteratively = false;
     bool _considerTaskExecutorType = false;
-    std::optional<int> _virtualBarrierThresholdforWlm;
+    std::optional<int> _virtualBarrierThresholdForWlm;
     bool _unevenVariantSplitFlag;
 };
 
@@ -47,10 +53,10 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
     // to make each schedule feasible for WLM enabling
     // If WLM is enabled but number of barriers is above threshold do not force it as WLM will not be
     // enabled later nevertheless
-    if (wlmFlag && _virtualBarrierThresholdforWlm.has_value() &&
-        barrierInfo.getNumOfBarrierOps() > static_cast<size_t>(_virtualBarrierThresholdforWlm.value())) {
+    if (wlmFlag && _virtualBarrierThresholdForWlm.has_value() &&
+        barrierInfo.getNumOfBarrierOps() > static_cast<size_t>(_virtualBarrierThresholdForWlm.value())) {
         _log.trace("WLM flag turned off because number of barrier is above threshold {0} > {1}",
-                   barrierInfo.getNumOfBarrierOps(), _virtualBarrierThresholdforWlm.value());
+                   barrierInfo.getNumOfBarrierOps(), _virtualBarrierThresholdForWlm.value());
         wlmFlag = false;
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
     }
@@ -85,14 +91,14 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
         return;
     }
 
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);
     VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
     auto hasOneWaitBarrierPerTask = VPURT::verifyOneWaitBarrierPerTask(func, _log);
-    if (mergeWaitBarriersIteratively) {
-        VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more then one wait barrier");
+    if (mergeBarriersIteratively) {
+        VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more than one wait barrier");
     }
 }
 
@@ -103,7 +109,7 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPURT::createSatisfyOneWaitBarrierPerTaskPass(
-        std::optional<int> virtualBarrierThresholdforWlm, const bool unevenVariantSplitFlag, Logger log) {
-    return std::make_unique<SatisfyOneWaitBarrierPerTaskPass>(virtualBarrierThresholdforWlm, unevenVariantSplitFlag,
+        std::optional<int> virtualBarrierThresholdForWlm, const bool unevenVariantSplitFlag, Logger log) {
+    return std::make_unique<SatisfyOneWaitBarrierPerTaskPass>(virtualBarrierThresholdForWlm, unevenVariantSplitFlag,
                                                               log);
 }

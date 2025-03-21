@@ -10,6 +10,12 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_SWKERNELPREFETCHINGRESERVEMEM
+#define GEN_PASS_DEF_SWKERNELPREFETCHINGRESERVEMEM
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -19,7 +25,7 @@ namespace {
 //
 
 class SWKernelPrefetchingReserveMemPass final :
-        public VPUIP::SWKernelPrefetchingReserveMemBase<SWKernelPrefetchingReserveMemPass> {
+        public VPUIP::impl::SWKernelPrefetchingReserveMemBase<SWKernelPrefetchingReserveMemPass> {
 public:
     explicit SWKernelPrefetchingReserveMemPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

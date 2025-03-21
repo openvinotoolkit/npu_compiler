@@ -6,11 +6,11 @@
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/dma_rewriter.hpp"
 #include "vpux/compiler/conversion/passes/VPUIP2VPUMI40XX/buffer_conversion.hpp"
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 
 using namespace vpux;
 
@@ -86,10 +86,12 @@ mlir::LogicalResult PermuteDMARewriter::matchAndRewrite(VPUIP::PermuteDMAOp perm
 
     const auto dmaDescriptor = adaptor.getDmaDescriptor().value();
 
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(permuteDMAOp));
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+
     const auto numPlanes = checked_cast<uint32_t>(dmaDescriptor.getNumPlanes().getInt());
-    VPUX_THROW_UNLESS(numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES,
-                      "NUM PLANES should be less than or equal to {0}, but got {1}.", VPUIP::DMA_MAX_NUMBER_PLANES,
-                      numPlanes);
+    VPUX_THROW_UNLESS(numPlanes <= dmaMaxNumPlanes, "NUM PLANES should be less than or equal to {0}, but got {1}.",
+                      dmaMaxNumPlanes, numPlanes);
 
     auto dmaResults = convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff());
 

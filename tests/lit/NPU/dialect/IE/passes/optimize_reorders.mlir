@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-reorders %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -727,7 +726,7 @@ func.func @main(%arg0: tensor<1x3x30x30xui8, {order = #NHWC}>) -> tensor<1x3x30x
     %1 = IE.QuantizeCast(%0) {dstElemType = !qElemType} : tensor<1x3x30x30xui8> -> tensor<1x3x30x30x!qElemType>
 
     %2 = IE.Reorder(%1) {dstOrder = #NHWC} : tensor<1x3x30x30x!qElemType> -> tensor<1x3x30x30x!qElemType, {order = #NHWC}>
-    %3 = IE.And(%2, %2) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
+    %3 = IE.Add(%2, %2) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
             tensor<1x3x30x30x!qElemType, {order = #NHWC}>, tensor<1x3x30x30x!qElemType, {order = #NHWC}>
             -> tensor<1x3x30x30x!qElemType, {order = #NHWC}>
 
@@ -740,10 +739,36 @@ func.func @main(%arg0: tensor<1x3x30x30xui8, {order = #NHWC}>) -> tensor<1x3x30x
 
     // CHECK-NOT:  IE.Reorder
 
-    // CHECK:      [[VAR1:%.+]] = IE.And([[VAR0]], [[VAR0]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
+    // CHECK:      [[VAR1:%.+]] = IE.Add([[VAR0]], [[VAR0]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} :
     // CHECK-SAME:     tensor<1x3x30x30x!qElemType, {order = #NHWC}>, tensor<1x3x30x30x!qElemType, {order = #NHWC}> -> tensor<1x3x30x30x!qElemType, {order = #NHWC}>
 
     // CHECK:      return [[VAR1]] : tensor<1x3x30x30x!qElemType, {order = #NHWC}>
+}
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DontReorderEltwiseAndOp
+module @DontReorderEltwiseAndOp {
+
+func.func @main(%arg0: tensor<1x3x30x30xf16, {order = #NHWC}>) -> tensor<1x3x30x30xf16, {order = #NHWC}> {
+    // CHECK:       ([[ARG0:%.+]]: tensor<1x3x30x30xf16, {order = #NHWC}>) -> tensor<1x3x30x30xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<1x1x30x30xf16> = dense<9.997550e-02> : tensor<1x1x30x30xf16>
+    %0 = IE.Reorder(%arg0) {dstOrder = #NCHW} : tensor<1x3x30x30xf16, {order = #NHWC}> -> tensor<1x3x30x30xf16>
+    %1 = IE.And(%0, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x30x30xf16>, tensor<1x1x30x30xf16> -> tensor<1x3x30x30xf16>
+    %2 = IE.Reorder(%1) {dstOrder = #NHWC} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16, {order = #NHWC}>
+    return %2 : tensor<1x3x30x30xf16, {order = #NHWC}>
+
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<1x1x30x30xf16> = dense<9.997550e-02> : tensor<1x1x30x30xf16>
+    // CHECK:       [[REORDER_IN:%.+]] = IE.Reorder([[ARG0]]) {dstOrder = #NCHW} : tensor<1x3x30x30xf16, {order = #NHWC}> -> tensor<1x3x30x30xf16>
+    // CHECK:       [[AND:%.+]] = IE.And([[REORDER_IN]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x30x30xf16>, tensor<1x1x30x30xf16> -> tensor<1x3x30x30xf16>
+    // CHECK:       [[REORDER_OUT:%.+]] = IE.Reorder([[AND]]) {dstOrder = #NHWC} : tensor<1x3x30x30xf16> -> tensor<1x3x30x30xf16, {order = #NHWC}>
+
+    // CHECK        return [[REORDER_OUT]] : tensor<1x3x30x30xf16, {order = #NHWC}>
 }
 
 }

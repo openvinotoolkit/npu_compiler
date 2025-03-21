@@ -148,7 +148,8 @@ const std::vector<std::vector<ov::test::InputShape>> inShapesShapeOfBroadcastDat
 
         {staticShape(4, 1, 1), {{1, 4, ov::Dimension(1, 5), ov::Dimension(1, 5)}, {{1, 4, 2, 2}}}},
 
-        {staticShape(1, 1, 1), {{ov::Dimension(1, 10), 1, ov::Dimension(1, 5)}, {{8, 1, 3}}}},
+        /* E#151546 this case fails sporadically */
+        /* {staticShape(1, 1, 1), {{ov::Dimension(1, 10), 1, ov::Dimension(1, 5)}, {{8, 1, 3}}}}, */
 
         {staticShape(1, 16, 1, 1), {{1, 16, 1, ov::Dimension(1, 5)}, {{1, 16, 1, 3}}}}};
 

@@ -85,11 +85,13 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::rescale(double scale) {
 template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::relocateWeightsTablePointers(
         ArrayRef<uint32_t> weightsPtr, uint64_t sparsityPtr, vpux::ShapeRef offsets, uint64_t weightsTableSize,
-        uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset) {
+        uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset,
+        uint64_t originalOC) {
     return addTransformation(Const::RelocateWeightsTableAttr::get(
             getIntArrayAttr(getContext(), weightsPtr), getIntAttr(getContext(), sparsityPtr),
             getIntArrayAttr(getContext(), offsets), getIntAttr(getContext(), weightsTableSize),
-            getIntAttr(getContext(), weightsElemBitSize), weightsCompression, getIntAttr(getContext(), channelOffset)));
+            getIntAttr(getContext(), weightsElemBitSize), weightsCompression, getIntAttr(getContext(), channelOffset),
+            getIntAttr(getContext(), originalOC)));
 }
 template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::swizzleConstant(uint64_t swizzleKey, uint64_t arch) {
@@ -169,11 +171,22 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::fuse(mlir::RankedTensorTy
                                                             const ContentAttr& sparsity,
                                                             const ContentAttr& activations) {
     return addTransformation(
-            Const::FuseAttr::get(getContext(), fusedTensorType, weightsTable, weights, sparsity, activations));
+            Const::FuseWeightsAttr::get(getContext(), fusedTensorType, weightsTable, weights, sparsity, activations));
+}
+template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::fuse(mlir::RankedTensorType fusedTensorType,
+                                                            const std::vector<ContentAttr>& constants) {
+    return addTransformation(
+            Const::FuseAttr::get(getContext(), fusedTensorType, ContentArrayAttr::get(getContext(), constants)));
 }
 template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::quantize(mlir::quant::QuantizedType newElemType) {
     return addTransformation(Const::QuantizeAttr::get(getContext(), newElemType));
+}
+template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::affineReshape(mlir::ArrayAttr dimMapping,
+                                                                     mlir::ArrayAttr shapeValue) {
+    return addTransformation(Const::AffineReshapeAttr::get(dimMapping, shapeValue));
 }
 
 // Note: this lists explicit template instantiations. we know exactly how many

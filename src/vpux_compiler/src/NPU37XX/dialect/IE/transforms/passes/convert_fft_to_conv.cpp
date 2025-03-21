@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/fft_ops_utils.hpp"
@@ -17,6 +18,12 @@
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_CONVERTFFTTOCONV
+#define GEN_PASS_DEF_CONVERTFFTTOCONV
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -215,15 +222,15 @@ mlir::Value fftGetTwiddleFactorsForIrdftRealOutput(mlir::Location loc, int64_t a
 }
 
 auto fftOneAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc, AnyRankedTensor inIter,
-                         int64_t axisLength, DimArr curOrder, int64_t lastComplexAxes, int64_t axis, bool isInverseFFT,
-                         bool inputIsComplex, bool isRdftLastAxisCut, Logger log,
+                         int64_t axisLength, const DimArr& curOrder, int64_t lastComplexAxes, int64_t axis,
+                         bool isInverseFFT, bool inputIsComplex, bool isRdftLastAxisCut, Logger log,
                          mlir::Value (*getTwiddleFactors)(mlir::Location, int64_t, mlir::Type, mlir::PatternRewriter&,
                                                           bool, bool)) {
     log.trace("fftOneAxisDecompose: {0}", inIter);
     const auto inType = inIter.getType().cast<vpux::NDTypeInterface>();
     // Reorder input in order to move axis on last dimension
     auto transposesOut = inIter;
-    auto axisPermutation = std::move(curOrder);
+    auto axisPermutation = curOrder;
     auto perm = axisPermutation[axis];
     axisPermutation[axis] = axisPermutation[lastComplexAxes];
     axisPermutation[lastComplexAxes] = perm;
@@ -239,8 +246,8 @@ auto fftOneAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc, An
     // produce constant twiddle factors with ouput type precision. Keep consistent precision.
     auto twiddleConstant = getTwiddleFactors(appendLoc(loc, "TwiddleFactors"), axisLength, inType.getElementType(),
                                              rewriter, isInverseFFT, isRdftLastAxisCut);
-    auto multiplyOp =
-            rewriter.create<IE::MatMulOp>(appendLoc(loc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
+    auto multiplyOp = rewriter.create<IE::MatMulOp>(appendLoc(loc, "MatMulOp"), reshapeOut, twiddleConstant, false,
+                                                    true, nullptr);
     // restore original shape
     auto reshapeRestoredOut =
             reshapeRestoreAndComplexAdd(rewriter, appendLoc(loc, "ReshapeOut"), multiplyOp.getOutput(), transposesOut,
@@ -302,11 +309,11 @@ auto irdftLastAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc,
     const auto inType = input.getType().cast<vpux::NDTypeInterface>();
     auto rank = inType.getRank();
     auto lastComplexAxes = rank - 2;
-    const auto curOrder = DimsOrder::fromValue(input).toPermutation();
+    auto curOrder = DimsOrder::fromValue(input).toPermutation();
     auto shape = to_small_vector(inType.getShape());
     // Reorder input in order to move axis on last dimension
     auto transposesOut = input;
-    auto axisPermutation = curOrder;
+    auto axisPermutation = std::move(curOrder);
     auto perm = axisPermutation[axis];
     axisPermutation[axis] = axisPermutation[lastComplexAxes];
     axisPermutation[lastComplexAxes] = perm;
@@ -323,8 +330,8 @@ auto irdftLastAxisDecompose(mlir::PatternRewriter& rewriter, mlir::Location loc,
     auto twiddleConstant = fftGetTwiddleFactorsForIrdftRealOutput(appendLoc(irdftLoc, "TwiddleFactors"), shape[axis],
                                                                   inType.getElementType(), rewriter);
     // mat mull for complex number
-    auto multiplyOp =
-            rewriter.create<IE::MatMulOp>(appendLoc(irdftLoc, "MatMulOp"), reshapeOut, twiddleConstant, false, true);
+    auto multiplyOp = rewriter.create<IE::MatMulOp>(appendLoc(irdftLoc, "MatMulOp"), reshapeOut, twiddleConstant, false,
+                                                    true, nullptr);
     // reshape to output size representation
     auto reshapeRestoredOut = reshapeRestoreIrdftLastAxis(rewriter, appendLoc(irdftLoc, "ReshapeOut"),
                                                           multiplyOp.getOutput(), transposesOut, _log);
@@ -449,7 +456,7 @@ private:
 // ConvertFFTToConvPass
 //
 
-class ConvertFFTToConvPass final : public IE::arch37xx::ConvertFFTToConvBase<ConvertFFTToConvPass> {
+class ConvertFFTToConvPass final : public IE::arch37xx::impl::ConvertFFTToConvBase<ConvertFFTToConvPass> {
 public:
     explicit ConvertFFTToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

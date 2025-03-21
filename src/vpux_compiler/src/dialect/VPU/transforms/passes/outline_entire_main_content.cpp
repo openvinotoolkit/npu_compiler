@@ -3,13 +3,14 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/STLExtras.h>
@@ -23,6 +24,12 @@
 #include <mlir/IR/ValueRange.h>
 #include <mlir/IR/Visitors.h>
 #include <mlir/Support/LLVM.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OUTLINEENTIREMAINCONTENT
+#define GEN_PASS_DEF_OUTLINEENTIREMAINCONTENT
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -42,7 +49,8 @@ struct Instance {
     std::vector<mlir::Operation*> ops;
 };
 
-class OutlineEntireMainContentPass final : public VPU::OutlineEntireMainContentBase<OutlineEntireMainContentPass> {
+class OutlineEntireMainContentPass final :
+        public VPU::impl::OutlineEntireMainContentBase<OutlineEntireMainContentPass> {
 public:
     explicit OutlineEntireMainContentPass(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -97,7 +105,7 @@ private:
 
         std::vector<FuncInfo> funcsInfo(instances.size());
         for (const auto& [instanceIdx, instance] : instances | indexed) {
-            const auto funcName = printToString("{0}_outline{1}", mainFuncOp.getName(), instanceIdx + 1);
+            auto funcName = printToString("{0}_outline{1}", mainFuncOp.getName(), instanceIdx + 1);
             SmallVector<mlir::Value> inputs, outputs;
             gatherInputsOutputs(instance.ops, inputs, outputs);
             SmallVector<mlir::Type> inputTypes, outputTypes;
@@ -109,11 +117,8 @@ private:
                 const auto types = prepareType(output.getType());
                 outputTypes.append(types.begin(), types.end());
             }
-            funcsInfo[instanceIdx] = FuncInfo{funcName,
-                                              std::move(inputs),
-                                              std::move(outputs),
-                                              std::move(inputTypes),
-                                              std::move(outputTypes),
+            funcsInfo[instanceIdx] = FuncInfo{std::move(funcName),   std::move(inputs),      std::move(outputs),
+                                              std::move(inputTypes), std::move(outputTypes),
                                               /*funcOp=*/nullptr};
         }
 
@@ -143,18 +148,6 @@ private:
             return {op};
         } else if (mlir::isa<VPU::CopyOp>(op)) {
             if (const auto parentOp = op->getOperand(0).getDefiningOp()) {
-                auto parentConstOps = getConstantParents(parentOp, instanceOps);
-                if (parentConstOps.empty()) {
-                    return {};
-                }
-                parentConstOps.push_back(op);
-                return parentConstOps;
-            }
-        } else if (auto clusterOp = mlir::dyn_cast<VPU::NCEClusterTilingOp>(op)) {
-            if (!mlir::isa_and_nonnull<VPU::CopyOp>(clusterOp.getInnerTaskOp())) {
-                return {};
-            }
-            if (const auto parentOp = clusterOp->getOperand(0).getDefiningOp()) {
                 auto parentConstOps = getConstantParents(parentOp, instanceOps);
                 if (parentConstOps.empty()) {
                     return {};
@@ -248,11 +241,12 @@ private:
                 if (resultAlreadyCovered) {
                     continue;
                 }
-                for (auto userOp : result.getUsers()) {
+                const auto hasExternalUser = llvm::any_of(result.getUsers(), [&](mlir::Operation* userOp) {
                     const auto isOpExternal = llvm::find(ops, userOp) == ops.end();
-                    if (isOpExternal) {
-                        outputs.push_back(result);
-                    }
+                    return isOpExternal;
+                });
+                if (hasExternalUser) {
+                    outputs.push_back(result);
                 }
             }
         }
@@ -343,15 +337,6 @@ private:
         auto producerOp = origValue.getDefiningOp();
         const auto loc = (producerOp != nullptr) ? producerOp->getLoc() : mlir::UnknownLoc::get(&getContext());
         const auto newMemSpace = mlir::cast<NDTypeInterface>(newType).getMemSpace();
-
-        if (auto distributedType = mlir::dyn_cast<VPU::DistributedTypeInterface>(origValue.getType());
-            distributedType != nullptr && distributedType.containsDistributedTypes()) {
-            const auto bodyBuilder = [&](mlir::OpBuilder& builder, mlir::Location loc, mlir::ValueRange newOperands) {
-                auto copyOp = builder.create<VPU::CopyOp>(loc, newOperands[0], newMemSpace);
-                builder.create<VPU::YieldOp>(loc, copyOp->getResults());
-            };
-            return builder.create<VPU::NCEClusterTilingOp>(loc, newType, copyInput, bodyBuilder);
-        }
 
         return builder.create<VPU::CopyOp>(loc, newType, copyInput, newMemSpace);
     }

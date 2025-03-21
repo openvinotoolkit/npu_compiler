@@ -6,8 +6,10 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 
 #include <mlir/CAPI/Support.h>
+#include <mlir/IR/BuiltinTypeInterfaces.h>
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reify_shape.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -64,35 +66,41 @@ IE::ConcatOp vpux::buildConcat(const mlir::Location loc, mlir::OpBuilder& builde
     return builder.create<IE::ConcatOp>(appendLoc(loc, "concat"), concatInputs, axisAttr);
 }
 
-mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, ShapeRef operandShape,
+mlir::Value vpux::repackDynamicTensor(mlir::OpBuilder& builder, mlir::Operation* producer, NDTypeInterface operandType,
                                       IE::ConcatOp newShapeValue) {
     auto ctx = builder.getContext();
-    const auto tensorRank = checked_cast<int64_t>(operandShape.size());
 
-    const SmallVector<int64_t> begins(tensorRank, 0);
-    const SmallVector<int64_t> strides(tensorRank, 1);
+    const auto tensorRank = checked_cast<int64_t>(operandType.getRank());
+    const auto operandShape = operandType.getShape();
+    mlir::Value dynReshapeOperand = producer->getResult(0);
+    if (!IE::isDynamicDataContiguous(operandShape, operandType.getDimsOrder())) {
+        const SmallVector<int64_t> begins(tensorRank, 0);
+        const SmallVector<int64_t> strides(tensorRank, 1);
 
-    auto sliceOp = builder.create<IE::StridedSliceOp>(appendLoc(producer->getLoc(), "slice"),
-                                                      /*data=*/producer->getResult(0),
-                                                      /*begins=*/nullptr,
-                                                      /*ends=*/newShapeValue.getOutput(),
-                                                      /*strides=*/nullptr,
-                                                      /*beginsAttr=*/getIntArrayAttr(ctx, begins),
-                                                      /*endsAttr=*/nullptr,
-                                                      /*stridesAttr=*/getIntArrayAttr(ctx, strides),
-                                                      /*beginMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                      /*endMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                      /*newAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                      /*shrinkAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
-                                                      /*ellipsisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}));
+        auto sliceOp =
+                builder.create<IE::StridedSliceOp>(appendLoc(producer->getLoc(), "slice"),
+                                                   /*data=*/producer->getResult(0),
+                                                   /*begins=*/nullptr,
+                                                   /*ends=*/newShapeValue.getOutput(),
+                                                   /*strides=*/nullptr,
+                                                   /*beginsAttr=*/getIntArrayAttr(ctx, begins),
+                                                   /*endsAttr=*/nullptr,
+                                                   /*stridesAttr=*/getIntArrayAttr(ctx, strides),
+                                                   /*beginMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                   /*endMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                   /*newAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                   /*shrinkAxisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}),
+                                                   /*ellipsisMask=*/getIntArrayAttr(ctx, SmallVector<int64_t>{}));
 
-    const SmallVector<int64_t> outputShape{operandShape.raw()};
+        dynReshapeOperand = sliceOp.getOutput();
+    }
+
     // Reshape is required because strided slice infers all dimensions as dynamic
     // [Track number: S#154699]
     auto reshape = builder.create<IE::DynamicReshapeOp>(appendLoc(producer->getLoc(), "reshape"),
-                                                        /*data=*/sliceOp->getResult(0),
+                                                        /*data=*/dynReshapeOperand,
                                                         /*shape=*/newShapeValue.getOutput(),
-                                                        /*output_shape=*/getIntArrayAttr(ctx, outputShape),
+                                                        /*output_shape=*/getIntArrayAttr(ctx, operandShape.raw()),
                                                         /*output_bounds=*/getBounds(producer->getResult(0)));
     return reshape.getOutput();
 }

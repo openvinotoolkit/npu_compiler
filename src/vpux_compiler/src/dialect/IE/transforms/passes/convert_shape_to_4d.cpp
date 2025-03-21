@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -11,7 +10,9 @@
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -27,6 +28,12 @@
 #include <algorithm>
 #include <numeric>
 #include <utility>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSHAPETO4D
+#define GEN_PASS_DEF_CONVERTSHAPETO4D
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -85,8 +92,8 @@ SmallVector<int64_t> alignShapeWithDimMap(ArrayRef<int64_t> originShape, const M
     return retNewShape;
 }
 
-SmallVector<int64_t> alignShapeTo4D(SmallVector<int64_t> originShape, const MergeMap& mapper, bool extendOnH) {
-    auto newShape = extendOnH ? std::move(originShape) : alignShapeWithDimMap(std::move(originShape), mapper);
+SmallVector<int64_t> alignShapeTo4D(ArrayRef<int64_t> originShape, const MergeMap& mapper, bool extendOnH) {
+    auto newShape = extendOnH ? SmallVector<int64_t>(originShape) : alignShapeWithDimMap(originShape, mapper);
     alignShapeToReferenceShapeSize(TARGET_TENSOR_DIM, newShape, extendOnH);
     return newShape;
 }
@@ -378,7 +385,7 @@ mlir::Value reshapeInputWithMergeMap(mlir::PatternRewriter& rewriter, mlir::Loca
     // outside of current shape's rank.
     alignShapeToReferenceShapeSize(referenceShapeSize, inShape, extendOnH);
 
-    auto constInputShape = alignShapeTo4D(std::move(inShape), map, extendOnH);
+    auto constInputShape = alignShapeTo4D(inShape, map, extendOnH);
     const auto constInputShapeAttr = getIntArrayAttr(rewriter.getContext(), constInputShape);
 
     return rewriter.createOrFold<IE::ReshapeOp>(loc, origInput, nullptr, false, constInputShapeAttr);
@@ -520,7 +527,7 @@ std::pair<SmallVector<int64_t>, SmallVector<int64_t>> squeezeRankForTile(IE::Til
 // ConvertShapeTo4DPass
 //
 
-class ConvertShapeTo4DPass final : public IE::ConvertShapeTo4DBase<ConvertShapeTo4DPass> {
+class ConvertShapeTo4DPass final : public IE::impl::ConvertShapeTo4DBase<ConvertShapeTo4DPass> {
 public:
     explicit ConvertShapeTo4DPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -645,8 +652,8 @@ mlir::LogicalResult GenericConverter<ConcreteOp>::convertWith2Inputs(ConcreteOp 
     }
 
     auto dimsCanMerge = getDimMergeMapWith2Inputs(shapeOneVector, shapeTwoVector);
-    auto newInputShape1 = alignShapeTo4D(std::move(shapeOneVector), dimsCanMerge, extendOnH);
-    auto newInputShape2 = alignShapeTo4D(std::move(shapeTwoVector), dimsCanMerge, extendOnH);
+    auto newInputShape1 = alignShapeTo4D(shapeOneVector, dimsCanMerge, extendOnH);
+    auto newInputShape2 = alignShapeTo4D(shapeTwoVector, dimsCanMerge, extendOnH);
 
     if (std::is_same<IE::MultiplyOp, ConcreteOp>::value) {
         tryAndConvert2NCEShape(newInputShape1, newInputShape2, dimsCanMerge);
@@ -833,7 +840,7 @@ mlir::LogicalResult Mvn6Converter::matchAndRewrite(IE::MVN6Op origOp, OpAdaptor,
     const auto inType = origOp.getInput().getType().cast<vpux::NDTypeInterface>();
     const auto inShape = SmallVector<int64_t>(inType.getShape().raw());
     const auto inRank = inShape.size();
-    const auto inAxes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
+    auto inAxes = parseIntArrayAttr<int64_t>(origOp.getAxesValue().value());
 
     SmallVector<int64_t> newShape;
     SmallVector<int64_t> newAxes;
@@ -858,7 +865,7 @@ mlir::LogicalResult Mvn6Converter::matchAndRewrite(IE::MVN6Op origOp, OpAdaptor,
             to4DShape(actShape, newActShape);
         }
         // increment 'axes'
-        newAxes = inAxes;
+        newAxes = std::move(inAxes);
         std::for_each(newAxes.begin(), newAxes.end(), [newDims](int64_t& axis) {
             axis += newDims;
         });
@@ -886,7 +893,7 @@ mlir::LogicalResult Mvn6Converter::matchAndRewrite(IE::MVN6Op origOp, OpAdaptor,
         newShape.erase(newShape.begin() + mergeDim + 1);
 
         // => new 'axes'
-        newAxes = inAxes;
+        newAxes = std::move(inAxes);
         newAxes.erase(std::remove(newAxes.begin(), newAxes.end(), mergeDim + 1), newAxes.end());
         std::for_each(newAxes.begin(), newAxes.end(), [mergeDim](auto& axis) {
             axis = axis > mergeDim ? (axis - 1) : axis;
@@ -2219,7 +2226,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     typeConverter.addConversion([](vpux::NDTypeInterface type) {
         SmallVector<int64_t> shape = to_small_vector(type.getShape());
         auto dimMapper = getDimMapGeneric(shape);
-        return type.changeShape(ShapeRef(alignShapeTo4D(std::move(shape), dimMapper, false)));
+        return type.changeShape(ShapeRef(alignShapeTo4D(shape, dimMapper, false)));
     });
     typeConverter.addSourceMaterialization(buildReshapeMaterializer("source"));
     typeConverter.addTargetMaterialization(buildReshapeMaterializer("target"));
@@ -2233,7 +2240,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
             return type.changeShape(Shape{shape[0], shape[1], 1, shape[2]});
         }
         auto dimMapper = getDimMapGeneric(shape);
-        return type.changeShape(ShapeRef(alignShapeTo4D(std::move(shape), dimMapper, false)));
+        return type.changeShape(ShapeRef(alignShapeTo4D(shape, dimMapper, false)));
     });
     scaleShiftTypeConverter.addSourceMaterialization(buildReshapeMaterializer("scale_shift_source"));
     scaleShiftTypeConverter.addTargetMaterialization(buildReshapeMaterializer("scale_shift_target"));

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -12,6 +13,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <algorithm>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_DEQUANTIZECONST
+#define GEN_PASS_DEF_DEQUANTIZECONST
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -118,7 +125,7 @@ mlir::LogicalResult DequantizeConst::matchAndRewrite(IE::DequantizeOp dCastOp, m
 // DequantizeConstPass
 //
 
-class DequantizeConstPass final : public IE::DequantizeConstBase<DequantizeConstPass> {
+class DequantizeConstPass final : public IE::impl::DequantizeConstBase<DequantizeConstPass> {
 public:
     explicit DequantizeConstPass(int64_t runtimeDequantizationLimit, bool enableRuntimeDequantization, Logger log)
             : _enableRuntimeDequantization(enableRuntimeDequantization),

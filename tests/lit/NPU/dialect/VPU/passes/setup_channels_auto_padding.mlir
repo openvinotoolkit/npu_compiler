@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --vpu-arch=%arch% --setup-channels-auto-padding="enable-auto-padding-odu enable-auto-padding-idu" %s | FileCheck %s --strict-whitespace
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module @mainModule attributes {} {
 }
 

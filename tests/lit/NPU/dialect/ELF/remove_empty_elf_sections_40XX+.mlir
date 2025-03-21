@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --remove-empty-ELF-sections %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 func.func @oneDma() {
   ELF.Main @ELFMain {
     ELF.CreateLogicalSection @buffer.CMX_NN aligned(64) secType(SHT_PROGBITS) secFlags("SHF_NONE") {

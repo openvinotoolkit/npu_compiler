@@ -5,12 +5,21 @@
 
 #include "vpux/compiler/core/function_outlining_splitter.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_config.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Visitors.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_VERTICALFUSIONOUTLINING
+#define GEN_PASS_DEF_VERTICALFUSIONOUTLINING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -26,7 +35,7 @@ namespace {
 //
 // VerticalFusionOutliningPass
 //
-class VerticalFusionOutliningPass final : public VerticalFusionOutliningBase<VerticalFusionOutliningPass> {
+class VerticalFusionOutliningPass final : public VPU::impl::VerticalFusionOutliningBase<VerticalFusionOutliningPass> {
 public:
     VerticalFusionOutliningPass() = default;
     VerticalFusionOutliningPass(const VPU::TilingOptions& TilingOptions, Logger log);
@@ -561,6 +570,20 @@ void VerticalFusionOutliningPass::safeRunOnModule() {
     auto moduleOp = getOperation();
     IE::CNNNetworkOp::getFromModule(moduleOp, netInfo, netFunc);
 
+    // TODO E#150569: remove this condition when this pass is compatible with pre-outlined functions
+    bool containsCallOps = false;
+    netFunc.walk([&](mlir::Operation* op) {
+        if (mlir::isa<mlir::func::CallOp>(op)) {
+            containsCallOps = true;
+            return mlir::WalkResult::interrupt();
+        }
+        return mlir::WalkResult::advance();
+    });
+    if (containsCallOps) {
+        _log.info("The main function already contains call operations. Skipping pass");
+        return;
+    }
+
     _log.trace("Searching for outlining instances separated by vertical fusion regions");
     const auto outliningInstances = getOutliningInstances(netFunc, _verticalFusionTileThreshold);
     if (static_cast<int64_t>(outliningInstances.size()) < _numInstanceThreshold) {
@@ -581,9 +604,9 @@ void VerticalFusionOutliningPass::safeRunOnModule() {
         for (const auto output : slice.outputs) {
             outputTypes.push_back(output.getType());
         }
-        const auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), "vf", targetIdx + 1);
+        auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), "vf", targetIdx + 1);
         _log.trace("Build function with name {0}", funcName);
-        funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), funcName});
+        funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), std::move(funcName)});
     }
 
     buildFuncOps(moduleOp, funcsInfo, outliningInstances);

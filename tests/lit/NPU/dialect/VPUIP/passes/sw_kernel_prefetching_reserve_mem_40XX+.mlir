@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --sw-kernel-prefetching-reserve-mem %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @SimpleGraph {
   IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
     IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}

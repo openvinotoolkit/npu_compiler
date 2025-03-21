@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -15,11 +15,18 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <numeric>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLPERAXISTILEDMA
+#define GEN_PASS_DEF_UNROLLPERAXISTILEDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -207,8 +214,9 @@ mlir::LogicalResult PerAxisTileDMARewriter::unrollPerAxisTile(VPUIP::PerAxisTile
         portIsAlreadyAssigned = false;
     }
 
-    auto subInputShapes = VPUIP::getPerAxisTileDMASubShapes(mergedShapes.first);
-    auto subOutputShapes = VPUIP::getPerAxisTileDMASubShapes(mergedShapes.second);
+    const auto arch = VPU::getArch(perAxisTileDMAOp);
+    auto subInputShapes = VPUIP::getPerAxisTileDMASubShapes(arch, mergedShapes.first);
+    auto subOutputShapes = VPUIP::getPerAxisTileDMASubShapes(arch, mergedShapes.second);
     VPUX_THROW_UNLESS(subInputShapes.size() == subOutputShapes.size(),
                       "Unexpected PerAxisTileDMA subInput '{0}' and subOutput '{1}' number", subInputShapes.size(),
                       subOutputShapes.size());
@@ -435,7 +443,7 @@ mlir::LogicalResult PerAxisTileDMARewriter::unrollDuplicated(VPUIP::PerAxisTileD
 // UnrollPerAxisTileDMAPass
 //
 
-class UnrollPerAxisTileDMAPass final : public VPUIP::UnrollPerAxisTileDMABase<UnrollPerAxisTileDMAPass> {
+class UnrollPerAxisTileDMAPass final : public VPUIP::impl::UnrollPerAxisTileDMABase<UnrollPerAxisTileDMAPass> {
 public:
     explicit UnrollPerAxisTileDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

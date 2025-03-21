@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --handle-large-strides --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @HandleLargeStridesPrimeStride
 func.func @HandleLargeStridesPrimeStride(%arg0: tensor<1x16x28x28xf16>) -> tensor<1x32x3x3xf16> {
   %0 = const.Declare tensor<32x16x3x3xf16> = dense<1.0> : tensor<32x16x3x3xf16>

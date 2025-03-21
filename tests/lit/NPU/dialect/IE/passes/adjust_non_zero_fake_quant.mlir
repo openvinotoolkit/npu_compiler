@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-non-zero-fake-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @AdjustFakeQuantLow
 func.func @AdjustFakeQuantLow(%arg0: tensor<1x3x30x30xf16>) -> tensor<1x3x30x30xf16> {
     %input_low = const.Declare tensor<1x1x1x1xf16> = dense<0.01> : tensor<1x1x1x1xf16>

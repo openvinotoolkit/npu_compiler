@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --reorder-mapped-inference-ops %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @test attributes {VPU.compilationMode = #VPU.compilation_mode<DefaultHW>} {
   IE.TileResource {activity_factor = 0.092296911622323521 : f64} 4 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {

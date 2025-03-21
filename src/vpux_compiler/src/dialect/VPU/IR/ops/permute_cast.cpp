@@ -185,3 +185,19 @@ void vpux::VPU::PermuteCastOp::getCanonicalizationPatterns(mlir::RewritePatternS
     patterns.add<PropagatePermuteCast>(ctx);
     patterns.add<MergeParallelPermuteCast>(ctx);
 }
+
+mlir::OpFoldResult vpux::VPU::PermuteCastOp::fold(FoldAdaptor adaptor) {
+    if (getInput().getType() == getOutput().getType() && getMemPerm().isIdentity()) {
+        return getInput();
+    }
+
+    if (auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(adaptor.getInput())) {
+        // PermuteCastOp ensures that it is always a trivial permutation. That's why we can just add MemPermuteAttr
+        // which will not perform any data movements.
+        return attr.transform()
+                .memPermute(DimsOrder::fromAffineMap(getDstOrder()), DimsOrder::fromAffineMap(getMemPerm()))
+                .get();
+    }
+
+    return nullptr;
+}

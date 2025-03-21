@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUIPDPU_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPUIPDPU_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPUIPDPU/dialect.td"
 
 //
@@ -206,10 +206,11 @@ def VPUIPDPU_ODUActivationReuseMode :
             "ODUActivationReuseMode",
             "ODU activation reuse mode",
             [
-                I32EnumAttrCase<"NTHW_1",  0>,
-                I32EnumAttrCase<"NTHW_4",  1>,
-                I32EnumAttrCase<"NTHW_8",  2>,
-                I32EnumAttrCase<"NTHW_16", 3>
+                I32EnumAttrCase<"NTHW_1",   0>,
+                I32EnumAttrCase<"NTHW_4",   1>,
+                I32EnumAttrCase<"NTHW_8",   2>,
+                I32EnumAttrCase<"NTHW_16",  3>,
+                I32EnumAttrCase<"NTHW_CIM", 4>
             ]
         > {
     let cppNamespace = "vpux::VPUIPDPU";
@@ -366,7 +367,8 @@ def VPUIPDPU_IDUWorkloadType :
                 I32EnumAttrCase<"AVEPOOL",                 3>,
                 I32EnumAttrCase<"ELTWISE",                 4>,
                 I32EnumAttrCase<"REDUCEMEAN",              5>,
-                I32EnumAttrCase<"REDUCESUMSQUARE",         6>
+                I32EnumAttrCase<"REDUCESUMSQUARE",         6>,
+                I32EnumAttrCase<"REDUCESUM",               7>,
             ]
         > {
     let cppNamespace = "vpux::VPUIPDPU";
@@ -384,7 +386,10 @@ def VPUIPDPU_IDUWeightPalletMode :
                 I32EnumAttrCase<"NO_PLT",                  0>,
                 I32EnumAttrCase<"ONE_BIT_PLT",             1>,
                 I32EnumAttrCase<"TWO_BIT_PLT",             2>,
-                I32EnumAttrCase<"FOUR_BIT_PLT",            3>
+                I32EnumAttrCase<"THREE_BIT_PLT",           3>,
+                I32EnumAttrCase<"FOUR_BIT_PLT",            4>,
+                I32EnumAttrCase<"FIVE_BIT_PLT",            5>,
+                I32EnumAttrCase<"SIX_BIT_PLT",             6>
             ]
         > {
     let cppNamespace = "vpux::VPUIPDPU";

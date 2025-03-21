@@ -10,6 +10,12 @@
 
 #include <mlir/IR/BuiltinAttributes.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTSETABLESTOCONSTANTS
+#define GEN_PASS_DEF_CONVERTSETABLESTOCONSTANTS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 // Receives the start offsets of the data for the cluster and the strides of the input data.
@@ -40,7 +46,7 @@ namespace {
 //
 
 class ConvertSETablesToConstantsPass final :
-        public VPUIP::ConvertSETablesToConstantsBase<ConvertSETablesToConstantsPass> {
+        public VPUIP::impl::ConvertSETablesToConstantsBase<ConvertSETablesToConstantsPass> {
 public:
     explicit ConvertSETablesToConstantsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

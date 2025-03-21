@@ -80,15 +80,6 @@ public:
 };
 
 mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::TopKOp topKOp, mlir::PatternRewriter& rewriter) const {
-    auto arch = VPU::getArch(topKOp->getParentOfType<mlir::ModuleOp>());
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
-        return mlir::failure();
-    }
-
     if (topKOp.getKValue()) {
         return mlir::failure();
     }

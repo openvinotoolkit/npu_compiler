@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -62,7 +62,7 @@ DMAProfilingMode vpux::getDMAProfilingMode(VPU::ArchKind arch, const std::string
         } else {
             VPUX_THROW("Unsupported dma-profiling option value: {0}", optionValue);
         }
-    case VPU::ArchKind::NPU40XX:
+    default:
         if (optionValue == "true") {
             return DMAProfilingMode::DYNAMIC_HWP;
         } else if (optionValue == "static") {
@@ -70,9 +70,6 @@ DMAProfilingMode vpux::getDMAProfilingMode(VPU::ArchKind arch, const std::string
         } else {
             VPUX_THROW("Unsupported dma-profiling option value: {0}", optionValue);
         }
-        break;
-    default:
-        VPUX_THROW("Unsupported arch for profiling: {0}", arch);
     }
 }
 

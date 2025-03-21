@@ -3,10 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSPLITCONCATTOTRANSPOSE
+#define GEN_PASS_DEF_CONVERTSPLITCONCATTOTRANSPOSE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -567,7 +574,7 @@ mlir::LogicalResult SplitConcatRewriter::matchAndRewrite(IE::ConcatOp origOp, ml
 //
 
 class ConvertSplitConcatToTransposePass final :
-        public IE::ConvertSplitConcatToTransposeBase<ConvertSplitConcatToTransposePass> {
+        public IE::impl::ConvertSplitConcatToTransposeBase<ConvertSplitConcatToTransposePass> {
 public:
     explicit ConvertSplitConcatToTransposePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

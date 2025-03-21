@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_FUSESPARSITYOPS
+#define GEN_PASS_DEF_FUSESPARSITYOPS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -15,7 +22,7 @@ namespace {
 // FuseSparsityOpsPass
 //
 
-class FuseSparsityOpsPass final : public VPU::FuseSparsityOpsBase<FuseSparsityOpsPass> {
+class FuseSparsityOpsPass final : public VPU::impl::FuseSparsityOpsBase<FuseSparsityOpsPass> {
 public:
     explicit FuseSparsityOpsPass(std::optional<bool> fuseSparsify, Logger log): _fuseSparsify(fuseSparsify) {
         Base::initLogger(log, Base::getArgumentName());

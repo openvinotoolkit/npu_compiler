@@ -1,12 +1,12 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #pragma once
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
@@ -55,7 +55,7 @@ using Scales = SmallVector<double>;
 using ZeroPoints = SmallVector<int64_t>;
 
 std::pair<Scales, ZeroPoints> extractScalesAndZeroPoints(mlir::Type tensorElemType);
-Scales exractWeightsScales(mlir::Type weightsElemType);
+Scales extractScalesOrDefault(mlir::Type elemType, double defaultScale);
 
 /// @brief Returns a single zero-point for currently supported quantized types.
 /// In case of uniform per-axis type, this means that all zero points are the
@@ -135,7 +135,7 @@ class ContentAttr;
 
 mlir::quant::QuantizedType getQuantizedType(const Const::ContentAttr& lowConst, const Const::ContentAttr& highConst,
                                             std::optional<int64_t> levels, std::optional<mlir::Type> lowFpType,
-                                            mlir::FloatType realType, bool isSigned, mlir::Location loc,
+                                            mlir::FloatType expressedType, bool isSigned, mlir::Location loc,
                                             IE::AutoBroadcastType broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT,
                                             bool ignoreZPCheck = false, const Logger& log = Logger::global());
 
@@ -152,17 +152,27 @@ mlir::FailureOr<int32_t> getQuantizedDimension(ShapeRef lowShape, ShapeRef highS
 
 mlir::FailureOr<std::tuple<double, int64_t>> calcScaleAndZeroPoint(double qMinFP, double qMaxFP, double rMin,
                                                                    double rMax, const Logger& log = Logger::global());
+
+int64_t calculateZeroPoint(double low, double high, int levels, mlir::IntegerType type);
+
 mlir::FailureOr<std::tuple<SmallVector<double>, SmallVector<int64_t>>> getScalesAndZeroPointsFromContentAttr(
         const Const::ContentAttr& lowContentAttr, const Const::ContentAttr& highContentAttr,
         IE::AutoBroadcastType broadcast, const std::optional<int64_t> levels, const std::optional<mlir::Type> lowFpType,
         bool isSigned, const Logger& log = Logger::global());
 
-std::tuple<double, double, mlir::Type> getStorageParams(mlir::MLIRContext* ctx, int64_t levels, bool isSigned);
-std::tuple<double, double, mlir::Type> getStorageParams(mlir::MLIRContext* ctx, mlir::Type lowFpType);
-std::tuple<double, double, mlir::Type> getStorageParams(mlir::MLIRContext* ctx, const std::optional<int64_t> levels,
-                                                        const std::optional<mlir::Type> lowFpType, bool isSigned);
-mlir::FailureOr<std::tuple<float, float>> getFp8Range(mlir::Type lowFpType);
+// Returns the min and max representable values for a known FP8 type.
+mlir::FailureOr<std::tuple<double, double>> getFp8Range(mlir::Type lowFpType);
 
+// Returns the integral storage type and the storage type's representable range for the given quantization levels.
+std::tuple<double, double, mlir::Type> getStorageParams(mlir::MLIRContext* ctx, int64_t levels, bool isSigned);
+// Returns the storage type and the storage type's representable range for a given (possibly quantile-based/emulated)
+// type.
+std::tuple<double, double, mlir::Type> getStorageParams(mlir::Type lowPrecisionType);
+// Returns the representable range of the given type (may differ from the range of the corresponding storage type).
+std::tuple<double, double> getRepresentableRange(mlir::Type lowPrecisionType);
+
+// Returns true if the given type is an 8-bit float type.
+bool isFloat8(mlir::Type type);
 // Returns true if the given type is a quantized type with 8-bit float storage.
 bool isFloat8Quantized(mlir::Type type);
 
@@ -206,6 +216,10 @@ bool isLowPrecisionTypeRange(mlir::MLIRContext* ctx, Range lowVals, Range highVa
 //
 
 inline float dequantize(int64_t qVal, double scale, int64_t zeroPoint) {
+    return static_cast<float>((qVal - zeroPoint) * scale);
+}
+
+inline float dequantizeDouble(double qVal, double scale, int64_t zeroPoint) {
     return static_cast<float>((qVal - zeroPoint) * scale);
 }
 

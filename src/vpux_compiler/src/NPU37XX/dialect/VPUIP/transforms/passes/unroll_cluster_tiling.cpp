@@ -18,6 +18,12 @@
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPUIP::arch37xx {
+#define GEN_PASS_DECL_UNROLLCLUSTERTILING
+#define GEN_PASS_DEF_UNROLLCLUSTERTILING
+#include "vpux/compiler/NPU37XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch37xx
+
 using namespace vpux;
 
 namespace {
@@ -153,7 +159,7 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
     if (swTask.getProfilingData()) {
         // Get numClusters of profiling data from its own distributed type.
         // This is to prevent incompatibility between the distributed types of profiling data and input.
-        // For example: for the MVN layer with below configuration on NPU40XX:
+        // For example: for the MVN layer with below configuration on NPU4:
         //  - input Shape [1, 32, 262144, 1]
         //  - acrossChannel is true
         // MC strategy is SOK and tiling dimension is on channel.
@@ -208,10 +214,15 @@ void VPUIP::arch37xx::ClusterSWRewriter::matchAndRewrite(VPUIP::SwKernelOp swTas
 
         const auto kernelCode = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_code");
         const auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+        auto kernelName = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_name");
+        if (kernelName == nullptr) {
+            kernelName = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+        }
+
         auto newOperands = kernelFunc.getName();
 
-        auto builtInFunction =
-                VPUIP::createBuiltInFunction(_module, newOperands, inputTypes, kernelEntryPoint, kernelCode, _log);
+        auto builtInFunction = VPUIP::createBuiltInFunction(_module, newOperands, inputTypes, kernelEntryPoint,
+                                                            kernelCode, kernelName, _log);
 
         auto newTask = VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
                 builder, vpurtTask.getWaitBarriers(), vpurtTask.getUpdateBarriers(), newLoc, inputBuffs[clusterId],
@@ -340,7 +351,7 @@ namespace {
 // UnrollClusterTilingPass
 //
 
-class UnrollClusterTilingPass final : public VPUIP::arch37xx::UnrollClusterTilingBase<UnrollClusterTilingPass> {
+class UnrollClusterTilingPass final : public VPUIP::arch37xx::impl::UnrollClusterTilingBase<UnrollClusterTilingPass> {
 public:
     explicit UnrollClusterTilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -358,7 +369,7 @@ void UnrollClusterTilingPass::safeRunOnFunc() {
     auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
-    const VPUIP::ClusterDMARewriter dmaRewriter(&ctx, dmaPortCount, _log);
+    const VPUIP::ClusterDMARewriter dmaRewriter(&ctx, dmaPortCount, /*dmaFusionHandler=*/{}, _log);
     const VPUIP::arch37xx::ClusterSWRewriter swRewriter(&ctx, module, _log);
     const VPUIP::arch37xx::ClusterNCERewriter nceRewriter(&ctx, _log);
 

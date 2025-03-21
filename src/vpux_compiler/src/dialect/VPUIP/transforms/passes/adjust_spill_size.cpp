@@ -3,15 +3,24 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
 #include "vpux/compiler/utils/memref_attr_utils.hpp"
+
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_ADJUSTSPILLSIZE
+#define GEN_PASS_DEF_ADJUSTSPILLSIZE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
 namespace {
 
-class AdjustSpillSizePass final : public VPUIP::AdjustSpillSizeBase<AdjustSpillSizePass> {
+class AdjustSpillSizePass final : public VPUIP::impl::AdjustSpillSizeBase<AdjustSpillSizePass> {
 public:
     explicit AdjustSpillSizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

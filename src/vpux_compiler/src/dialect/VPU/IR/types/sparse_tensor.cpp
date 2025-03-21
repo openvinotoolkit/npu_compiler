@@ -184,13 +184,13 @@ mlir::LogicalResult VPU::SparseTensorType::verify(llvm::function_ref<::mlir::InF
 //
 
 ShapeRef VPU::SparseTensorType::getShape() const {
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getShape();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getShape();
 }
 
 MemShape VPU::SparseTensorType::getMemShape() const {
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getMemShape();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getMemShape();
 }
 
 bool VPU::SparseTensorType::hasRank() const {
@@ -207,13 +207,13 @@ int64_t VPU::SparseTensorType::getNumElements() const {
     if (getSparsityCompression() != nullptr) {
         return getSparsityCompression().getTotalNumElems();
     }
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getNumElements();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getNumElements();
 }
 
 mlir::Type VPU::SparseTensorType::getElementType() const {
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getElementType();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getElementType();
 }
 
 DimsOrder VPU::SparseTensorType::getDimsOrder() const {
@@ -232,13 +232,13 @@ VPU::MemoryKind VPU::SparseTensorType::getMemoryKind() const {
 }
 
 Strides VPU::SparseTensorType::getStrides() const {
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getStrides();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getStrides();
 }
 
 MemStrides VPU::SparseTensorType::getMemStrides() const {
-    auto data = VPU::getEffectiveSparseOutputType<VPU::SparseTensorType>(*this);
-    return data.getMemStrides();
+    auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getMemStrides();
 }
 
 Bit VPU::SparseTensorType::getElemTypeSize() const {

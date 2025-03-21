@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-constants %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !Input_DDR = memref<1x16x16x16xf16, #NHWC, @DDR>
 !Output_DDR = memref<1x16x16x16xf16, #NHWC, @DDR>
@@ -160,7 +159,7 @@ func.func @FuseConstantsConv(%in : !Input_DDR) -> !OutputStub_CMX {
         }
     return %3 : !OutputStub_CMX
 
-    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x288xui8> = dense<1> : tensor<16x1x1x4xsi32>, [#const.Fuse<tensor<1x1x1x288xui8>, weightsTable = <dense<1> : tensor<16x1x1x4xsi32>>, weights = <dense<1.000000e+00> : tensor<16x1x1x4xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>]
+    // CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x288xui8> = dense<1> : tensor<16x1x1x4xsi32>, [#const.FuseWeights<tensor<1x1x1x288xui8>, weightsTable = <dense<1> : tensor<16x1x1x4xsi32>>, weights = <dense<1.000000e+00> : tensor<16x1x1x4xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>]
     // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare !WeightsTable_DDR
     // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare !Weights_DDR
 
@@ -960,7 +959,7 @@ func.func @FuseSignedQuantizedWeightsMixedPrecision(%arg0: memref<1x16x16x16xf16
     %out_ddr = VPUIP.Copy inputs(%out_cmx : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x16x16x16xf16, #NHWC, @DDR>) -> memref<1x16x16x16xf16, #NHWC, @DDR>
     return %out_ddr : memref<1x16x16x16xf16, #NHWC, @DDR>
 	// CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x512xui8>
-    // CHECK-SAME:  [#const.Fuse<tensor<1x1x1x512xui8>, weightsTable =
+    // CHECK-SAME:  [#const.FuseWeights<tensor<1x1x1x512xui8>, weightsTable =
     // CHECK-SAME   weights =
     // CHECK-SAME   [#const.CastElemType<si8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>]
     // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare memref<16x16x1x1x!qElemType
@@ -1006,7 +1005,7 @@ func.func @FuseWeightsWithMajorityOfF16Type(%arg0: memref<1x16x16x16xf16, #NHWC,
     %out_ddr = VPUIP.Copy inputs(%out_cmx : memref<1x16x16x16xf16, #NHWC, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x16x16x16xf16, #NHWC, @DDR>) -> memref<1x16x16x16xf16, #NHWC, @DDR>
     return %out_ddr : memref<1x16x16x16xf16, #NHWC, @DDR>
 	// CHECK-DAG:   [[FUSED_CONSTANT:%.+]] = const.Declare memref<1x1x1x384xf16>
-    // CHECK-SAME:  [#const.Fuse<tensor<1x1x1x384xf16>, weightsTable =
+    // CHECK-SAME:  [#const.FuseWeights<tensor<1x1x1x384xf16>, weightsTable =
     // CHECK-SAME:  weights = <dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]>>]
     // CHECK-NOT:   [[WEIGHTS:%.+]] = const.Declare memref<16x16x1x1xf16
     // CHECK-NOT:   [[WEIGHT_TABLE:%.+]] = const.Declare memref<16x1x1x4xsi32>

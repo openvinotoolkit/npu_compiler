@@ -13,7 +13,7 @@
 // CHECK:  IE.CNNNetwork entryPoint : @main inputsInfo : {
 // CHECK:    DataInfo "EditOpenVinoIRParameter_0" : tensor<1xsi64>
 // CHECK:  } outputsInfo : {
-// CHECK:    DataInfo "/_projection/Slice_9" friendlyName = "EditOpenVinoIRResult_2" tensorNames = ["/_projection/Slice_9_output_0"] : tensor<9xf32>
+// CHECK:    DataInfo "/_projection/Slice_9" friendlyName = "EditOpenVinoIRResult_2" tensorNames = ["/_projection/Slice_9_output_0"] : tensor<?xf32
 // CHECK:  }
 // CHECK:  func.func @main([[ARG0:[^:]+]]: tensor<1xsi64>) -> tensor<?xf32, {bounds = [9], order = #C}> {
 // CHECK:    [[CONST0:%.*]] = const.Declare tensor<9xf32>

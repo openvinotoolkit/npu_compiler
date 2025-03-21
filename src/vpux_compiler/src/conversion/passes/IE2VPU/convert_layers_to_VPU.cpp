@@ -5,16 +5,21 @@
 
 #include "vpux/compiler/conversion/passes/IE2VPU/convert_layers_to_VPU.hpp"
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/conversion/factories/convert_layers_to_vpu_strategy_getter.hpp"
-#include "vpux/compiler/core/attributes/tensor_attr.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 // Generated
 #include <vpux/compiler/conversion/convert_layers_to_VPU.hpp.inc>
+
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTLAYERS2VPU
+#define GEN_PASS_DEF_CONVERTLAYERS2VPU
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
 
 using namespace vpux;
 
@@ -167,6 +172,22 @@ mlir::LogicalResult NonMaxSuppressionRewrite::matchAndRewrite(IE::NonMaxSuppress
 }
 
 //
+// ExperimentalDetectronROIFeatureExtractorRewrite
+//
+
+mlir::LogicalResult ExperimentalDetectronROIFeatureExtractorRewrite::matchAndRewrite(
+        IE::ExperimentalDetectronROIFeatureExtractorOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found ExperimentalDetectronROIFeatureExtractor Operation '{0}'", origOp->getLoc());
+
+    rewriter.replaceOpWithNewOp<VPU::ExperimentalDetectronROIFeatureExtractorOp>(
+            origOp, origOp.getInputs(), nullptr, nullptr, nullptr, nullptr, origOp.getAttrAttr());
+
+    _log.trace("Replaced with 'VPU.ExperimentalDetectronROIFeatureExtractorOp'");
+
+    return mlir::success();
+}
+
+//
 // GRUCellRewrite
 //
 
@@ -245,7 +266,7 @@ mlir::LogicalResult InterpolateRewrite::matchAndRewrite(IE::InterpolateOp origOp
 mlir::LogicalResult TopKRewrite::matchAndRewrite(IE::TopKOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Found TopK Operation '{0}'", origOp->getLoc());
 
-    rewriter.replaceOpWithNewOp<VPU::TopKOp>(origOp, origOp.getInput(), origOp.getK(), origOp.getKValueAttr(),
+    rewriter.replaceOpWithNewOp<VPU::TopKOp>(origOp, origOp.getInput(), origOp.getK(), nullptr, origOp.getKValueAttr(),
                                              origOp.getAxis(), origOp.getMode(), origOp.getSort(),
                                              origOp.getElementType(), /*multiClusterStrategy=*/nullptr);
 
@@ -357,6 +378,56 @@ mlir::LogicalResult GroupConvolutionRewrite::matchAndRewrite(IE::GroupConvolutio
 }
 
 //
+// EmbeddingSegmentsSumRewriter
+//
+
+mlir::LogicalResult EmbeddingSegmentsSumRewriter::matchAndRewrite(IE::EmbeddingSegmentsSumOp origOp,
+                                                                  mlir::PatternRewriter& rewriter) const {
+    rewriter.replaceOpWithNewOp<VPU::EmbeddingSegmentsSumOp>(
+            origOp, origOp.getEmbTable(), origOp.getIndices(), origOp.getSegmentIds(), origOp.getPerSampleWeights(),
+            /*indices_value=*/nullptr, /*segment_ids_value=*/nullptr, origOp.getNumSegmentsValueAttr(),
+            origOp.getDefaultIndexValueAttr(), /*per_sample_weights_value=*/nullptr);
+    return mlir::success();
+}
+
+//
+// EmbeddingBagOffsetsSumRewriter
+//
+
+mlir::LogicalResult EmbeddingBagOffsetsSumRewriter::matchAndRewrite(IE::EmbeddingBagOffsetsSumOp origOp,
+                                                                    mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found EmbeddingBagOffsetsSumOp Operation '{0}'", origOp->getLoc());
+    rewriter.replaceOpWithNewOp<VPU::EmbeddingBagOffsetsSumOp>(
+            origOp, origOp.getEmbTable(), origOp.getIndices(), origOp.getOffsets(), origOp.getPerSampleWeights(),
+            /*indices_value=*/nullptr,
+            /*offsets_value=*/nullptr, origOp.getDefaultIndexValueAttr(), /*per_sample_weights_value=*/nullptr);
+    return mlir::success();
+}
+
+//
+// AccumulateRewrite
+//
+
+mlir::LogicalResult AccumulateRewrite::matchAndRewrite(IE::AccumulateOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found AccumulateOp Operation '{0}'", origOp->getLoc());
+
+    if (origOp.getLhsScale() != nullptr && origOp.getRhsScale() != nullptr) {
+        rewriter.replaceOpWithNewOp<VPU::AccumulateOp>(origOp, origOp.getLhs(), origOp.getRhs(), origOp.getLhsScale(),
+                                                       origOp.getRhsScale(),
+                                                       /*multiClusterStrategy=*/nullptr);
+    } else if (origOp.getLhsScale() == nullptr && origOp.getRhsScale() == nullptr) {
+        const auto broadcast = IE::AutoBroadcastType::NONE_OR_EXPLICIT;
+        const auto broadcastAttr = IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), broadcast);
+        rewriter.replaceOpWithNewOp<VPU::AddOp>(origOp, origOp.getLhs(), origOp.getRhs(), broadcastAttr,
+                                                /*postOp=*/nullptr);
+    } else {
+        VPUX_THROW("IE.Accumulate must set either both scales or none.");
+    }
+
+    return mlir::success();
+}
+
+//
 // DynamicReshapeRewrite
 //
 
@@ -394,7 +465,7 @@ namespace {
 // ConvertLayers2VPUPass
 //
 
-class ConvertLayers2VPUPass final : public ConvertLayers2VPUBase<ConvertLayers2VPUPass> {
+class ConvertLayers2VPUPass final : public impl::ConvertLayers2VPUBase<ConvertLayers2VPUPass> {
 public:
     explicit ConvertLayers2VPUPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -407,18 +478,17 @@ private:
 void ConvertLayers2VPUPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-    auto arch = VPU::getArch(func);
-
-    auto archSpecificStrategy = createConvertLayers2VPUStrategy(arch);
 
     mlir::ConversionTarget target(ctx);
     target.addIllegalDialect<IE::IEDialect>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
+    target.addLegalDialect<mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<mlir::math::MathDialect>();
+
     target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
-    archSpecificStrategy->addPatterns(patterns, _log);
 
     patterns.add<IfRewrite>(&ctx, _log);
     patterns.add<CTCGreedyDecoderSeqLenRewrite>(&ctx, _log);
@@ -427,8 +497,8 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<StubRewrite>(&ctx, _log);
     patterns.add<NonMaxSuppressionRewrite>(&ctx, _log);
     patterns.add<InterpolateRewrite>(&ctx, _log);
-
     patterns.add<GRUCellRewrite>(&ctx, _log);
+    patterns.add<ExperimentalDetectronROIFeatureExtractorRewrite>(&ctx, _log);
     patterns.add<TopKRewrite>(&ctx, _log);
     patterns.add<TransposedConvRewrite>(&ctx, _log);
     patterns.add<NormalizeL2Rewrite>(&ctx, _log);
@@ -436,6 +506,9 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<LSTMSequenceRewrite>(&ctx, _log);
     patterns.add<LSTMGatesRewrite>(&ctx, _log);
     patterns.add<GroupConvolutionRewrite>(&ctx, _log);
+    patterns.add<EmbeddingSegmentsSumRewriter>(&ctx, _log);
+    patterns.add<EmbeddingBagOffsetsSumRewriter>(&ctx, _log);
+    patterns.add<AccumulateRewrite>(&ctx, _log);
     patterns.add<DynamicReshapeRewrite>(&ctx, _log);
     patterns.add<DynamicTileRewrite>(&ctx, _log);
     populateWithGenerated(patterns);

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pad_extract.hpp"
 
@@ -10,6 +11,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPPADLAYER
+#define GEN_PASS_DEF_SWAPPADLAYER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -90,7 +97,7 @@ mlir::LogicalResult SwapWithTranspose::matchAndRewrite(IE::TransposeOp originOp,
 // SwapPadLayer
 //
 
-class SwapPadLayer final : public IE::SwapPadLayerBase<SwapPadLayer> {
+class SwapPadLayer final : public IE::impl::SwapPadLayerBase<SwapPadLayer> {
 public:
     explicit SwapPadLayer(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

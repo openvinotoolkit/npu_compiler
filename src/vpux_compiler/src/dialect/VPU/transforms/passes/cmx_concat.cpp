@@ -6,15 +6,25 @@
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/Operation.h>
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/ppe_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <llvm/ADT/SetOperations.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_CMXCONCAT
+#define GEN_PASS_DEF_CMXCONCAT
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -209,7 +219,7 @@ public:
 
     void rewrite();
     bool inputPatternCanBeCMXed(size_t cmxSize);
-    bool inputConcatOnlyMeetRequirement();
+    bool inputConcatOnlyMeetRequirement(size_t cmxSize);
     bool isInputConcatOnly = false;
 
 private:
@@ -226,13 +236,14 @@ private:
     bool areDistributionTypesConsistent();
     bool areAnyInputsInPlace();
     void insertCopyAfterConcat();
+    NDTypeInterface getNewConcatType();
 };
 
 ArrayRef<InputConcatPart> InputConcatPattern::getInputParts() const {
     return _inputParts;
 }
 
-bool InputConcatPattern::inputConcatOnlyMeetRequirement() {
+bool InputConcatPattern::inputConcatOnlyMeetRequirement(size_t cmxSize) {
     const auto outShape = getShape(_concat.getOutput());
     for (const auto& dim : outShape) {
         if (dim > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
@@ -240,7 +251,52 @@ bool InputConcatPattern::inputConcatOnlyMeetRequirement() {
         }
     }
 
+    // assert that the concat still can fit in CMX when considering fragmentation
+    if (!concatFitsInCMX(cmxSize * FRAGMENTATION_AVOID_RATIO_PIPELINING)) {
+        _log.trace("Concat does not fit in cmx");
+        return false;
+    }
+
     const auto concatType = _concat.getOutput().getType().cast<vpux::NDTypeInterface>();
+    auto newConcatType = getNewConcatType();
+
+    // Find the target user op through view like ops
+    auto targetOp = _concat.getOperation();
+    while (targetOp->hasOneUse() && mlir::isa<VPU::ViewLikeOpInterface>(*(targetOp->getUsers().begin()))) {
+        targetOp = *(targetOp->getUsers().begin());
+    }
+
+    for (auto user : targetOp->getUsers()) {
+        // For any user op as a copy, check if the new concat type is compatible with user copy's output type.
+        // If they are compatible, do cmx-concat and insert new copy after concat because the inserted copy will be
+        // optimized with the user copy.
+        if (auto copyOp = mlir::dyn_cast<VPU::CopyOp>(user)) {
+            auto dstType = copyOp.getOutput().getType().cast<vpux::NDTypeInterface>();
+            auto srcMemoryShape = newConcatType.getMemShape();
+            auto dstMemoryShape = dstType.getMemShape();
+
+            if (srcMemoryShape != dstMemoryShape || newConcatType.getMemSpace() != dstType.getMemSpace()) {
+                continue;
+            }
+
+            auto srcDistributedIf = mlir::dyn_cast<VPU::DistributedTypeInterface>(newConcatType);
+            auto dstDistributedIf = mlir::dyn_cast<VPU::DistributedTypeInterface>(dstType);
+            if ((srcDistributedIf != nullptr) && (srcDistributedIf.containsDistributedTypes()) &&
+                (dstDistributedIf != nullptr) && (dstDistributedIf.containsDistributedTypes())) {
+                const auto srcDistrType =
+                        srcDistributedIf.getDistributedTypes().front().cast<VPU::DistributedTensorType>();
+                const auto dstDistrType =
+                        dstDistributedIf.getDistributedTypes().front().cast<VPU::DistributedTensorType>();
+
+                if (mlir::failed(areDistributionAttrsCompatible(srcDistrType, dstDistrType))) {
+                    continue;
+                }
+            }
+
+            return true;
+        }
+    }
+
     const auto dimsOrder = concatType.getDimsOrder();
     const auto outMemShape = dimsOrder.toMemoryOrder(outShape);
     // currently concat Dim limited to highest dim, we can extend it to other dim but some performance
@@ -267,32 +323,30 @@ void InputConcatPattern::insertCopyAfterConcat() {
     const auto concatType = _concat.getOutput().getType().cast<vpux::NDTypeInterface>();
     const auto memSpace = concatType.getMemSpace();
 
+    auto newConcatType = getNewConcatType();
+    _concat.getOutput().setType(newConcatType);
+    auto copyOp = builder.create<VPU::CopyOp>(_concat.getLoc(), concatType, _concat->getResult(0), memSpace);
+    _concat->getResult(0).replaceAllUsesExcept(copyOp->getResult(0), llvm::SmallPtrSet<mlir::Operation*, 1>{copyOp});
+
+    _log.trace("Insert copy after '{0}' at '{1}'", _concat->getName(), _concat->getLoc());
+}
+
+NDTypeInterface InputConcatPattern::getNewConcatType() {
+    const auto concatType = mlir::cast<vpux::NDTypeInterface>(_concat.getOutput().getType());
+
     auto multiclusterIt = llvm::find_if(_inputParts, [](const InputConcatPart& inPart) {
         return inPart.isMultiCluster();
     });
 
     if (multiclusterIt == _inputParts.end()) {
-        const auto memSpaceCMX = IndexedSymbolAttr::get(builder.getContext(), stringifyEnum(MemoryKind::CMX_NN), 0);
-        auto newConcatType = concatType.changeMemSpace(memSpaceCMX);
-        _concat.getOutput().setType(newConcatType);
-        auto copyOp = builder.create<VPU::CopyOp>(_concat.getLoc(), _concat->getResult(0), memSpace);
-        _concat->getResult(0).replaceAllUsesExcept(copyOp->getResult(0),
-                                                   llvm::SmallPtrSet<mlir::Operation*, 1>{copyOp});
+        const auto memSpaceCMX = IndexedSymbolAttr::get(_concat.getContext(), stringifyEnum(MemoryKind::CMX_NN), 0);
+        return concatType.changeMemSpace(memSpaceCMX);
     } else {
         auto multiclusterPart = *multiclusterIt;
         const auto nceDistributedType =
                 mlir::cast<VPU::DistributedTypeInterface>(multiclusterPart.nceOp->getResult(0).getType());
-        auto newConcatOutputType =
-                getConcatDistributedType(nceDistributedType, concatType.getShape(), concatType.getElementType());
-        _concat.getOutput().setType(newConcatOutputType);
-
-        const auto tilingCopyOp =
-                builder.create<VPU::CopyOp>(_concat.getLoc(), concatType, _concat->getResult(0), memSpace);
-        _concat->getResult(0).replaceAllUsesExcept(tilingCopyOp->getResult(0),
-                                                   llvm::SmallPtrSet<mlir::Operation*, 1>{tilingCopyOp});
+        return getConcatDistributedType(nceDistributedType, concatType.getShape(), concatType.getElementType());
     }
-
-    _log.trace("Inser copy after '{0}' at '{1}'", _concat->getName(), _concat->getLoc());
 }
 
 void InputConcatPattern::rewrite() {
@@ -590,7 +644,8 @@ bool InputConcatPattern::insertNCEOperation() {
 
 bool InputConcatPattern::isMemConsistentPerCluster() {
     // CMX Concat is not supported when the memory is inconsistent for each single cluster
-    // i.e., when distribution modes are SEGMENTED or OVERLAPPED and concatenation over H
+    // when distributed tensors are SEGMENTED or OVERLAPPED over the dim which also
+    // concatenates on.
 
     auto hasMultiCluster = llvm::any_of(_inputParts, [](InputConcatPart concatPart) {
         return concatPart.isMultiCluster();
@@ -600,14 +655,14 @@ bool InputConcatPattern::isMemConsistentPerCluster() {
         return true;
     }
 
-    auto isOffsetOnH = [](mlir::ArrayAttr offset) {
-        auto offsetVector = Shape(parseIntArrayAttr<int64_t>(offset));
-        return offsetVector[Dims4D::Act::H] != 0;
-    };
+    // Collect concat axes
+    mlir::DenseSet<int64_t> concatAxes = vpux::VPU::getConcatAxes(_concat);
 
-    auto isSingleOpSplitOnH = [](InputConcatPart concatPart) {
+    // Collect distributed tiling axes
+    mlir::DenseSet<int64_t> tilingAxes;
+    for (auto& concatPart : _inputParts) {
         if (!concatPart.isMultiCluster()) {
-            return false;
+            continue;
         }
         const auto disType = concatPart.nceOp->getResult(0)
                                      .getType()
@@ -616,21 +671,18 @@ bool InputConcatPattern::isMemConsistentPerCluster() {
                                      .front()
                                      .cast<VPU::DistributedTensorType>();
         const auto disMode = disType.getDistribution().getMode().getValue();
-        return disMode == VPU::DistributionMode::SEGMENTED || disMode == VPU::DistributionMode::OVERLAPPED;
-    };
-
-    bool isSplitOverH = llvm::any_of(_inputParts, isSingleOpSplitOnH);
-
-    bool isConcatOverH = false;
-    if (_concat.getStaticOffsetsAttr() != nullptr) {
-        const auto concatDims = _concat.getStaticOffsetsAttr().getAsRange<mlir::ArrayAttr>();
-        isConcatOverH = llvm::any_of(concatDims, isOffsetOnH);
-    } else {
-        const auto concatAxis = _concat.getPerAxis().value().getAxis().getValue().getSExtValue();
-        isConcatOverH = concatAxis == Dims4D::Act::H.ind();
+        if (disMode != VPU::DistributionMode::SEGMENTED && disMode != VPU::DistributionMode::OVERLAPPED) {
+            continue;
+        }
+        const auto numTiles = disType.getDistribution().getNumTiles();
+        VPUX_THROW_WHEN(numTiles == nullptr,
+                        "Distributed tensor in SEGMENTED or OVERLAPPED mode must have numTiles attribute set");
+        const auto tilingScheme = parseIntArrayAttr<int64_t>(numTiles);
+        tilingAxes.insert(getDistributedTilingAxis(tilingScheme));
     }
 
-    return !(isConcatOverH && isSplitOverH);
+    auto intersection = llvm::set_intersection(concatAxes, tilingAxes);
+    return intersection.empty();
 }
 
 bool InputConcatPattern::areDistributionTypesConsistent() {
@@ -949,7 +1001,7 @@ void OutputConcatPattern::replaceSliceCopy() {
 // CMXConcat
 //
 
-class CMXConcatPass final : public CMXConcatBase<CMXConcatPass> {
+class CMXConcatPass final : public VPU::impl::CMXConcatBase<CMXConcatPass> {
 public:
     explicit CMXConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -1018,6 +1070,14 @@ mlir::FailureOr<InputConcatPattern> CMXConcatPass::getInputPattern(VPU::ConcatOp
                 // So skip CMXConcat for NCEPermuteOp, see E#118060 for details.
                 if (mlir::isa<VPU::NCEPermuteOp>(parentNCEOp)) {
                     logNest.trace("Skip CMXConcat for NCEPermuteOp");
+                    return mlir::failure();
+                }
+
+                // TODO E#152279: investigate the root cause of this accuracy issue
+                const auto inputType = mlir::cast<NDTypeInterface>(parentNCEOp->getOperand(0).getType());
+                const auto outputType = mlir::cast<NDTypeInterface>(parentNCEOp->getResult(0).getType());
+                if (inputType.getDimsOrder() != outputType.getDimsOrder()) {
+                    logNest.trace("Skip CMXConcat for NCE Op with odu permutation due to accuracy issue");
                     return mlir::failure();
                 }
             }
@@ -1146,6 +1206,12 @@ bool CMXConcatPass::isSplitSupportedOnDPU(VPU::SliceOp sliceOp) {
 }
 
 bool CMXConcatPass::isPotentialCMXConcat(VPU::ConcatOp concat) {
+    // Do not convert for 5D shapes #E151980
+    if (mlir::cast<vpux::NDTypeInterface>(concat.getOutput().getType()).getRank() == 5) {
+        _log.trace("Disable CMX concat for 5D shapes");
+        return false;
+    }
+
     // if concat is a Result operation
     auto hasReturnUser = llvm::any_of(concat.getOutput().getUsers(), [](mlir::Operation* outputUser) {
         return mlir::isa<mlir::func::ReturnOp>(outputUser);
@@ -1303,7 +1369,7 @@ void CMXConcatPass::safeRunOnFunc() {
             outputPattern.rewrite();
         } else {
             nestLog.trace("Concat output pattern not valid");
-            if (inputPattern.inputConcatOnlyMeetRequirement()) {
+            if (inputPattern.inputConcatOnlyMeetRequirement(cmxSize)) {
                 inputPattern.isInputConcatOnly = true;
             } else {
                 nestLog.trace("Cannot move only Concat inputs to CMX");

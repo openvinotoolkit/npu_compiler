@@ -54,9 +54,11 @@ def VPUIPDPU_DPUInvariantOp :
         OptionalAttr<SymbolRefAttr>:$weights_sparsity_map,
 
         OptionalAttr<SymbolRefAttr>:$weight_table,
+        OptionalAttr<SymbolRefAttr>:$weight_table_data_ptr,
         OptionalAttr<SymbolRefAttr>:$weight_table_scale,
 
         OptionalAttr<SymbolRefAttr>:$spr_lookup_table,
+        OptionalAttr<SymbolRefAttr>:$pallet_lookup_table,
 
         OptionalAttr<SymbolRefAttr>:$output,
         OptionalAttr<SymbolRefAttr>:$output_sparsity_map,

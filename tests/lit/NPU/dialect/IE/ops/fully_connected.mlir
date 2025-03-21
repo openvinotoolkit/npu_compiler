@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @UseFullyConnected
 func.func @UseFullyConnected(%arg0: tensor<1x16xf32>) -> tensor<1x64xf32> {
     %weights = const.Declare tensor<64x16xf32> = dense<1.0> : tensor<64x16xf32>

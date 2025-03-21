@@ -720,7 +720,7 @@ TEST_P(PreProcessTest_M2I_u8_single_op, NPU4000_HW) {
     abs_threshold = 1.001;
     setDefaultHardwareMode();
     // TODO: E129229
-    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "enable-partial-workload-management=false";
+    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "workload-management-enable=false";
     run(Platform::NPU4000);
 }
 
@@ -747,7 +747,7 @@ TEST_P(PreProcessTest_M2I_f16_no_csc, NPU4000_HW) {
     abs_threshold = 1.001;
     setDefaultHardwareMode();
     // TODO: E129229
-    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "enable-partial-workload-management=false";
+    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "workload-management-enable=false";
     run(Platform::NPU4000);
 }
 

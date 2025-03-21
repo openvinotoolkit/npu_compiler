@@ -4,16 +4,19 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
-#include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/strings.hpp"
+
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_COMPRESSSPILLDMA
+#define GEN_PASS_DEF_COMPRESSSPILLDMA
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
 
 using namespace vpux;
 
@@ -95,7 +98,7 @@ namespace {
 //  CompressSpillDmaPass
 //
 
-class CompressSpillDmaPass final : public VPUIP::arch40xx::CompressSpillDmaBase<CompressSpillDmaPass> {
+class CompressSpillDmaPass final : public VPUIP::arch40xx::impl::CompressSpillDmaBase<CompressSpillDmaPass> {
 public:
     explicit CompressSpillDmaPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

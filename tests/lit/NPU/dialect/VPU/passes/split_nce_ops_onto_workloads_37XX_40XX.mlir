@@ -1139,12 +1139,12 @@ func.func @MatMulUnevenDistributionRewriter(%arg0: !InputDistributed,%arg1: !Wei
     // CHECK-SAME:      cluster_id = 1
 
         // CHECK:       VPU.DPU.Workload
-    // CHECK-SAME:      outOffsets [2, 0, 0, 0, 0] outSizes [1, 1, 32, 4, 1]
+    // CHECK-SAME:      outOffsets [4, 0, 0, 0, 0] outSizes [1, 1, 32, 4, 1]
     // CHECK-SAME:      <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:      cluster_id = 2
 
         // CHECK:       VPU.DPU.Workload
-    // CHECK-SAME:      [3, 0, 0, 0, 0] outSizes [1, 1, 32, 4, 1]
+    // CHECK-SAME:      outOffsets [5, 0, 0, 0, 0] outSizes [1, 1, 32, 4, 1]
     // CHECK-SAME:      <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
     // CHECK-SAME:      cluster_id = 3
 

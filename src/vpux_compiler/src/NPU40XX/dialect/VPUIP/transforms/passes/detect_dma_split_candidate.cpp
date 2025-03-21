@@ -7,13 +7,19 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/logger.hpp"
+
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_DETECTDMASPLITCANDIDATE
+#define GEN_PASS_DEF_DETECTDMASPLITCANDIDATE
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
 
 using namespace vpux;
 
@@ -23,10 +29,10 @@ using QueueIDToTaskConfigVecMap = DenseMap<int64_t, VPURT::TaskConfigVec>;
 namespace {
 
 struct TaskCycles {
-    size_t cycleStart;
-    size_t cycleEnd;
+    int64_t cycleStart{0};
+    int64_t cycleEnd{0};
 
-    TaskCycles(size_t cs, size_t ce): cycleStart(cs), cycleEnd(ce) {
+    TaskCycles(int64_t cs, int64_t ce): cycleStart(cs), cycleEnd(ce) {
     }
 
     bool isOverlapping(const TaskCycles& other) {
@@ -126,7 +132,7 @@ size_t findMaxCycleGap(ArrayRef<TaskCycles> allTaskCycles, TaskCycles currentTas
         return endPoint - startPoint;
     }
 
-    size_t maxGap = 0;
+    int64_t maxGap = 0;
     // Considering the starting gap
     if (allTaskCycles[0].cycleStart > startPoint) {
         maxGap = allTaskCycles[0].cycleStart - startPoint;
@@ -213,7 +219,8 @@ size_t calculateSplitDMACost(VPUIP::NNDMAOp dmaOp, VPU::ArchKind arch,
 // DetectDMASplitCandidate
 //
 
-class DetectDMASplitCandidate final : public VPUIP::arch40xx::DetectDMASplitCandidateBase<DetectDMASplitCandidate> {
+class DetectDMASplitCandidate final :
+        public VPUIP::arch40xx::impl::DetectDMASplitCandidateBase<DetectDMASplitCandidate> {
 public:
     explicit DetectDMASplitCandidate(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

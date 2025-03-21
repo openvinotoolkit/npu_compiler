@@ -4,14 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
-#include "vpux/compiler/dialect/VPUMI37XX/types.hpp"
-
-#include "vpux/compiler/utils/logging.hpp"
-#include "vpux/utils/core/checked_cast.hpp"
-#include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/format.hpp"
-#include "vpux/utils/core/numeric.hpp"
 
 #include <kernels/inc/common_types.h>
 

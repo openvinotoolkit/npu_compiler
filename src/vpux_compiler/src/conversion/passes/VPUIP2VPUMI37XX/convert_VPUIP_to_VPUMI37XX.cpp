@@ -9,6 +9,7 @@
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/profiling_metadata.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
@@ -17,6 +18,7 @@
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
 #include "vpux/utils/profiling/metadata.hpp"
 
@@ -29,6 +31,12 @@
 #include <iostream>
 #include <vector>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUIP2VPUMI37XX
+#define GEN_PASS_DEF_CONVERTVPUIP2VPUMI37XX
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -37,7 +45,7 @@ namespace {
 // ConvertVPUIP2VPUMI37XXPass
 //
 
-class ConvertVPUIP2VPUMI37XXPass final : public ConvertVPUIP2VPUMI37XXBase<ConvertVPUIP2VPUMI37XXPass> {
+class ConvertVPUIP2VPUMI37XXPass final : public impl::ConvertVPUIP2VPUMI37XXBase<ConvertVPUIP2VPUMI37XXPass> {
 public:
     explicit ConvertVPUIP2VPUMI37XXPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -142,6 +150,8 @@ private:
         _log.trace("VPUIP_VPUMI37XX pass: replaceVPURTTaskOpWithNNDMAOp()");
 
         const auto dmaExecCount = IE::getAvailableExecutor(moduleOp, VPU::ExecutorKind::DMA_NN).getCount();
+        const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(moduleOp));
+        const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
 
         llvm::SmallVector<std::optional<VPUMI37XX::NNDMAOp>> previousDMA(dmaExecCount);
         mlir::SmallVector<int64_t> dmaCount(dmaExecCount, 0);
@@ -184,9 +194,9 @@ private:
                         const auto dmaDescriptorValue = dmaDescriptor.value();
 
                         const auto numPlanes = checked_cast<uint32_t>(dmaDescriptorValue.getNumPlanes().getInt());
-                        VPUX_THROW_UNLESS(numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES,
+                        VPUX_THROW_UNLESS(numPlanes <= dmaMaxNumPlanes,
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
-                                          VPUIP::DMA_MAX_NUMBER_PLANES, numPlanes);
+                                          dmaMaxNumPlanes, numPlanes);
 
                         auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
                                 permuteDMAOp->getLoc(), indexType, permuteDMAOp.getInput(), dmaResults, nullptr,
@@ -213,9 +223,9 @@ private:
                         const auto dmaDescriptorValue = dmaDescriptor.value();
 
                         const auto numPlanes = checked_cast<uint32_t>(dmaDescriptorValue.getNumPlanes().getInt());
-                        VPUX_THROW_UNLESS(numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES,
+                        VPUX_THROW_UNLESS(numPlanes <= dmaMaxNumPlanes,
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
-                                          VPUIP::DMA_MAX_NUMBER_PLANES, numPlanes);
+                                          dmaMaxNumPlanes, numPlanes);
 
                         auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
                                 upsamplingDMAOp->getLoc(), indexType, upsamplingDMAOp.getInput(), dmaResults, nullptr,
@@ -242,9 +252,9 @@ private:
                         const auto dmaDescriptorValue = dmaDescriptor.value();
 
                         const auto numPlanes = checked_cast<uint32_t>(dmaDescriptorValue.getNumPlanes().getInt());
-                        VPUX_THROW_UNLESS(numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES,
+                        VPUX_THROW_UNLESS(numPlanes <= dmaMaxNumPlanes,
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
-                                          VPUIP::DMA_MAX_NUMBER_PLANES, numPlanes);
+                                          dmaMaxNumPlanes, numPlanes);
 
                         auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
                                 perAxisTileDMAOp->getLoc(), indexType, perAxisTileDMAOp.getInput(), dmaResults, nullptr,
@@ -336,9 +346,9 @@ private:
                         const auto dmaDescriptorValue = dmaDescriptor.value();
 
                         const auto numPlanes = checked_cast<uint32_t>(dmaDescriptorValue.getNumPlanes().getInt());
-                        VPUX_THROW_UNLESS(numPlanes <= VPUIP::DMA_MAX_NUMBER_PLANES,
+                        VPUX_THROW_UNLESS(numPlanes <= dmaMaxNumPlanes,
                                           "NUM PLANES should be less than or equal to {0}, but got {1}.",
-                                          VPUIP::DMA_MAX_NUMBER_PLANES, numPlanes);
+                                          dmaMaxNumPlanes, numPlanes);
 
                         auto operation = builderBlk.create<VPUMI37XX::NNDMAOp>(
                                 depthToSpaceDMAOp->getLoc(), indexType, depthToSpaceDMAOp.getInput(), dmaResults,

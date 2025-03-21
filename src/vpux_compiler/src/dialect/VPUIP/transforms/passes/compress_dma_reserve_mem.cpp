@@ -7,6 +7,12 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_COMPRESSDMARESERVEMEM
+#define GEN_PASS_DEF_COMPRESSDMARESERVEMEM
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -15,7 +21,7 @@ namespace {
 //  CompressDmaReserveMemPass
 //
 
-class CompressDmaReserveMemPass final : public VPUIP::CompressDmaReserveMemBase<CompressDmaReserveMemPass> {
+class CompressDmaReserveMemPass final : public VPUIP::impl::CompressDmaReserveMemBase<CompressDmaReserveMemPass> {
 public:
     explicit CompressDmaReserveMemPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

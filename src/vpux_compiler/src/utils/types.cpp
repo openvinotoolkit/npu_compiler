@@ -7,11 +7,11 @@
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/attributes/strides.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
@@ -36,8 +36,20 @@ mlir::IntegerType vpux::getInt2Type(mlir::MLIRContext* ctx) {
     return mlir::IntegerType::get(ctx, 2);
 }
 
+mlir::IntegerType vpux::getInt3Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 3);
+}
+
 mlir::IntegerType vpux::getInt4Type(mlir::MLIRContext* ctx) {
     return mlir::IntegerType::get(ctx, 4);
+}
+
+mlir::IntegerType vpux::getInt5Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 5);
+}
+
+mlir::IntegerType vpux::getInt6Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 6);
 }
 
 mlir::IntegerType vpux::getInt8Type(mlir::MLIRContext* ctx) {
@@ -76,8 +88,28 @@ mlir::IntegerType vpux::getSInt64Type(mlir::MLIRContext* ctx) {
     return mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Signed);
 }
 
+mlir::IntegerType vpux::getUInt1Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 1, mlir::IntegerType::Unsigned);
+}
+
+mlir::IntegerType vpux::getUInt2Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 2, mlir::IntegerType::Unsigned);
+}
+
+mlir::IntegerType vpux::getUInt3Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 3, mlir::IntegerType::Unsigned);
+}
+
 mlir::IntegerType vpux::getUInt4Type(mlir::MLIRContext* ctx) {
     return mlir::IntegerType::get(ctx, 4, mlir::IntegerType::Unsigned);
+}
+
+mlir::IntegerType vpux::getUInt5Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 5, mlir::IntegerType::Unsigned);
+}
+
+mlir::IntegerType vpux::getUInt6Type(mlir::MLIRContext* ctx) {
+    return mlir::IntegerType::get(ctx, 6, mlir::IntegerType::Unsigned);
 }
 
 mlir::IntegerType vpux::getUInt8Type(mlir::MLIRContext* ctx) {

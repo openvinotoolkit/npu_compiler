@@ -16,6 +16,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTRANSPOSEDCONV2DTOCONV2D
+#define GEN_PASS_DEF_CONVERTTRANSPOSEDCONV2DTOCONV2D
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -120,7 +126,7 @@ mlir::LogicalResult TransposedConvolutionConversion::matchAndRewrite(IE::Transpo
 //
 
 class ConvertTransposedConv2DToConv2DPass final :
-        public IE::ConvertTransposedConv2DToConv2DBase<ConvertTransposedConv2DToConv2DPass> {
+        public IE::impl::ConvertTransposedConv2DToConv2DBase<ConvertTransposedConv2DToConv2DPass> {
 public:
     explicit ConvertTransposedConv2DToConv2DPass(const bool enableSEPTransposedConv, Logger log)
             : _enableSEPTransposedConv(enableSEPTransposedConv) {

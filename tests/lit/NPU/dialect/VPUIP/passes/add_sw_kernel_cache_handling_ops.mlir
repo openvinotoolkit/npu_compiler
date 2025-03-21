@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --add-sw-kernel-cache-handling-ops %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 VPURT.SW.Runtime
     entryPoint: @VPU.SW::@runtime
     stack_configuration: [4096, 4096, 4096, 4096]
@@ -940,4 +939,86 @@ func.func @AddCacheHandlingSwOpOneSwKernelMultipleDependencies(%arg0: memref<1x1
 
     // CHECK:   [[AWAIT:%.*]] = async.await [[R_4]] : !async.value<memref<1x1x1x2000xf16, [@CMX_NN, 0]>>
     // CHECK:   return [[AWAIT]] : memref<1x1x1x2000xf16, [@CMX_NN, 0]>
+}
+
+// -----
+
+VPURT.SW.Runtime
+    entryPoint: @VPU.SW::@runtime
+    stack_configuration: [4096, 4096, 4096, 4096]
+
+module @VPU.SW {
+func.func private @builtin_GridSample(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64, none)
+    attributes {
+        VPU.kernel_code = "grid_sample.cpp",
+        VPU.kernel_entry = "grid_sample",
+        VPU.task_type = @COMPUTE
+    }
+
+func.func private @runtime()
+    attributes {
+        VPU.kernel_code = "nnActEntry"
+    }
+}
+
+// CHECK-LABEL: @AddCacheInvalidateSwOpForDDRGridSampleOp
+// CHECK-SAME:        [[INPUT0:%arg[0-9]]]: memref<1x1x1920x1088xf16, @DDR>,
+// CHECK-SAME:        [[INPUT1:%arg[0-9]]]: memref<1x120x68x2xf16, [@CMX_NN, 0]>
+func.func @AddCacheInvalidateSwOpForDDRGridSampleOp(%arg0: memref<1x1x1920x1088xf16, @DDR>, %arg1: memref<1x120x68x2xf16, [@CMX_NN, 0]>) -> memref<1x1x120x68xf16, [@CMX_NN, 0]> {
+    %in_ddr = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1920x1088xf16, @DDR>
+    %grid_input_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <1457152> -> memref<1x120x68x2xf16, [@CMX_NN, 0]>
+
+    %output_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <1473024> -> memref<1x1x120x68xf16, [@CMX_NN, 0]>
+
+    %t0, %r0 = async.execute -> !async.value<memref<1x1x1920x1088xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
+        %dma_0 = VPUIP.NNDMA inputs(%arg0 : memref<1x1x1920x1088xf16, @DDR>) outputs(%in_ddr : memref<1x1x1920x1088xf16, @DDR>) -> memref<1x1x1920x1088xf16, @DDR>
+        async.yield %dma_0 : memref<1x1x1920x1088xf16, @DDR>
+    }
+
+    %t1, %r1 = async.execute -> !async.value<memref<1x120x68x2xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
+        %dma_0 = VPUIP.NNDMA inputs(%arg1 : memref<1x120x68x2xf16, [@CMX_NN, 0]>) outputs(%grid_input_cmx : memref<1x120x68x2xf16, [@CMX_NN, 0]>) -> memref<1x120x68x2xf16, [@CMX_NN, 0]>
+        async.yield %dma_0 : memref<1x120x68x2xf16, [@CMX_NN, 0]>
+    }
+
+    %t2, %r2 = async.execute [%t0] (%r0 as %sw_kernel_input : !async.value<memref<1x1x1920x1088xf16, @DDR>>, %r1 as %sw_kernel_grid : !async.value<memref<1x120x68x2xf16, [@CMX_NN, 0]>>) -> !async.value<memref<1x1x120x68xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+        %sw_kernel_1 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_GridSample
+                inputs(%sw_kernel_input as %in_buff_0: memref<1x1x1920x1088xf16, @DDR>, %sw_kernel_grid as %in_buff_1: memref<1x120x68x2xf16, [@CMX_NN, 0]>)
+                outputs(%output_cmx as %out_buff_0: memref<1x1x120x68xf16, [@CMX_NN, 0]>)
+                on tile 0 -> memref<1x1x120x68xf16, [@CMX_NN, 0]>{
+            VPUIP.SW.Kernel.run {attrs = [1, 2, [2, 1, 0]]}(%in_buff_0, %in_buff_1, %out_buff_0)
+                : memref<1x1x1920x1088xf16, @DDR>
+                , memref<1x120x68x2xf16, [@CMX_NN, 0]>
+                , memref<1x1x120x68xf16, [@CMX_NN, 0]>
+        }
+        async.yield %sw_kernel_1 : memref<1x1x120x68xf16, [@CMX_NN, 0]>
+    }
+
+    %2 = async.await %r2 : !async.value<memref<1x1x120x68xf16, [@CMX_NN, 0]>>
+
+    return %2: memref<1x1x120x68xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[IN_DDR:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1920x1088xf16, @DDR>
+    // CHECK:   [[GRID_INPUT_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1457152> -> memref<1x120x68x2xf16, [@CMX_NN, 0]>
+    // CHECK:   [[OUTPUT_CMX:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <1473024> -> memref<1x1x120x68xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[T:%.+]], [[R:%.+]] = async.execute -> !async.value<memref<1x1x1920x1088xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
+    // CHECK:     [[NN_DMA_0:%.+]] = VPUIP.NNDMA inputs([[INPUT0]] : memref<1x1x1920x1088xf16, @DDR>) outputs([[IN_DDR]] : memref<1x1x1920x1088xf16, @DDR>) -> memref<1x1x1920x1088xf16, @DDR>
+    // CHECK:     async.yield [[NN_DMA_0]] : memref<1x1x1920x1088xf16, @DDR>
+
+    // CHECK:   [[T_0:%.+]], [[R_1:%.+]] = async.execute -> !async.value<memref<1x120x68x2xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 0 : i64} {
+    // CHECK:     [[NN_DMA_0:%.+]] = VPUIP.NNDMA inputs([[INPUT1]] : memref<1x120x68x2xf16, [@CMX_NN, 0]>) outputs(%1 : memref<1x120x68x2xf16, [@CMX_NN, 0]>) -> memref<1x120x68x2xf16, [@CMX_NN, 0]>
+    // CHECK:     async.yield [[NN_DMA_0]] : memref<1x120x68x2xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[T_2:%.+]] = async.execute [[[T]]] attributes {VPUIP.executor = @SHAVE_ACT} {
+    // CHECK:    VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush_invalidate inputs() outputs() on tile 0{
+    // CHECK:      VPUIP.SW.Kernel.run
+    // CHECK:      async.yield
+
+    // CHECK:   [[T_03:%.+]], [[R_4:%.+]] = async.execute [[[T_2]]] ([[R]] as %arg2: !async.value<memref<1x1x1920x1088xf16, @DDR>>, [[R_1]] as %arg3: !async.value<memref<1x120x68x2xf16, [@CMX_NN, 0]>>) -> !async.value<memref<1x1x120x68xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+    // CHECK:   [[SW_KERNEL:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_GridSample inputs(%arg2 as %arg4: memref<1x1x1920x1088xf16, @DDR>, %arg3 as %arg5: memref<1x120x68x2xf16, [@CMX_NN, 0]>) outputs(%2 as %arg6: memref<1x1x120x68xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x1x120x68xf16, [@CMX_NN, 0]>{
+    // CHECK:      VPUIP.SW.Kernel.run {attrs = [1, 2, [2, 1, 0]]}(%arg4, %arg5, %arg6) : memref<1x1x1920x1088xf16, @DDR>, memref<1x120x68x2xf16, [@CMX_NN, 0]>, memref<1x1x120x68xf16, [@CMX_NN, 0]>
+    // CHECK:      async.yield [[SW_KERNEL]] : memref<1x1x120x68xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[AWAIT:%.+]] = async.await %bodyResults_4 : !async.value<memref<1x1x120x68xf16, [@CMX_NN, 0]>>
+    // CHECK:   return [[AWAIT]] : memref<1x1x120x68xf16, [@CMX_NN, 0]>
 }

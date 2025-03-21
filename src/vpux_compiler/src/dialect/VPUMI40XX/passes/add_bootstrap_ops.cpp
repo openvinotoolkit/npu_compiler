@@ -5,16 +5,24 @@
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_ADDBOOTSTRAPOPS
+#define GEN_PASS_DEF_ADDBOOTSTRAPOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
 namespace {
 
-class AddBootstrapOpsPass : public VPUMI40XX::AddBootstrapOpsBase<AddBootstrapOpsPass> {
+class AddBootstrapOpsPass : public VPUMI40XX::impl::AddBootstrapOpsBase<AddBootstrapOpsPass> {
 public:
     explicit AddBootstrapOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -105,9 +113,9 @@ int64_t addEnqueueForOp(mlir::MLIRContext* ctx, mlir::func::FuncOp netFunc, mlir
             }
         }
         auto trivialIndexType = VPURegMapped::IndexType::get(ctx, checked_cast<uint32_t>(0));
-        auto bootstrapEnqueue =
-                builder.create<VPURegMapped::EnqueueOp>(startTask->getLoc(), trivialIndexType, nullptr, nullptr,
-                                                        taskType, startTask->getResult(0), endTask->getResult(0));
+        auto bootstrapEnqueue = builder.create<VPURegMapped::EnqueueOp>(
+                startTask->getLoc(), trivialIndexType, nullptr, nullptr, /*previousTaskIdxOnSameBarrier*/ nullptr,
+                taskType, startTask->getResult(0), endTask->getResult(0));
         if (firstEnqueue) {
             bootstrapEnqueue.getOperation()->moveBefore(
                     mlir::cast<VPURegMapped::EnqueueOp>(firstEnqueue).getOperation());

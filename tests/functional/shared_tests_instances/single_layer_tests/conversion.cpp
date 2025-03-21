@@ -48,7 +48,7 @@ const std::vector<std::vector<ov::Shape>> inShapeTiling = {{{2000, 2000}}};
 const std::vector<std::vector<ov::Shape>> inShapeOdd = {{{1, 1, 1, 111}}};
 
 const std::vector<ov::element::Type> netPrecisions = {ov::element::f32, ov::element::f16, ov::element::u8,
-                                                      ov::element::i8,  ov::element::i32, ov::element::f64};
+                                                      ov::element::i8, ov::element::i32};
 
 const auto configParamsBF16ToF16 =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
@@ -61,6 +61,20 @@ const auto configParams =
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
                            ::testing::ValuesIn(netPrecisions),                                  // Input type
                            ::testing::ValuesIn(netPrecisions),                                  // Convert type
+                           ::testing::Values(DEVICE_NPU));
+
+const auto configParamsF64ToI64 =
+        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
+                           ::testing::Values(ov::element::f64),                                 // Input type
+                           ::testing::Values(ov::element::i64),                                 // Convert type
+                           ::testing::Values(DEVICE_NPU));
+
+const auto configParamsI64ToF64 =
+        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
+                           ::testing::Values(ov::element::i64),                                 // Input type
+                           ::testing::Values(ov::element::f64),                                 // Convert type
                            ::testing::Values(DEVICE_NPU));
 
 const auto configParamsU4Tiling =
@@ -96,6 +110,12 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_u4_Conversion, ConversionLayerTestCommo
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_bf16_Conversion, ConversionLayerTestCommon_HW, configParamsBF16ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f64_i64_Conversion, ConversionLayerTestCommon_HW, configParamsF64ToI64,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_i64_f64_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToF64,
                          ConversionLayerTest::getTestCaseName);
 
 // Tracking number [E#128077]

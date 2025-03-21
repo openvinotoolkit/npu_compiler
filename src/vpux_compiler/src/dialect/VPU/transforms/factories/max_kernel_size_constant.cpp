@@ -16,9 +16,8 @@ VPU::MaxKernelSizeConstant VPU::getMaxKernelSizeConstant(VPU::ArchKind arch) {
     case VPU::ArchKind::NPU40XX: {
         return VPU::arch37xx::MaxKernelSizeConstant{};
     }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
     }
     }
+    VPUX_THROW("Unable to get MaxKernelSizeConstant for arch {0}", arch);
 }

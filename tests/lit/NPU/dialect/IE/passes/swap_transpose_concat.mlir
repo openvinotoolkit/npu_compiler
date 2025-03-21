@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-transpose-concat %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
 
 func.func @SwapTransposeConcatWithOffsets(%arg0: tensor<1x76x4x1xf16>, %arg1: tensor<1x76x4x1xf16> ) -> tensor<1x8x76x1xf16> {

@@ -1,5 +1,14 @@
 Change Log:
 -----------
+VPUXCompilerL0 7.1.0
+  - Add NPU_COMPILER_DYNAMIC_QUANTIZATION property
+
+VPUXCompilerL0 7.0.0:
+  - Add vclGetVersion to show current vcl api version
+  - Add vcl_device_desc_t with members, deviceID, revision, tileCount
+  - Update vclCompilerCreate to use new structure
+  - Update default test platform to 4000
+
 VPUXCompilerL0 6.3.0:
   - Bugfixes
 
@@ -43,6 +52,7 @@ VPUXCompilerL0 5.4.1:
 VPUXCompilerL0 5.4.0:
   - Add support for INFERENCE_PRECISION_HINT compiler options.
 
+
 VPUXCompilerL0 5.3.0:
   - Add support for NPU_MAX_TILES and NPU_STEPPING compiler options.
 
@@ -62,8 +72,6 @@ VPUXCompilerL0 4.2.0:
   - Rename VPUXCompilerL0.h to vpux_driver_compiler.h
   - Code refactor
 
-VPUXCompilerL0 4.1.0
-  - Add 5000 to platform
 
 VPUXCompilerL0 4.0.0
   - Support config key with VPU_ prefix instead of VPUX_ prefix

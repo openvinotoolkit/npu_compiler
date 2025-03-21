@@ -1,28 +1,30 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/module_utils.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/const/attr_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
-#include "vpux/compiler/utils/IE/locations.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/abstract_tree.hpp"
+#include "vpux/compiler/utils/func_dialect.hpp"
+#include "vpux/compiler/utils/ir_modification.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/types.hpp"
-#include "vpux/utils/core/type/float16.hpp"
 
+#include <llvm/ADT/Hashing.h>
+#include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <llvm/IR/Type.h>
+#include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -32,205 +34,40 @@
 #include <mlir/IR/BuiltinDialect.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <mlir/IR/DialectResourceBlobManager.h>
+#include <iterator>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_INTRODUCEINITFUNCTION
+#define GEN_PASS_DEF_INTRODUCEINITFUNCTION
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
 namespace {
 
-//
-// utilities
-//
-
-std::string declareOpToString(Const::DeclareOp declareOp) {
-    std::string out;
-    llvm::raw_string_ostream ss(out);
-    auto flags = mlir::OpPrintingFlags()
-                         .elideLargeElementsAttrs()
-                         .elideLargeResourceString()
-                         .setAllowPrintingElementsAttrAsHex(false);
-    declareOp->print(ss, flags);
-    return out;
-};
-
-bool isOpenVINOConstant(Const::DeclareOp declareOp) {
-    auto baseContent = declareOp.getContentAttr().getBaseContent();
-
-    if (auto attr = mlir::dyn_cast<mlir::DenseResourceElementsAttr>(baseContent); attr != nullptr) {
-        return attr.getRawHandle().getKey().starts_with(Const::OPENVINO_CONST_PREFIX);
+// Casts the resulting value to its storage type counterpart. This is normally
+// done in init and thus in IE dialect.
+static mlir::Value castToStorageType(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
+                                     const VPU::IoBoundaryAdapter::TypeInfo& info) {
+    if (!info.valid()) {
+        return input;
     }
-
-    return false;
+    return builder.create<IE::QuantizeCastOp>(appendLoc(loc, "_quant_cast"), input, info.storageType);
 }
 
-SmallVector<uint32_t> computeOrder(const DimsOrder inOrder, const DimsOrder outOrder) {
-    auto inPerm = inOrder.toPermutation();
-    auto outPerm = outOrder.toPermutation();
-    SmallVector<uint32_t> memPerm(inPerm.size());
-    for (auto p : outPerm | indexed) {
-        memPerm[p.index()] = static_cast<uint32_t>(inOrder.dimPos(p.value()));
+// Casts the resulting value "back" to its original quantized type. This is
+// normally done in main and thus in VPU dialect.
+static mlir::Value castToQuantizedType(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
+                                       const VPU::IoBoundaryAdapter::TypeInfo& info) {
+    if (!info.valid()) {
+        return input;
     }
-    return memPerm;
+    return builder.create<VPU::QuantizeCastOp>(appendLoc(loc, "_quant_cast"), input, info.quantizedType);
 }
 
-bool shouldMoveConstantToInit(Const::DeclareOp constOp) {
-    // preserve splats in @main - they (should be) cheap to work with.
-    const auto contentAttr = constOp.getContentAttr();
-
-    if (contentAttr.getTransformations().empty()) {
-        return false;
-    }
-
-    // ignore all non-OV constants
-    if (!isOpenVINOConstant(constOp)) {
-        return false;
-    }
-
-    // splat values should be quick enough to process in main()
-    if (contentAttr.isSplat()) {
-        return false;
-    }
-
-    auto previousType = mlir::cast<vpux::NDTypeInterface>(contentAttr.getBaseContent().getType());
-    bool allViewLike = llvm::all_of(contentAttr.getTransformations(), [&constOp, &previousType](auto trans) -> bool {
-        bool result = false;
-
-        if (mlir::isa<Const::ReshapeAttr, Const::SubViewAttr, Const::CastElemTypeAttr, Const::LayoutCastAttr>(trans)) {
-            result = true;
-        } else if (auto memPermute = mlir::dyn_cast<Const::MemPermuteAttr>(trans)) {
-            auto memPerm = memPermute.getMemPerm().getValue();
-            result = memPerm.isIdentity();
-        } else if (auto transpose = mlir::dyn_cast<Const::TransposeAttr>(trans)) {
-            const auto inputOrder = previousType.getDimsOrder();
-            const auto inPerm = inputOrder.toAffineMap(constOp.getContext());
-            const auto memPerm = inPerm.compose(transpose.getOrder().getValue());
-            result = memPerm.isIdentity();
-        } else if (auto reorder = mlir::dyn_cast<Const::ReorderAttr>(trans)) {
-            const auto inOrder = previousType.getDimsOrder();
-            auto outType = trans.inferOutputType(previousType);
-            const auto outOrder = outType.getDimsOrder();
-            const auto memPerm =
-                    mlir::AffineMap::getPermutationMap(ArrayRef(computeOrder(inOrder, outOrder)), constOp.getContext());
-            result = memPerm.isIdentity();
-        }
-
-        previousType = trans.inferOutputType(previousType);
-        return result;
-    });
-
-    return !allViewLike;
-}
-
-SmallVector<Const::DeclareOp> collectMoveWorthyConstantOps(mlir::func::FuncOp mainFunc) {
-    SmallVector<Const::DeclareOp> toBeMovedConstants;
-    mainFunc.walk([&](Const::DeclareOp constOp) {
-        if (!shouldMoveConstantToInit(constOp)) {
-            return;
-        }
-        toBeMovedConstants.push_back(constOp);
-    });
-    return toBeMovedConstants;
-}
-
-// The list of transformations of a particular DeclareOp can be split into two parts: One Part inside the init function
-// and the other part inside the main function.
-//
-// For example, it is undesirable to perform a SubView operation as the last transformation inside of init. Taking two
-// SubViews of the same input value produces 2 output values in init. This unnecessarily increases the required IO
-// bandwidth between main and init for a pure view-like operation. It would be better to delay the SubView by performing
-// it as part of main. Then we only have to transfer a single output value from init to main.
-struct TransformationsSplit {
-    // Quantized types are not supported for network IO => Insert two IE::QuantizeCastOps at the boundary if required.
-    class QuantizedIOAdapter {
-    public:
-        QuantizedIOAdapter(mlir::Type quantizedType, mlir::Type storageType)
-                : _quantizedType(quantizedType), _storageType(storageType) {
-        }
-
-        mlir::Value adapt(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input) const {
-            return builder.create<IE::QuantizeCastOp>(appendLoc(loc, "_quant_cast"), input, _storageType);
-        }
-
-        mlir::Value deadapt(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input) const {
-            return builder.create<VPU::QuantizeCastOp>(appendLoc(loc, "_quant_cast"), input, _quantizedType);
-        }
-
-    private:
-        mlir::Type _quantizedType;
-        mlir::Type _storageType;
-    };
-
-    TransformationsSplit(Const::DeclareOp declareOp): declareOp(declareOp) {
-        auto transformations = declareOp.getContentAttr().getTransformations();
-
-        if (mlir::isa<Const::SubViewAttr>(transformations.back())) {
-            inInitTransformations = transformations.drop_back();
-            postInitTransformations = transformations.take_back();
-        } else {
-            inInitTransformations = transformations;
-            postInitTransformations = {};
-        }
-
-        auto baseType = declareOp.getContentAttr().getBaseContent().getType();
-        auto finalType = Const::inferFinalType(baseType, inInitTransformations);
-
-        // quantized types are not supported for network IO
-        if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(finalType.getElementType()); qType != nullptr) {
-            auto normalizedType = normalizeQuantStorageType(qType);
-            ioAdaptor = QuantizedIOAdapter{qType, normalizedType};
-        }
-    }
-
-    Const::DeclareOp declareOp;
-    // These ArrayRefs are valid as long as the underlying attribute exists, which is until the context is destroyed.
-    ArrayRef<Const::TransformAttrInterface> inInitTransformations;
-    ArrayRef<Const::TransformAttrInterface> postInitTransformations;
-    std::optional<QuantizedIOAdapter> ioAdaptor;
-};
-
-SmallVector<TransformationsSplit> splitTransformations(ArrayRef<Const::DeclareOp> declareOps) {
-    return to_small_vector(declareOps | transformed([](auto op) {
-                               return TransformationsSplit(op);
-                           }));
-}
-
-// Two DeclareOps will be mapped to the same input index if they share the same underlying mlir::ElementsAttr object.
-class DeclareOpInputMap {
-public:
-    DeclareOpInputMap(ArrayRef<Const::DeclareOp> declareOps) {
-        size_t index = 0;
-        for (auto declareOp : declareOps) {
-            auto baseContent = declareOp.getContentAttr().getBaseContent();
-
-            if (!_elementsToIndex.contains(baseContent)) {
-                // in our case name will be something like "ov_*"
-                auto name = mlir::cast<mlir::DenseResourceElementsAttr>(baseContent).getRawHandle().getKey();
-                _elementsToIndex[baseContent] = index++;
-                _argumentTypes.push_back(baseContent.getType());
-                _argumentNames.push_back(name.str());
-            }
-        }
-    }
-
-    std::tuple<size_t, mlir::Type> getArgumentInfo(Const::DeclareOp declareOp) const {
-        auto baseContent = declareOp.getContentAttr().getBaseContent();
-        auto it = _elementsToIndex.find(baseContent);
-        VPUX_THROW_WHEN(it == _elementsToIndex.end(), "Failed to find constant operation: {0}", declareOp);
-        return {it->second, baseContent.getType()};
-    }
-
-    ArrayRef<mlir::Type> getArgumentTypes() const {
-        return _argumentTypes;
-    }
-
-    ArrayRef<std::string> getArgumentNames() const {
-        return _argumentNames;
-    }
-
-private:
-    mlir::DenseMap<mlir::ElementsAttr, size_t> _elementsToIndex;
-    mlir::SmallVector<mlir::Type> _argumentTypes;
-    mlir::SmallVector<std::string> _argumentNames;
-};
+/// Weights-separation specific argument cache.
+using WsArgumentCache = vpux::utils::ArgumentCache<vpux::VPU::ConstArg>;
 
 // Each DeclareOp corresponds to a single result value of init. A result value can belong to multiple DeclareOps if for
 // example their underlying elements attributes and in-init-transformations are the same.
@@ -239,46 +76,41 @@ public:
     // We take this awkward looking ArrayRef of tuples instead of a DenseMap<mlir::Value, SmallVector<Const::DeclareOp>>
     // directly, so we can be sure about a deterministic order of result values that only depends on the IR itself and
     // not the context.
-    DeclareOpOutputMap(ArrayRef<std::tuple<mlir::Value, Const::DeclareOp>> valueDeclareOpPairs) {
+    DeclareOpOutputMap(ArrayRef<std::tuple<mlir::Value, Const::ContentAttr>> transformedConstants) {
         // Because of CSE-caching, multiple DeclareOps can be associated with the same result value. This is why
         // we want set semantics here.
-        for (auto [resultValue, declareOp] : valueDeclareOpPairs) {
+        for (auto [resultValue, contentAttr] : transformedConstants) {
+            // Note: SetVector's insertion peforms de-duplicating push_back.
+            // This is why this algorithm works: we add result values in the
+            // order they appear in the sequence passed to us as input.
             _resultValues.insert(resultValue);
         }
 
         // temporary map for easy lookup
-        DenseMap<mlir::Value, SmallVector<Const::DeclareOp>> valueToDeclareOps;
-        for (auto [resultValue, declareOp] : valueDeclareOpPairs) {
-            valueToDeclareOps[resultValue].push_back(declareOp);
+        DenseMap<mlir::Value, SmallVector<Const::ContentAttr>> valueToContentAttrs;
+        for (auto [resultValue, contentAttr] : transformedConstants) {
+            valueToContentAttrs[resultValue].push_back(contentAttr);
         }
 
         _resultTypes.resize(_resultValues.size());
         _resultNames.resize(_resultValues.size());
+        _transformHashes.resize(_resultValues.size());
 
         for (auto [resultIndex, resultValue] : _resultValues.getArrayRef() | indexed) {
-            auto declareOps = valueToDeclareOps.at(resultValue);
+            const auto& contentAttrs = valueToContentAttrs.at(resultValue);
 
-            for (auto declareOp : declareOps) {
-                _declareOpToIndex[declareOp] = resultIndex;
-            }
-
-            auto ngraphName =
-                    mlir::cast<mlir::DenseResourceElementsAttr>(declareOps.front().getContentAttr().getBaseContent())
-                            .getRawHandle()
-                            .getKey();
             _resultTypes[resultIndex] = resultValue.getType();
-            _resultNames[resultIndex] = ngraphName.str();
+            _resultNames[resultIndex] = getResourceName(contentAttrs.front().getBaseContent());
+            assert(!_resultNames[resultIndex].empty() && "Only dense_resource<> constants are processed by the pass");
+
+            // E#155816: there's a bug here - we cannot use transformation hash
+            // as it is done here, consider:
+            // * dense_resource<ov_1>, [#const.Add<1.0>, #const.SubView<[0, 0], [0, 0]>]
+            // and:
+            // * dense_resource<ov_1>, [#const.Add<1.0>, #const.SubView<[0, 1], [0, 0]>]
+            // (both map to a single result value of init)
+            _transformHashes[resultIndex] = static_cast<unsigned>(contentAttrs.front().getTransformationHash());
         }
-    }
-
-    size_t getResultIndex(Const::DeclareOp declareOp) const {
-        return _declareOpToIndex.at(declareOp);
-    }
-
-    // type, result index, ngraph name
-    std::tuple<mlir::Type, size_t, StringRef> getResultInfo(Const::DeclareOp declareOp) const {
-        size_t index = _declareOpToIndex.at(declareOp);
-        return {_resultTypes[index], index, _resultNames[index]};
     }
 
     ArrayRef<mlir::Type> getResultTypes() const {
@@ -290,85 +122,49 @@ public:
     }
 
     std::string getUniqueResultName(size_t index) const {
-        // TODO: #E-142072 Develop unique hash that is independent of MLIR context and only depends on the operations
-        // themselves.
-        return formatv("out_{0}_hash_{1}", _resultNames[index], index);
+        return formatv("out_{0}_hash_{1}", _resultNames[index], _transformHashes[index]);
     }
 
 private:
-    mlir::DenseMap<Const::DeclareOp, size_t> _declareOpToIndex;
     mlir::SetVector<mlir::Value> _resultValues;
     mlir::SmallVector<mlir::Type> _resultTypes;
-    mlir::SmallVector<std::string> _resultNames;
+    // Note: result names are dense_resource keys - returned already as string
+    // refs by MLIR API (their lifetime is bound to MLIR context).
+    mlir::SmallVector<mlir::StringRef> _resultNames;
+    mlir::SmallVector<unsigned> _transformHashes;
 };
 
-// We want to cache the results of mapping a list of transformations to operations to avoid the call of a
-// UniquifyOps pass. Experiments showed that the load became significant in some cases.
-class OperationCache {
-public:
-    using OperationPatternT = std::tuple<mlir::Value, ArrayRef<Const::TransformAttrInterface>>;
-    using KeyT = std::tuple<mlir::Value, Const::TransformAttrInterfaceArrayAttr>;
+using CallChainData = std::pair<mlir::func::CallOp, mlir::func::FuncOp>;
+using CallChainTree = utils::AbstractTree<CallChainData>;
 
-    OperationCache(const Logger& log): _log(log) {
-    }
-
-    mlir::Value findCachedResult(const OperationPatternT& pattern) {
-        auto it = _cachedResults.find(getKey(pattern));
-        if (it == _cachedResults.end()) {
-            return {};
-        }
-        return it->second;
-    }
-
-    void cacheResult(const OperationPatternT& pattern, mlir::Value value) {
-        _log.trace("Mapping input {0} with transformations {1} to {2}", std::get<0>(pattern), std::get<1>(pattern),
-                   value);
-        _cachedResults[getKey(pattern)] = value;
-    }
-
-private:
-    static KeyT getKey(const OperationPatternT& pattern) {
-        auto value = std::get<0>(pattern);
-        return {value, Const::TransformAttrInterfaceArrayAttr::get(value.getContext(), std::get<1>(pattern))};
-    }
-
-    llvm::DenseMap<KeyT, mlir::Value> _cachedResults;
-    Logger _log;
-};
+std::vector<CallChainData> collectCallChains(mlir::func::FuncOp funcOp) {
+    std::vector<CallChainData> functions;
+    funcOp.walk([&](mlir::func::CallOp callOp) {
+        functions.push_back({callOp, getCalledFunction(callOp)});
+    });
+    return functions;
+}
 
 //
 // IntroduceInitFunctionPass
 //
 
-class IntroduceInitFunctionPass final : public VPU::IntroduceInitFunctionBase<IntroduceInitFunctionPass> {
+class IntroduceInitFunctionPass final : public VPU::impl::IntroduceInitFunctionBase<IntroduceInitFunctionPass> {
 public:
     enum class Mode { Unspecified, GenerateMain, GenerateInit, GenerateAll };
 
-    explicit IntroduceInitFunctionPass(const Logger& log): _operationCache(log) {
+    explicit IntroduceInitFunctionPass(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
-    static mlir::Value createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder, mlir::Value input,
-                                                             mlir::Location loc, mlir::quant::QuantizedType inType,
-                                                             mlir::quant::QuantizedType outType);
-    std::tuple<ArrayRef<Const::TransformAttrInterface>, mlir::Value> createMatchingOperations(
-            mlir::OpBuilder& builder, mlir::Value input, mlir::Location loc,
-            ArrayRef<Const::TransformAttrInterface> transformations);
-    std::tuple<ArrayRef<Const::TransformAttrInterface>, mlir::Value> createMatchingPostInitOperations(
-            mlir::OpBuilder& builder, mlir::Value input, mlir::Location loc,
-            ArrayRef<Const::TransformAttrInterface> transformations);
-    std::tuple<mlir::func::FuncOp, DeclareOpOutputMap> buildInitFunction(mlir::func::FuncOp mainFuncOp,
-                                                                         ArrayRef<TransformationsSplit> declareOps,
-                                                                         const DeclareOpInputMap& inputMap);
-    // applies necessary changes in order for main to co-exist with init.
-    void updateMainToAccommodateInit(mlir::func::FuncOp mainFuncOp, mlir::func::FuncOp initFuncOp,
-                                     const DeclareOpOutputMap& outputMap,
-                                     ArrayRef<TransformationsSplit> preprocessedDeclareOps);
+    std::tuple<mlir::func::FuncOp, DeclareOpOutputMap> buildInitFunction(
+            mlir::func::FuncOp mainFuncOp, const CallChainTree& tree,
+            mlir::DenseMap<mlir::func::FuncOp, WsArgumentCache>& argCaches);
 
     // configures NetworkInfo to assume init-schedule is the entry-point.
     void setNetworkEntryPointToInit(IE::CNNNetworkOp mainInfo, mlir::func::FuncOp initFuncOp,
-                                    const DeclareOpInputMap& inputMap, const DeclareOpOutputMap& outputMap);
+                                    const WsArgumentCache& argCache, const DeclareOpOutputMap& outputMap);
     // configures NetworkInfo to assume *updated* main-schedule is the
     // entry-point. the behaviour is to be considered equivalent to setting the
     // entry-point to init.
@@ -377,393 +173,16 @@ private:
     // creates new main that calls init and main in sequence. this function
     // becomes the new entry-point.
     void buildWrapperOpForInitAndMain(IE::CNNNetworkOp mainInfo, mlir::func::FuncOp mainFuncOp,
-                                      mlir::func::FuncOp initFuncOp, const DeclareOpInputMap& inputMap,
-                                      ArrayRef<TransformationsSplit> preprocessedDeclareOps);
-    // erases original const.Declare operations. this has to be done after
-    // everything else.
-    void eraseOriginalOps(ArrayRef<TransformationsSplit> preprocessedDeclareOps);
+                                      mlir::func::FuncOp initFuncOp, const WsArgumentCache& initArgCache);
 
     mlir::LogicalResult initialize(mlir::MLIRContext* context) final;
     void safeRunOnModule() final;
 
     Mode _mode = Mode::Unspecified;
-    OperationCache _operationCache;
 };
 
-// This method attempts to create a matching IE::AvgPoolOp for per-axis
-// quantized ConvertElemType. This is expected to yield more efficient IR.
-mlir::Value IntroduceInitFunctionPass::createAvgPoolForInterQuantizedConvert(mlir::OpBuilder& builder,
-                                                                             mlir::Value input, mlir::Location loc,
-                                                                             mlir::quant::QuantizedType inQType,
-                                                                             mlir::quant::QuantizedType outQType) {
-    auto inPerAxisQType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(inQType);
-    auto outPerAxisQType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(outQType);
-
-    if (inPerAxisQType == nullptr || outPerAxisQType == nullptr) {
-        return nullptr;
-    }
-
-    const auto inScales = extractScalesAndZeroPoints(inPerAxisQType).first;
-    const auto outScales = extractScalesAndZeroPoints(outPerAxisQType).first;
-    if (inScales.size() != outScales.size()) {
-        return nullptr;
-    }
-
-    auto allScalesAreEqual = llvm::all_of(llvm::zip(inScales, outScales), [](auto scales) {
-        return std::get<0>(scales) == std::get<1>(scales);
-    });
-    if (!allScalesAreEqual) {
-        return nullptr;
-    }
-
-    // Note: do what ConvertElemType does to restore the offset.
-    const auto bias = Const::details::getValueRangeOffset(inQType, outQType);
-
-    auto perTensorInQType = mlir::quant::UniformQuantizedType::get(
-            inPerAxisQType.getFlags(), inPerAxisQType.getStorageType(), inPerAxisQType.getExpressedType(),
-            /*scale=*/1.0, /*zeroPoint=*/0, inPerAxisQType.getStorageTypeMin(), inPerAxisQType.getStorageTypeMax());
-    auto perTensorOutQType = mlir::quant::UniformQuantizedType::get(
-            outPerAxisQType.getFlags(), outPerAxisQType.getStorageType(), outPerAxisQType.getExpressedType(),
-            /*scale=*/1.0, /*zeroPoint=*/bias, outPerAxisQType.getStorageTypeMin(),
-            outPerAxisQType.getStorageTypeMax());
-
-    // convert per-axis case to per-tensor:
-    auto normInQuantCast = builder.create<IE::QuantizeCastOp>(loc, input, normalizeQuantStorageType(inQType));
-    auto avgInput = builder.create<IE::QuantizeCastOp>(loc, normInQuantCast, perTensorInQType).getResult();
-
-    const SmallVector<int64_t> poolStrides = {1, 1};
-    const SmallVector<int64_t> poolKernels = {1, 1};
-    const SmallVector<int64_t> pads = {0, 0};
-    auto ctx = builder.getContext();
-
-    // implement inter-quantized-type convert via average pooling (on per-tensor
-    // quantization types): such convert is essentially `IE.Add(%x, zero-point)`
-    // and Add could be done via AvgPool.
-    auto avgType = mlir::cast<NDTypeInterface>(avgInput.getType()).changeElemType(perTensorOutQType);
-    auto avgPool = builder.create<IE::AvgPoolOp>(
-            loc, avgType, avgInput, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
-            getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
-            vpux::IE::RoundingTypeAttr::get(ctx, vpux::IE::RoundingType::FLOOR),
-            mlir::UnitAttr::get(builder.getContext()), nullptr, nullptr, nullptr, nullptr, nullptr);
-
-    // convert per-tensor case to per-axis (restore the original type):
-    auto normOutQuantCast =
-            builder.create<IE::QuantizeCastOp>(loc, avgPool, normalizeQuantStorageType(perTensorOutQType));
-    auto resultValue = builder.create<IE::QuantizeCastOp>(loc, normOutQuantCast, outQType);
-
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(avgPool.getInput().getType().getElementType()) ||
-        mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(avgPool.getOutput().getType().getElementType())) {
-        return nullptr;
-    }
-
-    return resultValue;
-}
-
-std::tuple<ArrayRef<Const::TransformAttrInterface>, mlir::Value> IntroduceInitFunctionPass::createMatchingOperations(
-        mlir::OpBuilder& builder, mlir::Value input, mlir::Location loc,
-        ArrayRef<Const::TransformAttrInterface> transformations) {
-    if (transformations.empty()) {
-        return {ArrayRef<Const::TransformAttrInterface>{}, input};
-    }
-
-    // 1-to-n mappings
-    if (auto cachedValue = _operationCache.findCachedResult({input, transformations.take_front()});
-        cachedValue != nullptr) {
-        return {transformations.drop_front(), cachedValue};
-    }
-
-    mlir::Value outputValue =
-            llvm::TypeSwitch<Const::TransformAttrInterface, mlir::Value>(transformations.front())
-                    .Case<Const::AddAttr>([&](Const::AddAttr add) {
-                        const auto biasValue = checked_cast<float>(add.getBias().getValueAsDouble());
-
-                        const auto biasLoc = appendLoc(loc, "_bias");
-                        SmallVector<int64_t> shapeRank = {1};
-                        auto biasType =
-                                mlir::RankedTensorType::get(shapeRank, mlir::Float32Type::get(builder.getContext()));
-                        auto transform = [&](Const::ContentSetup& setup) -> Const::ContentSetup {
-                            return setup.castElemType(mlir::cast<NDTypeInterface>(input.getType()).getElementType());
-                        };
-                        auto bias = Const::createConst<float>(builder, biasLoc, biasType, {biasValue}, transform);
-
-                        return builder.create<IE::AddOp>(loc, input, bias, IE::AutoBroadcastType::NUMPY,
-                                                         /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                         /*outputChannels=*/nullptr,
-                                                         /*inputChannels=*/nullptr);
-                    })
-                    .Case<Const::BroadcastAttr>([&](Const::BroadcastAttr broadcast) {
-                        const auto axis = broadcast.getAxis().getInt();
-                        const auto dimValue = broadcast.getValue().getInt();
-                        auto shape = SmallVector<int64_t>(input.getType().cast<NDTypeInterface>().getShape().raw());
-                        shape[axis] = dimValue;
-
-                        const auto targetShapeLoc = appendLoc(loc, "_shape");
-                        SmallVector<int64_t> shapeRank = {static_cast<int64_t>(shape.size())};
-                        auto targetShapeType =
-                                mlir::RankedTensorType::get(shapeRank, getInt64Type(builder.getContext()));
-                        auto targetShape = Const::createConst<int64_t>(builder, targetShapeLoc, targetShapeType, shape);
-
-                        return builder.create<IE::BroadcastOp>(loc, input, targetShape, /*axesMapping=*/nullptr,
-                                                               /*mode=*/nullptr);
-                    })
-                    .Case<Const::ChangeShapeAndElemTypeAttr>(
-                            [&](Const::ChangeShapeAndElemTypeAttr changeShapeAndElemType) {
-                                const auto inElemType =
-                                        mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(
-                                                mlir::cast<NDTypeInterface>(input.getType()).getElementType());
-                                const auto outElemType =
-                                        mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(
-                                                changeShapeAndElemType.getElemType());
-
-                                // see IE::AffineReshape::fold()
-                                const bool specialCaseOfAffineReshapeFolding =
-                                        inElemType != nullptr && outElemType != nullptr &&
-                                        isQuantizedDimensionPermutation(inElemType, outElemType);
-                                VPUX_THROW_UNLESS(specialCaseOfAffineReshapeFolding,
-                                                  "Unsupported affine-reshape operation");
-
-                                const auto outputShape = parseIntArrayAttr<int64_t>(changeShapeAndElemType.getShape());
-                                const auto reassociationMap = IE::getReassociationMap(
-                                        input.getType().cast<NDTypeInterface>().getShape().raw(), outputShape);
-                                const auto dimMapping = getIntArrayOfArray(changeShapeAndElemType.getContext(),
-                                                                           reassociationMap.value());
-                                return builder.create<IE::AffineReshapeOp>(loc, input, dimMapping,
-                                                                           changeShapeAndElemType.getShape());
-                            })
-                    .Case<Const::CastElemTypeAttr>([&](Const::CastElemTypeAttr cast) -> mlir::Value {
-                        const auto inElemType = mlir::cast<NDTypeInterface>(input.getType()).getElementType();
-                        const auto outElemType = cast.getElemType();
-
-                        const bool inputQuantized = mlir::isa<mlir::quant::QuantizedType>(inElemType);
-                        const bool outputQuantized = mlir::isa<mlir::quant::QuantizedType>(outElemType);
-                        VPUX_THROW_WHEN(inputQuantized && outputQuantized,
-                                        "Casting between quantized types {0} -> {1} is not supported", inElemType,
-                                        outElemType);
-
-                        if (inputQuantized || outputQuantized) {
-                            return builder.create<IE::QuantizeCastOp>(loc, input, outElemType);
-                        }
-                        return builder.create<IE::ConvertOp>(loc, input, outElemType);
-                    })
-                    .Case<Const::ConvertElemTypeAttr>([&](Const::ConvertElemTypeAttr convert) -> mlir::Value {
-                        const auto inElemType = mlir::dyn_cast_or_null<mlir::quant::QuantizedType>(
-                                mlir::cast<NDTypeInterface>(input.getType()).getElementType());
-                        const auto outElemType =
-                                mlir::dyn_cast_or_null<mlir::quant::QuantizedType>(convert.getElemType());
-
-                        // quantized-to-quantized conversion is special
-                        if (inElemType != nullptr && outElemType != nullptr) {
-                            return createAvgPoolForInterQuantizedConvert(builder, input, loc, inElemType, outElemType);
-                        }
-                        return builder.create<IE::ConvertOp>(loc, input, convert.getElemType());
-                    })
-                    .Case<Const::DequantizeAttr>([&](Const::DequantizeAttr /*dequantize*/) {
-                        const auto qElemType = input.getType()
-                                                       .cast<NDTypeInterface>()
-                                                       .getElementType()
-                                                       .cast<mlir::quant::QuantizedType>();
-                        return builder.create<IE::DequantizeOp>(loc, input, qElemType.getExpressedType());
-                    })
-                    .Case<Const::QuantizeAttr>([&](Const::QuantizeAttr quantizeAttr) {
-                        return builder.create<IE::QuantizeOp>(loc, input, quantizeAttr.getTargetType());
-                    })
-                    .Case<Const::LayoutCastAttr>([&](Const::LayoutCastAttr layoutCast) {
-                        return builder.create<IE::LayoutCastOp>(loc, input, layoutCast.getDstOrder());
-                    })
-                    .Case<Const::MemPermuteAttr>([&](Const::MemPermuteAttr memPermute) {
-                        return builder.create<IE::MemPermuteOp>(loc, input, memPermute.getDstOrder(),
-                                                                memPermute.getMemPerm());
-                    })
-                    .Case<Const::PadWithZeroAttr>([&](Const::PadWithZeroAttr padWithZero) {
-                        auto padOp = builder.create<IE::PadOp>(
-                                loc, input, /*padsBegin=*/nullptr, /*padsEnd=*/nullptr,
-                                /*padValue=*/nullptr, padWithZero.getPadBefore(), padWithZero.getPadAfter(),
-                                getFPAttr(builder.getContext(), 0.0), IE::PadMode::CONSTANT, nullptr);
-                        return padOp;
-                    })
-                    .Case<Const::ReorderAttr>([&](Const::ReorderAttr reorder) {
-                        return builder.create<IE::ReorderOp>(loc, input, reorder.getOrder());
-                    })
-                    .Case<Const::RescaleAttr>([&](Const::RescaleAttr rescale) {
-                        const auto scaleValue = checked_cast<float>(rescale.getScale().getValueAsDouble());
-
-                        const auto scaleLoc = appendLoc(loc, "_scale");
-                        SmallVector<int64_t> shapeRank = {1};
-                        auto scaleType =
-                                mlir::RankedTensorType::get({shapeRank}, mlir::Float32Type::get(builder.getContext()));
-                        auto transform = [&](Const::ContentSetup& setup) -> Const::ContentSetup {
-                            return setup.castElemType(mlir::cast<NDTypeInterface>(input.getType()).getElementType());
-                        };
-                        auto scale = Const::createConst<float>(builder, scaleLoc, scaleType, {scaleValue}, transform);
-
-                        return builder.create<IE::MultiplyOp>(loc, input, scale, IE::AutoBroadcastType::NUMPY,
-                                                              /*postOp=*/nullptr, /*clamp=*/nullptr,
-                                                              /*outputChannels=*/nullptr, /*inputChannels=*/nullptr);
-                    })
-                    .Case<Const::ReshapeAttr>([&](Const::ReshapeAttr reshape) -> mlir::Value {
-                        if (mlir::cast<NDTypeInterface>(input.getType()).getDimsOrder().isIdentity()) {
-                            return builder.create<IE::ReshapeOp>(loc, input, nullptr, false, reshape.getShape());
-                        }
-
-                        return builder.create<IE::ShapeCastOp>(loc, input, reshape.getShape());
-                    })
-                    .Case<Const::ScalarMultInverseAttr>(
-                            [&](Const::ScalarMultInverseAttr /*scalarMultInverse*/) -> mlir::Value {
-                                const auto inverseLoc = appendLoc(loc, "_inverse");
-                                SmallVector<int64_t> shapeRank = {1};
-                                const auto inputElemType = input.getType().cast<NDTypeInterface>().getElementType();
-                                auto inverseType = mlir::RankedTensorType::get({shapeRank}, inputElemType);
-
-                                const auto data = [&]() -> mlir::DenseElementsAttr {
-                                    if (mlir::isa<mlir::Float16Type>(inputElemType)) {
-                                        return mlir::DenseElementsAttr::get(inverseType,
-                                                                            ArrayRef({type::float16(1.0)}));
-                                    } else if (mlir::isa<mlir::Float32Type>(inputElemType)) {
-                                        return mlir::DenseElementsAttr::get(inverseType, ArrayRef({1.0f}));
-                                    } else if (mlir::isa<mlir::Float64Type>(inputElemType)) {
-                                        return mlir::DenseElementsAttr::get(inverseType, ArrayRef({1.0}));
-                                    }
-                                    return nullptr;
-                                }();
-                                if (data == nullptr) {
-                                    return nullptr;
-                                }
-
-                                auto contentAttr = Const::ContentAttr::get(data);
-                                auto inverse = builder.create<Const::DeclareOp>(inverseLoc, inverseType,
-                                                                                std::move(contentAttr));
-                                return builder.create<IE::DivideOp>(loc, inverse, input, IE::AutoBroadcastType::NUMPY);
-                            })
-                    .Case<Const::SubViewAttr>([&](Const::SubViewAttr subview) {
-                        return builder.create<IE::SliceOp>(loc, input, subview.getOffset(), subview.getShape());
-                    })
-                    .Case<Const::TransposeAttr>([&](Const::TransposeAttr transpose) {
-                        return builder.create<IE::TransposeOp>(loc, input, /*order=*/nullptr, transpose.getOrder());
-                    })
-                    .Case<Const::SparsifyAttr>([&](Const::SparsifyAttr sparsify) -> mlir::Value {
-                        // it's fine if sparsity is disabled
-                        if (!sparsify.getCompressOutputType().getValue()) {
-                            return input;
-                        }
-
-                        return nullptr;
-                    })
-                    .Case<Const::ReverseAttr>([&](Const::ReverseAttr) -> mlir::Value {
-                        return nullptr;
-                    })
-                    .Default([](Const::TransformAttrInterface) {
-                        return nullptr;
-                    });
-
-    if (outputValue == nullptr) {
-        return {transformations, mlir::Value{}};
-    }
-
-    _operationCache.cacheResult({input, transformations.take_front()}, outputValue);
-
-    return {transformations.drop_front(), outputValue};
-}
-
-std::tuple<ArrayRef<Const::TransformAttrInterface>, mlir::Value>
-IntroduceInitFunctionPass::createMatchingPostInitOperations(mlir::OpBuilder& builder, mlir::Value input,
-                                                            mlir::Location loc,
-                                                            ArrayRef<Const::TransformAttrInterface> transformations) {
-    if (transformations.empty()) {
-        return {ArrayRef<Const::TransformAttrInterface>{}, input};
-    }
-
-    auto outputValue =
-            llvm::TypeSwitch<Const::TransformAttrInterface, mlir::Value>(transformations.front())
-                    .Case<Const::SubViewAttr>([&](Const::SubViewAttr subView) -> mlir::Value {
-                        return builder.create<VPU::SliceOp>(loc, input, subView.getOffset(), subView.getShape());
-                    })
-                    .Default([](Const::TransformAttrInterface) -> mlir::Value {
-                        return nullptr;
-                    });
-
-    if (outputValue == nullptr) {
-        return {transformations, mlir::Value{}};
-    }
-
-    _operationCache.cacheResult({input, transformations.take_front()}, outputValue);
-
-    return {transformations.drop_front(), outputValue};
-}
-
-std::tuple<mlir::func::FuncOp, DeclareOpOutputMap> IntroduceInitFunctionPass::buildInitFunction(
-        mlir::func::FuncOp mainFuncOp, ArrayRef<TransformationsSplit> declareOps, const DeclareOpInputMap& inputMap) {
-    OpBuilderLogger builderLog(_log.nest());
-
-    // create empty @init() : () -> ()
-    auto initFuncOp = [&]() {
-        mlir::OpBuilder moduleBuilder(&getContext(), &builderLog);
-        moduleBuilder.setInsertionPoint(mainFuncOp);
-        auto initLoc = appendLoc(mainFuncOp.getLoc(), "_init");
-        auto initFuncType = mlir::FunctionType::get(&getContext(), {}, {});
-        return moduleBuilder.create<mlir::func::FuncOp>(initLoc, "init", initFuncType);
-    }();
-
-    auto bodyBlock = initFuncOp.addEntryBlock();
-    auto initBuilder = mlir::OpBuilder::atBlockEnd(bodyBlock, &builderLog);
-
-    for (auto type : inputMap.getArgumentTypes()) {
-        bodyBlock->addArgument(type, initFuncOp.getLoc());
-    }
-
-    SmallVector<std::tuple<mlir::Value, Const::DeclareOp>> valueDeclareOpPairs;
-
-    for (auto [declareOp, inInitTransformations, postInitTransformations, ioAdaptor] : declareOps) {
-        auto [argIndex, argType] = inputMap.getArgumentInfo(declareOp);
-        auto argValue = bodyBlock->getArgument(argIndex);
-        auto loc = appendLoc(initFuncOp.getLoc(), "_op{0}", argIndex);
-
-        mlir::Value value = argValue;
-
-        if (_log.isActive(LogLevel::Trace)) {
-            _log.trace("Creating matching operations for '{0}'", declareOpToString(declareOp));
-            _log.trace("  These transformations are put *inside* the body '{0}'",
-                       Const::TransformAttrInterfaceArrayAttr::get(&getContext(), inInitTransformations));
-            _log.trace("  These transformations are put *after* the body '{0}'",
-                       Const::TransformAttrInterfaceArrayAttr::get(&getContext(), postInitTransformations));
-        }
-
-        while (!inInitTransformations.empty()) {
-            initBuilder.setInsertionPointToEnd(bodyBlock);
-            auto [remainingTransformations, resultValue] =
-                    createMatchingOperations(initBuilder, value, loc, inInitTransformations);
-            VPUX_THROW_WHEN(resultValue == nullptr,
-                            "The following transformations cannot be mapped to equivalent IE operations: {0}",
-                            inInitTransformations);
-
-            value = resultValue;
-            inInitTransformations = remainingTransformations;
-        }
-
-        if (ioAdaptor.has_value()) {
-            if (auto cachedValue = _operationCache.findCachedResult({value, {}}); cachedValue != nullptr) {
-                value = cachedValue;
-            } else {
-                auto newValue = ioAdaptor->adapt(initBuilder, loc, value);
-                _operationCache.cacheResult({value, {}}, newValue);
-                value = newValue;
-            }
-        }
-
-        valueDeclareOpPairs.push_back({value, declareOp});
-    }
-
-    auto outputMap = DeclareOpOutputMap(valueDeclareOpPairs);
-
-    initBuilder.setInsertionPointToEnd(bodyBlock);
-    initBuilder.create<mlir::func::ReturnOp>(appendLoc(initFuncOp.getLoc(), "_return"), outputMap.getResultValues());
-    auto initFuncType = mlir::FunctionType::get(&getContext(), inputMap.getArgumentTypes(), outputMap.getResultTypes());
-    initFuncOp.setFunctionType(initFuncType);
-
-    return {initFuncOp, outputMap};
-}
-
 void IntroduceInitFunctionPass::setNetworkEntryPointToInit(IE::CNNNetworkOp mainInfo, mlir::func::FuncOp initFuncOp,
-                                                           const DeclareOpInputMap& inputMap,
+                                                           const WsArgumentCache& argCache,
                                                            const DeclareOpOutputMap& outputMap) {
     mainInfo.setEntryPoint(initFuncOp.getSymName());
 
@@ -776,8 +195,10 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(IE::CNNNetworkOp main
     inputsRegion.getBlocks().push_back(new mlir::Block());
     builder.setInsertionPointToStart(&inputsRegion.front());
 
-    const auto initFuncType = initFuncOp.getFunctionType();
-    for (auto [type, name] : llvm::zip(initFuncType.getInputs(), inputMap.getArgumentNames())) {
+    for (auto it : argCache.getSortedArgs()) {
+        const auto& [entry, blockArg] = *it;
+        const auto type = blockArg.getType();
+        const auto name = getResourceName(entry.content);
         auto inputName = mlir::StringAttr::get(&getContext(), formatv("in_{0}", name));
         builder.create<IE::DataInfoOp>(appendLoc(mainInfo.getLoc(), inputName), inputName, type,
                                        /*OptionalAttr originalShape*/ nullptr,
@@ -804,54 +225,217 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(IE::CNNNetworkOp main
     }
 }
 
-void IntroduceInitFunctionPass::updateMainToAccommodateInit(mlir::func::FuncOp mainFuncOp,
-                                                            mlir::func::FuncOp initFuncOp,
-                                                            const DeclareOpOutputMap& outputMap,
-                                                            ArrayRef<TransformationsSplit> preprocessedDeclareOps) {
-    // pretend that the output values of @init() is the input to @main(). this
-    // means that we change the signature of @main() and replace all the uses of
-    // the constants with the argument inputs of @main() modulo the subviews.
-    size_t inputIndexOffset = mainFuncOp.getFunctionType().getNumInputs();
-    auto initFuncType = initFuncOp.getFunctionType();
+// A single-visit (with respect to functions) visitor for the call-chain tree
+// that finishes building the IR for "main" functions and propagates arguments
+// across call-chains.
+class SingleShotMainUpdater final : public CallChainTree::Visitor {
+    Logger _log;
+    mlir::DenseMap<mlir::func::FuncOp, WsArgumentCache>& _argCaches;
+    VPU::ConstOpConverter& _globalInitConverter;
 
-    // append init func result types to main func input types
-    auto mainFuncType = mainFuncOp.getFunctionType();
-    auto inputTypes = SmallVector<mlir::Type>(mainFuncType.getInputs());
-    inputTypes.append(initFuncType.getResults().begin(), initFuncType.getResults().end());
-    mainFuncOp.setFunctionType(mlir::FunctionType::get(&getContext(), inputTypes, mainFuncType.getResults()));
+    mlir::DenseSet<mlir::func::FuncOp> _visitationCache;
 
-    // Update block arguments manually, because setFunctionType() does not take care of this.
-    auto& bodyBlock = mainFuncOp.getFunctionBody().front();
-    for (auto result : initFuncType.getResults()) {
-        bodyBlock.addArgument(result, mainFuncOp.getLoc());
+    // Appends new function arguments of callee to the caller's arguments.
+    // During weights separation, a function's inner constants become inputs.
+    // This happens across the call-chain and thus a caller must forward
+    // callee's arguments from itself. This function would ensure that new
+    // arguments of the callee appear in the caller's arguments.
+    void hoistCalleeArgsToCaller(mlir::func::FuncOp callerOp, mlir::func::FuncOp calleeOp) {
+        auto& callerArgDeduplicator = getNonConstArgCache(callerOp);
+        const auto& calleeArgDeduplicator = _argCaches.at(calleeOp);
+        for (auto it : calleeArgDeduplicator.getSortedArgs()) {
+            const auto& [entry, blockArg] = *it;
+            // propagate the argument from child to parent - there's nothing
+            // else that has to be done just yet
+            std::ignore = callerArgDeduplicator.addArgument(entry, blockArg.getType());
+        }
     }
 
-    // build remaining transformations and delete DeclareOps
-    mlir::OpBuilder::Listener listener;
-    mlir::OpBuilder builder(mainFuncOp.getFunctionBody(), &listener);
+    // Updates the call-site according to the callee's modified arguments.
+    // During weights separation, a function's inner constants become inputs.
+    // This helper function would set up the call-site inside the caller to
+    // correctly propagate arguments from the caller to the callee.
+    void fixCallSite(mlir::OpBuilder& callerBuilder, mlir::func::FuncOp callerOp, mlir::func::FuncOp calleeOp,
+                     mlir::func::CallOp oldCall) {
+        const auto& callerDeduplicator = _argCaches.at(callerOp);
+        const auto& calleeDeduplicator = _argCaches.at(calleeOp);
 
-    for (auto [declareOp, _, postInitTransformations, ioAdaptor] : preprocessedDeclareOps) {
-        size_t mainInputIndex = inputIndexOffset + outputMap.getResultIndex(declareOp);
-        mlir::Value argValue = bodyBlock.getArgument(mainInputIndex);
-
-        if (ioAdaptor.has_value()) {
-            argValue = ioAdaptor->deadapt(builder, mainFuncOp.getLoc(), argValue);
+        auto newCallArguments = to_std_vector(oldCall.getOperands());
+        const auto& afterInitCalleeArgs = calleeDeduplicator.getSortedArgs();
+        // old arguments remain "as is", new arguments are appended
+        newCallArguments.resize(newCallArguments.size() + afterInitCalleeArgs.size());
+        for (auto it : afterInitCalleeArgs) {
+            const auto& [entry, calleeArg] = *it;
+            auto callerArg = callerDeduplicator.findArgument(entry);
+            assert(calleeArg.getArgNumber() >= oldCall.getOperands().size() &&
+                   "Call-site is invalidated: added arguments must always be present after the original ones");
+            newCallArguments[calleeArg.getArgNumber()] = callerArg;
         }
 
-        auto [remainingTransformations, resultValue] =
-                createMatchingPostInitOperations(builder, argValue, mainFuncOp.getLoc(), postInitTransformations);
-        VPUX_THROW_UNLESS(remainingTransformations.empty(), "Unexpected unconsumed transformations!");
-
-        declareOp.replaceAllUsesWith(resultValue);
+        callerBuilder.setInsertionPoint(oldCall);
+        auto newCall = callerBuilder.create<mlir::func::CallOp>(oldCall.getLoc(), calleeOp, newCallArguments);
+        oldCall.replaceAllUsesWith(newCall.getResults());
+        oldCall->erase();
     }
-}
 
-void IntroduceInitFunctionPass::eraseOriginalOps(ArrayRef<TransformationsSplit> preprocessedDeclareOps) {
-    // erase in a separate loop because it conflicts with building new operations
-    for (auto& split : preprocessedDeclareOps) {
-        auto declareOp = split.declareOp;
-        declareOp.erase();
+    bool hasSeenThisFunction(mlir::func::FuncOp op) {
+        const bool firstOccurence = _visitationCache.insert(op).second;
+        return !firstOccurence;
     }
+
+    WsArgumentCache& getNonConstArgCache(mlir::func::FuncOp funcOp) {
+        assert(_argCaches.contains(funcOp) && "Argument caches must already be set up and be functional");
+        return _argCaches.find(funcOp)->second;
+    }
+
+public:
+    SingleShotMainUpdater(Logger log, mlir::DenseMap<mlir::func::FuncOp, WsArgumentCache>& argCaches,
+                          VPU::ConstOpConverter& initOpConverter)
+            : _log(log), _argCaches(argCaches), _globalInitConverter(initOpConverter) {
+    }
+
+    bool visit(const Node& node) final {
+        auto currOp = node.data().second;
+        if (hasSeenThisFunction(node.data().second)) {
+            // nothing to do
+            return false;
+        }
+
+        // when visiting the function, move constant operations to init and
+        // update IR inside the function accordingly.
+
+        const auto splits = VPU::collectMoveWorthyTransformationSplits(currOp);
+        if (_log.isActive(LogLevel::Trace)) {
+            _log.trace("Found the following constants in {0}:", currOp.getSymName());
+            for (const auto& [index, split] : splits | indexed) {
+                _log.trace("  {0}: {1}", index, split.declareOp());
+            }
+        }
+
+        // in init, we need to handle the output boundary - "dequantization" of
+        // outputs has to be done
+        vpux::VPU::IoBoundaryAdapter initIoAdaptor{/*wrapInput=*/&vpux::VPU::IoBoundaryAdapter::identity,
+                                                   /*wrapOutput=*/&castToStorageType};
+        auto& initArgDeduplicator = getNonConstArgCache(_globalInitConverter.getFunction());
+
+        // in main we only care about input boundary - "quantization" has to be
+        // done on input arguments to restore real types.
+        vpux::VPU::IoBoundaryAdapter mainIoAdaptor{/*wrapInput=*/&castToQuantizedType,
+                                                   /*wrapOutput=*/&vpux::VPU::IoBoundaryAdapter::identity};
+        auto& mainArgDeduplicator = getNonConstArgCache(currOp);
+
+        // Note: created externally once to ensure operation builder has correct
+        // insertion point.
+        VPU::ConstOpConverter funcConverter(currOp, _log);
+
+        // Note: removal of operations is done separately, after construction of
+        // new IR, to ensure that operation builder is not invalidated.
+        SmallVector<Const::DeclareOp> opsToRemove;
+
+        for (const auto& [index, split] : splits | indexed) {
+            auto declareOp = split.declareOp();
+            const auto baseLoc = appendLoc(currOp.getLoc(), "cst{0}", index);
+
+            // init part
+            {
+                _log.trace("Converting '{0}' to IR in init", declareOp);
+                auto projection = split.take(VPU::WeightsSeparationSchedule::Init);
+                auto initArg = initArgDeduplicator.addArgument(VPU::ConstArg(projection), projection.argType);
+                auto valueInInit =
+                        _globalInitConverter.convertToIrForm(appendLoc(baseLoc, "init"), projection, initArg,
+                                                             initIoAdaptor, VPU::WeightsSeparationSchedule::Init);
+                _log.trace("Transformations of '{0}' resulted in '{1}' in init", declareOp, valueInInit);
+            }
+
+            // main part
+            {
+                _log.trace("Converting rest of '{0}' to IR in main", declareOp);
+                auto projection = split.take(VPU::WeightsSeparationSchedule::Main);
+                auto mainArg = mainArgDeduplicator.addArgument(VPU::ConstArg(projection), projection.argType);
+                auto valueInMain = funcConverter.convertToIrForm(appendLoc(baseLoc, "main"), projection, mainArg,
+                                                                 mainIoAdaptor, VPU::WeightsSeparationSchedule::Main);
+
+                _log.trace("Replacing '{0}' with '{1}'", declareOp, valueInMain);
+                declareOp.replaceAllUsesWith(valueInMain);
+                opsToRemove.push_back(declareOp);
+            }
+        }
+
+        for (auto op : opsToRemove) {
+            op.erase();
+        }
+
+        return true;
+    }
+
+    void endVisit(const Node& node) final {
+        auto currOp = node.data().second;
+        auto bodyBlock = &currOp.getFunctionBody().front();
+        OpBuilderLogger builderLog(_log.nest());
+        auto currBuilder = mlir::OpBuilder::atBlockBegin(bodyBlock, &builderLog);
+
+        // At the end of the visitation, it is certain that the children are
+        // already processed (by definition of the procedure). Thus, we can
+        // forward children's arguments up the call-chain and fix the calls to
+        // children accordingly:
+        // ```
+        // func.func foo() {
+        //   call bar()
+        // }
+        // ```
+        // becomes:
+        // ```
+        // func.func foo(%bar_cst: ...) {
+        //   call bar(%bar_cst)
+        // }
+        // ```
+        for (const auto& child : node.children()) {
+            auto [callOp, childOp] = child.data();
+            hoistCalleeArgsToCaller(currOp, childOp);
+            fixCallSite(currBuilder, currOp, childOp, callOp);
+        }
+
+        // Since argument propagation is done, function signature could be
+        // updated.
+        const auto mainFuncResults = currOp.getFunctionType().getResults();
+        // in "main", only inputs change
+        currOp.setFunctionType(
+                mlir::FunctionType::get(currOp.getContext(), bodyBlock->getArgumentTypes(), mainFuncResults));
+
+        _log.trace("Finished visiting {0} and its subtree", currOp.getSymName());
+    }
+};
+
+std::tuple<mlir::func::FuncOp, DeclareOpOutputMap> IntroduceInitFunctionPass::buildInitFunction(
+        mlir::func::FuncOp mainFuncOp, const CallChainTree& tree,
+        mlir::DenseMap<mlir::func::FuncOp, WsArgumentCache>& argCaches) {
+    OpBuilderLogger builderLog(_log.nest());
+
+    // create empty @init() : () -> ()
+    auto initFuncOp = [&]() {
+        mlir::OpBuilder moduleBuilder(&getContext(), &builderLog);
+        moduleBuilder.setInsertionPoint(mainFuncOp);
+        auto initLoc = appendLoc(mainFuncOp.getLoc(), "_init");
+        auto initFuncType = mlir::FunctionType::get(&getContext(), {}, {});
+        return moduleBuilder.create<mlir::func::FuncOp>(initLoc, "init", initFuncType);
+    }();
+    auto bodyBlock = initFuncOp.addEntryBlock();
+
+    argCaches.insert({initFuncOp, WsArgumentCache(initFuncOp)});
+    // Traverse the call-chain tree, eagerly converting all constant operations
+    // into IR ops (either in IE or VPU).
+    VPU::ConstOpConverter globalInitConverter(initFuncOp, _log);
+    SingleShotMainUpdater updater(_log, argCaches, globalInitConverter);
+    tree.apply(updater);
+
+    auto outputMap = DeclareOpOutputMap(globalInitConverter.getConvertedConsts());
+    auto initBuilder = mlir::OpBuilder::atBlockEnd(bodyBlock, &builderLog);
+    initBuilder.create<mlir::func::ReturnOp>(appendLoc(initFuncOp.getLoc(), "_return"), outputMap.getResultValues());
+    auto initFuncType =
+            mlir::FunctionType::get(&getContext(), bodyBlock->getArgumentTypes(), outputMap.getResultTypes());
+    initFuncOp.setFunctionType(initFuncType);
+
+    return {initFuncOp, outputMap};
 }
 
 void IntroduceInitFunctionPass::setNetworkEntryPointToMain(IE::CNNNetworkOp mainInfo, mlir::func::FuncOp initFuncOp,
@@ -876,8 +460,7 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToMain(IE::CNNNetworkOp main
 
 void IntroduceInitFunctionPass::buildWrapperOpForInitAndMain(IE::CNNNetworkOp mainInfo, mlir::func::FuncOp mainFuncOp,
                                                              mlir::func::FuncOp initFuncOp,
-                                                             const DeclareOpInputMap& inputMap,
-                                                             ArrayRef<TransformationsSplit> preprocessedDeclareOps) {
+                                                             const WsArgumentCache& initArgCache) {
     const auto mainFuncType = mainFuncOp.getFunctionType();
     const auto initFuncType = initFuncOp.getFunctionType();
     // Note: expect the below to never fail
@@ -903,19 +486,14 @@ void IntroduceInitFunctionPass::buildWrapperOpForInitAndMain(IE::CNNNetworkOp ma
     auto builder = mlir::OpBuilder::atBlockEnd(bodyBlock, &builderLog);
 
     // create the declare ops without their transformations
-    SmallVector<mlir::Value> inputValues(initFuncType.getNumInputs());
-    for (auto split : preprocessedDeclareOps) {
-        auto declareOp = split.declareOp;
-        size_t argIndex = std::get<0>(inputMap.getArgumentInfo(declareOp));
-
-        if (inputValues[argIndex] != nullptr) {
-            continue;
-        }
-
-        auto baseContent = declareOp.getContentAttr().getBaseContent();
-        auto contentAttr = Const::ContentAttr::get(baseContent);
-        inputValues[argIndex] = builder.create<Const::DeclareOp>(appendLoc(locBase, "_cst_{0}", argIndex),
-                                                                 baseContent.getType(), std::move(contentAttr));
+    SmallVector<mlir::Value> inputValues;
+    inputValues.reserve(initFuncType.getNumInputs());
+    for (auto it : initArgCache.getSortedArgs()) {
+        const auto& [entry, blockArg] = *it;
+        auto baseContent = entry.content;
+        inputValues.push_back(builder.create<Const::DeclareOp>(appendLoc(locBase, "_cst_{0}", blockArg.getArgNumber()),
+                                                               baseContent.getType(),
+                                                               Const::ContentAttr::get(baseContent)));
     }
 
     auto initCallOp = builder.create<mlir::func::CallOp>(appendLoc(locBase, "_call_init"), initFuncOp.getSymNameAttr(),
@@ -924,6 +502,9 @@ void IntroduceInitFunctionPass::buildWrapperOpForInitAndMain(IE::CNNNetworkOp ma
     auto mainInputValues = [&]() {
         const auto blockArgs = bodyBlock->getArguments();
         const auto initResults = initCallOp.getResults();
+
+        // main arguments go as follows: first original arguments (unmodified),
+        // then new arguments (results of init)
         SmallVector<mlir::Value> values;
         values.reserve(bodyBlock->getNumArguments() + initCallOp.getNumResults());
         values.append(blockArgs.begin(), blockArgs.end());
@@ -958,6 +539,74 @@ mlir::LogicalResult IntroduceInitFunctionPass::initialize(mlir::MLIRContext*) {
     return mlir::success();
 }
 
+std::vector<CallChainData> findChildren(const CallChainTree::Node& node) {
+    auto funcOp = node.data().second;
+    auto chains = collectCallChains(funcOp);
+    // Note: sort call-chains lexicographically (using function names) to ensure
+    // outlining-independent processing. while this disregards the call
+    // sequence, this allows to avoid differences in schedule generation when
+    // independent calls get reordered in IR:
+    // ```cpp
+    //  %call1 = call @foo1(...)
+    //  %call2 = call @foo2(...)
+    //  // vs:
+    //  %call2 = call @foo2(...)
+    //  %call1 = call @foo1(...)
+    //
+    //  // independent usage of calls:
+    //  %op1 = VPU.Convolution(%call1)
+    //  %ops2 = VPU.Convolution(%call2)
+    // ```
+    std::sort(chains.begin(), chains.end(), [](const CallChainData& x, const CallChainData& y) {
+        auto xFunc = x.second;
+        auto yFunc = y.second;
+        // lexicographical comparison
+        return xFunc.getSymName() < yFunc.getSymName();
+    });
+
+    return chains;
+}
+
+// Note: this is here for debugging purposes only.
+struct TreePrinter final : CallChainTree::Visitor {
+    std::ostream& stream;
+    size_t indentation = 0;
+
+    TreePrinter(std::ostream& s): stream(s) {
+    }
+
+    bool visit(const Node& node) final {
+        auto funcOp = node.data().second;
+        constexpr StringLiteral prefix = "|- ";
+        stream << std::string(prefix.size() * indentation, ' ')
+               << formatv("{0}{1}\n", prefix, funcOp.getSymName()).str();
+        ++indentation;
+        return true;
+    }
+
+    void endVisit(const Node&) final {
+        --indentation;
+    }
+};
+
+void eraseMainAndOutlinedFunctions(const CallChainTree& tree) {
+    // Note: order of deletion does not seem to be important, but it is
+    // important to avoid double-free. thus, use a set to uniquify functions.
+    mlir::DenseSet<mlir::func::FuncOp> toBeErased;
+    utils::CallbackVisitor<CallChainData> funcDeleter(
+            [&](const CallChainTree::Node& node) {
+                auto funcOp = node.data().second;
+                toBeErased.insert(funcOp);
+                return true;
+            },
+            nullptr);
+    tree.apply(funcDeleter);
+
+    for (auto funcOp : toBeErased) {
+        funcOp.erase();
+    }
+}
+
 void IntroduceInitFunctionPass::safeRunOnModule() {
     auto moduleOp = getOperation();
 
@@ -965,35 +614,37 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
     mlir::func::FuncOp mainFuncOp;
     IE::CNNNetworkOp::getFromModule(moduleOp, mainInfo, mainFuncOp);
 
-    auto declareOps = collectMoveWorthyConstantOps(mainFuncOp);
+    // construct a call-chain tree that represents the outlining structure. an
+    // example of such a tree is:
+    // ```
+    // |- {nullptr, main}
+    //    |- {"call foo1", foo1}
+    //       |- {"call foo2", foo2}
+    //    |- {"call foo3", foo3}
+    // ```
+    // where "call fooX" is a CallOp operation inside the respective function
+    // and fooX is a standalone function produced by the outlining.
+    CallChainTree tree({CallChainTree::Node(CallChainData{nullptr, mainFuncOp}, {})}, findChildren);
 
     if (_log.isActive(LogLevel::Debug)) {
-        _log.debug("The following constants will be transformed by the 'init()' function:");
-
-        for (auto [index, declareOp] : declareOps | indexed) {
-            _log.debug("  {0}: {1}", index, declareOpToString(declareOp));
-        }
+        std::stringstream stream;
+        TreePrinter printer{stream};
+        tree.apply(printer);
+        _log.debug("The following operation tree is found:\n{0}\n", stream.str());
     }
 
-    if (declareOps.empty()) {
-        _log.debug("  No constant candidates found!");
-        return;
-    }
+    auto argCaches = [&]() {
+        mlir::DenseMap<mlir::func::FuncOp, WsArgumentCache> cache;
+        moduleOp.walk([&](mlir::func::FuncOp funcOp) {
+            cache.insert({funcOp, WsArgumentCache(funcOp)});
+        });
+        return cache;
+    }();
 
-    // Map DeclareOps to input arguments: Two DeclareOps are mapped to the same argument (and type)
-    // when they contain the same underlying mlir::ElementsAttr.
-    DeclareOpInputMap inputMap(declareOps);
-
-    auto preprocessedDeclareOps = splitTransformations(declareOps);
-    auto [initFuncOp, outputMap] = buildInitFunction(mainFuncOp, preprocessedDeclareOps, inputMap);
+    auto [initFuncOp, outputMap] = buildInitFunction(mainFuncOp, tree, argCaches);
     auto initFuncType = initFuncOp.getFunctionType();
 
     if (_log.isActive(LogLevel::Debug)) {
-        for (const auto& split : preprocessedDeclareOps) {
-            auto index = std::get<1>(outputMap.getResultInfo(split.declareOp));
-            _log.trace("Operation '{0}' is mapped to result value '{1}'", declareOpToString(split.declareOp), index);
-        }
-
         int64_t inByteCount = 0;
         int64_t outByteCount = 0;
 
@@ -1013,30 +664,19 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
         statsLogger.debug("Signature: {0}", initFuncType);
     }
 
-    // once init is built, there is enough information to update main. similarly
-    // to how we build init schedule, make changes to the main schedule for all
-    // modes to streamline the logic of the pass.
-    updateMainToAccommodateInit(mainFuncOp, initFuncOp, outputMap, preprocessedDeclareOps);
-
     switch (_mode) {
     case Mode::GenerateInit:
-        setNetworkEntryPointToInit(mainInfo, initFuncOp, inputMap, outputMap);
-        mainFuncOp.erase();
+        setNetworkEntryPointToInit(mainInfo, initFuncOp, argCaches.at(initFuncOp), outputMap);
+        eraseMainAndOutlinedFunctions(tree);
         break;
     case Mode::GenerateMain:
         setNetworkEntryPointToMain(mainInfo, initFuncOp, outputMap);
         initFuncOp.erase();
-        // Note: must happen after new-op-generation (because it depends on
-        // original ops) and only for the case when main stays alive.
-        eraseOriginalOps(preprocessedDeclareOps);
         break;
     case Mode::GenerateAll:
         initFuncOp.setPrivate();
         mainFuncOp.setPrivate();
-        buildWrapperOpForInitAndMain(mainInfo, mainFuncOp, initFuncOp, inputMap, preprocessedDeclareOps);
-        // Note: must happen after new-op-generation (because it depends on
-        // original ops) and only for the case when main stays alive.
-        eraseOriginalOps(preprocessedDeclareOps);
+        buildWrapperOpForInitAndMain(mainInfo, mainFuncOp, initFuncOp, argCaches.at(initFuncOp));
         break;
     default:
         // silence the unhandled case error by the compiler

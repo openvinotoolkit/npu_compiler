@@ -6,8 +6,8 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUMI37XX_OPS
 #define VPUX_COMPILER_DIALECT_VPUMI37XX_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/const/attributes.td"
 include "vpux/compiler/dialect/VPUIP/ops_interfaces.td"
 include "vpux/compiler/dialect/VPUMI37XX/attributes.td"

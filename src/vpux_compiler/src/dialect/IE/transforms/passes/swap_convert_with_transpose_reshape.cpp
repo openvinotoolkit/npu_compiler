@@ -3,7 +3,14 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPCONVERTWITHTRANSPOSERESHAPE
+#define GEN_PASS_DEF_SWAPCONVERTWITHTRANSPOSERESHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -14,7 +21,7 @@ namespace {
 //
 
 class SwapConvertWithTransposeReshape final :
-        public IE::SwapConvertWithTransposeReshapeBase<SwapConvertWithTransposeReshape> {
+        public IE::impl::SwapConvertWithTransposeReshapeBase<SwapConvertWithTransposeReshape> {
 public:
     explicit SwapConvertWithTransposeReshape(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

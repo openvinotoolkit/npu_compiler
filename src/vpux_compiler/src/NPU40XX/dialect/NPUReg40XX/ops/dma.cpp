@@ -20,7 +20,7 @@ using namespace NPUReg40XX;
 //
 
 void NPUReg40XX::NNDMAOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    auto dmaDescriptor = getDmaDescriptorAttr().getRegMapped();
+    auto dmaDescriptor = getDescriptor().getRegMapped();
 
     VPUX_THROW_UNLESS(sizeof(nn_public::VpuDMATask) == dmaDescriptor.size(),
                       "HW DmaDescriptor size {0} != regMapped representation size {1}.", sizeof(nn_public::VpuDMATask),
@@ -35,18 +35,7 @@ size_t NPUReg40XX::NNDMAOp::getBinarySize(VPU::ArchKind) {
 }
 
 size_t NPUReg40XX::NNDMAOp::getAlignmentRequirements(VPU::ArchKind) {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-std::optional<ELF::SectionSignature> NPUReg40XX::NNDMAOp::getSectionSignature() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-bool NPUReg40XX::NNDMAOp::hasMemoryFootprint() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
+    return alignof(nn_public::VpuDMATask);
 }
 
 namespace {
@@ -58,7 +47,7 @@ size_t getSymRefOffsetForReloc(NPUReg40XX::NNDMAOp op, mlir::SymbolRefAttr ref) 
     } else if (ref == op.getOutputBuffsAttr()[0].cast<mlir::SymbolRefAttr>()) {
         return offsetof(nn_public::VpuDMATask, transaction_) + offsetof(DmaDescriptor, dst_offsetof);
     } else if (op.getActCompressionSizeEntryAttr() == ref) {
-        const auto& descriptor = op.getDmaDescriptor().getRegMapped();
+        const auto& descriptor = op.getDescriptor().getRegMapped();
         const auto dma_cfg_fields_rws_en = descriptor.read<Fields::dma_cfg_fields_rws_en>();
         const auto dma_cfg_fields_rwf_en = descriptor.read<Fields::dma_cfg_fields_rwf_en>();
         if (dma_cfg_fields_rws_en == 1) {

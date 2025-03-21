@@ -5,10 +5,10 @@
 
 #pragma once
 
-#include <utility>
-
-#include "vpux/compiler/dialect/VPU/interfaces/sparsity_constraint.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
+#include <mlir/IR/BuiltinAttributes.h>
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <cstdint>
 

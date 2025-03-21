@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/transforms/factories/weights_dequantize_to_fakequantize_strategy_getter.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -13,10 +14,16 @@
 
 #include <vector>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_WEIGHTSDEQUANTIZETOFAKEQUANTIZE
+#define GEN_PASS_DEF_WEIGHTSDEQUANTIZETOFAKEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 namespace vpux {
 
 class WeightsDequantizeToFakeQuantizePass final :
-        public IE::WeightsDequantizeToFakeQuantizeBase<WeightsDequantizeToFakeQuantizePass> {
+        public IE::impl::WeightsDequantizeToFakeQuantizeBase<WeightsDequantizeToFakeQuantizePass> {
 public:
     WeightsDequantizeToFakeQuantizePass() = default;
     explicit WeightsDequantizeToFakeQuantizePass(const IE::LowPrecisionTransformOptions& options, Logger log) {
@@ -35,7 +42,7 @@ private:
     void initializeFromOptions();
 
 private:
-    bool _enableWDBlockArgumentInput = false;
+    bool _enableWDBlockArgumentInput = true;
 };
 
 mlir::LogicalResult WeightsDequantizeToFakeQuantizePass::initializeOptions(StringRef options) {

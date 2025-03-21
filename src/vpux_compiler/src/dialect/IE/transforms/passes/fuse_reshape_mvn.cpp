@@ -11,6 +11,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSERESHAPEMVN
+#define GEN_PASS_DEF_FUSERESHAPEMVN
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -410,7 +416,7 @@ mlir::LogicalResult FuseReshapeMvn::matchAndRewrite(IE::MVNOp origOp, mlir::Patt
 // FuseReshapeMvnPass
 //
 
-class FuseReshapeMvnPass final : public IE::FuseReshapeMvnBase<FuseReshapeMvnPass> {
+class FuseReshapeMvnPass final : public IE::impl::FuseReshapeMvnBase<FuseReshapeMvnPass> {
 public:
     explicit FuseReshapeMvnPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

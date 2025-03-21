@@ -34,7 +34,7 @@ ELF::SectionFlagsAttr VPUASM::DeclareTaskAddrBufOp::getPredefinedMemoryAccessors
 
 void VPUASM::DeclareTaskAddrBufOp::setMemoryOffset(mlir::IntegerAttr offset) {
     if (getBufferType().getLocation().getSection() == VPURT::BufferSection::DDR) {
-        getOperation()->setAttr(ELF::WrappableOpInterface::elfMemOffsetAttrName(), offset);
+        getOperation()->setAttr(ELF::BinaryOpInterface::elfMemOffsetAttrName(), offset);
     }
     return;
 }
@@ -43,7 +43,7 @@ uint64_t VPUASM::DeclareTaskAddrBufOp::getMemoryOffset() {
     auto location = getBufferType().getLocation();
     if (location.getSection() == VPURT::BufferSection::DDR) {
         auto op = getOperation();
-        auto memOffsetAttrName = ELF::WrappableOpInterface::elfMemOffsetAttrName();
+        auto memOffsetAttrName = ELF::BinaryOpInterface::elfMemOffsetAttrName();
         if (op->hasAttr(memOffsetAttrName)) {
             auto attr = op->getAttrOfType<mlir::IntegerAttr>(memOffsetAttrName);
             return attr.getUInt();

@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 
+#include <stack>
+
 using namespace vpux;
 using namespace VPU;
 
@@ -176,74 +178,69 @@ bool isBranchingPassthroughOp(mlir::Operation* op) {
     return false;
 }
 
+using SiblingSearchStackFrame = std::pair<mlir::Value, int64_t>;
+
 void findSiblings(mlir::Value operand, std::set<VPU::ClusteredOpInterface>& siblings,
                   std::set<llvm::hash_code>& visited, const int64_t level = 2) {
-    const auto operandHash = mlir::hash_value(operand);
-    const bool tensorIsVisited = visited.count(operandHash) == 1;
-    if (tensorIsVisited) {
-        return;
-    }
+    std::stack<SiblingSearchStackFrame> stack;
+    stack.emplace(operand, level);
 
-    visited.emplace(operandHash);
+    while (!stack.empty()) {
+        auto currentStackFrame = stack.top();
+        auto& currentOperand = std::get<0>(currentStackFrame);
+        auto& currentLevel = std::get<1>(currentStackFrame);
+        stack.pop();
 
-    auto findSiblingsForPassthroughOrMultiInputOp = [&](mlir::Operation* user) {
-        if (auto clusteredUser = mlir::dyn_cast<VPU::ClusteredOpInterface>(user)) {
-            // if op is a sibling already, it's consumers/producers were already iterated through
-            if (siblings.count(clusteredUser) != 0) {
+        const auto operandHash = mlir::hash_value(currentOperand);
+        bool notVisited = visited.insert(operandHash).second;
+        if (!notVisited) {
+            continue;
+        }
+
+        auto findSiblingsForPassthroughOrMultiInputOp = [&](mlir::Operation* user) {
+            if (auto clusteredUser = mlir::dyn_cast<VPU::ClusteredOpInterface>(user)) {
+                // if op is a sibling already, it's consumers/producers were already iterated through
+                bool canInsert = siblings.insert(clusteredUser).second;
+                if (!canInsert) {
+                    return;
+                }
+            }
+
+            if (currentLevel < 0) {
                 return;
             }
 
-            siblings.emplace(clusteredUser);
-        }
+            if (user->getResult(0) != currentOperand && isPassthroughOp(user)) {
+                stack.emplace(user->getResult(0), currentLevel - 1);
+            }
 
-        // In scenarios where there are a lot of intertwined passthrough ops, compilation
-        // time increases by large margin. We're using the level to prevent the neighbour
-        // searching algo from going through too many ops.
-        // TODO: Better handling E#115755
-        if (level < 0) {
-            return;
-        }
-
-        if (isPassthroughOp(user) && user->getResult(0) != operand) {
-            findSiblings(user->getResult(0), siblings, visited, level - 1);
-        }
-
-        // For subgraph such as:
-        //             Producer
-        //         /             |
-        // [QuantizeCast]  [QuantizeCast]
-        //       |               |
-        //     NceOp0          NceOp1
-        // Decreasing the level will lead to the the 2 NCE ops no longer being
-        // discovered as siblings; prevent that by trying to manually look for another
-        // QuantizeCast/GroupSparseBuffer sibling.
-        // TODO: Better handling E#115755
-        const bool notBranchingPassthrough = !isBranchingPassthroughOp(user) && isPassthroughOp(user);
-        for (const auto siblingOperand : user->getOperands()) {
-            if (siblingOperand != operand) {
-                if (notBranchingPassthrough) {
-                    for (const auto siblingUser : siblingOperand.getUsers()) {
-                        if (!isBranchingPassthroughOp(siblingUser) && isPassthroughOp(siblingUser)) {
-                            findSiblings(siblingUser->getResult(0), siblings, visited, level - 1);
+            const bool notBranchingPassthrough = !isBranchingPassthroughOp(user) && isPassthroughOp(user);
+            for (const auto siblingOperand : user->getOperands()) {
+                if (siblingOperand != currentOperand) {
+                    if (notBranchingPassthrough) {
+                        for (const auto siblingUser : siblingOperand.getUsers()) {
+                            if (!isBranchingPassthroughOp(siblingUser) && isPassthroughOp(siblingUser)) {
+                                stack.emplace(siblingUser->getResult(0), currentLevel - 1);
+                            }
                         }
                     }
+                    stack.emplace(siblingOperand, currentLevel - 1);
                 }
-                findSiblings(siblingOperand, siblings, visited, level - 1);
             }
+        };
+
+        if (currentOperand.getDefiningOp() != nullptr && isPassthroughOp(currentOperand.getDefiningOp())) {
+            findSiblingsForPassthroughOrMultiInputOp(currentOperand.getDefiningOp());
         }
-    };
 
-    if (operand.getDefiningOp() != nullptr && isPassthroughOp(operand.getDefiningOp())) {
-        findSiblingsForPassthroughOrMultiInputOp(operand.getDefiningOp());
-    }
-
-    for (const auto& sibling : operand.getUsers()) {
-        if (isPassthroughOp(sibling)) {
-            findSiblingsForPassthroughOrMultiInputOp(sibling);
-        } else if (mlir::isa_and_nonnull<VPU::NCEEltwiseOp>(sibling)) {
-            findSiblingsForPassthroughOrMultiInputOp(sibling);
-        } else if (auto clusteredUser = mlir::dyn_cast<VPU::ClusteredOpInterface>(sibling)) {
-            siblings.emplace(clusteredUser);
+        for (const auto& sibling : currentOperand.getUsers()) {
+            if (isPassthroughOp(sibling)) {
+                findSiblingsForPassthroughOrMultiInputOp(sibling);
+            } else if (mlir::isa_and_nonnull<VPU::NCEEltwiseOp>(sibling)) {
+                findSiblingsForPassthroughOrMultiInputOp(sibling);
+            } else if (auto clusteredUser = mlir::dyn_cast<VPU::ClusteredOpInterface>(sibling)) {
+                siblings.insert(clusteredUser);
+            }
         }
     }
 }
@@ -259,7 +256,7 @@ bool vpux::VPU::isPassthroughOp(mlir::Operation* op) {
     //     NceOp0          NceOp1
     // NceOp0 and NceOp1 should be aware of each other as siblings to be able to properly set their input distributions
     // TODO: 104112 avoid spilling due to other view ops besides of QuantizeCast
-    if (mlir::isa<VPU::QuantizeCastOp>(op) || mlir::isa<VPU::GroupSparseTensorOp>(op)) {
+    if (mlir::isa<VPU::QuantizeCastOp, VPU::GroupSparseTensorOp>(op)) {
         return true;
     }
 
@@ -276,10 +273,9 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(ArrayRe
     SmallVector<VPU::NCEOpInterface> nceOpCandidates;
     for (auto clusteredOp : opSubgraph) {
         // clusteredOp with SOHO strategy satisfy below SOH condition too so won't be dropped
-        if (clusteredOp.isOperationSplitOverHeightCompatible(/*vpux::TileInfo=*/vpux::TileInfo(ShapeRef()))) {
-            if (auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(clusteredOp.getOperation())) {
-                nceOpCandidates.push_back(nceOp);
-            }
+        if (mlir::isa<VPU::NCEOpInterface>(clusteredOp.getOperation()) &&
+            clusteredOp.isOperationSplitOverHeightCompatible(/*vpux::TileInfo=*/vpux::TileInfo(ShapeRef()))) {
+            nceOpCandidates.push_back(mlir::dyn_cast<VPU::NCEOpInterface>(clusteredOp.getOperation()));
         }
     }
 
@@ -400,8 +396,8 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
         auto consumerMemoryOffsets = getPerClusterMemoryShapeOffsets(tensorShape, consumerDistr);
 
         if (origTensorHasSETable) {
-            memoryShapes = consumerMemoryShapes;
-            memoryOffsets = consumerMemoryOffsets;
+            memoryShapes = std::move(consumerMemoryShapes);
+            memoryOffsets = std::move(consumerMemoryOffsets);
             continue;
         }
 
@@ -449,15 +445,11 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
     const auto localOverlappedParams =
             getOverlappedDistributionParameters(SmallVector<VPU::ClusteredOpInterface>({clusteredOp}), kernelTileAxis);
 
-    auto archKind = getArch(clusteredOp.getOperation());
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-
     // For 37XX, we do not set input workloads explicitly and therefore
     // OVERLAPPED should only represent the current op's input needs w/o
     // the sibling requirements
-    if (compatibleTargets.count(archKind) != 1) {
+    auto archKind = getArch(clusteredOp.getOperation());
+    if (archKind == VPU::ArchKind::NPU37XX) {
         return localOverlappedParams;
     }
 
@@ -621,12 +613,13 @@ std::set<VPU::ClusteredOpInterface> vpux::VPU::getSiblingOps(mlir::Operation* op
         return {};
     }
 
-    const bool isMultiInputOp = mlir::isa<VPU::NCEEltwiseOp>(op) || mlir::isa<VPU::ConcatOp>(op);
+    const bool isMultiInputOp = mlir::isa<VPU::NCEEltwiseOp, VPU::ConcatOp>(op);
 
     std::set<VPU::ClusteredOpInterface> siblingSubgraph = {};
-    std::set<llvm::hash_code> visitedTensors = {};
+
+    std::set<llvm::hash_code> visited = {};
     for (auto operand : op->getOperands()) {
-        findSiblings(operand, siblingSubgraph, visitedTensors);
+        findSiblings(operand, siblingSubgraph, visited);
 
         if (!isMultiInputOp) {
             break;
@@ -638,11 +631,7 @@ std::set<VPU::ClusteredOpInterface> vpux::VPU::getSiblingOps(mlir::Operation* op
 
 bool vpux::VPU::outputOverlappedParamsIsHaloSupported(VPU::ClusteredOpInterface clusteredOp) {
     auto archKind = getArch(clusteredOp.getOperation());
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-
-    return compatibleTargets.count(archKind) > 0;
+    return archKind >= VPU::ArchKind::NPU40XX;
 }
 
 OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::ClusteredOpInterface clusteredOp,
@@ -697,12 +686,9 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
     // TODO: E#112803 Add support for extended memory view for sparse types with SETable
     auto sparseType = clusteredOp->getOperand(0).getType().dyn_cast<VPU::SparseTensorType>();
     const bool isSparseTypeInputWithSeTable = (sparseType != nullptr) && (sparseType.getSeAttr() != nullptr);
-    std::set<VPU::ClusteredOpInterface> siblingSubgraph{};
-    if (isSparseTypeInputWithSeTable) {
-        siblingSubgraph.insert(clusteredOp);
-    } else {
-        siblingSubgraph.merge(getSiblingOps(clusteredOp.getOperation()));
-    }
+    std::set<VPU::ClusteredOpInterface> siblingSubgraph = isSparseTypeInputWithSeTable
+                                                                  ? std::set<VPU::ClusteredOpInterface>{clusteredOp}
+                                                                  : getSiblingOps(clusteredOp.getOperation());
 
     const auto clusteringAxis = VPU::getDistributedTilingAxis(activationTensorNumTiles);
     return getOverlappedDistributionParameters(
@@ -717,10 +703,7 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(VPU::ClusteredOpI
                                                                ArrayRef<int64_t> activationTensorNumTiles) {
     SmallVector<VPU::ClusteredOpInterface> consumerSubgraph;
     auto archKind = getArch(clusteredOp.getOperation());
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    const auto equalComputeAndMemoryView = compatibleTargets.count(archKind) <= 0 ? true : false;
+    const auto equalComputeAndMemoryView = archKind <= VPU::ArchKind::NPU37XX;
 
     if (auto eltwise = mlir::dyn_cast<VPU::NCEEltwiseOp>(clusteredOp.getOperation())) {
         if (eltwise.getIsInplace().value_or(false)) {

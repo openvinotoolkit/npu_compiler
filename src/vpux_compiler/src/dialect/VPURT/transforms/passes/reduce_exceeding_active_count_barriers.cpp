@@ -4,21 +4,30 @@
 //
 
 #include "vpux/compiler/core/barrier_info.hpp"
+#include "vpux/compiler/core/execution_group_analysis.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_REDUCEEXCEEDINGACTIVECOUNTBARRIERS
+#define GEN_PASS_DEF_REDUCEEXCEEDINGACTIVECOUNTBARRIERS
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
 
 using namespace vpux;
 
 namespace {
 
 class ReduceExceedingActiveCountBarriersPass final :
-        public VPURT::ReduceExceedingActiveCountBarriersBase<ReduceExceedingActiveCountBarriersPass> {
+        public VPURT::impl::ReduceExceedingActiveCountBarriersBase<ReduceExceedingActiveCountBarriersPass> {
 public:
-    explicit ReduceExceedingActiveCountBarriersPass(std::optional<int> virtualBarrierThresholdforWlm,
+    explicit ReduceExceedingActiveCountBarriersPass(std::optional<int> virtualBarrierThresholdForWlm,
+                                                    std::optional<WorkloadManagementMode> workloadManagementMode,
                                                     const bool unevenVariantSplit, Logger log)
-            : _virtualBarrierThresholdforWlm(virtualBarrierThresholdforWlm),
+            : _virtualBarrierThresholdForWlm(virtualBarrierThresholdForWlm),
+              _workloadManagementMode(workloadManagementMode),
               _unevenVariantSplitFlag(unevenVariantSplit) {
         Base::initLogger(log, Base::getArgumentName());
     }
@@ -39,7 +48,8 @@ private:
     bool _considerTaskExecutorType = false;
     bool _shareWaitAndUpdateBarriers = true;
 
-    std::optional<int> _virtualBarrierThresholdforWlm = std::nullopt;
+    std::optional<int> _virtualBarrierThresholdForWlm = std::nullopt;
+    std::optional<WorkloadManagementMode> _workloadManagementMode = std::nullopt;
     bool _unevenVariantSplitFlag = false;
     SmallVector<llvm::BitVector> _taskControlMap;
     size_t _controlMapOffset = 0;
@@ -218,6 +228,7 @@ void ReduceExceedingActiveCountBarriersPass::linearizeBarriers(
 void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
+    auto arch = VPU::getArch(module);
 
     const auto numBarriersToUse = numBarriers.hasValue() ? checked_cast<size_t>(numBarriers.getValue())
                                                          : checked_cast<size_t>(VPUIP::getNumAvailableBarriers(func));
@@ -233,8 +244,7 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     VPUX_THROW_UNLESS(numBarriersToUse > 1, "Not possible to satisfy barrier requirement numBarriersToUse '{0}'",
                       numBarriersToUse);
 
-    auto wlmFlag = vpux::VPUIP::getWlmStatus(module) == vpux::VPUIP::WlmStatus::ENABLED;
-
+    auto wlmFlag = (vpux::VPUIP::getWlmStatus(module) == vpux::VPUIP::WlmStatus::ENABLED) && !isArchVPUX3XXX(arch);
     auto shareWaitAndUpdateBarriers = shareWaitAndUpdateBarriersOpt.hasValue()
                                               ? static_cast<bool>(shareWaitAndUpdateBarriersOpt.getValue())
                                               : _shareWaitAndUpdateBarriers;
@@ -250,10 +260,10 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         barrierInfo.enableUnevenVariantSplit();
     }
 
-    if (wlmFlag && _virtualBarrierThresholdforWlm.has_value() &&
-        barrierInfo.getNumOfBarrierOps() > static_cast<size_t>(_virtualBarrierThresholdforWlm.value())) {
+    if (wlmFlag && _virtualBarrierThresholdForWlm.has_value() &&
+        barrierInfo.getNumOfBarrierOps() > static_cast<size_t>(_virtualBarrierThresholdForWlm.value())) {
         _log.trace("WLM flag turned off because number of barrier is above threshold {0} > {1}",
-                   barrierInfo.getNumOfBarrierOps(), _virtualBarrierThresholdforWlm.value());
+                   barrierInfo.getNumOfBarrierOps(), _virtualBarrierThresholdForWlm.value());
         wlmFlag = false;
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
     }
@@ -297,21 +307,21 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
             // Currently, enabling this for WLM can trigger rollback and performance regressions.
             barrierInfo.shareWaitAndUpdateBarriers(_availableSlots);
         }
-        VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+        VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
 
         barrierSim = VPURT::BarrierSimulator{func, wlmFlag, barrierInfo};
         if (!mlir::succeeded(barrierSim.checkProducerAndConsumerCount(_log))) {
             _log.trace("Active barrier slot count is not valid, will split barriers");
             // split barriers that violate the slot count limits
             barrierInfo.splitBarriersWithExceedingVariantCount(_availableSlots, maxSlotsSum, maxAvailableSlots);
-            VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+            VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
         }
 
         // merge parallel wait barriers respecting limits of slot count per barrier
         if (barrierInfo.ensureTasksDrivenBySingleBarrier(_availableSlots, _mergeWaitBarriersIteratively,
                                                          _considerTaskExecutorType)) {
             // IR was modified
-            VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+            VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
         }
 
         barrierSim = VPURT::BarrierSimulator{func, wlmFlag, barrierInfo};
@@ -371,6 +381,15 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     }
 
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
+    auto execGroupAnalysis = ExecutionGroupAnalysis(func);
+    auto validateEachTileSeparately = true;
+    if (_workloadManagementMode.has_value() && _workloadManagementMode.value() == WorkloadManagementMode::PWLM_V0_LCA) {
+        validateEachTileSeparately = false;
+    }
+    auto execGroups = validateEachTileSeparately ? execGroupAnalysis.getExecutionGroups()
+                                                 : execGroupAnalysis.getExecutionGroupsForTile(0);
+    VPUX_THROW_UNLESS(barrierInfo.verifyBarriersForTaskDescriptorFetch(execGroups, wlmFlag),
+                      "Encountered execution group without required barrier for task descriptor fetch.");
 
     // remove attributes before removing barriers
     barrierInfo.clearAttributes();
@@ -380,7 +399,7 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
     auto hasOneWaitBarrierPerTask = VPURT::verifyOneWaitBarrierPerTask(func, _log);
     if (_mergeWaitBarriersIteratively) {
-        VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more then one wait barrier");
+        VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more than one wait barrier");
     }
 }
 
@@ -391,7 +410,8 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPURT::createReduceExceedingActiveCountBarriersPass(
-        std::optional<int> virtualBarrierThresholdforWlm, const bool unevenVariantSplitFlag, Logger log) {
-    return std::make_unique<ReduceExceedingActiveCountBarriersPass>(virtualBarrierThresholdforWlm,
-                                                                    unevenVariantSplitFlag, log);
+        std::optional<int> virtualBarrierThresholdForWlm, std::optional<WorkloadManagementMode> workloadManagementMode,
+        const bool unevenVariantSplitFlag, Logger log) {
+    return std::make_unique<ReduceExceedingActiveCountBarriersPass>(
+            virtualBarrierThresholdForWlm, workloadManagementMode, unevenVariantSplitFlag, log);
 }

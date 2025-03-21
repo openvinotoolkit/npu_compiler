@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 
 using namespace vpux;
 
@@ -12,8 +13,8 @@ using namespace vpux;
 //
 
 bool IE::arch37xx::isMixPrecisionSupported(mlir::Operation* origOp, const bool isPReLUSupported, Logger log) {
-    if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::AddOp, IE::AvgPoolOp, IE::TransposedConvolutionOp>(
-                origOp)) {
+    if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::AddOp, IE::AvgPoolOp, IE::TransposedConvolutionOp,
+                   IE::MatMulOp>(origOp)) {
         return false;
     }
 

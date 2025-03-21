@@ -13,14 +13,12 @@ std::unique_ptr<IGreedilyPassStrategy> createFuseOutstandingQuantStrategy(mlir::
     const auto arch = VPU::getArch(funcOp);
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX: {
+    case VPU::ArchKind::NPU40XX:
         return std::make_unique<arch37xx::FuseOutstandingQuantStrategy>();
-    }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unable to get FuseOutstandingQuantStrategy for arch {0}", arch);
     }
     }
+    VPUX_THROW("Unable to get FuseOutstandingQuantStrategy for arch {0}", arch);
 }
 
 }  // namespace vpux::IE

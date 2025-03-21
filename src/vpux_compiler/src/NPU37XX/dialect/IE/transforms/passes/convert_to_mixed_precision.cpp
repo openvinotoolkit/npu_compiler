@@ -5,11 +5,19 @@
 
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_to_mixed_precision.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_CONVERTTOMIXEDPRECISION
+#define GEN_PASS_DEF_CONVERTTOMIXEDPRECISION
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -20,7 +28,7 @@ namespace {
 //
 
 class ConvertToMixedPrecisionPass final :
-        public IE::arch37xx::ConvertToMixedPrecisionBase<ConvertToMixedPrecisionPass> {
+        public IE::arch37xx::impl::ConvertToMixedPrecisionBase<ConvertToMixedPrecisionPass> {
 public:
     explicit ConvertToMixedPrecisionPass(const bool enableFloatInQuantWeightsMixedMode, Logger log)
             : _enableFloatInQuantWeightsMixedMode(enableFloatInQuantWeightsMixedMode) {
@@ -60,6 +68,7 @@ void ConvertToMixedPrecisionPass::safeRunOnFunc() {
     patterns.add<vpux::IE::FloatOutGroupConvRewriter>(&ctx, IE::arch37xx::isMixPrecisionSupported, _log);
     patterns.add<vpux::IE::FloatOutAddRewriter>(&ctx, IE::arch37xx::isMixPrecisionSupported, true, _log);
     patterns.add<vpux::IE::FloatOutTransposedConvRewriter>(&ctx, IE::arch37xx::isMixPrecisionSupported, _log);
+    patterns.add<vpux::IE::FloatOutMatMulRewriter>(&ctx, IE::arch37xx::isMixPrecisionSupported, _log);
 
     patterns.add<vpux::IE::FloatOutAvgPoolRewriter>(&ctx, _log);
     patterns.add<vpux::IE::QuantizeWithNCERewriter>(&ctx, IE::arch37xx::isMixPrecisionSupported,

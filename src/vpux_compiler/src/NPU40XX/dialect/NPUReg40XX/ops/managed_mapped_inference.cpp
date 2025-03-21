@@ -5,9 +5,9 @@
 
 #include <mlir/IR/BuiltinTypes.h>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
-#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
 #include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/utils/core/error.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -18,35 +18,15 @@ using namespace npu40xx;
 // ManagedMappedInferenceOp
 //
 
-void vpux::NPUReg40XX::ManagedMappedInferenceOp::serializeCached(
-        elf::writer::BinaryDataSection<uint8_t>& binDataSection, ELF::SymbolReferenceMap& symRefMap) {
-    npu40xx::nn_public::VpuManagedMappedInference mmi = {};
+void vpux::NPUReg40XX::ManagedMappedInferenceOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
+    auto managedMpiDescriptor = getDescriptor().getRegMapped();
 
-    auto mpiVersionRef = symRefMap.lookupSymbol(getMappedInferenceVersion());
-    auto mpiVersionOp = mlir::cast<NPUReg40XX::MappedInferenceVersionOp>(mpiVersionRef);
+    VPUX_THROW_UNLESS(sizeof(nn_public::VpuManagedMappedInference) == managedMpiDescriptor.size(),
+                      "HW VpuManagedMappedInference size {0} != regMapped representation size {1}.",
+                      sizeof(nn_public::VpuManagedMappedInference), managedMpiDescriptor.size());
 
-    mmi.vpu_nnrt_api_ver = VPU_CONCAT_NNRT_API_VER(mpiVersionOp.getMajor(), mpiVersionOp.getMinor());
-    mmi.final_barrier = getFinalBarrier();
-    mmi.work_items.count = getWorkItemsCount();
-    mmi.task_configs.count = getTaskConfigsCount();
-    mmi.initial_barriers.count = getBootstrapTaskCount();
-    mmi.bootstrap_workitems_count = getBootsrapWorkItemsCount();
-    mmi.actshv_used = getActshvUsed();
-    mmi.dpu_used = getDpuUsed();
-    mmi.media_used = getMediaUsed();
-    mmi.dma_from_cmx_used = getDmaFromCmxUsed();
-    mmi.dma_from_ddr_used = getDmaFromDdrUsed();
-    mmi.nnrt_config.count = 1;
-    mmi.barriers_configuration.count = getBarrierConfigurationTasksCount();
-    mmi.num_of_barrier_reprogrammings.count = getBarriersReprogrammingCount();
-    if (mmi.barriers_configuration.count > 0) {
-        mmi.barrier_programming_mode =
-                npu40xx::nn_public::VpuManagedMappedInference::VpuBarrierProgrammingMode::NO_BARRIER_DMAS_SCHEDULED;
-    }
-    mmi.barrier_configuration_stride = getBarrierConfigurationStride();
-
-    auto ptrCharTmp = reinterpret_cast<uint8_t*>(&mmi);
-    binDataSection.appendData(ptrCharTmp, getBinarySize(VPU::ArchKind::NPU40XX));
+    auto serializedDescriptor = managedMpiDescriptor.getStorage();
+    binDataSection.appendData(serializedDescriptor.data(), getBinarySize(VPU::ArchKind::NPU40XX));
 }
 
 size_t vpux::NPUReg40XX::ManagedMappedInferenceOp::getBinarySize(VPU::ArchKind) {
@@ -54,18 +34,7 @@ size_t vpux::NPUReg40XX::ManagedMappedInferenceOp::getBinarySize(VPU::ArchKind) 
 }
 
 size_t vpux::NPUReg40XX::ManagedMappedInferenceOp::getAlignmentRequirements(VPU::ArchKind) {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::ManagedMappedInferenceOp::getSectionSignature() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-bool vpux::NPUReg40XX::ManagedMappedInferenceOp::hasMemoryFootprint() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
+    return alignof(nn_public::VpuManagedMappedInference);
 }
 
 namespace {
@@ -151,4 +120,14 @@ std::vector<ELF::RelocationInfo> NPUReg40XX::ManagedMappedInferenceOp::getReloca
     }
 
     return relocs;
+}
+
+void NPUReg40XX::ManagedMappedInferenceOp::setVersion(const elf::Version& version) {
+    auto descriptor = getDescriptor().getRegMapped();
+    const auto serializedVersion = VPU_CONCAT_NNRT_API_VER(version.getMajor(), version.getMinor());
+    descriptor.write<NPUReg40XX::Fields::MMI_vpu_nnrt_api_ver>(serializedVersion);
+
+    auto managedMappedInferenceDescriptorAttr =
+            NPUReg40XX::VpuManagedMappedInferenceAttr::get(getContext(), std::move(descriptor));
+    setDescriptorAttr(managedMappedInferenceDescriptorAttr);
 }

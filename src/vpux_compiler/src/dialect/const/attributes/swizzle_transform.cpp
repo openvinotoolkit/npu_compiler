@@ -228,3 +228,13 @@ Const::details::PositionRequirement Const::SwizzleConstantAttr::getPositionRequi
 bool Const::SwizzleConstantAttr::supportsSubByteStorageType() const {
     return true;
 }
+
+//
+// SwizzleConstantAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::SwizzleConstantAttr::getStableHashValue() const {
+    const auto arch = getArch().getValue();
+    const auto swizzleKey = getSwizzleKey().getValue();
+    return llvm::hash_combine(getMnemonic(), arch, swizzleKey);
+}

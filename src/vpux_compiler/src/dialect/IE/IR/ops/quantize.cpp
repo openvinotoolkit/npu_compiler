@@ -46,17 +46,9 @@ mlir::OpFoldResult vpux::IE::QuantizeOp::fold(FoldAdaptor adaptor) {
     auto operands = adaptor.getOperands();
     if (auto ephemeral = operands[0].dyn_cast_or_null<Const::ContentAttr>()) {
         const auto cst = static_cast<Const::ContentAttr>(ephemeral);
-
-        // Compiler must add real quantization of content if dequantization was before
-        bool hasDequant = llvm::any_of(cst.getTransformations(), [](mlir::Attribute attr) {
-            return attr.isa<Const::DequantizeAttr>();
-        });
         const auto quantType = extractQuantizedType(getOutput());
-        if (hasDequant) {
-            return cst.transform().quantize(quantType).get();
-        }
 
-        return cst.transform().castElemType(quantType).get();
+        return cst.transform().quantize(quantType).castElemType(quantType).get();
     }
 
     if (auto dequantize = getInput().getDefiningOp<IE::DequantizeOp>()) {
@@ -169,9 +161,87 @@ mlir::LogicalResult FuseFQsWithSimilarScales::matchAndRewrite(IE::QuantizeOp ori
 }
 
 //
+// FuseQuantizeWithConvert
+//
+
+class FuseQuantizeWithConvert final : public mlir::OpRewritePattern<IE::QuantizeOp> {
+public:
+    using mlir::OpRewritePattern<IE::QuantizeOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::QuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+// This rewriter searches for pattern:
+// integer_tensor -> [Convert] -> fp_tensor -> [Quantize with Scale 1 and ZeroPoint 0] -> quantized_tensor
+// and replaces it with
+// integer_tensor -> [QuantizeCast] -> quantized_tensor
+mlir::LogicalResult FuseQuantizeWithConvert::matchAndRewrite(IE::QuantizeOp origOp,
+                                                             mlir::PatternRewriter& rewriter) const {
+    // Get the input of origOp
+    mlir::Value origOpInput = origOp.getInput();
+
+    // Get the defining operation of the first operand
+    mlir::Operation* origOpProducer = origOpInput.getDefiningOp();
+
+    // Check if the producer is a Convert
+    if (!mlir::isa_and_nonnull<IE::ConvertOp>(origOpProducer)) {
+        return mlir::failure();
+    }
+
+    mlir::Operation* convertOp = origOpProducer;
+
+    // Check if convertOp has only one use
+    if (!convertOp->getResult(0).hasOneUse()) {
+        return mlir::failure();
+    }
+
+    // Get the input of the convertOp
+    mlir::Value convertOpInput = convertOp->getOperand(0);
+
+    // Get the element type of the Quantize output
+    auto outputTypeQuantize = mlir::cast<mlir::ShapedType>(origOp.getType());
+    auto outElemType = outputTypeQuantize.getElementType();
+
+    // Get the element type of the Convert input
+    auto inputTypeConvert = mlir::cast<mlir::ShapedType>(convertOpInput.getType());
+    auto inElemType = inputTypeConvert.getElementType();
+
+    auto outUniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outElemType);
+    if (!outUniformType) {
+        return mlir::failure();
+    }
+
+    auto inIntegerType = mlir::dyn_cast<mlir::IntegerType>(inElemType);
+    if (!inIntegerType) {
+        return mlir::failure();
+    }
+
+    if (inIntegerType.getWidth() != outUniformType.getStorageTypeIntegralWidth()) {
+        return mlir::failure();
+    }
+
+    // Get the scale of the quantized type
+    const auto quantizeScale = outUniformType.getScale();
+    const auto quantizeZeroPoint = outUniformType.getZeroPoint();
+
+    if (!isDoubleEqual(quantizeScale, 1.0) || quantizeZeroPoint != 0) {
+        return mlir::failure();
+    }
+
+    // Set the insertion point to just after the original operation
+    rewriter.setInsertionPointAfter(origOp.getOperation());
+    auto newQuantizeCastOp = rewriter.create<IE::QuantizeCastOp>(origOp->getLoc(), convertOpInput, outElemType);
+    origOp.getOutput().replaceAllUsesWith(newQuantizeCastOp->getResult(0));
+
+    return mlir::success();
+}
+
+//
 // getCanonicalizationPatterns
 //
 
 void vpux::IE::QuantizeOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<FuseFQsWithSimilarScales>(ctx);
+    patterns.add<FuseQuantizeWithConvert>(ctx);
 }

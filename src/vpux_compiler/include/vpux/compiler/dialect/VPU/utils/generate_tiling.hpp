@@ -43,25 +43,27 @@ std::optional<std::pair<size_t, size_t>> getWorkLoadInformationForNCEWithSparseO
         VPU::ArchKind arch, ArrayRef<Shape> perClusterShapes, ArrayRef<int64_t> supportedChannels);
 
 /**
- * @brief Get the best tiling strategy based on the VPUNN cost model
- * @details If existing one-dimension tiling strategy, compare the costs and return the lowest-cost strategy.
- * Else, follow the tileDimOrder, increase the tile number in turn and return the first supported multi-dimension
- * tiling strategy
- *          One-dimension tiling strategy: only split on one dimension. e.g., [1, 2, 1, 1], [1, 1, 5, 1], etc.
- *          Multi-dimension tiling strategy: split on more than one dimension. e.g., [1, 2, 5, 1], [1, 1, 2, 5], etc.
- * @example An NCE Eltwise layer of shape [1, 2048, 14, 14]. It has supported one-dim tiling strategies on C, H and W
- *          the minimum tiling number is 2 for each dimension, i.e., the layer fits into CMX splitting by 2
- *          [1, 2, 1, 1], [1, 1, 2, 1], [1, 1, 1, 2]
- *          Corresponding VPUNN costs are 161551, 151587, and 159641
- *          tiling strategy [1, 1, 2, 1] is chosen as the best tiling because of the lowest VPUNN cost (151587)
+ * @brief Get the best hardware layer tiling strategy based on the VPUNN cost model
+ * @details
+ * This function is used to calculate optimal tiling strategy using VPUNN DMA+DPU time cost :
+ * Instead of relying on a predetermined tiling dimension order and the corresponding tiling strategy calculated
+ * based on that dimension order, we evaluate all possible tiling orders, and their corresponding strategies for a
+ * layer and select the one that minimizes the VPUNN cost.
+ * 1. For each operation, first identify the supported tiling mode (Isolated, Pipeline, and Prefetch)
+ * 2. If the operation has the necessary interface and shape (4-D), retrieve all possible tiling strategies
+ *    for the layer under current multi-cluster strategy and calculate the DMA+DPU costs by using VPUNN cost model.
+ * 3. For each tiling strategy candidate, if the calculated cost is valid and less than the current best cost
+ *    (initialized to maximum), update it as the best tiling strategy and its cost as the best cost.
+ *    If the calculated cost is invalid, skip that tiling strategy.
+ * 4. Finally, return the best tiling strategy for the layer which has the least cost.
  * @param op The target operation to tile
- * @param tilingMode Prefetching or pipelining or isolated
- * @param tileDimOrder The tiling order of dimensions when nested tiling is required (tiling on multiple dimensions)
+ * @param costModel The shared pointer to the LayerCostModel class
+ * @param enablePrefetchTiling If this option is enabled, PREFETCH tiling mode is selected, default mode is ISOLATED.
+ * @return The best output tiling strategy or a failure
  */
-mlir::FailureOr<OutputTiling> getHWLayerTilingStrategyBasedOnCost(mlir::Operation* op, TilingMode tilingMode,
-                                                                  DimArrRef tileDimOrder,
-                                                                  const std::shared_ptr<LayerCostModel>& costModel,
-                                                                  Logger log);
+
+mlir::FailureOr<OutputTiling> getHWLayerTilingStrategy(VPU::TilingBuilderOpInterface origOp, bool enablePrefetchTiling,
+                                                       const std::shared_ptr<LayerCostModel>& costModel, Logger log);
 
 enum class EnableShaveDDRAccessOptimization { TRUE, FALSE, AUTO };
 

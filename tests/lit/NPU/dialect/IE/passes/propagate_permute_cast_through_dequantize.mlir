@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-permute-cast-through-dequantize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 !qElemType = !quant.uniform<u8:f16, 0.006552408723270192:147>
@@ -17,9 +16,8 @@ func.func @OptimizeDequantizeMemPermuteReorder() -> tensor<320x1280x1x1xf16, {or
    %permute_cast = IE.PermuteCast(%dequantize) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>} : tensor<320x1280x1x1xf16> -> tensor<320x1280x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
 
    return %permute_cast : tensor<320x1280x1x1xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
-   // CHECK:        [[CST:%.+]] =  const.Declare tensor<320x1280x1x1x!qElemType>
-   // CHECK:        [[PERMUTECAST:%.+]] = IE.PermuteCast([[CST]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<320x1280x1x1x!qElemType> -> tensor<320x1280x1x1x!qElemType, {order = #NHWC}>
-   // CHECK:        [[DEQUANT:%.+]] = IE.Dequantize([[PERMUTECAST]]) {dstElemType = f16} : tensor<320x1280x1x1x!qElemType, {order = #NHWC}> -> tensor<320x1280x1x1xf16, {order = #NHWC}>
+   // CHECK:        [[CST:%.+]] =  const.Declare tensor<320x1280x1x1x!qElemType, {order = #NHWC}>
+   // CHECK:        [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<320x1280x1x1x!qElemType, {order = #NHWC}> -> tensor<320x1280x1x1xf16, {order = #NHWC}>
 }
 
 // -----

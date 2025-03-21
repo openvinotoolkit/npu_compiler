@@ -15,6 +15,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLELARGEPADS
+#define GEN_PASS_DEF_HANDLELARGEPADS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -176,7 +182,7 @@ mlir::LogicalResult PoolingGeneralRewriter<ConcreteOp>::matchAndRewrite(Concrete
 // HandleLargePadsPass
 //
 
-class HandleLargePadsPass final : public IE::HandleLargePadsBase<HandleLargePadsPass> {
+class HandleLargePadsPass final : public IE::impl::HandleLargePadsBase<HandleLargePadsPass> {
 public:
     explicit HandleLargePadsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

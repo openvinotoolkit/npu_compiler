@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-to-dma --canonicalize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --convert-to-dma --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // -----
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
@@ -674,4 +673,48 @@ func.func @NotMoveUpsamplingDMAInCMXWithLargeSize(%arg0: memref<1x64x128x128xf16
     // CHECK:              outputs([[COPYZERO]] : memref<1x64x256x256xf16>)
 
     // CHECK:       return [[DMA]] : memref<1x64x256x256xf16>
+}
+
+// -----
+
+IE.TileResource 3 of @NCE {
+IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+}
+
+VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
+  module @VPU.SW {
+    func.func private @builtin_Tile(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none) attributes {VPU.kernel_code = "tile.cpp", VPU.kernel_entry = "tile"}
+    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+  }
+
+// CHECK-LABEL: @ConvertPerAxisTileToDMAOutputDDR
+// CHECK-SAME:    [[INPUT_0:%.+]]: memref<1x1x1x2000xf16, @DDR>
+// CHECK-SAME:    [[INPUT_1:%.+]]: memref<1x22x16x2000xf16, @DDR>
+func.func @ConvertPerAxisTileToDMAOutputDDR(%arg0: memref<1x1x1x2000xf16, @DDR>, %arg1: memref<1x22x16x2000xf16, @DDR>) -> memref<1x22x16x2000xf16, @DDR> {
+    %cmx_buf_0 = memref.alloc() : memref<1x1x1x2000xf16, [@CMX_NN, 0]>
+    %0 = VPUIP.Copy inputs(%arg0 : memref<1x1x1x2000xf16, @DDR>) outputs(%cmx_buf_0 : memref<1x1x1x2000xf16, [@CMX_NN, 0]>) -> memref<1x1x1x2000xf16, [@CMX_NN, 0]>
+    %cmx_buf_1 = memref.alloc() : memref<1x22x16x2000xf16, [@CMX_NN, 0]>
+    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Tile
+        inputs(%0 as %arg2: memref<1x1x1x2000xf16, [@CMX_NN, 0]>)
+        outputs(%cmx_buf_1 as %arg3: memref<1x22x16x2000xf16, [@CMX_NN, 0]>) on tile 0
+        -> memref<1x22x16x2000xf16, [@CMX_NN, 0]>{
+      VPUIP.SW.Kernel.run {attrs = [4, [1, 22, 16, 1]]}(%arg2, %arg3) : memref<1x1x1x2000xf16, [@CMX_NN, 0]>, memref<1x22x16x2000xf16, [@CMX_NN, 0]>
+    }
+    %1 = VPUIP.Copy inputs(%results : memref<1x22x16x2000xf16, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x22x16x2000xf16, @DDR>) -> memref<1x22x16x2000xf16, @DDR>
+    return %1 : memref<1x22x16x2000xf16, @DDR>
+
+    // CHECK:   [[CMX_BUF_0:%.+]] = memref.alloc() : memref<1x1x1x2000xf16, [@CMX_NN, 0]>
+    // CHECK:   [[COPY_IN:%.+]] = VPUIP.Copy inputs([[INPUT_0]] : memref<1x1x1x2000xf16, @DDR>) outputs([[CMX_BUF_0]] : memref<1x1x1x2000xf16, [@CMX_NN, 0]>) -> memref<1x1x1x2000xf16, [@CMX_NN, 0]>
+    // CHECK:   [[DDR_BUF:%.+]] = memref.alloc() : memref<1x22x1x2000xf16, @DDR>
+    // CHECK:   [[PER_AXIS_TILE_DMA_0:%.+]] = VPUIP.PerAxisTileDMA {axis = 1 : i64, tiles = 22 : i64}
+    // CHECK-SAME:    inputs([[COPY_IN]] : memref<1x1x1x2000xf16, [@CMX_NN, 0]>)
+    // CHECK-SAME:    outputs([[DDR_BUF]] : memref<1x22x1x2000xf16, @DDR>) -> memref<1x22x1x2000xf16, @DDR>
+    // CHECK:   [[CMX_BUF_1:%.+]] = memref.alloc() : memref<1x22x16x2000xf16, [@CMX_NN, 0]>
+    // CHECK:   [[PER_AXIS_TILE_DMA_1:%.+]] = VPUIP.PerAxisTileDMA {axis = 2 : i64, tiles = 16 : i64}
+    // CHECK-SAME:    inputs([[PER_AXIS_TILE_DMA_0]] : memref<1x22x1x2000xf16, @DDR>)
+    // CHECK-SAME:    outputs([[CMX_BUF_1]] : memref<1x22x16x2000xf16, [@CMX_NN, 0]>) -> memref<1x22x16x2000xf16, [@CMX_NN, 0]>
+    // CHECK:   [[COPY_OUT:%.+]] = VPUIP.Copy inputs([[PER_AXIS_TILE_DMA_1]] : memref<1x22x16x2000xf16, [@CMX_NN, 0]>) outputs([[INPUT_1]] : memref<1x22x16x2000xf16, @DDR>) -> memref<1x22x16x2000xf16, @DDR>
+
+    // CHECK:   return [[COPY_OUT]] : memref<1x22x16x2000xf16, @DDR>
 }

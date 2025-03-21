@@ -8,10 +8,17 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSTRIDEDSLICE2CONV
+#define GEN_PASS_DEF_CONVERTSTRIDEDSLICE2CONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -142,7 +149,7 @@ IE::ConvolutionOp createParallelStridedSliceToConv(mlir::Value input, mlir::Arra
 // ConvertStridedSlice2ConvPass
 //
 
-class ConvertStridedSlice2ConvPass final : public IE::ConvertStridedSlice2ConvBase<ConvertStridedSlice2ConvPass> {
+class ConvertStridedSlice2ConvPass final : public IE::impl::ConvertStridedSlice2ConvBase<ConvertStridedSlice2ConvPass> {
 public:
     explicit ConvertStridedSlice2ConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

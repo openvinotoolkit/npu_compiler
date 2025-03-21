@@ -10,6 +10,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_UNROLLUNUSEDVERTICALFUSIONREGION
+#define GEN_PASS_DEF_UNROLLUNUSEDVERTICALFUSIONREGION
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 using namespace VPU;
 
@@ -81,7 +87,7 @@ mlir::LogicalResult VerticalFusionUnrollRewriter::matchAndRewrite(VPU::VerticalF
 //
 
 class UnrollUnusedVerticalFusionRegionPass final :
-        public UnrollUnusedVerticalFusionRegionBase<UnrollUnusedVerticalFusionRegionPass> {
+        public VPU::impl::UnrollUnusedVerticalFusionRegionBase<UnrollUnusedVerticalFusionRegionPass> {
 public:
     explicit UnrollUnusedVerticalFusionRegionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

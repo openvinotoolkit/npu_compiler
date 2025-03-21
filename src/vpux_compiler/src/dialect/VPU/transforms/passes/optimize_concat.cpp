@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
@@ -10,6 +11,12 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OPTIMIZECONCAT
+#define GEN_PASS_DEF_OPTIMIZECONCAT
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -260,7 +267,7 @@ mlir::LogicalResult EliminateSameSiblingConcat::matchAndRewrite(VPU::ConcatOp or
 // OptimizeConcatPass
 //
 
-class OptimizeConcatPass final : public VPU::OptimizeConcatBase<OptimizeConcatPass> {
+class OptimizeConcatPass final : public VPU::impl::OptimizeConcatBase<OptimizeConcatPass> {
 public:
     explicit OptimizeConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -134,9 +134,10 @@ TEST_F(MLIR_VPU_doesTopKLayerFitIntoCMX, TopKfitsCMX) {
         #loc0 = loc(unknown)
         module @main {
             func.func @main(%arg0: tensor<1x1x1x100xf16>) -> tensor<1x1x1x1xsi32> {
-                %output_values, %target_shape = VPU.TopK(%arg0)
-                {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort =
-                #IE.topk_sort_type<NONE>} : tensor<1x1x1x100xf16> -> tensor<1x1x1x1xf16>, tensor<1x1x1x1xsi32>
+                %cst = const.Declare tensor<1x1x1x640000xui8> = dense<0> : tensor<1x1x1x640000xui8>
+                %output_values, %target_shape = VPU.TopK(%arg0, %cst)
+                {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort =
+                #IE.topk_sort_type<NONE>} : tensor<1x1x1x100xf16>, tensor<1x1x1x640000xui8> -> tensor<1x1x1x1xf16>, tensor<1x1x1x1xsi32>
             return %target_shape : tensor<1x1x1x1xsi32>
             }
         }
@@ -172,9 +173,10 @@ TEST_F(MLIR_VPU_doesTopKLayerFitIntoCMX, TopKdoesNotFitCMX) {
         #loc0 = loc(unknown)
         module @main {
             func.func @main(%arg0: tensor<1x1x200x32000xf16>) -> tensor<1x1x200x1xsi32> {
-                %output_values, %target_shape = VPU.TopK(%arg0)
-                {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort =
-                #IE.topk_sort_type<NONE>} : tensor<1x1x200x32000xf16> -> tensor<1x1x200x1xf16>, tensor<1x1x200x1xsi32>
+                %cst = const.Declare tensor<1x1x1x640000xui8> = dense<0> : tensor<1x1x1x640000xui8>
+                %output_values, %target_shape = VPU.TopK(%arg0, %cst)
+                {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort =
+                #IE.topk_sort_type<NONE>} : tensor<1x1x200x32000xf16>, tensor<1x1x1x640000xui8> -> tensor<1x1x200x1xf16>, tensor<1x1x200x1xsi32>
             return %target_shape : tensor<1x1x200x1xsi32>
             }
         }

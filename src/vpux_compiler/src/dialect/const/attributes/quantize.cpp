@@ -64,7 +64,7 @@ mlir::Attribute vpux::Const::QuantizeAttr::parse(mlir::AsmParser& parser, mlir::
 vpux::NDTypeInterface vpux::Const::QuantizeAttr::inferOutputType(vpux::NDTypeInterface input) const {
     const auto quantType = getTargetType();
     VPUX_THROW_WHEN(quantType == nullptr, "Can't quantize to empty type");
-    return input.changeElemType(normalizeQuantStorageType(quantType));
+    return input.changeElemType(quantType);
 }
 
 bool vpux::Const::QuantizeAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
@@ -185,7 +185,7 @@ Const::Content transformImpl(mlir::quant::QuantizedType qElemType, mlir::Type ou
 
 Const::Content vpux::Const::QuantizeAttr::transform(vpux::Const::Content& input) const {
     const auto qElemType = getTargetType().dyn_cast<mlir::quant::QuantizedType>();
-    VPUX_THROW_UNLESS(qElemType != nullptr, "Got non quantized type '{0}' in 'DequantizeAttr'");
+    VPUX_THROW_UNLESS(qElemType != nullptr, "Got non quantized type '{0}' in 'QuantizeAttr'");
     const auto storageType = qElemType.getStorageType();
     mlir::Type outType = inferOutputType(input.getType());
     auto ctx = getContext();
@@ -209,4 +209,13 @@ Const::Content vpux::Const::QuantizeAttr::transform(vpux::Const::Content& input)
         // #E128147: add subbyte type support
         VPUX_THROW("Unsupported {0} storage type", storageType);
     }
+}
+
+//
+// QuantizeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::QuantizeAttr::getStableHashValue() const {
+    const auto type = getTargetType();
+    return llvm::hash_combine(getMnemonic(), formatv("{0}", type).str());
 }

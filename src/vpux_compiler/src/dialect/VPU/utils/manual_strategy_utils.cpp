@@ -5,9 +5,9 @@
 
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 using namespace vpux;
 

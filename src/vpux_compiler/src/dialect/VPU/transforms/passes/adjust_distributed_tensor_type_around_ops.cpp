@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
@@ -13,6 +14,12 @@
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ADJUSTDISTRIBUTEDTENSORAROUNDOPS
+#define GEN_PASS_DEF_ADJUSTDISTRIBUTEDTENSORAROUNDOPS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -191,7 +198,7 @@ bool DistributedInputTypeRewriter::fitIntoCMX(VPU::NCEOpInterface origOp, VPU::D
 //
 
 class AdjustDistributedTensorAroundOpsPass final :
-        public AdjustDistributedTensorAroundOpsBase<AdjustDistributedTensorAroundOpsPass> {
+        public VPU::impl::AdjustDistributedTensorAroundOpsBase<AdjustDistributedTensorAroundOpsPass> {
 public:
     explicit AdjustDistributedTensorAroundOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

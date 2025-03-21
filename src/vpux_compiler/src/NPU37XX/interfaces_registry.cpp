@@ -20,6 +20,7 @@ void InterfacesRegistry37XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPU::arch37xx::registerLayoutInfoOpInterfaces(registry);
     VPU::arch37xx::registerDDRAccessOpModelInterface(registry);
     VPU::arch37xx::registerLayerWithPermuteInterfaceForIE(registry);
+    VPU::arch37xx::registerUnrollBatchOpInterfaces(registry);
     VPU::arch37xx::registerNCEOpInterface(registry);
     VPU::arch37xx::registerClusterBroadcastingOpInterfaces(registry);
     VPUIP::arch37xx::registerAlignedChannelsOpInterfaces(registry);

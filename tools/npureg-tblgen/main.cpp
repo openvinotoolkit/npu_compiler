@@ -1,9 +1,7 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
-
-#include <iostream>
 
 #include <sstream>
 #include <string_view>
@@ -13,26 +11,36 @@
 #include "llvm/Support/Error.h"
 #include "llvm/Support/WithColor.h"
 #include "llvm/Support/raw_ostream.h"
-#include "llvm/TableGen/Error.h"
 #include "llvm/TableGen/Main.h"
 #include "llvm/TableGen/Record.h"
 
-#include "vpux/utils/core/error.hpp"
+#include "mlir/IR/BuiltinAttributes.h"
+#include "mlir/IR/BuiltinTypes.h"
+
+// clang-format off
+// because header file should be in the first
+#include <vpux/compiler/dialect/VPU/enums.hpp.inc>
+#include <vpux/compiler/dialect/VPU/enums.cpp.inc>
+// clang-format on
+
 #include "vpux/utils/core/format.hpp"
 
 enum ActionType { Generate };
-
-// E#146057: use NPUReg* dialects type definition from compiler
-enum NPURegDialectType { NPUReg40XX };
 
 static llvm::cl::opt<ActionType> Action(llvm::cl::desc("Actions to perform"),
                                         llvm::cl::values(clEnumValN(Generate, "generate", "")),
                                         llvm::cl::init(Generate));
 
-static llvm::cl::opt<NPURegDialectType> Platform(llvm::cl::desc("Specify the platform type"),
-                                                 llvm::cl::values(clEnumValN(NPURegDialectType::NPUReg40XX,
-                                                                             "NPUReg40XX", "NPU40XX platform")),
-                                                 llvm::cl::init(NPURegDialectType::NPUReg40XX));
+static llvm::cl::opt<vpux::VPU::ArchKind> Platform(llvm::cl::desc("Specify the platform type"),
+                                                   llvm::cl::values(clEnumValN(vpux::VPU::ArchKind::NPU40XX, "NPU40XX",
+                                                                               "LNL platform")
+                                                                    // clang-format off
+        ), llvm::cl::init(vpux::VPU::ArchKind::NPU40XX));
+// clang-format on
+
+static std::map<std::string, std::string> platformTypeMap{
+        {"NPU40XX", "NPUReg40XX"},
+};
 
 template <class... Args>
 void throwFormatted(llvm::StringLiteral format, Args&&... args) {
@@ -197,6 +205,7 @@ llvm::raw_ostream& emitFieldsDefinitions(llvm::raw_ostream& stream, const Record
             "struct {0} : ::vpux::VPURegMapped::detail::FieldTemplate<::vpux::{1}::detail::Fields::{0}Name, "
             "{2}, {3}, {4}, ::vpux::VPURegMapped::RegFieldDataType::{5}, {6}, {7}, {8}> "
             "{{};\n";
+
     for (const auto& [name, fieldEntry] : fields) {
         const auto [field, registersNames] = fieldEntry;
         assert(!registersNames.empty());
@@ -218,6 +227,7 @@ llvm::raw_ostream& emitFieldsDefinitions(llvm::raw_ostream& stream, const Record
             }
         }
         parentRegistersArgument << '>';
+
         vpux::printTo(stream, fieldTemplate, name, platformTypeName, parentRegistersArgument.str(), offsetVal, sizeVal,
                       typeVal, major, minor, patch);
     }
@@ -286,14 +296,7 @@ bool RegGenMain(llvm::raw_ostream& stream, llvm::RecordKeeper& records) {
         return false;
     };
 
-    std::string platformTypeName;
-    switch (Platform) {
-    case NPUReg40XX:
-        platformTypeName = "NPUReg40XX";
-        break;
-    default:
-        break;
-    }
+    const auto platformTypeName = platformTypeMap[vpux::VPU::stringifyArchKind(Platform).str()];
 
     switch (Action) {
     case Generate:

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/make_ops_with_distributed_tensor_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -14,6 +15,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_MAKEOPSWITHDISTRIBUTEDTENSOR
+#define GEN_PASS_DEF_MAKEOPSWITHDISTRIBUTEDTENSOR
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 using namespace VPU;
 
@@ -24,7 +31,7 @@ namespace {
 //
 
 class MakeOpsWithDistributedTensorPass final :
-        public MakeOpsWithDistributedTensorBase<MakeOpsWithDistributedTensorPass> {
+        public VPU::impl::MakeOpsWithDistributedTensorBase<MakeOpsWithDistributedTensorPass> {
 public:
     MakeOpsWithDistributedTensorPass(Logger log): _enableExplicitDistributionInfoAttr(false) {
         Base::initLogger(log, Base::getArgumentName());

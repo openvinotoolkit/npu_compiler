@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" --compress-dma-reserve-mem %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @SimpleGraph {
   IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "data" : tensor<1x16x4x4xf16>

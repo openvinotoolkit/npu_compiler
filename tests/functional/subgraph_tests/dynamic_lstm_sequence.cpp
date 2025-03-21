@@ -165,7 +165,6 @@ protected:
 };
 
 TEST_P(DynamicTensorIteratorNPUTest, NPU4000_HW_TestKindSubgraph) {
-    setMLIRCompilerType();
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }

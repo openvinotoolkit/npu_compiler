@@ -6,10 +6,17 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTREORDERTOPERMUTEQUANTIZE
+#define GEN_PASS_DEF_CONVERTREORDERTOPERMUTEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -55,7 +62,7 @@ mlir::LogicalResult FusePermuteRewrite::matchAndRewrite(IE::ReorderOp origOp, ml
 //
 
 class ConvertReorderToPermuteQuantizePass final :
-        public IE::ConvertReorderToPermuteQuantizeBase<ConvertReorderToPermuteQuantizePass> {
+        public IE::impl::ConvertReorderToPermuteQuantizeBase<ConvertReorderToPermuteQuantizePass> {
 public:
     explicit ConvertReorderToPermuteQuantizePass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

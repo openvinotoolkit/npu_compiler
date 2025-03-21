@@ -98,15 +98,6 @@ void ratioBasedStrategyTestTemplate(double threshold, bool isFloat, mlir::Dialec
               true);
 }
 
-std::vector<int32_t> constructTableToBeShifted(int size) {
-    std::vector<int32_t> table(size);
-    for (int index = 0; index < size; index++) {
-        table[index] = index;
-    }
-
-    return table;
-}
-
 TEST_F(MLIR_WeightsSparsity, RatioBasedStrategyFloatInput) {
     ratioBasedStrategyTestTemplate(WEIGHTS_SPARSITY_FLOAT_RATIO_THRESHOLD, true, registry);
 }
@@ -165,90 +156,5 @@ TEST_F(MLIR_WeightsSparsity, CMXBasedStrategy) {
         const auto sparseType = sparseOp.getType().cast<vpux::NDTypeInterface>();
         const auto sparseNumElems = getNumElemsPerOC(sparseOp);
         EXPECT_EQ(getCMXBasedStrategy(cmxSize)->shouldSparsifyWeights(log, sparseType, sparseNumElems, false), true);
-    }
-}
-
-TEST_F(MLIR_WeightsSparsity, NewWeightsTableFormatMapper) {
-    std::vector<int32_t> zeroPointsK16{0, 2, 1, 3, 4, 6, 5, 7, 8, 10, 9, 11, 12, 14, 13, 15};
-    std::vector<int32_t> zeroPointsK32{0, 2,  16, 18, 1, 3,  17, 19, 4,  6,  20, 22, 5,  7,  21, 23,
-                                       8, 10, 24, 26, 9, 11, 25, 27, 12, 14, 28, 30, 13, 15, 29, 31};
-    std::vector<int32_t> zeroPointsK48{0,  2,  16, 18, 32, 34, 1,  3,  17, 19, 33, 35, 4,  6,  20, 22,
-                                       36, 38, 5,  7,  21, 23, 37, 39, 8,  10, 24, 26, 40, 42, 9,  11,
-                                       25, 27, 41, 43, 12, 14, 28, 30, 44, 46, 13, 15, 29, 31, 45, 47};
-    std::vector<int32_t> zeroPointsK64{0,  2,  16, 18, 32, 34, 48, 50, 1,  3,  17, 19, 33, 35, 49, 51,
-                                       4,  6,  20, 22, 36, 38, 52, 54, 5,  7,  21, 23, 37, 39, 53, 55,
-                                       8,  10, 24, 26, 40, 42, 56, 58, 9,  11, 25, 27, 41, 43, 57, 59,
-                                       12, 14, 28, 30, 44, 46, 60, 62, 13, 15, 29, 31, 45, 47, 61, 63};
-    std::vector<int32_t> zeroPointsK80{0,  2,  16, 18, 32, 34, 48, 50, 64, 66, 1,  3,  17, 19, 33, 35, 49, 51, 65, 67,
-                                       4,  6,  20, 22, 36, 38, 52, 54, 68, 70, 5,  7,  21, 23, 37, 39, 53, 55, 69, 71,
-                                       8,  10, 24, 26, 40, 42, 56, 58, 72, 74, 9,  11, 25, 27, 41, 43, 57, 59, 73, 75,
-                                       12, 14, 28, 30, 44, 46, 60, 62, 76, 78, 13, 15, 29, 31, 45, 47, 61, 63, 77, 79};
-    std::vector<int32_t> zeroPointsK96{0,  2,  16, 18, 32, 34, 48, 50, 64, 66, 80, 82, 1,  3,  17, 19, 33, 35, 49, 51,
-                                       65, 67, 81, 83, 4,  6,  20, 22, 36, 38, 52, 54, 68, 70, 84, 86, 5,  7,  21, 23,
-                                       37, 39, 53, 55, 69, 71, 85, 87, 8,  10, 24, 26, 40, 42, 56, 58, 72, 74, 88, 90,
-                                       9,  11, 25, 27, 41, 43, 57, 59, 73, 75, 89, 91, 12, 14, 28, 30, 44, 46, 60, 62,
-                                       76, 78, 92, 94, 13, 15, 29, 31, 45, 47, 61, 63, 77, 79, 93, 95};
-    std::vector<int32_t> zeroPointsK112{
-            0,   2,  16, 18, 32,  34,  48, 50, 64,  66,  80, 82, 96, 98,  1,   3,  17, 19,  33,  35, 49, 51, 65,
-            67,  81, 83, 97, 99,  4,   6,  20, 22,  36,  38, 52, 54, 68,  70,  84, 86, 100, 102, 5,  7,  21, 23,
-            37,  39, 53, 55, 69,  71,  85, 87, 101, 103, 8,  10, 24, 26,  40,  42, 56, 58,  72,  74, 88, 90, 104,
-            106, 9,  11, 25, 27,  41,  43, 57, 59,  73,  75, 89, 91, 105, 107, 12, 14, 28,  30,  44, 46, 60, 62,
-            76,  78, 92, 94, 108, 110, 13, 15, 29,  31,  45, 47, 61, 63,  77,  79, 93, 95,  109, 111};
-    std::vector<int32_t> zeroPointsK128{
-            0,   2,   16,  18,  32, 34, 48, 50,  64,  66,  80,  82,  96, 98, 112, 114, 1,   3,   17,  19,  33, 35,  49,
-            51,  65,  67,  81,  83, 97, 99, 113, 115, 4,   6,   20,  22, 36, 38,  52,  54,  68,  70,  84,  86, 100, 102,
-            116, 118, 5,   7,   21, 23, 37, 39,  53,  55,  69,  71,  85, 87, 101, 103, 117, 119, 8,   10,  24, 26,  40,
-            42,  56,  58,  72,  74, 88, 90, 104, 106, 120, 122, 9,   11, 25, 27,  41,  43,  57,  59,  73,  75, 89,  91,
-            105, 107, 121, 123, 12, 14, 28, 30,  44,  46,  60,  62,  76, 78, 92,  94,  108, 110, 124, 126, 13, 15,  29,
-            31,  45,  47,  61,  63, 77, 79, 93,  95,  109, 111, 125, 127};
-    std::vector<int32_t> zeroPointsK144{
-            0,   2,   16,  18,  32,  34,  48,  50,  64,  66,  80,  82,  96,  98,  112, 114, 1,   3,  17,  19,  33,
-            35,  49,  51,  65,  67,  81,  83,  97,  99,  113, 115, 4,   6,   20,  22,  36,  38,  52, 54,  68,  70,
-            84,  86,  100, 102, 116, 118, 5,   7,   21,  23,  37,  39,  53,  55,  69,  71,  85,  87, 101, 103, 117,
-            119, 8,   10,  24,  26,  40,  42,  56,  58,  72,  74,  88,  90,  104, 106, 120, 122, 9,  11,  25,  27,
-            41,  43,  57,  59,  73,  75,  89,  91,  105, 107, 121, 123, 12,  14,  28,  30,  44,  46, 60,  62,  76,
-            78,  92,  94,  108, 110, 124, 126, 13,  15,  29,  31,  45,  47,  61,  63,  77,  79,  93, 95,  109, 111,
-            125, 127, 128, 130, 129, 131, 132, 134, 133, 135, 136, 138, 137, 139, 140, 142, 141, 143};
-    std::vector<int32_t> zeroPointsK304{
-            0,   2,   16,  18,  32,  34,  48,  50,  64,  66,  80,  82,  96,  98,  112, 114, 1,   3,   17,  19,  33,
-            35,  49,  51,  65,  67,  81,  83,  97,  99,  113, 115, 4,   6,   20,  22,  36,  38,  52,  54,  68,  70,
-            84,  86,  100, 102, 116, 118, 5,   7,   21,  23,  37,  39,  53,  55,  69,  71,  85,  87,  101, 103, 117,
-            119, 8,   10,  24,  26,  40,  42,  56,  58,  72,  74,  88,  90,  104, 106, 120, 122, 9,   11,  25,  27,
-            41,  43,  57,  59,  73,  75,  89,  91,  105, 107, 121, 123, 12,  14,  28,  30,  44,  46,  60,  62,  76,
-            78,  92,  94,  108, 110, 124, 126, 13,  15,  29,  31,  45,  47,  61,  63,  77,  79,  93,  95,  109, 111,
-            125, 127, 128, 130, 144, 146, 160, 162, 176, 178, 192, 194, 208, 210, 224, 226, 240, 242, 129, 131, 145,
-            147, 161, 163, 177, 179, 193, 195, 209, 211, 225, 227, 241, 243, 132, 134, 148, 150, 164, 166, 180, 182,
-            196, 198, 212, 214, 228, 230, 244, 246, 133, 135, 149, 151, 165, 167, 181, 183, 197, 199, 213, 215, 229,
-            231, 245, 247, 136, 138, 152, 154, 168, 170, 184, 186, 200, 202, 216, 218, 232, 234, 248, 250, 137, 139,
-            153, 155, 169, 171, 185, 187, 201, 203, 217, 219, 233, 235, 249, 251, 140, 142, 156, 158, 172, 174, 188,
-            190, 204, 206, 220, 222, 236, 238, 252, 254, 141, 143, 157, 159, 173, 175, 189, 191, 205, 207, 221, 223,
-            237, 239, 253, 255, 256, 258, 272, 274, 288, 290, 257, 259, 273, 275, 289, 291, 260, 262, 276, 278, 292,
-            294, 261, 263, 277, 279, 293, 295, 264, 266, 280, 282, 296, 298, 265, 267, 281, 283, 297, 299, 268, 270,
-            284, 286, 300, 302, 269, 271, 285, 287, 301, 303};
-
-    std::vector<std::vector<int32_t>> tablesToTest{zeroPointsK16,  zeroPointsK32, zeroPointsK48,  zeroPointsK64,
-                                                   zeroPointsK80,  zeroPointsK96, zeroPointsK112, zeroPointsK128,
-                                                   zeroPointsK144, zeroPointsK304};
-    std::vector<int32_t> k{16, 32, 48, 64, 80, 96, 112, 128, 144, 304};
-
-    int32_t index = 0;
-    for (auto table : tablesToTest) {
-        auto tableToBeShifted = constructTableToBeShifted(table.size());
-        auto constructedNewZeroPointOnlyTable =
-                NewWeightsTableFormatMapper::constructNewZeroPointOnlyTable(tableToBeShifted);
-        for (unsigned long j = 0; j < table.size(); j++) {
-            EXPECT_EQ(NewWeightsTableFormatMapper::mathematicallyEncodePositionInNewZeroPointOnlyTableLayout(table[j],
-                                                                                                             k[index]),
-                      j);
-            EXPECT_EQ(
-                    NewWeightsTableFormatMapper::mathematicallyDecodePositionInNewZeroPointOnlyTableLayout(j, k[index]),
-                    table[j]);
-
-            EXPECT_EQ(NewWeightsTableFormatMapper::encodePositionInNewZeroPointOnlyTableLayout(table[j], k[index]), j);
-            EXPECT_EQ(NewWeightsTableFormatMapper::decodePositionInNewZeroPointOnlyTableLayout(j, k[index]), table[j]);
-        }
-        EXPECT_EQ(constructedNewZeroPointOnlyTable, table);
-
-        index += 1;
     }
 }

@@ -6,8 +6,15 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTPOWERTOMULT
+#define GEN_PASS_DEF_CONVERTPOWERTOMULT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -70,7 +77,7 @@ mlir::LogicalResult PowerToMultRewriter::matchAndRewrite(IE::PowerOp powerOp, ml
 // ConvertPowerToMultPass
 //
 
-class ConvertPowerToMultPass final : public IE::ConvertPowerToMultBase<ConvertPowerToMultPass> {
+class ConvertPowerToMultPass final : public IE::impl::ConvertPowerToMultBase<ConvertPowerToMultPass> {
 public:
     explicit ConvertPowerToMultPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

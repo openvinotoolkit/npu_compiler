@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_RESHAPEMATMULINPUTS
+#define GEN_PASS_DEF_RESHAPEMATMULINPUTS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -76,7 +83,7 @@ void InputsTo2D(IE::MatMulOp origOp) {
                                                           /*shape=*/nullptr, /*special_zero=*/false,
                                                           /*shape_value=*/getIntArrayAttr(ctx, newRhsShape));
     auto newMatMul = builder.create<IE::MatMulOp>(origOp.getLoc(), reshapeLhs, reshapeRhs, origOp.getTransposeA(),
-                                                  origOp.getTransposeB());
+                                                  origOp.getTransposeB(), origOp.getPostOpAttr());
     auto reshapeOut = builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), newMatMul.getOutput(),
                                                           /*shape=*/nullptr, /*special_zero=*/false,
                                                           /*shape_value=*/getIntArrayAttr(ctx, outShape));
@@ -129,7 +136,7 @@ void TransposeInputs(IE::MatMulOp matmulOp) {
     }
 
     auto newMatMul = builder.create<IE::MatMulOp>(matmulOp.getLoc(), input1, input2, /*transpose_a=*/false,
-                                                  /*transpose_b=*/true);
+                                                  /*transpose_b=*/true, matmulOp.getPostOpAttr());
     matmulOp.getOutput().replaceAllUsesWith(newMatMul.getOutput());
     matmulOp.erase();
 }
@@ -246,7 +253,7 @@ void To4D(IE::MatMulOp origOp) {
                                                           /*shape=*/nullptr, /*special_zero=*/false,
                                                           /*shape_value=*/getIntArrayAttr(ctx, newRhsShape));
     auto newMatMul = builder.create<IE::MatMulOp>(origOp.getLoc(), reshapeLhs, reshapeRhs, origOp.getTransposeA(),
-                                                  origOp.getTransposeB());
+                                                  origOp.getTransposeB(), origOp.getPostOpAttr());
     auto reshapeOut = builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), newMatMul.getOutput(),
                                                           /*shape=*/nullptr, /*special_zero=*/false,
                                                           /*shape_value=*/getIntArrayAttr(ctx, outShape));
@@ -255,7 +262,7 @@ void To4D(IE::MatMulOp origOp) {
     origOp.erase();
 }
 
-class ReshapeMatMulInputsPass final : public IE::ReshapeMatMulInputsBase<ReshapeMatMulInputsPass> {
+class ReshapeMatMulInputsPass final : public IE::impl::ReshapeMatMulInputsBase<ReshapeMatMulInputsPass> {
 public:
     explicit ReshapeMatMulInputsPass(const bool enableGroupedMatMul, Logger log)
             : _enableGroupedMatMul(enableGroupedMatMul) {

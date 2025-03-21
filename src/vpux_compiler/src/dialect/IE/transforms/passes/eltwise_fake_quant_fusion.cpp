@@ -8,12 +8,19 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <functional>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ELTWISEFAKEQUANTIZEFUSION
+#define GEN_PASS_DEF_ELTWISEFAKEQUANTIZEFUSION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -205,7 +212,8 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
 // EltwiseFakeQuantizeFusionPass
 //
 
-class EltwiseFakeQuantizeFusionPass final : public IE::EltwiseFakeQuantizeFusionBase<EltwiseFakeQuantizeFusionPass> {
+class EltwiseFakeQuantizeFusionPass final :
+        public IE::impl::EltwiseFakeQuantizeFusionBase<EltwiseFakeQuantizeFusionPass> {
 public:
     explicit EltwiseFakeQuantizeFusionPass(const bool adaptiveStrippingEnabled, Logger log)
             : _adaptiveStrippingEnabled(adaptiveStrippingEnabled) {

@@ -28,7 +28,7 @@ void removeDirFilesRecursive(const std::basic_string<C>& path) {
         ov::test::utils::removeFile(entry.path().generic_string<C>());
     }
     ov::test::utils::removeDir(path);
-    // E#105043: [Linux] [Bug] Cannot delete loaded shared libraries unicode directories
+    // E#-105043: [Linux] [Bug] Cannot delete loaded shared libraries unicode directories
     // `Directory not empty` throw on linux for code below
     // std::filesystem::remove_all(path);
 }

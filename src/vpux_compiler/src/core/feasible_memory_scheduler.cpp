@@ -870,7 +870,8 @@ void FeasibleMemoryScheduler::prefetchOps(ArrayRef<std::pair<operationIdxType, s
             } else {
                 // schedule spilled prefetch op
                 auto spilledBuffers = _spillBufferMap[opIdx];
-                for (auto& val : spilledBuffers) {
+                auto spilledBuffersVec = sortUsedBuffers(spilledBuffers);
+                for (auto& val : spilledBuffersVec) {
                     _log.trace("Scheduling spill prefetch op: '{0}'", opIdx);
                     // mark the spilled buffer as alive in case other operation
                     // that can be scheduled as part of this prefetching iteration also depends on it
@@ -1473,9 +1474,9 @@ void FeasibleMemoryScheduler::schedulingLoop() {
 
 void FeasibleMemoryScheduler::cleanUpAndLogSchedule(ScheduledOpInfoVec& scheduledOps) {
     // schedule quality based on cycles (cycles start from 1)
-    std::map<QueueType, SmallVector<size_t>> DpuOrDmaQueuesCycles;
+    std::map<QueueType, SmallVector<int64_t>> dpuOrDmaQueuesCycles;
 
-    size_t totalCycles = 0;
+    int64_t totalCycles = 0;
 
     _log.setName("feasible-schedule");
     _log = _log.nest();
@@ -1540,11 +1541,11 @@ void FeasibleMemoryScheduler::cleanUpAndLogSchedule(ScheduledOpInfoVec& schedule
                    outputResourceInfo, op.freeCmx_, execOp.getLoc());
 
         if (op.queueType.execKind == VPU::ExecutorKind::DMA_NN || op.queueType.execKind == VPU::ExecutorKind::DPU) {
-            if (DpuOrDmaQueuesCycles.find(op.queueType) == DpuOrDmaQueuesCycles.end()) {
-                DpuOrDmaQueuesCycles[op.queueType].assign(_executorPipelines[op.queueType].size(), 1);
+            if (dpuOrDmaQueuesCycles.find(op.queueType) == dpuOrDmaQueuesCycles.end()) {
+                dpuOrDmaQueuesCycles[op.queueType].assign(_executorPipelines[op.queueType].size(), 1);
             }
 
-            auto& execCycles = DpuOrDmaQueuesCycles[op.queueType];
+            auto& execCycles = dpuOrDmaQueuesCycles[op.queueType];
             for (auto execInst : op.executorInstanceMask.set_bits()) {
                 auto cycleDiff = op.cycleBegin_ - execCycles[execInst];
                 if (cycleDiff > 0) {

@@ -31,6 +31,12 @@
 
 #include <limits>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUMI37XX2ELF
+#define GEN_PASS_DEF_CONVERTVPUMI37XX2ELF
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 using namespace npu37xx;
 
@@ -43,7 +49,7 @@ namespace {
 // ConvertVPUMI37XX2ELFPass
 //
 
-class ConvertVPUMI37XX2ELFPass final : public ConvertVPUMI37XX2ELFBase<ConvertVPUMI37XX2ELFPass> {
+class ConvertVPUMI37XX2ELFPass final : public impl::ConvertVPUMI37XX2ELFBase<ConvertVPUMI37XX2ELFPass> {
 public:
     explicit ConvertVPUMI37XX2ELFPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

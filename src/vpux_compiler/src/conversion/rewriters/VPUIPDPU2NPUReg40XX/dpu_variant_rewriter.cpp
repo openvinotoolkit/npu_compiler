@@ -6,74 +6,13 @@
 #include "vpux/compiler/conversion/rewriters/VPUIPDPU2NPUReg40XX/dpu_variant_rewriter.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/types.hpp"
-#include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
+#include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/lower_to_registers.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
-#include "vpux/compiler/utils/traits_utils.hpp"
 
 using namespace vpux;
 using namespace vpux::VPURegMapped;
-
-namespace {
-
-void computeLsbAndMsbFromTargetWidth(int64_t targetWidth, uint64_t& msbWidth, uint64_t& lsbWidth) {
-    auto lsbBitWidth = NPUReg40XX::RegField_target_width_lsbType::getRegFieldWidth();
-    auto msbBitWidth = NPUReg40XX::RegField_target_width_msbType::getRegFieldWidth();
-
-    auto bitMask = (1 << (lsbBitWidth + msbBitWidth)) - 1;
-    VPUX_THROW_WHEN(targetWidth & ~bitMask, "target_width value {0} is too big for {1} bits", targetWidth,
-                    lsbBitWidth + msbBitWidth);
-
-    auto bitMaskLsb = (1 << lsbBitWidth) - 1;
-    lsbWidth = targetWidth & bitMaskLsb;
-
-    auto bitMaskMsb = ((1 << msbBitWidth) - 1) << lsbBitWidth;
-    msbWidth = (targetWidth & bitMaskMsb) >> lsbBitWidth;
-}
-
-template <typename halo_regionA, typename halo_regionB, typename halo_regionC, typename halo_regionD>
-void fillValuesForHaloRegion(VPUIPDPU::ODUHaloRegionOp opHaloReg,
-                             vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) {
-    uint64_t lsbWidthValue(0), msbWidthValue(0);
-    computeLsbAndMsbFromTargetWidth(opHaloReg.getTargetWidth(), msbWidthValue, lsbWidthValue);
-
-    descriptor.write<halo_regionA, Fields::sp_adr_offset>(opHaloReg.getSparsityOffset().value_or(0));
-    descriptor.write<halo_regionA, Fields::tile_select>(static_cast<uint64_t>(opHaloReg.getCastToTile()));
-    descriptor.write<halo_regionA, Fields::enable>(1);
-    descriptor.write<halo_regionB, Fields::ac_adr_offset>(opHaloReg.getActivationsOffset());
-    descriptor.write<halo_regionB, Fields::target_width_lsb>(lsbWidthValue);
-    descriptor.write<halo_regionC, Fields::begin_x>(opHaloReg.getBeginCoordX());
-    descriptor.write<halo_regionC, Fields::begin_y>(opHaloReg.getBeginCoordY());
-    descriptor.write<halo_regionC, Fields::target_width_msb>(msbWidthValue);
-    descriptor.write<halo_regionD, Fields::end_x>(opHaloReg.getEndCoordX());
-    descriptor.write<halo_regionD, Fields::end_y>(opHaloReg.getEndCoordY());
-}
-
-void fillValuesForHaloRegion(uint8_t haloRegionIdx, VPUIPDPU::ODUHaloRegionOp opHaloReg,
-                             vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) {
-    if (haloRegionIdx == 0) {
-        fillValuesForHaloRegion<Registers::halo_region0A, Registers::halo_region0B, Registers::halo_region0C,
-                                Registers::halo_region0D>(opHaloReg, descriptor);
-    } else if (haloRegionIdx == 1) {
-        fillValuesForHaloRegion<Registers::halo_region1A, Registers::halo_region1B, Registers::halo_region1C,
-                                Registers::halo_region1D>(opHaloReg, descriptor);
-    } else if (haloRegionIdx == 2) {
-        fillValuesForHaloRegion<Registers::halo_region2A, Registers::halo_region2B, Registers::halo_region2C,
-                                Registers::halo_region2D>(opHaloReg, descriptor);
-    } else if (haloRegionIdx == 3) {
-        fillValuesForHaloRegion<Registers::halo_region3A, Registers::halo_region3B, Registers::halo_region3C,
-                                Registers::halo_region3D>(opHaloReg, descriptor);
-    } else if (haloRegionIdx == 4) {
-        fillValuesForHaloRegion<Registers::halo_region4A, Registers::halo_region4B, Registers::halo_region4C,
-                                Registers::halo_region4D>(opHaloReg, descriptor);
-    } else if (haloRegionIdx == 5) {
-        fillValuesForHaloRegion<Registers::halo_region5A, Registers::halo_region5B, Registers::halo_region5C,
-                                Registers::halo_region5D>(opHaloReg, descriptor);
-    }
-}
-
-}  // namespace
 
 namespace vpux {
 namespace vpuipdpu2npureg40xx {
@@ -96,7 +35,7 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUIPDPU::DPUVariantOp o
     auto taskIdx = checked_cast_reg<NPUReg40XX::RegField_var_tagType>(
             static_cast<uint64_t>(origOp.getTaskIndex().getValue() % maxTaskId + 1));
 
-    vpux::NPUReg40XX::Descriptors::DpuVariantRegister descriptor;
+    NPUReg40XX::Descriptors::DpuVariantRegister descriptor;
     descriptor.write<Fields::var_tag>(taskIdx);
     descriptor.write<Fields::workload_start_odu>(1);
     descriptor.write<Fields::workload_start_idu>(1);
@@ -109,8 +48,7 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUIPDPU::DPUVariantOp o
         _log.trace("DPU dry run mode = 'stub', updating variant descriptor");
         fillStubCfg(descriptor);
     } else {
-        fillIDUCfg(origOp.getRegion(), descriptor);
-        fillODUCfg(origOp.getRegion(), descriptor);
+        fillDPUConfigs(origOp.getRegion(), descriptor);
     }
     fillBarrierCfg(origOp, descriptor);
     fillProfilingCfg(origOp, descriptor);
@@ -144,117 +82,52 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUIPDPU::DPUVariantOp o
     return mlir::success();
 }
 
-void DPUVariantRewriter::fillIDUCfg(mlir::Region& DPURegion,
-                                    vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const {
+using DpuVariantDescriptorType = NPUReg40XX::Descriptors::DpuVariantRegister;
+
+void DPUVariantRewriter::fillDPUConfigs(mlir::Region& DPURegion, DpuVariantDescriptorType& descriptor) const {
     for (const auto& DPUOp : DPURegion.getOps()) {
         // IDU ops
         if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUActSwizzleOp>(&DPUOp)) {
-            descriptor.write<Fields::swizzle_key_offset>(static_cast<uint64_t>(op.getSwizzleKey()));
+            VPUIPDPU::arch40xx::lowerToRegIDUActSwizzleOp<Fields::swizzle_key_offset>(op, descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUWeightSwizzleOp>(&DPUOp)) {
-            descriptor.write<Fields::wt_swizzle_key>(static_cast<uint64_t>(op.getWtSwizzleKey()));
+            VPUIPDPU::arch40xx::lowerToRegIDUWeightSwizzleOp<Fields::wt_swizzle_key>(op, descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUNthwNtkOp>(&DPUOp)) {
-            descriptor.write<Fields::nthw_ntk>(static_cast<uint64_t>(op.getNthwNtk()));
-        } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUSEDenseOp>(&DPUOp)) {
-            descriptor.write<Fields::dense_se>(1);
-        } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUConvContinueOp>(&DPUOp)) {
-            descriptor.write<Fields::conv_cond>(1);
-        } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUBinaryConfigOp>(&DPUOp)) {
-            descriptor.write<Fields::bin_cfg>(1);
+            VPUIPDPU::arch40xx::lowerToRegIDUNthwNtkOp<Fields::nthw_ntk>(op, descriptor);
+        } else if (mlir::dyn_cast_or_null<VPUIPDPU::IDUSEDenseOp>(&DPUOp)) {
+            VPUIPDPU::lowerToRegIDUSEDenseOp<Fields::dense_se>(descriptor);
+        } else if (mlir::dyn_cast_or_null<VPUIPDPU::IDUConvContinueOp>(&DPUOp)) {
+            VPUIPDPU::lowerToRegIDUConvContinueOp<Fields::conv_cond>(descriptor);
+        } else if (mlir::dyn_cast_or_null<VPUIPDPU::IDUBinaryConfigOp>(&DPUOp)) {
+            VPUIPDPU::lowerToRegIDUBinaryConfigOp<Fields::bin_cfg>(descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUWorkloadSetOp>(&DPUOp)) {
-            descriptor.write<Fields::workload_start_x>(op.getStartX());
-            descriptor.write<Fields::workload_start_y>(op.getStartY());
-            descriptor.write<Fields::workload_start_z>(op.getStartZ());
-            descriptor.write<Fields::workload_size_x>(op.getSizeX());
-            descriptor.write<Fields::workload_size_y>(op.getSizeY());
-            descriptor.write<Fields::workload_size_z>(op.getSizeZ());
+            VPUIPDPU::arch40xx::lowerToRegIDUWorkloadSetOp<VPUIPDPU::arch40xx::FieldsIDUWorkloadSetOp>(op, descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUPaddingOp>(&DPUOp)) {
-            auto padUp = op.getPadCount().getTop().getInt();
-            auto padLeft = op.getPadCount().getLeft().getInt();
-            auto padDown = op.getPadCount().getBottom().getInt();
-            auto padRight = op.getPadCount().getRight().getInt();
-
-            descriptor.write<Fields::pad_count_up>(padUp);
-            descriptor.write<Fields::pad_count_left>(padLeft);
-            descriptor.write<Fields::pad_count_down>(padDown);
-            descriptor.write<Fields::pad_count_right>(padRight);
+            VPUIPDPU::arch40xx::lowerToRegIDUPaddingOp<VPUIPDPU::arch40xx::FieldsIDUPaddingOp>(op, descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::IDUWeightSetOp>(&DPUOp)) {
-            auto weightsNum = vpux::alignValUp(static_cast<std::uint64_t>(op.getWeightNum()),
-                                               static_cast<std::uint64_t>(VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT));
-
-            // weight_start register will be modified by relocation mechanism based on provided offset info
-            descriptor.write<Fields::weight_size>(op.getWeightSize());
-            descriptor.write<Fields::weight_num>(weightsNum);
-            descriptor.write<Fields::weight_start>(op.getWeightStart());
+            VPUIPDPU::arch40xx::lowerToRegIDUWeightSetOp<VPUIPDPU::arch40xx::FieldsIDUWeightSetOp>(op, descriptor);
         }
-    }
-}
-void DPUVariantRewriter::fillODUCfg(mlir::Region& DPURegion,
-                                    vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const {
-    for (const auto& DPUOp : DPURegion.getOps()) {
         // ODU ops
-        if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::ODUOutSubtensorOp>(&DPUOp)) {
-            descriptor.write<Fields::te_beg_y>(op.getBeginCoordY());
-            descriptor.write<Fields::te_beg_z>(op.getBeginCoordZ());
-            descriptor.write<Fields::te_beg_x>(op.getBeginCoordX());
-            descriptor.write<Fields::te_end_y>(op.getEndCoordY());
-            descriptor.write<Fields::te_end_z>(op.getEndCoordZ());
-            descriptor.write<Fields::te_end_x>(op.getEndCoordX());
+        else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::ODUOutSubtensorOp>(&DPUOp)) {
+            VPUIPDPU::arch40xx::lowerToRegODUOutSubtensorOp<VPUIPDPU::arch40xx::FieldsODUOutSubtensorOp>(op,
+                                                                                                         descriptor);
         } else if (auto op = mlir::dyn_cast_or_null<VPUIPDPU::ODUHaloCfgOp>(&DPUOp)) {
-            uint8_t haloRegionIdx(0);
-            for (const auto& haloRegionOp : op.getRegion().getOps()) {
-                auto opHaloReg = mlir::dyn_cast_or_null<VPUIPDPU::ODUHaloRegionOp>(&haloRegionOp);
-                if (opHaloReg == nullptr) {
-                    VPUX_THROW("Found invalid child op under ODUHaloCfgOp: {0}", haloRegionOp);
-                }
-
-                fillValuesForHaloRegion(haloRegionIdx, opHaloReg, descriptor);
-                haloRegionIdx++;
-            }
+            VPUIPDPU::arch40xx::lowerToRegODUHaloCfgOp<VPUIPDPU::arch40xx::RegistersODUHaloCfgOp,
+                                                       VPUIPDPU::arch40xx::FieldsODUHaloCfgOp,
+                                                       VPUIPDPU::arch40xx::FunctionsODUHaloCfgOp>(op, descriptor);
+        }
+        // ForceInvReadOp
+        else if (mlir::dyn_cast_or_null<VPUIPDPU::ForceInvReadOp>(&DPUOp)) {
+            VPUIPDPU::lowerToRegForceInvReadOp<Fields::invar_lptr_force>(descriptor);
         }
     }
 }
 
-void DPUVariantRewriter::fillBarrierCfg(VPUIPDPU::DPUVariantOp origOp,
-                                        vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const {
-    // TODO: E146560 - use barrierCfgOps only in variants that need to update barriers
-    auto taskListCfgOps = to_small_vector(origOp.getRegion().getOps<VPUIPDPU::DPUGroupOp>());
-    auto barrierCfgOps = to_small_vector(origOp.getRegion().getOps<VPUIPDPU::BarrierCfgOp>());
-
-    if (barrierCfgOps.size() == 1 && taskListCfgOps.size() == 1) {
-        auto taskListCfgOp = taskListCfgOps[0];
-        auto variantCount = taskListCfgOp.getVariantCount();
-        bool isFirstVariant = taskListCfgOp.getIsFirstVariant() || (variantCount == 1);
-        bool isLastVariant = taskListCfgOp.getIsLastVariant() || (variantCount == 1);
-        auto barrierCfgOp = barrierCfgOps[0];
-
-        descriptor.write<Fields::pbarrier_hi>(0);
-        descriptor.write<Fields::pbarrier_lo>(0);
-        descriptor.write<Fields::cbarrier_hi>(0);
-        descriptor.write<Fields::cbarrier_lo>(0);
-
-        if (isFirstVariant) {
-            auto consMaskLo = vpux::VPUMI40XX::computeMaskLo(barrierCfgOp.getWaitBarriers());
-            auto consMaskHi = vpux::VPUMI40XX::computeMaskHi(barrierCfgOp.getWaitBarriers());
-            descriptor.write<Fields::cbarrier_hi>(consMaskHi);
-            descriptor.write<Fields::cbarrier_lo>(consMaskLo);
-        }
-
-        if (isLastVariant) {
-            auto prodMaskLo = vpux::VPUMI40XX::computeMaskLo(barrierCfgOp.getUpdateBarriers());
-            auto prodMaskHi = vpux::VPUMI40XX::computeMaskHi(barrierCfgOp.getUpdateBarriers());
-            descriptor.write<Fields::pbarrier_hi>(prodMaskHi);
-            descriptor.write<Fields::pbarrier_lo>(prodMaskLo);
-        }
-    } else {
-        // just to explicitly show that we really intentionally only care about size == 1
-        return;
-    }
-
-    return;
+void DPUVariantRewriter::fillBarrierCfg(VPUIPDPU::DPUVariantOp origOp, DpuVariantDescriptorType& descriptor) const {
+    VPUIPDPU::arch40xx::lowerToRegBarrierCfgOpWithDPUVariantParent<VPUIPDPU::arch40xx::FieldsVariantBarrierCfg>(
+            origOp, descriptor);
 }
 
-void DPUVariantRewriter::fillProfilingCfg(VPUIPDPU::DPUVariantOp origOp,
-                                          vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const {
+void DPUVariantRewriter::fillProfilingCfg(VPUIPDPU::DPUVariantOp origOp, DpuVariantDescriptorType& descriptor) const {
     if (!origOp.getWorkloadId().has_value()) {
         return;
     }
@@ -267,7 +140,7 @@ void DPUVariantRewriter::fillProfilingCfg(VPUIPDPU::DPUVariantOp origOp,
     descriptor.write<Fields::odu_stat_clr_mode>(0);
 }
 
-void DPUVariantRewriter::fillStubCfg(vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const {
+void DPUVariantRewriter::fillStubCfg(DpuVariantDescriptorType& descriptor) const {
     descriptor.write<Fields::workload_size_x>(0x1);
     descriptor.write<Fields::workload_size_y>(0x1);
     descriptor.write<Fields::workload_size_z>(0x10);

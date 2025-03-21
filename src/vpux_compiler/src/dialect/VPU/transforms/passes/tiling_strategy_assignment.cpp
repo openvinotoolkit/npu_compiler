@@ -4,12 +4,20 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_TILINGSTRATEGYASSIGNMENT
+#define GEN_PASS_DEF_TILINGSTRATEGYASSIGNMENT
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -34,7 +42,8 @@ namespace {
 //
 // TilingStrategyAssignmentPass
 //
-class TilingStrategyAssignmentPass final : public VPU::TilingStrategyAssignmentBase<TilingStrategyAssignmentPass> {
+class TilingStrategyAssignmentPass final :
+        public VPU::impl::TilingStrategyAssignmentBase<TilingStrategyAssignmentPass> {
 public:
     explicit TilingStrategyAssignmentPass(bool enablePrefetchTiling, bool enableVpunnCostForTiling,
                                           StringRef enableShaveDDRAccessOptimization, Logger log)
@@ -49,12 +58,12 @@ public:
 
 private:
     void safeRunOnFunc() final;
-    void assignStrategy(VPU::TilingBuilderOpInterface origOp);
+    void assignStrategy(VPU::TilingBuilderOpInterface origOp, mlir::func::FuncOp func,
+                        VPU::SiblingOpsAnalysis& siblingOpsAnalysis);
 
     bool _enablePrefetchTiling = true;
     bool _enableVpunnCostForTiling = false;
     VPU::EnableShaveDDRAccessOptimization _shaveDDRAccessOptimizationMode;
-    std::shared_ptr<vpux::VPU::LayerCostModel> _costModel = nullptr;
 };
 
 mlir::LogicalResult TilingStrategyAssignmentPass::initialize(mlir::MLIRContext* ctx) {
@@ -81,20 +90,27 @@ mlir::LogicalResult TilingStrategyAssignmentPass::initialize(mlir::MLIRContext* 
     return mlir::success();
 }
 
-void TilingStrategyAssignmentPass::assignStrategy(VPU::TilingBuilderOpInterface origOp) {
+void TilingStrategyAssignmentPass::assignStrategy(VPU::TilingBuilderOpInterface origOp, mlir::func::FuncOp func,
+                                                  VPU::SiblingOpsAnalysis& siblingOpsAnalysis) {
     _log.trace("Assign: '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
     auto op = origOp.getOperation();
-    auto defaultTilingMode = getTilingSupportedMode(origOp, _enablePrefetchTiling, _log);
 
     mlir::FailureOr<OutputTiling> tiles = mlir::failure();
-    // Temporarily not assign tiling strategy to NCE ops with INT4 weights based on VPUNN cost.
+
+    // Temporarily not apply cost-based tiling strategy to NCE ops with INT4 weights based on VPUNN cost.
     // This can be removed when VPUNN is upgraded to support INT4 data type, tracked in E#113316.
-    if (_costModel == nullptr || !mlir::isa<VPU::NCEOpInterface>(op) || VPU::isNCEWithInt4Weights(op)) {
+    // Cost based strategy assignment is not applied to NCEMatMulOp yet #E126102
+    if (!_enableVpunnCostForTiling || !mlir::isa<VPU::NCEOpInterface>(op) || VPU::isNCEWithInt4Weights(op) ||
+        mlir::isa<VPU::NCEMatMulOp>(op)) {
         tiles = getLayerTilingStrategy(origOp, _enablePrefetchTiling, _log);
     } else {
-        auto tileDimOrder = getTileDimOrder(op, defaultTilingMode, _log);
-        tiles = vpux::VPU::getHWLayerTilingStrategyBasedOnCost(op, defaultTilingMode, tileDimOrder, _costModel, _log);
+        _log.trace("Get tiling strategy based on VPUNN DPU+DMA cost for NCE ops");
+        auto costModel = std::make_shared<vpux::VPU::LayerCostModel>(
+                vpux::VPU::LayerCostModel(func, _enablePrefetchTiling, _log, siblingOpsAnalysis));
+        tiles = getHWLayerTilingStrategy(origOp, _enablePrefetchTiling, costModel, _log);
     }
+    _log.trace("Assign Tiling: '{0}' : '{1}'", origOp->getLoc(),
+               getIntArrayAttr(op->getContext(), tiles.value()[0].axis));
     VPUX_THROW_WHEN(mlir::failed(tiles), "Invalid tiling strategy for {0}", origOp->getLoc());
 
     origOp->setAttr(tilingStrategy, getIntArrayAttr(op->getContext(), tiles.value()[0].axis));
@@ -102,17 +118,13 @@ void TilingStrategyAssignmentPass::assignStrategy(VPU::TilingBuilderOpInterface 
 
 void TilingStrategyAssignmentPass::safeRunOnFunc() {
     auto func = getOperation();
+
     auto siblingsOpsAnalysis = getAnalysis<VPU::SiblingOpsAnalysis>();
-    if (_enableVpunnCostForTiling) {
-        _log.trace("Using VPUNN DPU+DMA Costs to get tiling strategy");
-        _costModel = std::make_shared<vpux::VPU::LayerCostModel>(
-                vpux::VPU::LayerCostModel(func, _enablePrefetchTiling, _log, siblingsOpsAnalysis));
-    }
 
     const auto assignWithOnlyCMXAccessStrategy = [&](mlir::Operation* op) {
         auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
         if (tilingOp != nullptr && VPU::opNeedsTiling(op, _enablePrefetchTiling, _log)) {
-            assignStrategy(tilingOp);
+            assignStrategy(tilingOp, func, siblingsOpsAnalysis);
         }
     };
 

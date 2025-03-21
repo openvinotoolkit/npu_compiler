@@ -41,25 +41,32 @@ void vpux::VPURegMapped::VPURegMappedDialect::registerTypes() {
 
 namespace {
 mlir::ParseResult parseRequiredMiVersion(mlir::AsmParser& parser, uint32_t& major, uint32_t& minor, uint32_t& patch) {
-    if (mlir::succeeded(parser.parseOptionalKeyword("requires"))) {
-        if (mlir::failed(parser.parseInteger(major))) {
-            return mlir::failure();
-        }
-        if (mlir::failed(parser.parseColon())) {
-            return mlir::failure();
-        }
-        if (mlir::failed(parser.parseInteger(minor))) {
-            return mlir::failure();
-        }
-        if (mlir::failed(parser.parseColon())) {
-            return mlir::failure();
-        }
-        if (mlir::failed(parser.parseInteger(patch))) {
-            return mlir::failure();
-        }
-        return mlir::success();
+    StringRef keyword;
+    if (parser.parseOptionalKeyword(&keyword).failed()) {
+        return mlir::failure();
     }
-    return mlir::failure();
+    if (keyword != "requires") {
+        parser.emitError(parser.getCurrentLocation()) << "version keyword \"" << keyword << "\", expected \"requires\"";
+        return mlir::failure();
+    }
+
+    if (mlir::failed(parser.parseInteger(major))) {
+        return mlir::failure();
+    }
+    if (mlir::failed(parser.parseColon())) {
+        return mlir::failure();
+    }
+    if (mlir::failed(parser.parseInteger(minor))) {
+        return mlir::failure();
+    }
+    if (mlir::failed(parser.parseColon())) {
+        return mlir::failure();
+    }
+    if (mlir::failed(parser.parseInteger(patch))) {
+        return mlir::failure();
+    }
+
+    return mlir::success();
 }
 }  // namespace
 
@@ -380,7 +387,13 @@ mlir::Type VPURegMapped::RegisterType::parse(mlir::AsmParser& parser) {
         return {};
     }
 
-    if (mlir::succeeded(parser.parseOptionalKeyword("allowOverlap"))) {
+    StringRef keyword;
+    if (mlir::succeeded(parser.parseOptionalKeyword(&keyword))) {
+        if (keyword != "allowOverlap") {
+            parser.emitError(parser.getCurrentLocation())
+                    << "version keyword \"" << keyword << "\", expected \"allowOverlap\"";
+            return {};
+        }
         allowOverlap = true;
     }
 

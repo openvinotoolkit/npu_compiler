@@ -24,7 +24,8 @@ namespace VPU {
 // and other strategy related utilities
 class StrategyManager final {
 public:
-    explicit StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling, Logger log,
+    explicit StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling,
+                             VPU::MCOptimizationScope mcOptimizationScope, Logger log,
                              SiblingOpsAnalysis& siblingsOpsAnalysis);
 
 public:
@@ -39,6 +40,7 @@ private:
     LayerCostModel _costModel;
     SubgraphOptimizer _optimizer;
     SiblingOpsAnalysis& _siblingsOpsAnalysis;
+    VPU::MCOptimizationScope _mcOptimizationScope;
 };
 }  // namespace VPU
 }  // namespace vpux

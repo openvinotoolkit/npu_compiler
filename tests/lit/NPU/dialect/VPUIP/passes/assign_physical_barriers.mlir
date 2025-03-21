@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --assign-physical-barriers="num-barriers=4" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module attributes {VPUIP.wlm_status = #VPUIP.wlm_status<DISABLED>} {
 // CHECK-LABEL: @LinearDMA
 func.func @LinearDMA(%arg0: memref<10xf16>, %arg1: memref<10xf16>) -> memref<10xf16> {

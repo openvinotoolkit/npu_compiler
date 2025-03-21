@@ -18,8 +18,8 @@ using namespace vpux;
 
 void PassesRegistry37XX::registerPasses() {
     vpux::arch37xx::registerConversionPasses();
-    vpux::IE::arch37xx::registerIEPasses();
-    vpux::VPU::arch37xx::registerVPUPasses();
-    vpux::VPUIP::arch37xx::registerVPUIPPasses();
-    vpux::VPURT::arch37xx::registerVPURTPasses();
+    vpux::IE::arch37xx::registerPasses();
+    vpux::VPU::arch37xx::registerPasses();
+    vpux::VPUIP::arch37xx::registerPasses();
+    vpux::VPURT::arch37xx::registerPasses();
 }

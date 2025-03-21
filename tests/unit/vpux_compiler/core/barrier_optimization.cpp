@@ -27,9 +27,8 @@ enum class TestTarget {
     getControlGraphBlockTaskRangeLastBlock,
 };
 
-void checkBarrierMaps(const BarrierInfoTest::BarrierMaps& expectedResult,
-                      const BarrierInfoTest::BarrierMaps& testResult, bool checkUpdateAndWaitBarriers = true,
-                      bool checkProducersAndConsumers = true) {
+void checkBarrierMaps(const BarrierInfoMaps& expectedResult, const BarrierInfoMaps& testResult,
+                      bool checkUpdateAndWaitBarriers = true, bool checkProducersAndConsumers = true) {
     if (checkUpdateAndWaitBarriers) {
         EXPECT_EQ(expectedResult.taskUpdateBarriers, testResult.taskUpdateBarriers);
         EXPECT_EQ(expectedResult.taskWaitBarriers, testResult.taskWaitBarriers);
@@ -59,9 +58,9 @@ void checkBarrierMaps(const BarrierInfoTest::BarrierMaps& expectedResult,
  *
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantProducerConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> redundantProducerConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},      // task 0
             {0},     // task 1
@@ -87,9 +86,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantP
             {0, 1},  // barrier 1
             {2},     // barrier 2
     };
-
-    inputBarrierMaps.nTasks = 4;
-    inputBarrierMaps.nBarriers = 3;
 
     // expected results
     // no change expected in waitbarriers
@@ -159,9 +155,9 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantP
  *                  29                            29
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> parallelBlocksConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> parallelBlocksConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskUpdateBarriers = {
             {0, 1},  // task 0
             {0, 1},  // task 1
@@ -229,8 +225,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> parallelBl
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = 30;
-    inputBarrierMaps.nBarriers = 5;
 
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
@@ -313,9 +307,9 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> parallelBl
  *         1     2             1  2
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProducerDifferentConsumersConfigA() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> sameProducerDifferentConsumersConfigA() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},   // task 0
             {0},  // task 1
@@ -329,8 +323,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProduc
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = 3;
-    inputBarrierMaps.nBarriers = 2;
 
     // expected results
     expectedBarrierMaps.taskWaitBarriers = {
@@ -381,10 +373,9 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProduc
  * to assure the correct order of optimization steps.
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProducerDifferentConsumersConfigB(
-        bool twoStageOptimization) {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> sameProducerDifferentConsumersConfigB(bool twoStageOptimization) {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},      // task 0
             {0},     // task 1
@@ -398,8 +389,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProduc
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = 3;
-    inputBarrierMaps.nBarriers = 3;
 
     // expected results
     if (twoStageOptimization) {
@@ -473,9 +462,9 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> sameProduc
  * Task 4 doesn't need to wait for barrier bar0 as it already waits for barrier bar1
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantConsumerConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> redundantConsumerConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},      // task 0
             {},      // task 1
@@ -503,9 +492,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantC
             {2, 3},  // barrier 1
             {4},     // barrier 2
     };
-
-    inputBarrierMaps.nTasks = 5;
-    inputBarrierMaps.nBarriers = 3;
 
     // expected results
     expectedBarrierMaps.taskWaitBarriers = {
@@ -577,10 +563,10 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantC
  * When single block is optimized, the other block should not be altered.
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantConsumersWithTwoBlockTaskSplitConfig(
+std::pair<BarrierInfoMaps, BarrierInfoMaps> redundantConsumersWithTwoBlockTaskSplitConfig(
         std::vector<size_t> blocksToOptimize) {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},         // task 0
             {},         // task 1
@@ -608,8 +594,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantC
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = 10;
-    inputBarrierMaps.nBarriers = 6;
     inputBarrierMaps.syncTasksIds = {4};  // Control graph split done in the middle of the graph.
 
     // expected results
@@ -710,8 +694,8 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> redundantC
  *  because DMA2 executes on same engine after DMA1 So there is implicit dep from DMA1- > DMA2
  *
  */
-BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx,
-                                                                       mlir::OwningOpRef<mlir::ModuleOp>& module) {
+BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx,
+                                                          mlir::OwningOpRef<mlir::ModuleOp>& module) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -791,7 +775,7 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLI
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
     VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
 
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
             {},   // task 1
@@ -842,8 +826,8 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLI
  * Barriers b0 and b1 are not optimized out within the scope of this test.
  *
  */
-BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ctx,
-                                                                        mlir::OwningOpRef<mlir::ModuleOp>& module) {
+BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ctx,
+                                                           mlir::OwningOpRef<mlir::ModuleOp>& module) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -898,7 +882,7 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::ML
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
     VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
 
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
             {},   // task 1
@@ -938,9 +922,9 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::ML
  *          6p1
  *
  */
-BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ctx,
-                                                                        mlir::OwningOpRef<mlir::ModuleOp>& module,
-                                                                        TestTarget target) {
+BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ctx,
+                                                           mlir::OwningOpRef<mlir::ModuleOp>& module,
+                                                           TestTarget target) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -1003,7 +987,7 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::ML
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
     VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
 
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     switch (target) {
     case TestTarget::optimizeBarriersWithFIFOdeps:
         /**
@@ -1151,7 +1135,7 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::ML
  *    1p1
  *
  */
-BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig6(
+BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
         mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir::ModuleOp>& module,
         TestTarget target = TestTarget::optimizeBarriersWithFIFOdeps) {
     constexpr llvm::StringLiteral inputIR = R"(
@@ -1196,7 +1180,7 @@ BarrierInfoTest::BarrierMaps barriersWithFIFOdependenciesNPU40XXconfig6(
     module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, ctx);
     VPUX_THROW_UNLESS(module.get() != nullptr, "Cannot extract module from input IR");
 
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     switch (target) {
     case TestTarget::optimizeBarriersWithFIFOdeps:
         /**
@@ -1440,7 +1424,7 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
 TEST_F(BarrierInfoTests, fillProducersAndConsumers) {
     auto [barrierConfig, expectedResult] = redundantProducerConfig();
     BarrierInfoTest barrierInfoTest(barrierConfig);
-    BarrierInfoTest::BarrierMaps testMaps = barrierConfig;
+    BarrierInfoMaps testMaps = barrierConfig;
     fillProducersAndConsumers(testMaps);
     checkBarrierMaps(barrierConfig, testMaps);
 
@@ -1730,8 +1714,8 @@ TEST_F(MLIR_BarrierInfoTests, variableGraphSplitBlockSizeNPU40XX) {
  *      t6(B)
  */
 
-BarrierInfoTest::BarrierMaps graphToCheckControlPathsWithFifo() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+BarrierInfoMaps graphToCheckControlPathsWithFifo() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0, 1},  // task 0
@@ -1754,8 +1738,6 @@ BarrierInfoTest::BarrierMaps graphToCheckControlPathsWithFifo() {
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
@@ -1924,7 +1906,7 @@ TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
     SmallVector<SmallVector<size_t>> expectedVariantBatches = {{0, 1, 2, 3, 4, 5},            // SW
                                                                {6, 7, 8, 9, 10, 11, 12, 13},  // DMA
                                                                {14, 15}};                     // DMA
-    EXPECT_EQ(barrierInfoTest.toTaskVec(legalVariantBatches), expectedVariantBatches);
+    EXPECT_EQ(vpux::toTaskVec(legalVariantBatches), expectedVariantBatches);
 
     legalVariantBatches =
             barrierInfoTest.createLegalVariantBatches(parallelProducers, 8, /* considerTaskExecutorType */ false);
@@ -1932,7 +1914,7 @@ TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
             {0, 1, 2, 3, 4, 5, 6, 7},
             {8, 9, 10, 11, 12, 13, 14, 15},
     };
-    EXPECT_EQ(barrierInfoTest.toTaskVec(legalVariantBatches), expectedVariantBatches);
+    EXPECT_EQ(vpux::toTaskVec(legalVariantBatches), expectedVariantBatches);
 }
 
 /**
@@ -1944,9 +1926,9 @@ TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
  *
  * since task 8 already waits for b7
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlockWaitDependencyConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
             {1},  // task 1
@@ -1972,8 +1954,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlock
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = inputBarrierMaps.taskUpdateBarriers.size();
-    inputBarrierMaps.nBarriers = inputBarrierMaps.barrierProducerMap.size();
     inputBarrierMaps.syncTasksIds = {2, 5};
 
     expectedBarrierMaps.taskUpdateBarriers = {
@@ -2029,9 +2009,9 @@ TEST_F(BarrierInfoTests, fixOutOfBlockWaitDependency) {
  *
  * because sync points were connected when graph was split
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlockWaitDependencyToSyncTaskConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyToSyncTaskConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
             {1},  // task 1
@@ -2057,8 +2037,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlock
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = inputBarrierMaps.taskUpdateBarriers.size();
-    inputBarrierMaps.nBarriers = inputBarrierMaps.barrierProducerMap.size();
     inputBarrierMaps.syncTasksIds = {2, 5};
 
     expectedBarrierMaps.taskUpdateBarriers = {
@@ -2119,9 +2097,9 @@ TEST_F(BarrierInfoTests, fixOutOfBlockWaitDependencyToSyncTask) {
  *                                                                   \-----------------/
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> multipleOutOfBlockWaitDependenciesConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> multipleOutOfBlockWaitDependenciesConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
             {1},  // task 1
@@ -2147,8 +2125,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> multipleOu
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = inputBarrierMaps.taskUpdateBarriers.size();
-    inputBarrierMaps.nBarriers = inputBarrierMaps.barrierProducerMap.size();
     inputBarrierMaps.syncTasksIds = {2, 5};
 
     expectedBarrierMaps.taskUpdateBarriers = {
@@ -2207,9 +2183,9 @@ TEST_F(BarrierInfoTests, fixMultipleOutOfBlockWaitDependencies) {
  *   0 - b0 - 1 - b1 - 2 (sync) - b2 - 3 - b3 - 4 - b4 - 5 (sync) - b5 - 6 - b6 - 7 - b7 - 8
  *
  */
-std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlockUpdateDependencyConfig() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
-    BarrierInfoTest::BarrierMaps expectedBarrierMaps;
+std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockUpdateDependencyConfig() {
+    BarrierInfoMaps inputBarrierMaps;
+    BarrierInfoMaps expectedBarrierMaps;
     inputBarrierMaps.taskUpdateBarriers = {
             {0, 3, 6, 7},  // task 0
             {1},           // task 1
@@ -2235,8 +2211,6 @@ std::pair<BarrierInfoTest::BarrierMaps, BarrierInfoTest::BarrierMaps> outOfBlock
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
-    inputBarrierMaps.nTasks = inputBarrierMaps.taskUpdateBarriers.size();
-    inputBarrierMaps.nBarriers = inputBarrierMaps.barrierProducerMap.size();
     inputBarrierMaps.syncTasksIds = {2, 5};
 
     expectedBarrierMaps.taskUpdateBarriers = {

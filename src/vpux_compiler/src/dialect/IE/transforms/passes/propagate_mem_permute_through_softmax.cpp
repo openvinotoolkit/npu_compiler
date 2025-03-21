@@ -3,12 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/softmax_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEMEMPERMUTETHROUGHSOFTMAX
+#define GEN_PASS_DEF_PROPAGATEMEMPERMUTETHROUGHSOFTMAX
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -188,7 +195,7 @@ mlir::LogicalResult InsertMemPermuteBeforeAndAfterSoftmax::matchAndRewrite(IE::S
 //
 
 class PropagateMemPermuteThroughSoftMaxPass final :
-        public IE::PropagateMemPermuteThroughSoftMaxBase<PropagateMemPermuteThroughSoftMaxPass> {
+        public IE::impl::PropagateMemPermuteThroughSoftMaxBase<PropagateMemPermuteThroughSoftMaxPass> {
 public:
     explicit PropagateMemPermuteThroughSoftMaxPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-VPUMI40XX-to-VPUASM %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module {
@@ -44,22 +43,22 @@ func.func private @act_shave() {
 }
 }
 
-//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer0:.+]] !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer1:.+]] !VPUASM.Buffer< "CMX_NN"[0] <2000> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 
-//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
+//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.DeclareKernelText @[[DeclareKernelText:.+]] : [[KernelName:.+]]
 
 //CHECK: VPUASM.DeclareKernelEntry @[[DeclareKernelEntry:.+]] : [[KernelName]]
 
-//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
+//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
 
-//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(1) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>
 //CHECK:   VPUASM.DeclareTaskBuffer @[[InvoTaskLocation:.+]] idx(!VPURegMapped.Index<[[ITLI:.+]]>) <ActKernelInvocation>
 
@@ -133,22 +132,22 @@ func.func private @act_shave() {
 }
 }
 
-//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer0:.+]] !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer1:.+]] !VPUASM.Buffer< "CMX_NN"[0] <2000> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 
-//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
+//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.DeclareKernelText @[[DeclareKernelText:.+]] : [[KernelName:.+]]
 
 //CHECK: VPUASM.DeclareKernelEntry @[[DeclareKernelEntry:.+]] : [[KernelName]]
 
-//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
+//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
 
-//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(1) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>
 //CHECK:   VPUASM.DeclareTaskBuffer @[[InvoTaskLocation:.+]] idx(!VPURegMapped.Index<[[ITLI:.+]]>) <ActKernelInvocation>
 //CHECK:   VPUASM.DeclareTaskBuffer @[[InvoTaskLocation1:.+]] idx(!VPURegMapped.Index<[[ITLI1:.+]]>) <ActKernelInvocation>
@@ -237,22 +236,22 @@ func.func private @act_shave() {
 }
 }
 
-//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[BuffersSection:.+]] aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer0:.+]] !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 //CHECK:   VPUASM.DeclareBuffer @[[DeclareBuffer1:.+]] !VPUASM.Buffer< "CMX_NN"[0] <2000> : memref<1x1x1x1000xf16, [@CMX_NN, 0]> :  swizzling(0)>
 
-//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
+//CHECK: ELF.CreateSection @[[TextSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.DeclareKernelText @[[DeclareKernelText:.+]] : [[KernelName:.+]]
 
 //CHECK: VPUASM.DeclareKernelEntry @[[DeclareKernelEntry:.+]] : [[KernelName]]
 
-//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(1024) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
+//CHECK: ELF.CreateSection @[[DataSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
 //CHECK:   VPUASM.DeclareKernelData @[[DeclareKernelArgs:.+]] : [[KernelName]]
 
 //CHECK: ELF.CreateSection @[[ParamsSection:.+]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC)
 //CHECK:   VPUASM.KernelParams @[[KernelParams:.+]] inputs([@[[BuffersSection]]::@[[DeclareBuffer0]]]) outputs([@[[BuffersSection]]::@[[DeclareBuffer1]]]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type([[KernelName]]) kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
 
-//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(1) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
+//CHECK: ELF.CreateLogicalSection @[[MetadataSection:.+]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK:   VPUASM.DeclareTaskBuffer @[[RangeTaskLocation:.+]] idx(!VPURegMapped.Index<[[RTLI:.+]]>) <ActKernelRange>
 //CHECK:   VPUASM.DeclareTaskBuffer @[[InvoTaskLocation:.+]] idx(!VPURegMapped.Index<[[ITLI:.+]]>) <ActKernelInvocation>
 //CHECK:   VPUASM.DeclareTaskBuffer @[[InvoTaskLocation1:.+]] idx(!VPURegMapped.Index<[[ITLI1:.+]]>) <ActKernelInvocation>

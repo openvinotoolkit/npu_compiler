@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @IdftConvertConstToAttrAndNormalize
 // CHECK-SAME:   ([[INPUT:%arg[0-9]]]: tensor<10x4x2xf32>) -> tensor<10x4x2xf32>
 func.func @IdftConvertConstToAttrAndNormalize(%arg0: tensor<10x4x2xf32>) -> tensor<10x4x2xf32> {

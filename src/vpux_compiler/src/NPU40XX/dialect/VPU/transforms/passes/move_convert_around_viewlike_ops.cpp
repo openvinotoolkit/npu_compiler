@@ -5,11 +5,18 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+
+namespace vpux::VPU::arch40xx {
+#define GEN_PASS_DECL_MOVECONVERTAROUNDVIEWLIKEOPS
+#define GEN_PASS_DEF_MOVECONVERTAROUNDVIEWLIKEOPS
+#include "vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch40xx
 
 using namespace vpux;
 
@@ -124,7 +131,7 @@ mlir::LogicalResult MoveConvertBeforeAffineReshape::matchAndRewrite(VPU::Convert
 // MoveConvertAroundViewLikeOpsPass
 //
 class MoveConvertAroundViewLikeOpsPass final :
-        public VPU::arch40xx::MoveConvertAroundViewLikeOpsBase<MoveConvertAroundViewLikeOpsPass> {
+        public VPU::arch40xx::impl::MoveConvertAroundViewLikeOpsBase<MoveConvertAroundViewLikeOpsPass> {
 public:
     explicit MoveConvertAroundViewLikeOpsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

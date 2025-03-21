@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --loop-outliner %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 module @LoopOutlinerWith1Loop {
 // CHECK-LABEL: @LoopOutlinerWith1Loop
 

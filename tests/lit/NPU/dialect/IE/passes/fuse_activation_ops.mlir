@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --fuse-activation-ops="enable-fuse-clamp=false" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @Conv2dWithReluTest(%arg0: tensor<1x16x4x4xf16>) -> tensor<1x16x3x3xf16> {
     %filters = const.Declare tensor<16x16x2x2xf16> = dense<1.0> : tensor<16x16x2x2xf16>
     %0 = IE.Convolution(%arg0, %filters)
@@ -294,8 +293,9 @@ func.func @TransposedConv2dWithLeakyReluNotFuseTest(%arg0: tensor<1x32x64x100xf1
     // CHECK-SAME:     output_padding = [1, 0]
     // CHECK-SAME:     pads_begin = [1, 0]
     // CHECK-SAME:     pads_end = [1, 0]
+    // CHECK-SAME:     post_op = #IE.PostOp<name = "IE.LeakyRelu", attrs = {negative_slope = 1.500000e-01 : f64}>
     // CHECK-SAME:     strides = [2, 1]
-    // CHECK:     IE.LeakyRelu
+    // CHECK-NOT:   IE.LeakyRelu
 }
 
 // -----
@@ -360,4 +360,21 @@ func.func @ConvWithLeakyReluFuseDiffTypes(
     // CHECK-SAME:    strides = [1, 1]
     // CHECK-SAME:    tensor<128x128x1x1x!qElemType>, tensor<512x128x1x1x!qElemType> -> tensor<128x512x1x1x!qElemType1>
  
+}
+
+// -----
+
+// CHECK-LABEL: func.func @MatMulWithRelu(
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x32x1x96xf16>
+func.func @MatMulWithRelu(%arg0: tensor<1x32x1x96xf16>) -> tensor<1x32x1x16xf16> {
+    %cst = const.Declare tensor<1x32x16x96xf16> = dense<2.0> : tensor<1x32x16x96xf16>
+    %0 = IE.MatMul(%arg0, %cst) {transpose_b} : tensor<1x32x1x96xf16>, tensor<1x32x16x96xf16> -> tensor<1x32x1x16xf16>
+    %1 = IE.ReLU(%0) : tensor<1x32x1x16xf16> -> tensor<1x32x1x16xf16>
+
+    return %1 : tensor<1x32x1x16xf16>
+
+    // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x32x16x96xf16> = dense<2.000000e+00> : tensor<1x32x16x96xf16>
+    // CHECK:       [[MAT_MUL:%.+]] = IE.MatMul([[INPUT]], [[CST]]) {post_op = #IE.PostOp<name = "IE.ReLU", attrs = {}>, transpose_b} : tensor<1x32x1x96xf16>, tensor<1x32x16x96xf16> -> tensor<1x32x1x16xf16>
+
+    // CHECK:       return [[MAT_MUL]] : tensor<1x32x1x16xf16>
 }

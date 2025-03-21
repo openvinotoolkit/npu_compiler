@@ -10,11 +10,17 @@
 
 #include <mlir/IR/SymbolTable.h>
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_ADDELFSYMBOLTABLE
+#define GEN_PASS_DEF_ADDELFSYMBOLTABLE
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
 
-class AddElfSymbolTablePass : public ELF::AddELFSymbolTableBase<AddElfSymbolTablePass> {
+class AddElfSymbolTablePass : public ELF::arch40xx::impl::AddELFSymbolTableBase<AddElfSymbolTablePass> {
 public:
     explicit AddElfSymbolTablePass(Logger log): _log(log) {
         Base::initLogger(log, Base::getArgumentName());

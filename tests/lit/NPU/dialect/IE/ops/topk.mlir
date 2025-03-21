@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --canonicalize --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertConstToAttrForTopK
 func.func @ConvertConstToAttrForTopK(%arg0: tensor<1x151x513x513xf32>) -> tensor<1x1x513x513xsi32> {
     %cst = const.Declare tensor<1xsi32> = dense<1> : tensor<1xsi32>

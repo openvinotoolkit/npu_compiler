@@ -26,7 +26,6 @@ public:
         return arch40xx::buildDPUInvariantIDU(mlir::cast<VPUASM::DPUInvariantOp>(dpuInvariantOp), builder, log,
                                               invBlock, invBlockArgsPos);
     }
-
     mlir::LogicalResult expandMPEConfig(mlir::Operation* dpuInvariantOp, mlir::OpBuilder& builder, const Logger&,
                                         mlir::Block* invBlock,
                                         const std::unordered_map<BlockArg, size_t>& invBlockArgsPos,
@@ -34,7 +33,6 @@ public:
         return arch40xx::buildDPUInvariantMPE(mlir::cast<VPUASM::DPUInvariantOp>(dpuInvariantOp), builder, invBlock,
                                               invBlockArgsPos);
     }
-
     mlir::LogicalResult expandPPEConfig(mlir::Operation* dpuInvariantOp, mlir::OpBuilder& builder, const Logger& log,
                                         mlir::Block* invBlock,
                                         const std::unordered_map<BlockArg, size_t>& invBlockArgsPos,
@@ -42,7 +40,6 @@ public:
         return arch40xx::buildDPUInvariantPPE(mlir::cast<VPUASM::DPUInvariantOp>(dpuInvariantOp), builder, log,
                                               invBlock, invBlockArgsPos);
     }
-
     mlir::LogicalResult expandODUConfig(mlir::Operation* dpuInvariantOp, mlir::OpBuilder& builder, const Logger& log,
                                         mlir::Block* invBlock,
                                         const std::unordered_map<BlockArg, size_t>& invBlockArgsPos,
@@ -59,7 +56,6 @@ public:
     mlir::LogicalResult expandGeneralConfig(mlir::Operation* dpuVariantOp, mlir::OpBuilder& builder, Logger log) const {
         return arch40xx::buildDPUVariantGeneral(mlir::cast<VPUASM::DPUVariantOp>(dpuVariantOp), builder, log);
     }
-
     mlir::LogicalResult expandIDUConfig(mlir::Operation* dpuVariantOp, mlir::OpBuilder& builder, const Logger& log,
                                         ELF::SymbolReferenceMap& symRefMap) const {
         return arch40xx::buildDPUVariantIDU(mlir::cast<VPUASM::DPUVariantOp>(dpuVariantOp), builder, log, symRefMap);
@@ -69,7 +65,6 @@ public:
                                         ELF::SymbolReferenceMap&) const {
         return mlir::success();
     }
-
     mlir::LogicalResult expandODUConfig(mlir::Operation* dpuVariantOp, mlir::OpBuilder& builder, const Logger& log,
                                         mlir::Block* varBlock, ELF::SymbolReferenceMap& symRefMap) const {
         return arch40xx::buildDPUVariantODU(mlir::cast<VPUASM::DPUVariantOp>(dpuVariantOp), builder, log, varBlock,

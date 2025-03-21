@@ -12,6 +12,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSPACE2DEPTHLAYER
+#define GEN_PASS_DEF_CONVERTSPACE2DEPTHLAYER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 constexpr size_t spatialDimIndex = 2;
@@ -21,7 +27,7 @@ namespace {
 // ConvertSpace2DepthLayerPass
 //
 
-class ConvertSpace2DepthLayerPass final : public IE::ConvertSpace2DepthLayerBase<ConvertSpace2DepthLayerPass> {
+class ConvertSpace2DepthLayerPass final : public IE::impl::ConvertSpace2DepthLayerBase<ConvertSpace2DepthLayerPass> {
 public:
     explicit ConvertSpace2DepthLayerPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

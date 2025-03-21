@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUMI40XX_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPUMI40XX_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPUMI40XX/dialect.td"
 include "vpux/compiler/dialect/VPUMI40XX/attr_interfaces.td"
 
@@ -78,27 +78,6 @@ def VPUMI40XX_PPELayerType :
 }
 
 def VPUMI40XX_PPELayerTypeAttr : VPUMI40XX_EnumAttr<VPUMI40XX_PPELayerType, "ppe_layer_type">;
-
-//
-// MPEMode
-//
-
-def VPUMI40XX_MPEMode :
-    VPUMI40XX_I64EnumAttr<
-        "MPEMode",
-        "MPE Mode",
-        [
-            I64EnumAttrCase<"VECTOR",       0>,
-            I64EnumAttrCase<"MATRIX",       1>,
-            I64EnumAttrCase<"VECTOR_FP16",  2>,
-            I64EnumAttrCase<"CUBOID_16x16", 3>,
-            I64EnumAttrCase<"CUBOID_8x16",  4>,
-            I64EnumAttrCase<"NOP",          5>
-        ]
-    > {
-}
-
-def VPUMI40XX_MPEModeAttr : VPUMI40XX_EnumAttr<VPUMI40XX_MPEMode, "mpe_mode">;
 
 //
 // DMATransactionAttr

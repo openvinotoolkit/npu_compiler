@@ -15,6 +15,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTODEQUANTIZE
+#define GEN_PASS_DEF_CONVERTTODEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 // ConvertToDequantizePass
 //
 
-class ConvertToDequantizePass final : public IE::ConvertToDequantizeBase<ConvertToDequantizePass> {
+class ConvertToDequantizePass final : public IE::impl::ConvertToDequantizeBase<ConvertToDequantizePass> {
 public:
     explicit ConvertToDequantizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -32,8 +38,6 @@ public:
     explicit ConvertToDequantizePass(const IE::LowPrecisionOptions& options, Logger log) {
         Base::initLogger(log, Base::getArgumentName());
         Base::copyOptionValuesFrom(options);
-
-        initializeFromOptions();
     }
 
 public:
@@ -41,13 +45,8 @@ public:
 
 private:
     mlir::LogicalResult initializeOptions(StringRef options) final;
-    // Initialize fields from pass options
-    void initializeFromOptions();
 
     void safeRunOnFunc() final;
-
-private:
-    bool _enableWDBlockArgumentInput = false;
 };
 
 mlir::LogicalResult ConvertToDequantizePass::initializeOptions(StringRef options) {
@@ -55,15 +54,7 @@ mlir::LogicalResult ConvertToDequantizePass::initializeOptions(StringRef options
         return mlir::failure();
     }
 
-    initializeFromOptions();
-
     return mlir::success();
-}
-
-void ConvertToDequantizePass::initializeFromOptions() {
-    if (enableWDBlockArgumentInput.hasValue()) {
-        _enableWDBlockArgumentInput = enableWDBlockArgumentInput.getValue();
-    }
 }
 
 //
@@ -72,10 +63,7 @@ void ConvertToDequantizePass::initializeFromOptions() {
 
 class ConvertToDequantizePass::ConvertOpConverter final : public mlir::OpRewritePattern<IE::ConvertOp> {
 public:
-    ConvertOpConverter(mlir::MLIRContext* ctx, Logger log, bool enableWDBlockArgumentInput)
-            : mlir::OpRewritePattern<IE::ConvertOp>(ctx),
-              _log(log),
-              _enableWDBlockArgumentInput(enableWDBlockArgumentInput) {
+    ConvertOpConverter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::ConvertOp>(ctx), _log(log) {
     }
 
 public:
@@ -83,7 +71,6 @@ public:
 
 private:
     Logger _log;
-    bool _enableWDBlockArgumentInput = false;
 };
 
 // It matches pattern non-const -> Convert -> ViewLikeOp/TransposeOp -> Convolution/GroupConvolution,
@@ -109,36 +96,27 @@ mlir::LogicalResult ConvertToDequantizePass::ConvertOpConverter::matchAndRewrite
         return mlir::failure();
     }
 
-    // When weights are passed as block args, transformations that would have been fused to the
-    // weights constant (e.g. Slice) will appear explicitly between block arg and the Conv input.
-    // This leads to more complex graphs, especially when the weights block arg is shared between multiple
-    // Convs (e.g. %blockarg -> n x (Slice -> ViewLikewOp -> weights Conv))
-    // Without this check, even if the Convert does not lead to some Conv weights, the conversion to
-    // QuantCast + Dequantize will still be mathematically correct.
-    if (!_enableWDBlockArgumentInput) {
-        if (!convertOp.getResult().hasOneUse()) {
+    if (!convertOp.getResult().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    mlir::Operation* preOp = convertOp;
+    auto postOp = *convertOp.getResult().getUsers().begin();
+    while (mlir::isa_and_nonnull<IE::ViewLikeOpInterface, IE::TransposeOp, IE::QuantizeOp, IE::DequantizeOp>(postOp)) {
+        if (!postOp->hasOneUse()) {
             return mlir::failure();
         }
 
-        mlir::Operation* preOp = convertOp;
-        auto postOp = *convertOp.getResult().getUsers().begin();
-        while (mlir::isa_and_nonnull<IE::ViewLikeOpInterface, IE::TransposeOp, IE::QuantizeOp, IE::DequantizeOp>(
-                postOp)) {
-            if (!postOp->hasOneUse()) {
-                return mlir::failure();
-            }
+        preOp = postOp;
+        postOp = *postOp->getUsers().begin();
+    }
 
-            preOp = postOp;
-            postOp = *postOp->getUsers().begin();
-        }
+    if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(postOp)) {
+        return mlir::failure();
+    }
 
-        if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(postOp)) {
-            return mlir::failure();
-        }
-
-        if (preOp->getResult(0) != postOp->getOperand(1)) {
-            return mlir::failure();
-        }
+    if (preOp->getResult(0) != postOp->getOperand(1)) {
+        return mlir::failure();
     }
 
     auto ctx = rewriter.getContext();
@@ -184,7 +162,7 @@ void ConvertToDequantizePass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<ConvertOpConverter>(&ctx, _log, _enableWDBlockArgumentInput);
+    patterns.add<ConvertOpConverter>(&ctx, _log);
 
     auto func = getOperation();
     if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {

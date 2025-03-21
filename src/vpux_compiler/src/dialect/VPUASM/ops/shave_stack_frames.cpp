@@ -12,20 +12,7 @@ using namespace vpux;
 // ShaveStackFrameOp
 //
 
-void vpux::VPUASM::ShaveStackFrameOp::serializeCached(elf::writer::BinaryDataSection<uint8_t>&,
-                                                      ELF::SymbolReferenceMap&) {
-    // TODO: E#80148 after interface refactoring should we not require serialization for ShaveStackFrameOp
-#ifdef VPUX_DEVELOPER_BUILD
-    auto logger = Logger::global();
-    logger.warning("Serializing {0} op, which may mean invalid usage");
-#endif
-}
-
 size_t vpux::VPUASM::ShaveStackFrameOp::getBinarySizeCached(ELF::SymbolReferenceMap&, VPU::ArchKind) {
-    return getStackSize();
-}
-
-size_t vpux::VPUASM::ShaveStackFrameOp::getBinarySize(VPU::ArchKind) {
     return getStackSize();
 }
 

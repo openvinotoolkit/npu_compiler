@@ -38,8 +38,9 @@ VPUNN::Layout getVPUNNLayout(VPUIPDPU::ODUPermuteDataMode oduPermutation);
 VPUNN::VPUTensor getVPUTensor(ShapeRef shape, mlir::Type elemType,
                               VPUIPDPU::ODUPermuteDataMode oduPermutation = VPUIPDPU::ODUPermuteDataMode::PERMUTE_ZXY);
 VPUNN::ExecutionMode getExecutionMode(VPU::MPEMode mpeMode);
-VPUNN::VPULayerStrategy getVPULayerStrategy(VPU::MultiClusterStrategy, size_t nDPUs, size_t nTiles, size_t nSHVs = 1,
-                                            bool prefetching = false);
+VPUNN::VPULayerStrategy getVPULayerStrategy(VPU::MultiClusterStrategy mcStrategy, size_t nDPUs, size_t nTiles,
+                                            ArchKind arch, size_t nSHVs = 1, bool prefetching = false,
+                                            VPU::DistributionMode distributionMode = DistributionMode::NONE);
 VPUNN::DPULayer getDPULayer(const VPUIP::WorkloadCostParams& params);
 VPUNN::DPUWorkload getDPUWorkload(const VPUIP::WorkloadCostParams& tileParams, const VPUIP::WorkloadTile& wl);
 VPUIP::WorkloadCostParams getWorkloadCostParam(VPU::NCEOpInterface nceOp, VPU::ArchKind arch, int64_t numDPU,

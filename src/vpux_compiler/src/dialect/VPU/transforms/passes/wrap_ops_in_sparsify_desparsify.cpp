@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_WRAPOPSINSPARSIFYDESPARSIFYPAIRS
+#define GEN_PASS_DEF_WRAPOPSINSPARSIFYDESPARSIFYPAIRS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -24,7 +31,7 @@ VPU::ActivationSparsityProfile getSparsityProfile(const std::string& sparsityPro
 //
 
 class WrapOpsInSparsifyDesparsifyPairsPass final :
-        public VPU::WrapOpsInSparsifyDesparsifyPairsBase<WrapOpsInSparsifyDesparsifyPairsPass> {
+        public VPU::impl::WrapOpsInSparsifyDesparsifyPairsBase<WrapOpsInSparsifyDesparsifyPairsPass> {
 public:
     WrapOpsInSparsifyDesparsifyPairsPass() = default;
     explicit WrapOpsInSparsifyDesparsifyPairsPass(VPU::EnableActivationSparsityMode enableActivationSparsityMode,

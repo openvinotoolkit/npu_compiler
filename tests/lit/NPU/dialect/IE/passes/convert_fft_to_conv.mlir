@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-fft-to-conv  %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #HCW = affine_map<(d0, d1, d2) -> (d1, d0, d2)>
 // CHECK-LABEL: @DFT
 // CHECK-SAME:          [[INPUT:%arg[0-9]]]: tensor<4x8x2xf16>

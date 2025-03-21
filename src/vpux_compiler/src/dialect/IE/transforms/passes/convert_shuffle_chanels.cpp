@@ -11,6 +11,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSHUFFLECHANNELS
+#define GEN_PASS_DEF_CONVERTSHUFFLECHANNELS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -19,7 +25,7 @@ namespace {
 // ConvertShuffleChannelsPass
 //
 
-class ConvertShuffleChannelsPass final : public IE::ConvertShuffleChannelsBase<ConvertShuffleChannelsPass> {
+class ConvertShuffleChannelsPass final : public IE::impl::ConvertShuffleChannelsBase<ConvertShuffleChannelsPass> {
 public:
     explicit ConvertShuffleChannelsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

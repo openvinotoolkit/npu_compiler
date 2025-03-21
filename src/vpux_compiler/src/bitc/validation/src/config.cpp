@@ -38,9 +38,8 @@ void verify_labels(std::set<std::string>& labels, config_map& config) {
     // Value validity
     std::string arch_type = std::get<std::string>(config["arch_type"]);
     if (arch_type != "NPU27"s && arch_type != "NPU4"s) {
-        throw std::logic_error{"Expected NPU37XX/40XX for arch type, got: " + arch_type};
+        throw std::logic_error{"Expected NPU27/4 for arch type, got: " + arch_type};
     }
-
     std::string weight_compress_enable = std::get<std::string>(config["weight_compress_enable"]);
     if (weight_compress_enable != "true"s && weight_compress_enable != "false"s) {
         throw std::logic_error{"Expected true or false for weight compress enable, got: " + weight_compress_enable};
@@ -154,8 +153,8 @@ config_map parse_config(std::ifstream& config_file) {
     std::set<std::string> labels{"arch_type",
                                  "weight_compress_enable",
                                  "bypass_compression",
-                                 "compressed_data_path",
                                  "mode_fp16_enable",
+                                 "compressed_data_path",
                                  "compressed_data",
                                  "decompressed_data_path",
                                  "decompressed_data",
@@ -188,6 +187,6 @@ void print_config(const config_map& config) {
     std::cout << "Configuration: "
               << "\n\t >> Arch type: " << std::get<std::string>(config.at("arch_type"))
               << "\n\t >> Weight compress enabled: " << std::get<std::string>(config.at("weight_compress_enable"))
-              << "\n\t >> FP16 Mode enabled: " << std::get<std::string>(config.at("mode_fp16_enable"))
-              << "\n\t >> Bypass compression: " << std::get<std::string>(config.at("bypass_compression")) << "\n";
+              << "\n\t >> Bypass compression: " << std::get<std::string>(config.at("bypass_compression"))
+              << "\n\t >> FP16 Mode enabled: " << std::get<std::string>(config.at("mode_fp16_enable")) << "\n";
 }

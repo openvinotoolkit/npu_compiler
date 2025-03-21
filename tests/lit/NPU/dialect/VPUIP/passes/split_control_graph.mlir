@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt  --split-input-file --init-compiler="vpu-arch=%arch%" --split-control-graph="block-size=3" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // Note: 'idx' added since tasks can be reordered
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

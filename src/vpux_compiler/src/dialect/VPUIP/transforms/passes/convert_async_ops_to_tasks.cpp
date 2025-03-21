@@ -9,6 +9,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTASYNCOPSTOTASKS
+#define GEN_PASS_DEF_CONVERTASYNCOPSTOTASKS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -17,7 +23,7 @@ namespace {
 // ConvertAsyncOpsToTasksPass
 //
 
-class ConvertAsyncOpsToTasksPass final : public VPUIP::ConvertAsyncOpsToTasksBase<ConvertAsyncOpsToTasksPass> {
+class ConvertAsyncOpsToTasksPass final : public VPUIP::impl::ConvertAsyncOpsToTasksBase<ConvertAsyncOpsToTasksPass> {
 public:
     explicit ConvertAsyncOpsToTasksPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

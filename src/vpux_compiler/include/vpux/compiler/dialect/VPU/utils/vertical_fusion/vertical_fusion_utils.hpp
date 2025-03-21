@@ -111,5 +111,9 @@ template <typename ArgType, typename ResultType>
 SmallVector<ResultType> backInferVFTiling(VPU::VFConfig& config, ArgType outputTiling, BackInferStrategy strategy,
                                           std::unordered_map<mlir::Operation*, ResultType>& opTilingMap);
 
+// Check if spilling read and write operations can be overlapped
+// For DMA ops with different source memory kind, if the HW supports VPUIP.ChannelType, the spilling read and write ops
+// can be overlapped
+bool spillingCopyOpsCanBeOverlapped(VPU::ArchKind arch);
 }  // namespace VPU
 }  // namespace vpux

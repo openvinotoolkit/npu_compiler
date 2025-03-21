@@ -7,9 +7,9 @@
 
 // CHECK: module @dynamic_reshape {
 // CHECK:   IE.CNNNetwork entryPoint : @main inputsInfo : {
-// CHECK:       DataInfo "Parameter_1" : tensor<1x8x48x48xf32>
+// CHECK:       DataInfo "Parameter_1" : tensor<1x8x?x?xf32
 // CHECK:   } outputsInfo : {
-// CHECK:       DataInfo "Reshape_5" friendlyName = "Result_12" : tensor<1x8x48x48x1xf32>
+// CHECK:       DataInfo "Reshape_5" friendlyName = "Result_12" : tensor<1x8x?x?x1xf32
 // CHECK:   }
 // CHECK:   func.func @main([[ARG:%.*]]: tensor<1x8x?x?xf32, {bounds = [1, 8, 48, 48], order = #NCHW}>)
 // CHECK-SAME:      -> tensor<1x8x?x?x1xf32, {bounds = [1, 8, 48, 48, 1], order = #NCDHW}> {

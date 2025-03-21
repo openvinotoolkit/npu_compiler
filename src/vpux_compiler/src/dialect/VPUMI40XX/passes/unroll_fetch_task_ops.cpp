@@ -4,16 +4,25 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 
+#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <npu_40xx_nnrt.hpp>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_UNROLLFETCHTASKOPS
+#define GEN_PASS_DEF_UNROLLFETCHTASKOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -39,19 +48,14 @@ int64_t RewriteFetchTaskToDma::getTaskSize(VPURegMapped::TaskType taskType) cons
     switch (taskType) {
     case VPURegMapped::TaskType::DPUInvariant:
         return sizeof(npu40xx::nn_public::VpuDPUInvariant);
-        break;
     case VPURegMapped::TaskType::DPUVariant:
         return sizeof(npu40xx::nn_public::VpuDPUVariant);
-        break;
     case VPURegMapped::TaskType::ActKernelInvocation:
         return sizeof(npu40xx::nn_public::VpuActKernelInvocation);
-        break;
     case VPURegMapped::TaskType::ActKernelRange:
         return sizeof(npu40xx::nn_public::VpuActKernelRange);
-        break;
     default:
         VPUX_THROW("Unknow Task Type {0}", taskType);
-        break;
     }
 }
 
@@ -155,7 +159,7 @@ mlir::LogicalResult RewriteFetchTaskToDma::matchAndRewrite(VPURegMapped::FetchTa
     return mlir::success();
 }
 
-class UnrollFetchTaskOpsPass : public VPUMI40XX::UnrollFetchTaskOpsBase<UnrollFetchTaskOpsPass> {
+class UnrollFetchTaskOpsPass : public VPUMI40XX::impl::UnrollFetchTaskOpsBase<UnrollFetchTaskOpsPass> {
 public:
     explicit UnrollFetchTaskOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -169,6 +173,11 @@ void UnrollFetchTaskOpsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
     auto ctx = &getContext();
     const auto arch = VPU::getArch(netFunc);
+
+    // logFetchOpsDetails needs some data processing which can be avoided if correct log level is not set
+    if (_log.isActive(LogLevel::Trace)) {
+        vpux::VPUMI40XX::logFetchOpsDetails(netFunc, _log);
+    }
 
     mlir::RewritePatternSet patterns(ctx);
     patterns.add<RewriteFetchTaskToDma>(ctx, arch, _log);

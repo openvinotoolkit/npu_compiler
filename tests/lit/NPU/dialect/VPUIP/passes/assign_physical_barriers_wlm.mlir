@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --assign-physical-barriers="num-barriers=4 wlm-barriers-threshold=1" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --assign-physical-barriers="num-barriers=4 workload-management-barrier-count-threshold=1" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module attributes {VPUIP.wlm_status = #VPUIP.wlm_status<ENABLED>} {
 // CHECK: attributes
 // CHECK-SAME: VPUIP.wlm_status = #VPUIP.wlm_status<FAILED>

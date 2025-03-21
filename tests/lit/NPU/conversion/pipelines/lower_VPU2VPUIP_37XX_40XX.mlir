@@ -9,7 +9,7 @@
 //
 // The 'lower-VPU-to-VPUIP' pipeline:
 //
-//   * Fully replaces VPU Dialect with VPUIP Dielect
+//   * Fully replaces VPU Dialect with VPUIP Dialect
 //   * Changes all Value types from `tensor` to `memref`
 //   * Adds result arguments to Function signature
 //   * Inserts `VPUIP.Copy` to store result in output buffer
@@ -24,7 +24,7 @@ module {
   }
 // CHECK:       module @VPU.SW  {
 // CHECK:           func.func private @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64)
-// CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+// CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
 // CHECK:           func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK:       }
 
@@ -62,7 +62,7 @@ module {
   }
 // CHECK:       module @VPU.SW  {
 // CHECK:           func.func private @builtin_SoftMax(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64)
-// CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
+// CHECK-SAME:           attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.kernel_name = "softmax", VPU.task_type = @COMPUTE}
 // CHECK:           func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK:       }
 

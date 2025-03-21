@@ -33,7 +33,7 @@ def AssignPhysicalBarriers : PassBase<"assign-physical-barriers", "vpux::Functio
             "Enable color bin physical barrier assignment algorithm"
         >,
         Option<
-            "virtualBarrierThresholdforWlmOpt", "wlm-barriers-threshold",
+            "virtualBarrierThresholdForWlmOpt", "workload-management-barrier-count-threshold",
             "int", "",
             "Threshold for WLM optimization"
         >
@@ -254,6 +254,39 @@ def IntermediateBufferOutput : PassBase<"intermediate-buffer-output", "vpux::Fun
             "Targed operation index after which DMA to output should be inserted"
         >
     ];
+}
+
+//
+// InsertBarrierToMarkTheEndOfDescriptorGroup
+//
+
+def InsertBarrierToMarkTheEndOfDescriptorGroup : PassBase<"insert-barrier-to-mark-end-of-descriptor-group", "vpux::FunctionPass"> {
+    let summary = "Pass inserts barriers to mark end of descriptor/execution group";
+
+    let description = [{
+        Pass inserts barrier dependencies for passes like insert-fetch-ops, group-exec-ops
+        Group Exec ops pass creates ExecutionGroups of DPU/SW tasks, for group of 32 tasks it chooses wait barrier
+        of first task as wait barrier for execution group and update barrier of last task as update barrier for execution group
+
+        insert-fetch-ops looks at these wait and update barriers for the group to determine the latest point the descriptors for
+        the group must be fetched and earliest point when they can be evicted from metadata thus having a update and wait barrier
+        is a must. This pass inserts these barriers if not present already due to other compiler optimizations
+    }];
+
+    let constructor = "vpux::VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass()";
+
+    let options = [
+        Option<
+            "workloadManagementModeOpt", "workload-management-mode",
+            "vpux::WorkloadManagementMode", "",
+            "Setting which controls mode of WLM",
+            [{::llvm::cl::values(
+            clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "Legacy WLM"),
+            clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM with Barrier FIFO enabled")
+          )}]
+        >
+    ];
+
 }
 
 #endif

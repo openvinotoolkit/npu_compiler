@@ -28,38 +28,58 @@ using namespace vpux;
 //
 
 namespace {
-
-void setupPWLMCompilationParams(int optimizationLevel, BackendCompilationOptions40XX& backendCompilationOptions,
-                                bool useWlm) {
+void setupPWLMCompilationParams(int optimizationLevel, DefaultHWOptions40XX& compilationOptions, bool useWlm) {
     if (!useWlm) {
-        backendCompilationOptions.enablePartialWorkloadManagement = false;
+        compilationOptions.workloadManagementEnable = false;
         return;
     }
-    bool isEnablePartialWorkloadManagementSet =
-            backendCompilationOptions.enablePartialWorkloadManagement.getNumOccurrences() > 0;
-    if (!isEnablePartialWorkloadManagementSet) {
+    bool isworkloadManagementEnableSet = compilationOptions.workloadManagementEnable.hasValue() ? true : false;
+
+    if (!isworkloadManagementEnableSet) {
+        std::optional<int> originalValueBarrierCountThreshold = std::nullopt;
+        std::optional<WorkloadManagementMode> originalValueWorkloadManagementMode = std::nullopt;
+
+        if (compilationOptions.workloadManagementMode.hasValue()) {
+            originalValueWorkloadManagementMode = compilationOptions.workloadManagementMode;
+        }
+
+        if (compilationOptions.workloadManagementBarrierCountThreshold.hasValue()) {
+            originalValueBarrierCountThreshold = compilationOptions.workloadManagementBarrierCountThreshold;
+        }
+
         switch (optimizationLevel) {
         case 0:
-            backendCompilationOptions.enablePartialWorkloadManagement = false;
+            compilationOptions.workloadManagementEnable = false;
             break;
         case 1:
-            backendCompilationOptions.enablePartialWorkloadManagement = true;
+            compilationOptions.workloadManagementEnable = true;
             break;
         case 2: {
-            backendCompilationOptions.enablePartialWorkloadManagement = true;
-            bool isWlmOptimizationThresholdSet =
-                    backendCompilationOptions.wlmOptimizationThreshold.getNumOccurrences() > 0;
-            if (!isWlmOptimizationThresholdSet) {
-                backendCompilationOptions.wlmOptimizationThreshold = std::numeric_limits<int>::max();
-            }
+            compilationOptions.workloadManagementEnable = true;
+            compilationOptions.workloadManagementBarrierCountThreshold = std::numeric_limits<int>::max();
+            break;
+        }
+        case 3: {
+            compilationOptions.workloadManagementEnable = true;
+            compilationOptions.workloadManagementBarrierCountThreshold = std::numeric_limits<int>::max();
+            compilationOptions.workloadManagementMode = WorkloadManagementMode::PWLM_V1_BARRIER_FIFO;
             break;
         }
         default:
             VPUX_THROW("Unexpected optimization-level. Actual value = {0}\n"
                        "Possible values: 0 - optimization for compilation time, "
-                       "1 - optimization for execution time (default), 2 - high optimization for execution time",
+                       "1 - optimization for execution time (default), 2 - high optimization for execution time, 3 - "
+                       "optimization for maximaze HW utilization, may affect compilation time and memory footprint",
                        optimizationLevel);
             break;
+        }
+
+        if (originalValueWorkloadManagementMode.has_value()) {
+            compilationOptions.workloadManagementMode = originalValueWorkloadManagementMode.value();
+        }
+
+        if (originalValueBarrierCountThreshold.has_value()) {
+            compilationOptions.workloadManagementBarrierCountThreshold = originalValueBarrierCountThreshold.value();
         }
     }
 }
@@ -86,34 +106,30 @@ void PipelineStrategy40XX::buildPipeline(mlir::PassManager& pm, const intel_npu:
     const auto enableProfiling = config.get<intel_npu::PERF_COUNT>();
     const auto compilationMode = getCompilationMode(config);
 
-    auto backendCompilationOptions =
-            BackendCompilationOptions40XX::createFromString(config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         const auto options = ReferenceSWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
         VPUX_THROW_UNLESS(options != nullptr, "buildPipeline failed to parse COMPILATION_MODE_PARAMS");
+        options->matchAndCopyOptionValuesFrom(initCompilerOptions);
         options->enableProfiling = enableProfiling;
         buildReferenceSWModePipeline(pm, *options, log.nest());
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        const auto options = ReferenceHWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
-        VPUX_THROW_UNLESS(options != nullptr, "buildPipeline failed to parse COMPILATION_MODE_PARAMS");
-        options->enableProfiling = enableProfiling;
-        buildReferenceHWModePipeline(pm, *options, log.nest());
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
-        const auto options = DefaultHWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+        auto options = DefaultHWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
         VPUX_THROW_UNLESS(options != nullptr, "buildPipeline failed to parse COMPILATION_MODE_PARAMS");
+        options->matchAndCopyOptionValuesFrom(initCompilerOptions);
+        setupPWLMCompilationParams(options->optimizationLevel, *options, options->workloadManagementEnable);
         options->enableProfiling = enableProfiling;
         options->enableConvertAvgPoolToDWConv = false;
         options->enableHandleAsymmetricStrides = false;
-        options->enablePartialWorkloadManagement = backendCompilationOptions->enablePartialWorkloadManagement;
-        options->wlmOptimizationThreshold = backendCompilationOptions->wlmOptimizationThreshold;
-        // TODO: E#108844 Support Compressed activation with Partial workload management
-        if (backendCompilationOptions->enablePartialWorkloadManagement) {
+        // TODO: E#-108844 Support Compressed activation with Partial workload management
+        if (options->workloadManagementEnable) {
             options->enableCompressActivationSpill = false;
         }
         buildDefaultHWModePipeline(pm, *options, log.nest());
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
-        ShaveCodeGenOptions40XX emptyOptions;
-        buildShaveCodeGenPipeline(pm, emptyOptions, log.nest());
+        auto options = ShaveCodeGenOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+        VPUX_THROW_UNLESS(options != nullptr, "buildPipeline failed to parse COMPILATION_MODE_PARAMS");
+        options->enableProfiling = enableProfiling;
+        buildShaveCodeGenPipeline(pm, *options, log.nest());
     } else {
         VPUX_THROW("Unsupported compilation mode '{0}'", compilationMode);
     }
@@ -133,15 +149,18 @@ void PipelineStrategy40XX::buildELFPipeline(mlir::PassManager& pm, const intel_n
                       config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
 
     if (compilationMode == VPU::CompilationMode::DefaultHW) {
-        const auto options = DefaultHWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+        auto options = DefaultHWOptions40XX::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
         VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",
                           config.get<intel_npu::COMPILATION_MODE_PARAMS>());
-        setupPWLMCompilationParams(options->optimizationLevel, *backendCompilationOptions, useWlm);
+        setupPWLMCompilationParams(options->optimizationLevel, *options, useWlm);
         dpuDryRunMode = VPU::getDPUDryRunMode(options->dpuDryRun);
         backendCompilationOptions->enableDMAProfiling = options->enableDMAProfiling.getValue();
         backendCompilationOptions->enableShaveDDRAccessOptimization = options->enableShaveDDRAccessOptimization;
         backendCompilationOptions->enableDumpStatisticsOfWlmOps = options->enableDumpTaskStats;
-        backendCompilationOptions->wlmVpurtEnqueue = options->wlmVpurtEnqueue;
+        backendCompilationOptions->workloadManagementBarrierCountThreshold =
+                options->workloadManagementBarrierCountThreshold;
+        backendCompilationOptions->workloadManagementMode = options->workloadManagementMode;
+        backendCompilationOptions->workloadManagementEnable = options->workloadManagementEnable;
     }
     arch40xx::buildLowerVPUIP2ELFPipeline(pm, *backendCompilationOptions, log.nest(), dpuDryRunMode);
 }

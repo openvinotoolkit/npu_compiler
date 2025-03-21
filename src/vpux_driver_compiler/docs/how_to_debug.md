@@ -77,4 +77,4 @@ NPU_COMPILER_TYPE DRIVER
 
 
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler

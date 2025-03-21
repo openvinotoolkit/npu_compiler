@@ -13,6 +13,12 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTSCALESHIFTFORDWCONV
+#define GEN_PASS_DEF_ADJUSTSCALESHIFTFORDWCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -63,7 +69,8 @@ mlir::LogicalResult mergeNCAndRewrite(mlir::PatternRewriter& rewriter, mlir::MLI
 // AdjustScaleShiftForDWConvPass
 //
 
-class AdjustScaleShiftForDWConvPass final : public IE::AdjustScaleShiftForDWConvBase<AdjustScaleShiftForDWConvPass> {
+class AdjustScaleShiftForDWConvPass final :
+        public IE::impl::AdjustScaleShiftForDWConvBase<AdjustScaleShiftForDWConvPass> {
 public:
     explicit AdjustScaleShiftForDWConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

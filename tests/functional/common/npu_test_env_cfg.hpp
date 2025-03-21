@@ -7,6 +7,7 @@
 
 #include "base/ov_behavior_test_utils.hpp"
 #include "common/utils.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 
 #include <gtest/gtest.h>
 #include <openvino/runtime/device_id_parser.hpp>

@@ -5,14 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
-#include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
-
 #include "vpux/compiler/core/profiling.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
-#include "vpux/compiler/utils/passes.hpp"
-
+#include "vpux/compiler/utils/options.hpp"
 #include "vpux/utils/core/logger.hpp"
 
 #include <mlir/IR/BuiltinOps.h>
@@ -38,12 +32,14 @@ std::unique_ptr<mlir::Pass> createUnGroupExecutionOpsPass(Logger log = Logger::g
 std::unique_ptr<mlir::Pass> createAddFetchOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createResolveWLMTaskLocationPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createPropagateFinalBarrierPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createAddEnqueueOpsPass(WlmVpurtEnqueueMode wlmVpurtEnqueue = WlmVpurtEnqueueMode::DISABLED,
-                                                    Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAddEnqueueOpsPass(
+        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,
+        Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollFetchTaskOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLinkEnqueueTargetsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLinkAllOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollEnqueueOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createLinkEnqueueOpsForSameBarrierPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitEnqueueOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddBootstrapOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createNextSameIdAssignmentPass(Logger log = Logger::global());
@@ -54,19 +50,11 @@ std::unique_ptr<mlir::Pass> createAddMappedInferenceVersionOpPass(Logger log = L
                                                                   uint32_t versionMajor = 0, uint32_t versionMinor = 0,
                                                                   uint32_t versionPatch = 0);
 
-std::unique_ptr<mlir::Pass> createUpdateMappedInferenceVersionOpPass(Logger log = Logger::global());
-
 //
-// Generated
+// Registration
 //
 
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace VPUMI40XX
 }  // namespace vpux

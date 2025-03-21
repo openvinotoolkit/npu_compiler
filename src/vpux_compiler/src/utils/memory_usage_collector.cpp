@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/utils/memory_usage_collector.hpp"
-#include "vpux/compiler/core/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/utils/core/memory_usage.hpp"
 
 #include <mlir/Pass/PassInstrumentation.h>

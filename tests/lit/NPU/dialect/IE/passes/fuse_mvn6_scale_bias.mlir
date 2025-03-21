@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-mvn6-scale-bias %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @FuseMVN6WithScale
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x150x64x8xf16>, [[SCALE:%.+]]: tensor<1x150x64x8xf16>
 func.func @FuseMVN6WithScale(%arg0: tensor<1x150x64x8xf16>, %arg1: tensor<1x150x64x8xf16>) -> tensor<1x150x64x8xf16> {

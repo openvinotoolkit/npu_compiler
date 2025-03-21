@@ -6,7 +6,14 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MVNFUSION
+#define GEN_PASS_DEF_MVNFUSION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -230,7 +237,7 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
 // MVNFusionPass
 //
 
-class MVNFusionPass final : public IE::MVNFusionBase<MVNFusionPass> {
+class MVNFusionPass final : public IE::impl::MVNFusionBase<MVNFusionPass> {
 public:
     explicit MVNFusionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

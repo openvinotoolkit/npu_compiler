@@ -146,7 +146,7 @@ The tools can be used to perform a full compilation of a model:
 ./vpux-translate --vpu-arch=NPU37XX --import-IE <path to OV IR> -o net.mlir
 
 # Call the DefaultHWMode pipeline over the imported IR
-./vpux-opt --vpu-arch=NPU37XX --default-hw-mode net.mlir -o net_out.mlir
+./vpux-opt --vpu-arch=NPU37XX --default-hw-mode --lower-VPUIP-to-ELF net.mlir -o net_out.mlir
 
 # Export the final IR into an ELF file
 ./vpux-translate --vpu-arch=NPU37XX --export-ELF net_out.mlir > net.blob
@@ -170,6 +170,41 @@ The compiler contains a pass which can generate a Dot Graph representation of th
 
 - Using the compiler pipeline, by manually adding the `PrintDot` pass where desired and rebuilding the project
   - example: `pm.addPass(createPrintDot(<FileName>, <Options>));`
+
+## Debugging barrier dependencies
+
+At several stages of compilation the structure of the control graph may change due to adding new tasks,
+reordering tasks, optimizing tasks dependencies etc. It is possible to check what exactly has changed after applying some
+transformations either across several passes, within single pass or some individual routine. BarrierInfo class
+offers methods to dump actual state of barrier dependencies at any stage of compilation where the concept of barriers is defined (i.e. in the VPUIP and VPURT dialects). This is typically done
+as follows:
+
+```cpp
+    auto& barrierInfo = getAnalysis<BarrierInfo>();
+    barrierInfo.dumpBarriers("beforeTransformation"); // dump state before barrier optimization
+    barrierInfo.optimizeBarriers(/* checkValidSlotCount */ false, _considerTaskFifoDependency);
+    barrierInfo.dumpBarriers("afterTransformation"); // dump state after barrier optimization
+```
+
+The subsequent compilation will generate a set of files prefixed "beforeTransformation" and "afterTransformation" respectively, containing the corresponding states of the graph.
+Extensions of the dumped files are as follows:
+- taskUpdateBarriers - contains list of indexes of update barriers for each task in the graph. Each row starts with a unique task index.
+- taskWaitBarriers - contains list of indexes of wait barriers for each task in the graph. Each row starts with a unique task index.
+- barrierProducerMap - contains list of indexes of producers for each barrier in the graph. Each row starts with a unique barrier index.
+- barrierConsumerMap - contains list of indexes of consumers for each barrier in the graph. Each row starts with a unique barrier index.
+- slots - contains number of slots occupied by a task when it waits or updates a barrier. Each row starts with a unique task index.
+- taskQueueTypeMap - contains list task indexes in each queue. Each row starts with queue name, followed by a number tasks in the queue (provided within parentheses), followed by a colon.
+
+At times, it is also handy to print out the `module` or the main function, in order to make a connection between tasks/barriers indexes from the dump files and their IR representation. Tracing graph changes is not limited to methods of the BarrierInfo class, but an object of that class needs to be created in order to dump the graph dependencies with the actual state of the IR.
+
+Quick investigation of the dependencies from the dump files can be easier than browsing the IR. A plotting tool (located in `tools/barrier-plotter`) can process the dump files and generate `dot` graphs, ready for viewing with e.g. `xdot`. It also exports the `dot` files to `PDF`.
+
+Example usage:
+
+```python
+plot_barriers.py beforeTransformation -o beforeTransformation
+```
+This command will read dump files `beforeTransformation.taskUpdateBarriers`, `beforeTransformation.taskWaitBarriers`, `beforeTransformation.slots` and `beforeTransformation.taskQueueTypeMap` and will produce `beforeTransformation.dot` and `beforeTransformation.dot.pdf`. The output file prefix need not be identical with the dump files prefix and can be adjusted to indicate the dump point and/or compilation configuration.
 
 **Notes**
 - By default, declarations and constants are not included. To include them, add `print-declarations=true and print-const=true` to the pass options.

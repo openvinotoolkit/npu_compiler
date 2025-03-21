@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --apply-tiling-mvn1sum %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
   IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
@@ -182,4 +181,41 @@ module @executors {
 
       // CHECK:            return [[MVN1MEANVAR]]
   }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module {
+
+IE.TileResource 2 of @NCE at 1.850000e+03 MHz {
+    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+    IE.ExecutorResource 2 of @SHAVE_ACT
+    IE.ExecutorResource 1 of @DPU
+}
+
+// CHECK-LABEL: func.func @SOKTilingMVN1SumEqualChannelsToClusters
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<3x2x200000x1xf16, {order = #NHWC}>
+func.func @SOKTilingMVN1SumEqualChannelsToClusters(%arg0: tensor<3x2x200000x1xf16, {order = #NHWC}>) -> (tensor<3x1x1x2xf16, {order = #NHWC}>) {
+    %0 = VPU.MVN1SumOp(%arg0) {across_channels = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, normalize_variance = true, output_height = 2 : i64} : tensor<3x2x200000x1xf16, {order = #NHWC}> -> tensor<3x1x2x2xf32, {order = #NHWC}>
+    %1 = VPU.MVN1MeanVar(%0) {across_channels = true, eps = 1.000000e-09 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>, normalize_variance = true, orig_shape = [3, 2, 200000, 1], output_type = f16} : tensor<3x1x2x2xf32, {order = #NHWC}> -> tensor<3x1x1x2xf16, {order = #NHWC}>
+    return %1 : tensor<3x1x1x2xf16, {order = #NHWC}>
+
+    // CHECK:            [[INPUT_TILE_1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [3, 2, 100000, 1] : tensor<3x2x200000x1xf16, {order = #NHWC}> to tensor<3x2x100000x1xf16, {order = #NHWC}>
+    // CHECK:            [[TILE_1:%.+]] = VPU.MVN1SumOp([[INPUT_TILE_1]])
+
+    // CHECK:            [[INPUT_TILE_2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 100000, 0] [3, 2, 100000, 1] : tensor<3x2x200000x1xf16, {order = #NHWC}> to tensor<3x2x100000x1xf16, {order = #NHWC}>
+    // CHECK:            [[TILE_2:%.+]] = VPU.MVN1SumOp([[INPUT_TILE_2]])
+
+    // CHECK:            [[CONCAT:%.+]] = VPU.Concat([[TILE_1]], [[TILE_2]])
+    // CHECK-SAME:           -> tensor<3x1x1x4xf32, {order = #NHWC}>
+
+    // CHECK:            [[VAL3:%.+]] = VPU.MVN1MeanVar([[CONCAT]])
+    // CHECK-SAME:           -> tensor<3x1x1x2xf16, {order = #NHWC}>
+
+    // CHECK:            return [[VAL3]]
+}
+
 }

@@ -9,6 +9,12 @@
 #include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_USEUSERPRECISION
+#define GEN_PASS_DEF_USEUSERPRECISION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -17,7 +23,7 @@ namespace {
 // UseUserPrecisionPass
 //
 
-class UseUserPrecisionPass final : public IE::UseUserPrecisionBase<UseUserPrecisionPass> {
+class UseUserPrecisionPass final : public IE::impl::UseUserPrecisionBase<UseUserPrecisionPass> {
 public:
     explicit UseUserPrecisionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

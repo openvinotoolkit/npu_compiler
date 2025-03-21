@@ -10,6 +10,12 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZETILEOP
+#define GEN_PASS_DEF_OPTIMIZETILEOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -128,7 +134,7 @@ mlir::LogicalResult FoldTileOpRewriter::matchAndRewrite(IE::TileOp origOp, mlir:
 // OptimizeTileOpPass
 //
 
-class OptimizeTileOpPass final : public IE::OptimizeTileOpBase<OptimizeTileOpPass> {
+class OptimizeTileOpPass final : public IE::impl::OptimizeTileOpBase<OptimizeTileOpPass> {
 public:
     explicit OptimizeTileOpPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -22,10 +22,10 @@ size_t getFirmwareVariantCount(bool enableWorkloadManagement) {
 }  // namespace
 
 size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantSum() const {
-    return static_cast<size_t>(getBarrierMaxVariantSumRatio(_enablePartialWorkloadManagement) *
-                               getFirmwareVariantCount(_enablePartialWorkloadManagement));
+    return static_cast<size_t>(getBarrierMaxVariantSumRatio(_workloadManagementEnable) *
+                               getFirmwareVariantCount(_workloadManagementEnable));
 }
 
 size_t PerBarrierVariantConstraint::getPerBarrierMaxVariantCount() const {
-    return static_cast<size_t>(barrierMaxVariantCountRatio * getFirmwareVariantCount(_enablePartialWorkloadManagement));
+    return static_cast<size_t>(barrierMaxVariantCountRatio * getFirmwareVariantCount(_workloadManagementEnable));
 }

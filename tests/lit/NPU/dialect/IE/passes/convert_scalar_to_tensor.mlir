@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-scalar-to-tensor %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @Gather
 func.func @Gather(%arg0: tensor<18x8x72x64xf16>) -> tensor<8x72x64xf16> {
     %cst = const.Declare tensor<si32> = dense<1> : tensor<si32>

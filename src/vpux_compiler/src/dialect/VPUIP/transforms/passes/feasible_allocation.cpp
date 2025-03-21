@@ -30,6 +30,12 @@
 
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_FEASIBLEALLOCATION
+#define GEN_PASS_DEF_FEASIBLEALLOCATION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -184,7 +190,7 @@ mlir::LogicalResult AllocDistributedRewrite::matchAndRewrite(VPURT::AllocDistrib
 // FeasibleAllocationPass
 //
 
-class FeasibleAllocationPass final : public VPUIP::FeasibleAllocationBase<FeasibleAllocationPass> {
+class FeasibleAllocationPass final : public VPUIP::impl::FeasibleAllocationBase<FeasibleAllocationPass> {
 public:
     FeasibleAllocationPass(VPUIP::MemKindCreateFunc memKindCb, VPUIP::MemKindCreateFunc secondLevelmemKindCb,
                            bool linearizeSchedule, bool enablePipelining, bool enablePrefetching,
@@ -462,10 +468,10 @@ void FeasibleAllocationPass::updateCycleAfterAllScheduleOptimizations(
     };
 
     // store cycle end of operations used for dependency tracking and schedule cycle
-    std::unordered_map<size_t, size_t> opCycleEndMap;
+    std::unordered_map<FeasibleMemoryScheduler::operationIdxType, int64_t> opCycleEndMap;
 
     // check if all dependencies were scheduled
-    auto isOperationReady = [&](size_t opIndex, size_t& depCycleEnd) {
+    auto isOperationReady = [&](size_t opIndex, int64_t& depCycleEnd) {
         mlir::async::ExecuteOp execOp = depsInfo.getExecuteOpAtIndex(opIndex);
         VPUX_THROW_UNLESS(execOp != nullptr, "Async ExecuteOp not located based on index");
         for (const auto& dep : execOp.getDependencies()) {
@@ -484,7 +490,7 @@ void FeasibleAllocationPass::updateCycleAfterAllScheduleOptimizations(
     };
 
     // store cycle state per queue to find next free cycles on given queue
-    std::map<std::pair<FeasibleMemoryScheduler::QueueType, size_t>, size_t> queueCycleState;
+    std::map<std::pair<FeasibleMemoryScheduler::QueueType, size_t>, int64_t> queueCycleState;
 
     // find next ready operations from parallel queues, and update their execution cycles
     auto getNextReadyOps = [&]() {
@@ -502,7 +508,7 @@ void FeasibleAllocationPass::updateCycleAfterAllScheduleOptimizations(
             }
 
             // ensure dependencies scheduled
-            size_t depCycleEnd = 0;
+            int64_t depCycleEnd = 0;
             if (!isOperationReady(currOp->op_, depCycleEnd)) {
                 continue;
             }

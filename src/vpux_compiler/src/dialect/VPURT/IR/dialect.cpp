@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 
 #include <mlir/Transforms/InliningUtils.h>

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --split-fake-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK: !qElemType = !quant.uniform<u8:f32, 1.000000e+00>
 // CHECK-LABEL: @SingleQuantParams
 // CHECK-SAME:       ([[INPUT:%.+]]: tensor<1x3x30x30xf32>)
@@ -191,7 +190,7 @@ func.func @UseDequantize() -> tensor<1x3x30x30xf32> {
     return %0 : tensor<1x3x30x30xf32>
 
     // CHECK-DAG:       [[VAL0:%.*]] = const.Declare tensor<1x3x30x30x!qElemType> =
-    // CHECK-SAME:      dense<10> : tensor<1x3x30x30xui8>, [#const.CastElemType<!qElemType>]
+    // CHECK-SAME:      dense<10> : tensor<1x3x30x30xui8>, [#const.CastElemType<f32>, #const.CastElemType<!qElemType>]
 
     // CHECK:       [[VAL1:%.*]] = IE.Dequantize([[VAL0]])
     // CHECK-SAME:      {dstElemType = f32}
@@ -516,7 +515,7 @@ func.func @ConstantsSplitFakeQuantForMultiZP(%arg0: tensor<1x3x16x16xf16>) -> te
     return %1 : tensor<1x3x16x16xf16>
 
     // CHECK-NOT:   IE.FakeQuantize
-    // CHECK-DAG:   [[CST:%.*]] = const.Declare tensor<3x3x1x1xf16> = dense<9> : tensor<3x3x1x1xui8>, [#const.CastElemType<!qElemType>, #const.Dequantize]
+    // CHECK-DAG:   [[CST:%.*]] = const.Declare tensor<3x3x1x1xf16> = dense<9> : tensor<3x3x1x1xui8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>, #const.Dequantize]
     // CHECK:       [[CONV:%.*]] =  IE.Convolution(%arg0, [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x16x16xf16>, tensor<3x3x1x1xf16> -> tensor<1x3x16x16xf16>
 
     // CHECK:       return [[CONV]] : tensor<1x3x16x16xf16>
@@ -603,7 +602,7 @@ func.func @NF4ConstantsSplitFakeQuant(%arg0: tensor<1x1x28x28xf16>) -> tensor<1x
     return %1 : tensor<1x1x29x29xf16>
 
     // CHECK-NOT:       IE.FakeQuantize
-    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2x!QuantileFloat.quantileFloat<4, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>> isSplat, [#const.ConvertElemType<si8>, #const.CastElemType<!qElemType>]
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2x!QuantileFloat.quantileFloat<4, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>> isSplat, [#const.ConvertElemType<si8>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>]
     // CHECK: [[DQ_CST:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16}
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DQ_CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x28x28xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x29x29xf16>
     // CHECK: return [[CONV]]
@@ -620,6 +619,29 @@ func.func @NegativeScalesSplitFakeQuant(%arg0: tensor<1x3xf16>) -> tensor<1x3xf1
     %cst_0 = const.Declare tensor<1x1xf16> = dense<1.270000e+02> : tensor<1x1xf16>
     %cst_1 = const.Declare tensor<3x1xf16> = dense<[[1.386720e-01], [-8.593750e-02], [8.154300e-02]]> : tensor<3x1xf16>
     %cst_2 = const.Declare tensor<3x1xf16> = dense<[[-1.375730e-01], [8.526610e-02], [-8.093260e-02]]> : tensor<3x1xf16>
+    %cst_3 = const.Declare tensor<3x3xf16> = dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>]
+    %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3xf16>, tensor<1x1xf16>, tensor<1x1xf16>, tensor<3x1xf16>, tensor<3x1xf16> -> tensor<3x3xf16>
+    %1 = IE.FullyConnected(%arg0, %0) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>
+    return %1 : tensor<1x3xf16>
+
+    // CHECK: [[WT:%.+]] = const.Declare tensor<3x3x!qElemType>
+    // CHECK-SAME-LITERAL: dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+    // CHECK: [[DQ_WT:%.+]] = IE.Dequantize([[WT]]) {dstElemType = f16} : tensor<3x3x!qElemType> -> tensor<3x3xf16>
+    // CHECK: [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[DQ_WT]]) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>
+    // CHECK: return [[FC]] : tensor<1x3xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16:0, {-2.22213e-18,2.77587e-17,-1.61586e-16}>
+
+// CHECK-LABEL: @VerySmallScalesSplitFakeQuant
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x3xf16>
+func.func @VerySmallScalesSplitFakeQuant(%arg0: tensor<1x3xf16>) -> tensor<1x3xf16> {
+    %cst = const.Declare tensor<1x1xf16> = dense<-1.280000e+02> : tensor<1x1xf16>
+    %cst_0 = const.Declare tensor<1x1xf16> = dense<1.270000e+02> : tensor<1x1xf16>
+    %cst_1 = const.Declare tensor<3x1xf16> = dense<[[2.84432e-16], [-3.55311e-15], [2.0683e-14]]> : tensor<3x1xf16>
+    %cst_2 = const.Declare tensor<3x1xf16> = dense<[[-2.8221e-16], [3.52535e-15], [-2.05215e-14]]> : tensor<3x1xf16>
     %cst_3 = const.Declare tensor<3x3xf16> = dense<[[64, 63, 112], [-8, 62, -8], [8, 63, 16]]> : tensor<3x3xsi8>, [#const.CastElemType<f16>]
     %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<3x3xf16>, tensor<1x1xf16>, tensor<1x1xf16>, tensor<3x1xf16>, tensor<3x1xf16> -> tensor<3x3xf16>
     %1 = IE.FullyConnected(%arg0, %0) : tensor<1x3xf16>, tensor<3x3xf16> -> tensor<1x3xf16>

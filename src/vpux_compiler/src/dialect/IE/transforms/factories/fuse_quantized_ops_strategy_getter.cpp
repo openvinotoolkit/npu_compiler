@@ -18,11 +18,10 @@ std::unique_ptr<IGreedilyPassStrategy> createFuseQuantizedOpsStrategy(mlir::func
     case VPU::ArchKind::NPU40XX: {
         return std::make_unique<arch37xx::FuseQuantizedOpsStrategy>(seOpsEnabled, seExperimentalOpsEnabled);
     }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unable to get FuseQuantizedOpsStrategy for arch {0}", arch);
     }
     }
+    VPUX_THROW("Unable to get FuseQuantizedOpsStrategy for arch {0}", arch);
 }
 
 }  // namespace vpux::IE

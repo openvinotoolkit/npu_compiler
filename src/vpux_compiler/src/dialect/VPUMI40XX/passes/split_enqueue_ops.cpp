@@ -3,14 +3,22 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <llvm/ADT/STLExtras.h>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_SPLITENQUEUEOPS
+#define GEN_PASS_DEF_SPLITENQUEUEOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -22,7 +30,7 @@ namespace {
 // enqueue2 = [var3, var4]
 // enqueue3 = [var5]
 
-class SplitEnqueueOpsPass : public VPUMI40XX::SplitEnqueueOpsBase<SplitEnqueueOpsPass> {
+class SplitEnqueueOpsPass : public VPUMI40XX::impl::SplitEnqueueOpsBase<SplitEnqueueOpsPass> {
 public:
     explicit SplitEnqueueOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -66,7 +74,8 @@ void SplitEnqueueOpsPass::safeRunOnFunc() {
 
                 auto newEnque = builder.create<VPURegMapped::EnqueueOp>(
                         start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
-                        enqueueOp.getTaskType(), start.getResult(), breakingPoint.getResult());
+                        /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), start.getResult(),
+                        breakingPoint.getResult());
                 start = mlir::cast<VPURegMapped::TaskOpInterface>(breakingPoint).getNextTask();
                 prevEnqueue = newEnque;
 
@@ -83,9 +92,10 @@ void SplitEnqueueOpsPass::safeRunOnFunc() {
         // If breakpoint was detected at least once. Old enqueue is no longer valid and replace it with
         // one that will properly take int oaccount already created ones
         if (breakPointDetected) {
-            auto lastNewEnq = builder.create<VPURegMapped::EnqueueOp>(start.getLoc(), enqueueOp.getType(), prevEnqueue,
-                                                                      enqueueOp.getBarrier(), enqueueOp.getTaskType(),
-                                                                      start.getResult(), end.getResult());
+            auto lastNewEnq = builder.create<VPURegMapped::EnqueueOp>(
+                    start.getLoc(), enqueueOp.getType(), prevEnqueue, enqueueOp.getBarrier(),
+                    /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), start.getResult(),
+                    end.getResult());
 
             enqueueOp.getResult().replaceUsesWithIf(lastNewEnq, [](mlir::OpOperand& operand) {
                 return !mlir::isa<VPUMI40XX::MappedInferenceOp>(operand.getOwner());

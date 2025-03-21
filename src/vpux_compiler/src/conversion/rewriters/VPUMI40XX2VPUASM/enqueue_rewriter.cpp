@@ -19,6 +19,17 @@ mlir::FailureOr<SymbolizationResult> EnqueueRewriter::symbolize(VPURegMapped::En
         return op.emitOpError("Rewriting enqueueOp with the range > 1");
     }
 
+    mlir::TypeAttr nextWorkItemIndexAttr = nullptr;
+
+    for (auto user : result.getUsers()) {
+        if (auto enqUserOp = mlir::dyn_cast<VPURegMapped::EnqueueOp>(user)) {
+            if (result == enqUserOp.getPreviousTaskIdxOnSameBarrier()) {
+                nextWorkItemIndexAttr = mlir::TypeAttr::get(enqUserOp.getType());
+                break;
+            }
+        }
+    }
+
     // we enqueue the location projection of the first task
     auto firstTask = mlir::cast<VPURegMapped::TaskOpInterface>(op.getStart().getDefiningOp());
     auto firstTaskSym =
@@ -28,9 +39,9 @@ mlir::FailureOr<SymbolizationResult> EnqueueRewriter::symbolize(VPURegMapped::En
 
     auto realTaskIdx = mlir::TypeAttr::get(op.getStart().getType());
 
-    auto newOp =
-            rewriter.create<VPUASM::WorkItemOp>(op.getLoc(), symName, taskIdx, realTaskIdx, op.getTaskTypeAttr(),
-                                                firstTaskSym, rewriter.getI64IntegerAttr(static_cast<int64_t>(count)));
+    auto newOp = rewriter.create<VPUASM::WorkItemOp>(op.getLoc(), symName, taskIdx, realTaskIdx, nextWorkItemIndexAttr,
+                                                     op.getTaskTypeAttr(), firstTaskSym,
+                                                     rewriter.getI64IntegerAttr(static_cast<int64_t>(count)));
     rewriter.eraseOp(op);
 
     return SymbolizationResult(newOp);

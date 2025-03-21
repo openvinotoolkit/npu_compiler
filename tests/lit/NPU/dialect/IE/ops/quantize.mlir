@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 2.4627450980392158>
 !qElemType2 = !quant.uniform<u8:f16, 1.23423>
 
@@ -16,7 +15,7 @@ func.func @ConstFoldWithRealQuantize() -> tensor<1x8x4x4x!qElemType> {
 
     // CHECK:       [[VAL0:%.*]] = const.Declare tensor<1x8x4x4x!qElemType> = dense<5.000000e+00> : tensor<1x8x4x4xf32>,
     // CHECK-SAME:          [#const.CastElemType<ui8>, #const.CastElemType<!qElemType1>,
-    // CHECK-SAME:           #const.Dequantize, #const.Quantize<!qElemType>]
+    // CHECK-SAME:           #const.Dequantize, #const.Quantize<!qElemType>, #const.CastElemType<!qElemType>]
     // CHECK-NOT:   IE.Quantize
     // CHECK:       return [[VAL0]]
 }
@@ -32,7 +31,7 @@ func.func @ConstFold() -> tensor<1x8x4x4x!qElemType> {
 
     // CHECK:       [[VAL0:%.*]] = const.Declare tensor<1x8x4x4x!qElemType> =
     // CHECK-SAME:       dense<5.000000e+00> : tensor<1x8x4x4xf32>,
-    // CHECK-SAME:       [#const.CastElemType<!qElemType>]
+    // CHECK-SAME:       [#const.Quantize<!qElemType>, #const.CastElemType<!qElemType>]
     // CHECK-NOT:   IE.Quantize
     // CHECK:       return [[VAL0]]
 }

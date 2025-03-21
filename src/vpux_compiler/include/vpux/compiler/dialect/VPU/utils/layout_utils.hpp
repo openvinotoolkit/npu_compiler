@@ -31,12 +31,13 @@ void inferLayoutInfoSameAnyDimsOrder(IE::LayerLayoutInfo& info);
 
 mlir::LogicalResult verifySameInOutSpecificDimsOrder(mlir::Operation* op, ArrayRef<DimsOrder> supportedLayouts);
 void inferLayoutInfoSameInOutSpecificDimsOrder(IE::LayerLayoutInfo& info, ArrayRef<DimsOrder> supportedLayouts);
+
 mlir::LogicalResult verifySameMultipleInOutSpecificDimsOrder(mlir::Operation* op, ArrayRef<DimsOrder> supportedLayouts);
+void inferSameMultipleInOutSpecificDimsOrder(IE::LayerLayoutInfo& info, ArrayRef<DimsOrder> supportedLayouts);
 
 mlir::LogicalResult verifyReduceLayoutInfo(mlir::Operation* op);
 void inferReduceLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
 
-mlir::FailureOr<DimsOrder> inferAffineReshapeOutputLayout(const DimArr& inPerm, mlir::ArrayAttr dimMapAttr);
 mlir::LogicalResult verifyAffineReshapeLayoutInfo(mlir::Operation* op);
 void inferAffineReshapeLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
 
@@ -324,20 +325,20 @@ public:
 };
 
 //
-// SameInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC
+// SameMultipleInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC
 //
 
-class SameInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC final :
-        public IE::LayoutInfoOpInterface::FallbackModel<SameInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC> {
+class SameMultipleInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC final :
+        public IE::LayoutInfoOpInterface::FallbackModel<SameMultipleInOutDimsOrderOpModelForSW_NCHW_NCWH_NHWC_NWHC> {
 public:
     static void inferLayoutInfo(mlir::Operation* /*op*/, IE::LayerLayoutInfo& info, const bool /*seOpsEnabled*/,
                                 const bool /*seExperimentalOpsEnabled*/) {
-        VPU::inferLayoutInfoSameInOutSpecificDimsOrder(
+        VPU::inferSameMultipleInOutSpecificDimsOrder(
                 info, {DimsOrder::NCHW, DimsOrder::NCWH, DimsOrder::NHWC, DimsOrder::NWHC});
     }
 
     mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
-        return VPU::verifySameInOutSpecificDimsOrder(
+        return VPU::verifySameMultipleInOutSpecificDimsOrder(
                 origOp, {DimsOrder::NCHW, DimsOrder::NCWH, DimsOrder::NHWC, DimsOrder::NWHC});
     }
 
@@ -558,27 +559,6 @@ public:
 
     mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
         return VPU::verifySameAnyDimsOrder(origOp);
-    }
-
-    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
-        return IE::getLayoutInfo(origOp);
-    }
-};
-
-//
-// SameMultipleInOutDimsOrderOpModelForHW_NHWC
-//
-
-class SameMultipleInOutDimsOrderOpModelForHW_NHWC final :
-        public IE::LayoutInfoOpInterface::FallbackModel<SameMultipleInOutDimsOrderOpModelForHW_NHWC> {
-public:
-    static void inferLayoutInfo(mlir::Operation*, IE::LayerLayoutInfo& info, const bool /*seOpsEnabled*/,
-                                const bool /*seExperimentalOpsEnabled*/) {
-        info.fill(DimsOrder::NHWC);
-    }
-
-    mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
-        return VPU::verifySameMultipleInOutSpecificDimsOrder(origOp, {DimsOrder::NHWC});
     }
 
     IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {

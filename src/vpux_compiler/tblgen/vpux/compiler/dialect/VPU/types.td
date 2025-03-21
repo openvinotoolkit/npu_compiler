@@ -6,11 +6,11 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_TYPES
 #define VPUX_COMPILER_DIALECT_VPU_TYPES
 
-include "vpux/compiler/core/type_interfaces.td"
+include "vpux/compiler/dialect/core/type_interfaces.td"
 include "vpux/compiler/dialect/VPU/dialect.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/type_interfaces.td"
-include "vpux/compiler/core/type_interfaces.td"
+include "vpux/compiler/dialect/core/type_interfaces.td"
 
 include "mlir/IR/BuiltinTypeInterfaces.td"
 

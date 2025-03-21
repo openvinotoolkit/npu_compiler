@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/core/pipelines_options.hpp"
+#include "vpux/compiler/utils/options.hpp"
 
 namespace vpux {
 namespace arch40xx {
@@ -45,22 +46,21 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
     BoolOption shaveDryRun{*this, "shave-dry-run", llvm::cl::desc("Enable shave dry run stripping"),
                            llvm::cl::init(false)};
 
-    BoolOption enablePartialWorkloadManagement{*this, "enable-partial-workload-management",
-                                               llvm::cl::desc("Enable partial workload management"),
-                                               llvm::cl::init(true)};
+    BoolOption workloadManagementEnable{*this, "workload-management-enable",
+                                        llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
 
-    IntOption wlmOptimizationThreshold{*this, "wlm-barriers-threshold",
-                                       llvm::cl::desc("Threshold for WLM optimization"),
-                                       llvm::cl::init(VIRTUAL_BARRIER_THRESHOLD_WLM)};
+    IntOption workloadManagementBarrierCountThreshold{*this, "workload-management-barrier-count-threshold",
+                                                      llvm::cl::desc("Threshold for WLM optimization"),
+                                                      llvm::cl::init(VIRTUAL_BARRIER_THRESHOLD_WLM)};
 
-    mlir::detail::PassOptions::Option<WlmVpurtEnqueueMode> wlmVpurtEnqueue{
-            *this, "wlm-vpurt-enqueue",
+    mlir::detail::PassOptions::Option<WorkloadManagementMode> workloadManagementMode{
+            *this, "workload-management-mode",
             ::llvm::cl::desc("Option for enabling WLM enqueue barriers search algorithm at VPURT. To be used only for "
                              "experiments."),
-            ::llvm::cl::init(WlmVpurtEnqueueMode::DISABLED),
-            ::llvm::cl::values(clEnumValN(WlmVpurtEnqueueMode::ENABLED, "ENABLED",
+            ::llvm::cl::init(WorkloadManagementMode::PWLM_V0_LCA),
+            ::llvm::cl::values(clEnumValN(WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO",
                                           "WLM enqueue barriers search algorithm at VPURT ENABLED"),
-                               clEnumValN(WlmVpurtEnqueueMode::DISABLED, "DISABLED",
+                               clEnumValN(WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA",
                                           "WLM enqueue barriers search algorithm at VPURT DISABLED. Use LCA based "
                                           "enqueue algorithm at VPUMI"))};
 
@@ -73,6 +73,12 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc(
                     "Enable output size ensurance when checking nce op shapes in EnsureNCEOpsSizeRequirements pass"),
             llvm::cl::init(true)};
+
+    BoolOption enableSegmentedDmaFusion{*this, "enable-segmented-dma-fusion",
+                                        llvm::cl::desc("Enable fusion of segmented DMAs"), llvm::cl::init(false)};
+    // VPUIP option shared with VPU pass
+    BoolOption enableWeightsSwizzling{*this, "enable-weights-swizzling", ::llvm::cl::desc("Enable weights swizzling"),
+                                      ::llvm::cl::init(true)};
 };
 
 //

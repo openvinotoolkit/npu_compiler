@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-unaligned-qdq-seq %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @OptimizeQuantDequantSequence
 func.func @OptimizeQuantDequantSequence(%arg0 : tensor<1x40x1x1xf16>, %arg1 : tensor<512x40x1x1xf16>) -> tensor<1x64x1x8xf16> {
   %cst_0 = const.Declare tensor<f16> = dense<0.0> : tensor<f16>

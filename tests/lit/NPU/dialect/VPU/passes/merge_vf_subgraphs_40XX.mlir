@@ -535,7 +535,7 @@ func.func @MergeVFWithTOC(%input: tensor<1x128x16x4xf16, {order = #NHWC}>, %inpu
 
     %eltwise = VPU.VerticalFusion (%conv1 as %arg1: tensor<1x6320x16x4xf16, {order = #NHWC}>,
                                    %conv0 as %arg2: tensor<1x6320x16x4xf16, {order = #NHWC}>)
-                                   attributes {tilingStrategy = [1, 1, 5, 1]} -> tensor<1x6320x16x4xf16, {order = #NHWC}> {
+                                   attributes {tilingStrategy = [1, 5, 1, 1]} -> tensor<1x6320x16x4xf16, {order = #NHWC}> {
             %inner = VPU.NCE.Eltwise(%arg1, %arg2) {is_inplace = true, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
                      op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} -> tensor<1x6320x16x4xf16, {order = #NHWC}>
       VPU.Yield %inner
@@ -740,4 +740,48 @@ func.func @MergeDequantizeAndConvSOK() -> tensor<1x1280x8x8xf16, {order = #NHWC}
     // CHECK: }
 
     // CHECK: return [[CONV_RES]] : tensor<1x1280x8x8xf16, {order = #NHWC}>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.072965068443148748>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
+    IE.MemoryResource 1000000 bytes of @CMX_NN
+}
+
+// CHECK-LABEL: @NotMergeVFDueToCost
+func.func @NotMergeVFDueToCost(%input: tensor<1x256x48x72xf16, {order = #NHWC}>,
+                          %weights: tensor<512x256x3x3x!qElemType, {order = #NHWC}>,
+                          %weights_1: tensor<512x512x3x3x!qElemType, {order = #NHWC}>,
+                          %wt: tensor<512x1x1x4xsi32>,
+                          %wt_1: tensor<512x1x1x4xsi32>) -> tensor<1x512x24x36x!qElemType, {order = #NHWC}> {
+
+      %0 = VPU.VerticalFusion (%input as %arg1: tensor<1x256x48x72x!qElemType, {order = #NHWC}>,
+                               %weights as %arg2: tensor<512x256x3x3x!qElemType, {order = #NHWC}>,
+                               %wt as %arg3: tensor<512x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 3, 1]} -> tensor<1x512x24x36x!qElemType, {order = #NHWC}> {
+        %inner = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+                                                           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+                                                           pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
+                                                           ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+                                                           rawFilterShape = [512, 256, 3, 3], strides = [2, 2]} -> tensor<1x512x24x36x!qElemType, {order = #NHWC}>
+        VPU.Yield %inner
+      }
+      %1 = VPU.VerticalFusion (%0 as %arg1: tensor<1x512x24x36x!qElemType, {order = #NHWC}>,
+                               %weights_1 as %arg2: tensor<512x512x3x3x!qElemType, {order = #NHWC}>,
+                               %wt_1 as %arg3: tensor<512x1x1x4xsi32>) attributes {tilingStrategy = [1, 1, 3, 1]} -> tensor<1x512x24x36x!qElemType, {order = #NHWC}> {
+        %inner = VPU.NCE.Convolution(%arg1, %arg2, %arg3) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+                                                           multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+                                                           pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+                                                           ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = 0 : i64, clamp_high = 255 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+                                                           rawFilterShape = [512, 512, 3, 3], strides = [1, 1]} -> tensor<1x512x24x36x!qElemType, {order = #NHWC}>
+        VPU.Yield %inner
+      }
+      return %1 : tensor<1x512x24x36x!qElemType, {order = #NHWC}>
+      //CHECK: [[VF0:%.+]] = VPU.VerticalFusion
+      //CHECK:    [[CONV_0:%.+]] = VPU.NCE.Convolution
+      //CHECK: [[VF1:%.+]] = VPU.VerticalFusion
+      //CHECK:    [[CONV_1:%.+]] = VPU.NCE.Convolution
+      //CHECK: return [[VF1]]
 }

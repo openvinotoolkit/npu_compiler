@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK: !qElemType = !quant.uniform<u8:f16, 0.0173492431640625:32>
 // CHECK: !qElemType1 = !quant.uniform<u8:f16, 0.0064682904411764702:128>
 !qElemType = !quant.uniform<u8:f16, 0.0173492431640625:32>

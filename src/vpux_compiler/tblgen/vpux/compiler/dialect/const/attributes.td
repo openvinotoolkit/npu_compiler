@@ -30,6 +30,13 @@ def Const_TransformAttrInterfaceArrayAttr :
     ArrayOfAttr<Const_Dialect, "TransformAttrInterfaceArray", "TransformAttrInterfaceArray", "vpux::Const::TransformAttrInterface">;
 
 //
+// TransformAttrInterfaceArrayAttr
+//
+
+def Const_ContentArrayAttr :
+    ArrayOfAttr<Const_Dialect, "ContentArray", "ContentArray", "vpux::Const::ContentAttr">;
+
+//
 // SymElementsAttr
 //
 
@@ -132,7 +139,7 @@ def Const_ContentAttr : Const_Attr<"Content"> {
 
         ValueType fold(bool bypassCache = false) const;
 
-        const mlir::ElementsAttr& getBaseContent() const;
+        mlir::ElementsAttr getBaseContent() const;
         mlir::ArrayRef<vpux::Const::TransformAttrInterface> getTransformations() const;
         vpux::NDTypeInterface getType() const;
         bool isSplat() const;
@@ -151,6 +158,10 @@ def Const_ContentAttr : Const_Attr<"Content"> {
             return vpux::Const::SpecializedContentSetup(getBaseContent().getType(), getTransformations(),
                 SpecialSetupCallable{getBaseContent()});
         }
+
+        llvm::hash_code getTransformationHash() const;
+        static llvm::hash_code getTransformationHash(
+            mlir::ArrayRef<vpux::Const::TransformAttrInterface> transformations);
 
         // special version of get() that is used when we create Content
         // property from the setup object
@@ -728,6 +739,11 @@ def Const_RelocateWeightsTableAttr : Const_Attr<"RelocateWeightsTable",
                           works on a slice of the channels to ensure the correct pointers are computed
                         - for example, if the transformation receives channels [16-31] for the table, the `channelOffset` would
                           be set to 16, so that the first relocated pointer corresponds to channel 16 instead of channel 0
+        - originalOC - when the ODU has the possibility to write less than 16 channels, the weights table still needs to be
+                        aligned to 16, so to skip the expand on weights, this attribute tells the real number of channels which
+                        need a proper value, the rest up to 16 are just a copy of the first valid pointer value from the table
+                        this value refers to the global view of the WT, not the current slice
+                     - when this attribute is set to 0, it's functionality is disabled
     }];
 
     let parameters = (ins
@@ -737,14 +753,15 @@ def Const_RelocateWeightsTableAttr : Const_Attr<"RelocateWeightsTable",
         "mlir::IntegerAttr":$weightsTableSize,
         "mlir::IntegerAttr":$weightsElemBitSize,
         "VPUIP::SparsityCompressionAttr":$weightsCompression,
-        "mlir::IntegerAttr":$channelOffset
+        "mlir::IntegerAttr":$channelOffset,
+        "mlir::IntegerAttr":$originalOC
     );
 
     let builders = [
         AttrBuilderWithInferredContext<
             (ins "mlir::ArrayAttr":$weightsPtr, "mlir::IntegerAttr":$sparsityPtr, "mlir::ArrayAttr":$offsets, "mlir::IntegerAttr":$weightsTableSize,
-                 "mlir::IntegerAttr":$weightsElemBitSize, "VPUIP::SparsityCompressionAttr":$weightsCompression, "mlir::IntegerAttr":$channelOffset), [{
-                return $_get(weightsPtr.getContext(), weightsPtr, sparsityPtr, offsets, weightsTableSize, weightsElemBitSize, weightsCompression, channelOffset);
+                 "mlir::IntegerAttr":$weightsElemBitSize, "VPUIP::SparsityCompressionAttr":$weightsCompression, "mlir::IntegerAttr":$channelOffset, "mlir::IntegerAttr":$originalOC), [{
+                return $_get(weightsPtr.getContext(), weightsPtr, sparsityPtr, offsets, weightsTableSize, weightsElemBitSize, weightsCompression, channelOffset, originalOC);
             }]
         >
     ];
@@ -788,9 +805,14 @@ def Const_SwizzleConstantAttr : Const_Attr<"SwizzleConstant",
     let hasCustomAssemblyFormat = 1;
 }
 
-def Const_FuseAttr : Const_Attr<"Fuse",
+
+//
+// FuseWeightsAttr
+//
+
+def Const_FuseWeightsAttr : Const_Attr<"FuseWeights",
         [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
-    let summary = "Fuse constants";
+    let summary = "Specialization of Fuse transform with constants specific";
 
     let parameters = (ins
         "mlir::RankedTensorType":$fusedType,
@@ -808,6 +830,28 @@ def Const_FuseAttr : Const_Attr<"Fuse",
         (`,` `weights` `=` `<` custom<ContentAttr>($weights)^ `>`)?
         (`,` `sparsity` `=` `<` custom<ContentAttr>($sparsity)^ `>`)?
         (`,` `activations` `=` `<` custom<ContentAttr>($activations)^ `>`)?
+        `>`
+    }];
+}
+
+
+//
+// FuseAttr
+//
+
+def Const_FuseAttr : Const_Attr<"Fuse",
+        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+    let summary = "Fuse constants";
+
+    let parameters = (ins
+        "mlir::RankedTensorType":$fusedType,
+        "vpux::Const::ContentArrayAttr":$constants
+    );
+
+    let storageNamespace = "details";
+    let assemblyFormat = [{
+        `<`
+        $fusedType `,` `constants` `=` `<` $constants `>`
         `>`
     }];
 }
@@ -922,6 +966,77 @@ def Const_ChangeShapeAndElemTypeAttr : Const_Attr<"ChangeShapeAndElemType",
 def Const_ScalarMultInverseAttr : Const_Attr<"ScalarMultInverse",
         [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
     let summary = "Apply scalar multiplicative inverse to the constant content";
+}
+
+//
+// AffineReshapeAttr
+//
+
+def Const_AffineReshapeAttr : Const_Attr<"AffineReshape",
+        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+    let summary = "A special set of Reshape-equivalent operations for which the output layout can be automatically deduced";
+
+    let description = [{
+        This transformation is semantically equivalent to the AffineReshape operations in various dialects. Its main purpose is
+        to be used in the respective folders. It is equivalent to Reshape except that a rank change is allowed for non-identity
+        input orderings.
+
+        'dimMapping' is an array of arrays of integers. Axis i of the input tensor is mapped to the output axes described by the
+        integer array dimMapping[i]. A single input axis can be mapped to multiple output axes (e.g. dimMapping = [[0, 1]]),
+        in which case the tensor shape at this axis is specified by the 'shapeValue' array.
+        Multiple input axes can be mapped to the same output axis (e.g. dimMapping = [[0], [0]]). These axes are combined using
+        a reshape operation.
+
+        'shapeValue' is an array of integers that defines the output shape.
+
+        AffineReshape is a view-like transformation. This means no elements get moved around in memory. However, for certain values of
+        'dimMapping', the logical view can look like a permutation. To combat this, an output ordering is inferred such that
+        it looks like a Reshape transformation under the given input ordering. If no such output ordering can be found,
+        then that combination of input ordering and output shape is not permitted.
+
+        Examples
+
+        ```MLIR
+            const.Declare tensor<6xi32> = dense<[[0, 1, 2], [3, 4, 5]]> : tensor<2x3xi32>, [#const.AffineReshape<[[0, 1]], [6]>]
+            // logical view: [0, 1, 2, 3, 4, 5]
+
+            const.Declare tensor<3x2xi32> = dense<[[0, 1, 2], [3, 4, 5]]> : tensor<2x3xi32>, [#const.AffineReshape<[[0], [1]], [3, 2]>]
+            // logical view: [[0, 1],
+            //                [2, 3],
+            //                [4, 5]]
+
+            const.Declare tensor<3x2xi32, {order = #CN}> = dense<[[0, 1, 2], [3, 4, 5]]> : tensor<2x3xi32, {order = #NC}>, [#const.AffineReshape<[[1], [0]], [3, 2]>]
+            // dimMapping makes the logical view look like a transpose. But just reshaping without adjusting the ordering results in the wrong logical view:
+            //     [[0, 1],
+            //      [2, 3],
+            //      [4, 5]]
+            // Inferring the output order to #CN gives us the correct logical view:
+            //     [[0, 3],
+            //      [1, 4],
+            //      [2, 5]]
+        ```
+    }];
+
+    let parameters = (ins
+        // array of array of IntegerAttrs (int64_t)
+        "mlir::ArrayAttr":$dimMapping,
+        // array of IntegerAttrs (int64_t)
+        "mlir::ArrayAttr":$shapeValue
+    );
+
+    let builders = [
+        AttrBuilderWithInferredContext<
+            (ins "mlir::ArrayAttr":$dimMapping, "mlir::ArrayAttr":$shapeValue), [{
+                return $_get(dimMapping.getContext(), dimMapping, shapeValue);
+            }]
+        >
+    ];
+
+    let storageNamespace = "details";
+    let genVerifyDecl = 1;
+    let skipDefaultBuilders = 1;
+    // #const.AffineReshape<$dimMapping, $shapeValue>
+    let hasCustomAssemblyFormat = 1;
 }
 
 #endif

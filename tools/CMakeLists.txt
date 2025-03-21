@@ -17,7 +17,9 @@ add_subdirectory(profiling_parser)
 
 add_subdirectory(vpux-binutils)
 
-add_subdirectory(npureg-tblgen)
+if (ENABLE_MLIR_COMPILER)
+    add_subdirectory(npureg-tblgen)
+endif()
 
 #
 # install python tools

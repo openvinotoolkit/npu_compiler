@@ -6,10 +6,17 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <llvm/Support/ThreadPool.h>
 
 using namespace vpux;
+
+namespace vpux::Const {
+#define GEN_PASS_DECL_CONSTANTFOLDING
+#define GEN_PASS_DEF_CONSTANTFOLDING
+#include "vpux/compiler/dialect/const/passes.hpp.inc"
+}  // namespace vpux::Const
 
 namespace {
 
@@ -30,46 +37,7 @@ int64_t getMaxIntermediateSize(Const::DeclareOp& origOp) {
     return maximumSize;
 }
 
-void foldSingleConstant(Const::DeclareOp& origOp) {
-    const auto content = origOp.getContent();
-    const auto contentType = content.getType();
-    const auto contentElemType = contentType.getElementType();
-
-    const auto bufSize = checked_cast<size_t>(contentType.getTotalAllocSize().count());
-    std::vector<char> tempBuf(bufSize);
-    content.copyTo(MutableArrayRef(tempBuf.data(), bufSize));
-
-    auto rankedTensorType = contentType.cast<mlir::RankedTensorType>();
-
-    const auto elemTypeBitSize = contentType.getElemTypeSize().count();
-    // As of now sub byte types are not supported as DenseElementsAttr storage, I1 is an exception
-    const auto isUnsupportedSubByteStorageType = elemTypeBitSize < CHAR_BIT && elemTypeBitSize > 1;
-    if (isUnsupportedSubByteStorageType) {
-        rankedTensorType = contentType
-                                   .changeShapeElemType(Shape({1, 1, 1, checked_cast<int32_t>(bufSize)}),
-                                                        getUInt8Type(contentType.getContext()))
-                                   .cast<mlir::RankedTensorType>();
-    } else if (auto qtype = contentElemType.dyn_cast<mlir::quant::QuantizedType>()) {
-        rankedTensorType = contentType.changeElemType(normalizeQuantStorageType(qtype)).cast<mlir::RankedTensorType>();
-    }
-
-    const auto denseAttr = Const::createConstContent(rankedTensorType, tempBuf);
-    auto origType = origOp.getType().cast<NDTypeInterface>();
-
-    if (isUnsupportedSubByteStorageType) {
-        // Temporary fix to enable compilation.
-        // Final design to also include a mechanism to FREEZE constants
-        // from accepting future transformations due to the fact of packed
-        // sub byte values stored, which would require an unpacking and a repacking
-        origOp.getProperties().content = Const::ContentAttr::get(
-                denseAttr, Const::ContentSetup(denseAttr.getType())
-                                   .changeShapeAndElemType(origType.getShape(), origType.getElementType()));
-    } else {
-        origOp.getProperties().content = Const::ContentAttr::get(denseAttr);
-    }
-}
-
-class ConstantFoldingPass final : public Const::ConstantFoldingBase<ConstantFoldingPass> {
+class ConstantFoldingPass final : public Const::impl::ConstantFoldingBase<ConstantFoldingPass> {
 public:
     explicit ConstantFoldingPass(Logger log, const int64_t threshold = 300 * 1024 * 1024): _threshold(threshold) {
         Base::initLogger(log, Base::getArgumentName());
@@ -92,11 +60,10 @@ void ConstantFoldingPass::safeRunOnFunc() {
     // If multi-threading is not enabled, fold constants sequentially
     if (!ctx.isMultithreadingEnabled()) {
         for (auto origOp : ops) {
-            foldSingleConstant(origOp);
+            vpux::Const::foldSingleConstant(origOp);
         }
         return;
     }
-
     // Fold all const that size is with in 1KB by using single thread
     SmallVector<Const::DeclareOp> bigConstOps;
     for (auto origOp : ops) {

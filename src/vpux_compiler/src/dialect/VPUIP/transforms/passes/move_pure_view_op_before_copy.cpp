@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -10,12 +11,17 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/allocate_buffers.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
-#include "vpux/compiler/utils/reshape_utils.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_MOVEPUREVIEWOPBEFORECOPY
+#define GEN_PASS_DEF_MOVEPUREVIEWOPBEFORECOPY
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -550,7 +556,8 @@ public:
 // MovePureViewOpBeforeCopyPass
 //
 
-class MovePureViewOpBeforeCopyPass final : public VPUIP::MovePureViewOpBeforeCopyBase<MovePureViewOpBeforeCopyPass> {
+class MovePureViewOpBeforeCopyPass final :
+        public VPUIP::impl::MovePureViewOpBeforeCopyBase<MovePureViewOpBeforeCopyPass> {
 public:
     explicit MovePureViewOpBeforeCopyPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

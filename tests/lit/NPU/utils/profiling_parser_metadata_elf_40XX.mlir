@@ -33,7 +33,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/cluster_1",
@@ -42,7 +42,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/cluster_2",
@@ -51,7 +51,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/cluster_3",
@@ -60,7 +60,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/cluster_4",
@@ -69,7 +69,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/cluster_5",
@@ -78,7 +78,7 @@
 //CHECK: numVariants: 1,
 //CHECK: maxVariants: 1,
 //CHECK: waitBarriers: [ 4 ],
-//CHECK: updateBarriers: [ 6 ],
+//CHECK: updateBarriers: [ 5 ],
 //CHECK: workloadIds: [ 16 ]
 //CHECK: }, {
 //CHECK: name: "conv1/WithoutBiases?t_Convolution/Duplicated_2/cluster_0",

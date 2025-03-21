@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 //  CHECK-LABEL: @ConvertConvertLikeToConvertF16ToF32
 func.func @ConvertConvertLikeToConvertF16ToF32(%arg0: tensor<2x2xf16>) -> tensor<2x2xf32> {
     %cst = const.Declare tensor<2xf32> = dense<0.000000e+00> : tensor<2xf32>

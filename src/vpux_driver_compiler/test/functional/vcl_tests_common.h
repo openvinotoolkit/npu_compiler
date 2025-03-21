@@ -54,8 +54,7 @@ public:
         auto netInfo = std::get<0>(param);
         const std::string netName = netInfo.at("network");
         const std::string deviceID = netInfo.at("device");
-        const std::string testCaseName = netName + std::string("_VPUX.") + deviceID;
-        return testCaseName;
+        return netName + std::string("_VPUX.") + deviceID;
     }
 
     /**

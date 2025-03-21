@@ -4,12 +4,20 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_WEIGHTSQUANTFUSEDINTOTASK
+#define GEN_PASS_DEF_WEIGHTSQUANTFUSEDINTOTASK
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
 namespace {
 class WeightsQuantFusedIntoTaskPass final :
-        public IE::arch37xx::WeightsQuantFusedIntoTaskBase<WeightsQuantFusedIntoTaskPass> {
+        public IE::arch37xx::impl::WeightsQuantFusedIntoTaskBase<WeightsQuantFusedIntoTaskPass> {
 public:
     explicit WeightsQuantFusedIntoTaskPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

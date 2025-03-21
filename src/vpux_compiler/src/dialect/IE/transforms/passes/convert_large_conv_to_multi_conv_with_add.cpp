@@ -9,9 +9,16 @@
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTLARGECONVTOMULTICONVWITHADD
+#define GEN_PASS_DEF_CONVERTLARGECONVTOMULTICONVWITHADD
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -22,7 +29,7 @@ namespace {
 //
 
 class ConvertLargeConvToMultiConvWithAddPass final :
-        public IE::ConvertLargeConvToMultiConvWithAddBase<ConvertLargeConvToMultiConvWithAddPass> {
+        public IE::impl::ConvertLargeConvToMultiConvWithAddBase<ConvertLargeConvToMultiConvWithAddPass> {
 public:
     explicit ConvertLargeConvToMultiConvWithAddPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

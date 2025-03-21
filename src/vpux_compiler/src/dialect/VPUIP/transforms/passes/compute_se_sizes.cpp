@@ -10,6 +10,12 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/BuiltinAttributes.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_COMPUTESESIZES
+#define GEN_PASS_DEF_COMPUTESESIZES
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -104,7 +110,7 @@ std::optional<int64_t> getInputSESizeForConcatOverC(mlir::Value operand) {
 // ComputeSESizesPass
 //
 
-class ComputeSESizesPass final : public VPUIP::ComputeSESizesBase<ComputeSESizesPass> {
+class ComputeSESizesPass final : public VPUIP::impl::ComputeSESizesBase<ComputeSESizesPass> {
 public:
     explicit ComputeSESizesPass(std::optional<bool> onlyInputsConcatOverC, Logger log)
             : _onlyInputsConcatOverC(onlyInputsConcatOverC) {

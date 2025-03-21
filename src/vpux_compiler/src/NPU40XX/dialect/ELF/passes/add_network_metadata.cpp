@@ -7,10 +7,16 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_ADDNETWORKMETADATA
+#define GEN_PASS_DEF_ADDNETWORKMETADATA
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
-class AddNetworkMetadata : public ELF::AddNetworkMetadataBase<AddNetworkMetadata> {
+class AddNetworkMetadata : public ELF::arch40xx::impl::AddNetworkMetadataBase<AddNetworkMetadata> {
 public:
     explicit AddNetworkMetadata(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

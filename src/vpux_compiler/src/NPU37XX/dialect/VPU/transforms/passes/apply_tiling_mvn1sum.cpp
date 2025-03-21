@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -16,6 +17,12 @@
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU::arch37xx {
+#define GEN_PASS_DECL_APPLYTILINGMVN1SUM
+#define GEN_PASS_DEF_APPLYTILINGMVN1SUM
+#include "vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch37xx
 
 using namespace vpux;
 
@@ -36,6 +43,7 @@ uint32_t getMVN1SumOutputHeight(VPU::MVN1SumOp op) {
     const auto numActShavePerCluster = static_cast<int64_t>(numActShave / numCluster);
 
     uint32_t outputHeight = 1;
+    auto highestDim = vpux::getHighestNonTrivialDim(inType.getShape(), inType.getDimsOrder()).value_or(Dim(0));
     if (op.getMultiClusterStrategy().has_value()) {
         const auto strategy = op.getMultiClusterStrategy().value();
         // Correct output height for Multi Cluster feature
@@ -43,7 +51,6 @@ uint32_t getMVN1SumOutputHeight(VPU::MVN1SumOp op) {
             outputHeight = numCluster;
         }
 
-        auto highestDim = vpux::getHighestNonTrivialDim(inType.getShape(), inType.getDimsOrder()).value_or(Dim(0));
         if (highestDim != Dims4D::Act::H) {
             return outputHeight;
         }
@@ -54,6 +61,9 @@ uint32_t getMVN1SumOutputHeight(VPU::MVN1SumOp op) {
         } else if (strategy == VPU::MultiClusterStrategy::Clustering && inH >= numActShavePerCluster) {
             outputHeight = numActShavePerCluster;
         }
+    } else {
+        outputHeight =
+                (highestDim == Dims4D::Act::H && inH >= numActShavePerCluster) ? numActShavePerCluster : outputHeight;
     }
 
     return outputHeight;
@@ -115,7 +125,9 @@ mlir::FailureOr<OutputTiling> findNumOfTiles(VPU::MVN1SumOp op, bool enablePrefe
 
             newInShape[tileDim] = divUp(inShape[tileDim], pipeliningTiles * tileClusters);
             auto inType0 = inType.changeShape(newInShape);
-            newInShape[tileDim] = divUp(inShape[tileDim] - newInShape[tileDim], pipeliningTiles * tileClusters - 1);
+            if (pipeliningTiles * tileClusters > 1) {
+                newInShape[tileDim] = divUp(inShape[tileDim] - newInShape[tileDim], pipeliningTiles * tileClusters - 1);
+            }
             auto inType1 = inType.changeShape(newInShape);
             auto requiredCMX = VPU::getRequiredCMXSize(inType0) + VPU::getRequiredCMXSize(inType1) +
                                VPU::getRequiredCMXSize(outType) * 2;
@@ -162,7 +174,7 @@ mlir::Value reifyTileMVN1Sum(VPU::MVN1SumOp MVN1SumOp, const TileInfo& inputTile
 // ApplyTilingMVN1Sum
 //
 
-class ApplyTilingMVN1Sum final : public VPU::arch37xx::ApplyTilingMVN1SumBase<ApplyTilingMVN1Sum> {
+class ApplyTilingMVN1Sum final : public VPU::arch37xx::impl::ApplyTilingMVN1SumBase<ApplyTilingMVN1Sum> {
 public:
     explicit ApplyTilingMVN1Sum(bool enablePrefetchTiling, Logger log): _enablePrefetchTiling(enablePrefetchTiling) {
         Base::initLogger(log, Base::getArgumentName());

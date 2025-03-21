@@ -1,17 +1,14 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #pragma once
 
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-
-#include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/utils/core/enums.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Location.h>
@@ -57,7 +54,7 @@ constexpr uint32_t HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE = 256;
 constexpr uint32_t HW_M2I_PROFILING_MAX_BUFFER_SIZE = 128;
 
 // SW Kernel reads a few bytes of data for better performance
-// 1024 bytes is safe for 40XX+
+// 1024 bytes is safe for 40XX
 // 256 bytes is safe for 37XX due to 4x smaller vector size
 constexpr int64_t MAX_SW_KERNEL_PREFETCH_DATA_SIZE_37XX = 256;
 constexpr int64_t MAX_SW_KERNEL_PREFETCH_DATA_SIZE_40XX = 1024;
@@ -180,8 +177,8 @@ SmallVector<mlir::Value> getPerClusterSWComputeBuffers(mlir::MLIRContext* ctx, m
                                                        bool allowDiscontinuousBuffers = false);
 
 SmallVector<mlir::Value> getSplitBuffers(mlir::MLIRContext* ctx, mlir::Location loc, StringRef bufferName,
-                                         mlir::Value operand, SmallVector<vpux::Shape> shapes,
-                                         SmallVector<vpux::Shape> shapeOffsets, int64_t splitNum,
+                                         mlir::Value operand, ArrayRef<vpux::Shape> shapes,
+                                         ArrayRef<vpux::Shape> shapeOffsets, int64_t splitNum,
                                          mlir::OpBuilder& builder);
 
 //
@@ -535,10 +532,8 @@ vpux::Dim getCopyDMATilingDimForLargePlaneNum(mlir::Operation* op);
 int64_t getStridingLevel(const vpux::NDTypeInterface& type);
 int64_t getStridingLevel(const mlir::Value val);
 bool hasLegalStridingLevel(mlir::Operation* op);
-bool isSplitNeededForLargePlanesNum(const vpux::NDTypeInterface& type, ShapeRef shape, const VPU::ArchKind arch);
+bool isSplitNeededForLargePlanesNum(const VPU::ArchKind arch, const vpux::NDTypeInterface& type, ShapeRef shape);
 bool isSplitNeededForLargePlanesNum(mlir::Operation* op);
-int64_t getMaxStridingLevel(const VPU::ArchKind arch);
-int64_t getMaxNumberPlanes(const VPU::ArchKind arch);
 
 //
 // Operation utility
@@ -573,7 +568,9 @@ bool isEltwiseTheOnlyConsumer(VPUIP::NCEClusterTaskOp clusterTaskOp, mlir::Value
 // Dynamic shape utils
 //
 
-bool hasDynamicShape(mlir::Operation* op);
+bool isBoundedBufferType(mlir::Value value);
+bool hasBoundedBuffers(mlir::Operation* op);
+bool hasUngroupedBoundedBuffers(VPUIP::SwKernelOp swKernelOp);
 
 //
 // Dummy Buffer Utils

@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --weights-dequantize-to-fake-quantize="enable-wd-blockarg-input=false" --mlir-print-elementsattrs-with-hex-if-larger -1 %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --weights-dequantize-to-fake-quantize="enable-wd-blockarg-input=true" --mlir-print-elementsattrs-with-hex-if-larger -1 %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @WeightsMultToFakeQuantize
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x4x28x28xf32>
 // CHECK-SAME: -> tensor<1x4x28x28xf32>

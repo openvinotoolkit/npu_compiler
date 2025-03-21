@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUMI40XX-to-VPUASM %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
@@ -30,7 +29,7 @@ module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
 
 //CHECK: ELF.Main @ELFMain
 
-//CHECK-DAG: ELF.CreateLogicalSection [[MetadataTaskSec:@.*]] aligned(1) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
+//CHECK-DAG: ELF.CreateLogicalSection [[MetadataTaskSec:@.*]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK-NEXT: VPUASM.DeclareTaskBuffer {{.*}} idx(!VPURegMapped.Index<0:0:0>) <DMA>
 
 //CHECK-DAG: ELF.CreateLogicalSection [[NetworkInput:@.*]] aligned(64) secType(SHT_NOBITS) secFlags("SHF_WRITE|SHF_ALLOC|VPU_SHF_USERINPUT")
@@ -86,7 +85,7 @@ module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
 
 //CHECK: ELF.Main @ELFMain {
 
-//CHECK-DAG: ELF.CreateLogicalSection [[MetadataSec:@.*]] aligned(1) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
+//CHECK-DAG: ELF.CreateLogicalSection [[MetadataSec:@.*]] aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE")
 //CHECK-NEXT: VPUASM.DeclareTaskBuffer [[DMATASKBUFF00:@.*]] idx(!VPURegMapped.Index<0:0:0>) <DMA>
 //CHECK-NEXT: VPUASM.DeclareTaskBuffer [[DMATASKBUFF01:@.*]] idx(!VPURegMapped.Index<0:0:1>) <DMA>
 //CHECK-NEXT: VPUASM.DeclareTaskBuffer [[DMATASKBUFF02:@.*]] idx(!VPURegMapped.Index<0:0:2>) <DMA>
@@ -103,10 +102,10 @@ module @mainModule attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
 //CHECK-DAG: ELF.CreateLogicalSection [[NetworkOutput1:@.*]] aligned(64) secType(SHT_NOBITS) secFlags("SHF_WRITE|SHF_ALLOC|VPU_SHF_USEROUTPUT")
 //CHECK-NEXT: VPUASM.DeclareBuffer {{.*}} !VPUASM.Buffer< "NetworkOutput"[1]
 
-//CHECK-DAG: ELF.CreateLogicalSection [[NNCMX0:@.*]] aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") {
+//CHECK-DAG: ELF.CreateLogicalSection [[NNCMX0:@.*]] aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") {
 //CHECK-NEXT: VPUASM.DeclareBuffer [[BUFF0:@.*]] !VPUASM.Buffer< "CMX_NN"[0]
 
-//CHECK-DAG: ELF.CreateLogicalSection [[NNCMX1:@.*]] aligned(1) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") {
+//CHECK-DAG: ELF.CreateLogicalSection [[NNCMX1:@.*]] aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") {
 //CHECK-NEXT: VPUASM.DeclareBuffer [[BUFF1:@.*]] !VPUASM.Buffer< "CMX_NN"[1]
 
 //CHECK-DAG: ELF.CreateSection [[BARRSEC:@.*]] aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {

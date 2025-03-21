@@ -37,12 +37,14 @@ namespace VPU {
 
 // Returns a WeightsTable tile required to produce the specific output tile
 template <typename ConcreteOp>
-TileInfo getWeightsTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile) {
+TileInfo getWeightsTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTile,
+                             std::optional<int64_t> weightsOutputChannels = std::nullopt) {
     const auto origWeightsTable = origOp->getWeightsTable();
     VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have a WeightsTable", *origOp);
 
     const auto origWeightsTableShape = getShape(origWeightsTable);
-    VPUX_THROW_UNLESS(origWeightsTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C] &&
+    VPUX_THROW_UNLESS((weightsOutputChannels.has_value() ||
+                       origWeightsTableShape[Dim(0)] == getShape(origOp->getOutput())[Dims4D::Act::C]) &&
                               origWeightsTableShape[Dim(1)] == 1 && origWeightsTableShape[Dim(2)] == 1 &&
                               origWeightsTableShape[Dim(3)] == VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
                       "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
@@ -52,7 +54,8 @@ TileInfo getWeightsTableTile(ConcreteOp* origOp, const vpux::TileInfo& outputTil
     // Each N-wise batch of the WeightsTable corresponds to its own output channel
     TileInfo weightsTableTile(origWeightsTableShape);
     weightsTableTile.offsets[Dim(0)] = outputTile.offsets[Dims4D::Act::C];
-    weightsTableTile.shape[Dim(0)] = outputTile.shape[Dims4D::Act::C];
+    weightsTableTile.shape[Dim(0)] =
+            weightsOutputChannels.has_value() ? weightsOutputChannels.value() : outputTile.shape[Dims4D::Act::C];
     return weightsTableTile;
 }
 
@@ -79,8 +82,6 @@ void adjustRawFilterShape(ConcreteOp* op, const TileInfo& outputTile) {
 //
 // Misc
 //
-
-bool isVFNCESupported(VPU::NCEOpInterface op);
 
 mlir::LogicalResult sameLayout(VPU::DistributedTensorType inDistributedType,
                                VPU::DistributedTensorType outDistributedType, LogCb logCb = emptyLogCb);
@@ -160,5 +161,8 @@ T vpux::VPU::NCEClusterTilingOp::getInnerTaskOpOfType() {
 }
 
 bool isNCEWithInt4Weights(mlir::Operation* op);
+bool isNCEWithSEPActivation(mlir::Operation* op);
+std::optional<int64_t> getWeightsChannelsAutopad(mlir::Operation* op);
+
 }  // namespace VPU
 }  // namespace vpux

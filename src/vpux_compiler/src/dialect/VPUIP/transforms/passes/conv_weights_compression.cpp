@@ -14,6 +14,12 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVWEIGHTSCOMPRESSION
+#define GEN_PASS_DEF_CONVWEIGHTSCOMPRESSION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -159,11 +165,16 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
     if (!VPUIP::canWeightsBeCompressed(origOp)) {
         return;
     }
+    auto weights = origOp.getWeights().getDefiningOp<VPUIP::CopyOp>();
+    auto weightsInput = weights.getInput().getDefiningOp<Const::DeclareOp>();
+
+    if (!weightsInput.getResult().hasOneUse()) {
+        // TODO: support case with multi users
+        return;
+    }
     log.trace("Compressing weights for operation '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
     mlir::OpBuilder builder(origOp);
-    auto weights = origOp.getWeights().getDefiningOp<VPUIP::CopyOp>();
-    auto weightsInput = weights.getInput().getDefiningOp<Const::DeclareOp>();
     const auto& weightsContentAttr = weightsInput.getContentAttr();
 
     const auto origChannelVal =
@@ -241,7 +252,7 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
     origOp.replaceAllUsesWith(newOp);
     origOp->erase();
 
-    if (paddingDoneOnlyOnC) {
+    if (paddingDoneOnlyOnC && weights.getResult().use_empty()) {
         weights->erase();
         weightsInput->erase();
     }
@@ -251,7 +262,7 @@ void compressConvWeights(Logger& log, VPUIP::NCEClusterTaskOp origOp) {
 // ConvWeightsCompression
 //
 
-class ConvWeightsCompression final : public VPUIP::ConvWeightsCompressionBase<ConvWeightsCompression> {
+class ConvWeightsCompression final : public VPUIP::impl::ConvWeightsCompressionBase<ConvWeightsCompression> {
 public:
     explicit ConvWeightsCompression(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

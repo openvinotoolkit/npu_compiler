@@ -58,10 +58,10 @@ module @SingleHswishFP16 attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
         VPUASM.ConfigureBarrier @ConfigureBarrier1 idx(!VPURegMapped.Index<0:0:1>) (1) => (-1) counts(1 : 1)
       }
       ELF.CreateSection @task.shave.range.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-        "NPUReg40XX.ActKernelRange"() <{act_range_descriptor = #NPUReg40XX.VpuActKernelRange<
+        "NPUReg40XX.ActKernelRange"() <{descriptor = #NPUReg40XX.VpuActKernelRange<
           VpuActKernelRange {
             type = UINT 0,
-            kernel_entry = UINT 0x1D000000 requires 1:1:1,
+            kernel_entry = UINT 0x1D000000,
             text_window_base = UINT 0,
             code_size = UINT 0x750,
             reserved_akr = UINT 0,
@@ -69,23 +69,23 @@ module @SingleHswishFP16 attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
             pad1_4 = UINT 0
           }
         >, kernel_entry = @DeclareKernelEntry0, kernel_text = @text.shave::@DeclareKernelText0, sym_name = "ActKernelRange0", task_location = @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0}> : () -> ()
-        // CHECK: act_range_descriptor = #NPUReg40XX.VpuActKernelRange<
+        // CHECK: descriptor = #NPUReg40XX.VpuActKernelRange<
         // CHECK: VpuActKernelRange {
         // CHECK:   type = UINT 0,
-        // CHECK:   kernel_entry = UINT 0x1D000000 requires 1:1:1,
+        // CHECK:   kernel_entry = UINT 0x1D000000,
         // CHECK:   text_window_base = UINT 0,
         // CHECK:   code_size = UINT 0x750,
         // CHECK:   reserved_akr = UINT 0,
         // CHECK:   kernel_invo_count = UINT 0,
         // CHECK:   pad1_4 = UINT 0
         // CHECK: }
-        // CHECK: >    
+        // CHECK: >
       }
       ELF.CreateSection @task.shave.invocation.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-        "NPUReg40XX.ActKernelInvocation"() <{act_invo_descriptor = #NPUReg40XX.VpuActKernelInvocation<
+        "NPUReg40XX.ActKernelInvocation"() <{descriptor = #NPUReg40XX.VpuActKernelInvocation<
           VpuActKernelInvocation {
             range = UINT 0x200000,
-            kernel_args = UINT 0 requires 1:1:1,
+            kernel_args = UINT 0,
             data_window_base = UINT 0,
             perf_packet_out = UINT 0,
             barriers_wait_mask_hi_act {
@@ -108,12 +108,12 @@ module @SingleHswishFP16 attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
             invo_tile = UINT 0,
             kernel_range_index = UINT 0,
             next_aki_wl_addr = UINT 0
-          }
-        >, kernel_data = @program.shave.data::@DeclareKernelArgs0, kernel_params = @progra.shave.parameter::@KernelParams0, kernel_range = @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0, sym_name = "ActKernelInvocation0", task_location = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0}> : () -> ()
-        // CHECK: act_invo_descriptor = #NPUReg40XX.VpuActKernelInvocation<
+          } requires 11:4:10
+        >, kernel_data = @program.shave.data::@DeclareKernelArgs0, kernel_params = @program.shave.parameter::@KernelParams0, kernel_range = @program.ActKernelRange.cmx.0.0::@DeclareTaskBuffer_ActKernelRange0_0_0, sym_name = "ActKernelInvocation0", task_location = @program.ActKernelInvocation.cmx.0.0::@DeclareTaskBuffer_ActKernelInvocation_0_0_0}> : () -> ()
+        // CHECK: descriptor = #NPUReg40XX.VpuActKernelInvocation<
         // CHECK: VpuActKernelInvocation {
         // CHECK:   range = UINT 0x200000,
-        // CHECK:   kernel_args = UINT 0 requires 1:1:1,
+        // CHECK:   kernel_args = UINT 0,
         // CHECK:   data_window_base = UINT 0,
         // CHECK:   perf_packet_out = UINT 0,
         // CHECK:   barriers_wait_mask_hi_act {
@@ -136,7 +136,7 @@ module @SingleHswishFP16 attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
         // CHECK:   invo_tile = UINT 0,
         // CHECK:   kernel_range_index = UINT 0,
         // CHECK:   next_aki_wl_addr = UINT 0
-        // CHECK: }
+        // CHECK: } requires 11:4:10
         // CHECK: >
       }
     }

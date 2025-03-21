@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -8,6 +8,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/ppe_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -433,6 +434,11 @@ PPEAttr PpeFactory::updateFpPreluAlpha(PPEAttr orig, ArrayRef<double> fpPreluAlp
                            intPpeAttr.getQuantMult(), intPpeAttr.getQuantShift(), intPpeAttr.getQuantPostShift(),
                            intPpeAttr.getIn1QuantMult(), intPpeAttr.getIn2QuantMult(),
                            vpux::getFPAttr(ctx, fpPreluAlpha.front()));
+}
+
+bool PpeFactory::hasQuantScalingThroughPreluAlpha(PPEAttr) const {
+    // Quantization scale is never applied through pReluAlpha on this arch.
+    return false;
 }
 
 PPEAttr PpeFactory::recomputeQuantParams(PPEAttr orig, mlir::Type inputElemType, mlir::Type outputElemType,

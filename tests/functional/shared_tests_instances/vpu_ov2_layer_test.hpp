@@ -23,7 +23,6 @@ namespace Platform = ov::intel_npu::Platform;
 
 enum class VpuCompilationMode {
     ReferenceSW,
-    ReferenceHW,
     DefaultHW,
 };
 

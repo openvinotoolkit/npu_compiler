@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -12,6 +12,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -21,6 +22,12 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTDEPTH2SPACETOTRANSPOSEDCONV
+#define GEN_PASS_DEF_CONVERTDEPTH2SPACETOTRANSPOSEDCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -86,6 +93,7 @@ mlir::Value createDepthFirstWeightsConst(mlir::MLIRContext* ctx, IE::DepthToSpac
 
     auto dataStorageTensorAttr = vpux::getTensorAttr(ctx, DimsOrder::OYXI, nullptr);
     auto dataStorageType = mlir::RankedTensorType::get(filterShape.raw(), getUInt8Type(ctx), dataStorageTensorAttr);
+
     return Const::createConst(rewriter, takeOpLoc(d2sOp, "depth_first"), dataStorageType, ArrayRef(weights),
                               [&](Const::ContentSetup& setup) {
                                   return setup.castElemType(mlir::Float16Type::get(ctx)).reorder(DimsOrder::OIYX);
@@ -98,7 +106,7 @@ mlir::Value createDepthFirstWeightsConst(mlir::MLIRContext* ctx, IE::DepthToSpac
 
 IE::FakeQuantizeOp createBinaryFakeQuantize(mlir::MLIRContext* ctx, IE::DepthToSpaceOp d2sOp, mlir::Value inputOp,
                                             mlir::PatternRewriter& rewriter, [[maybe_unused]] Logger log) {
-    auto elemType = d2sOp.getInput().getType().cast<vpux::NDTypeInterface>().getElementType();
+    auto elemType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getInput().getType()).getElementType();
 
     const auto fqArgType = mlir::RankedTensorType::get({1, 1, 1, 1}, elemType);
 
@@ -121,8 +129,8 @@ mlir::LogicalResult convertDepthFirstOp(mlir::MLIRContext* ctx, IE::DepthToSpace
                                         mlir::PatternRewriter& rewriter, Logger log) {
     auto input = d2sOp.getInput();
 
-    auto inputShape = input.getType().cast<vpux::NDTypeInterface>().getShape();
-    auto inputElemType = input.getType().cast<vpux::NDTypeInterface>().getElementType();
+    auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
+    auto inputElemType = mlir::cast<vpux::NDTypeInterface>(input.getType()).getElementType();
 
     if (inputElemType == getUInt8Type(ctx) || inputElemType == getInt8Type(ctx)) {
         // TODO: Workaround. Upsample does not support unquantized u8/i8 types: E#109658
@@ -151,10 +159,10 @@ mlir::LogicalResult convertDepthFirstOp(mlir::MLIRContext* ctx, IE::DepthToSpace
     auto filterShape = Shape{outputChannels, inputChannels, filterHeight, filterWidth};
 
     // Check if conv parameters supported on hardware
-    if (auto isValid = VPU::NCEInvariant::verifyKernel(d2sOp, filterHeight, filterWidth, strideY, strideX, padTop,
-                                                       padBottom, padLeft, padRight, log);
-        isValid.failed()) {
-        return isValid;
+    if (VPU::NCEInvariant::verifyKernel(d2sOp, filterHeight, filterWidth, strideY, strideX, padTop, padBottom, padLeft,
+                                        padRight, log)
+                .failed()) {
+        return mlir::failure();
     }
 
     // Generate weights and FakeQuantize
@@ -186,6 +194,7 @@ mlir::LogicalResult convertDepthFirstOp(mlir::MLIRContext* ctx, IE::DepthToSpace
                                                                               /* inputChannels = */ nullptr);
     extendOpLoc(transConv, "as_transcov");
     log.trace("transposed conv: '{0}'", transConv);
+
     return mlir::success();
 }
 
@@ -206,19 +215,30 @@ mlir::LogicalResult convertBlocksFirstOp(mlir::MLIRContext*, IE::DepthToSpaceOp 
 mlir::LogicalResult ConvertDepth2SpaceToTransposedConv::matchAndRewrite(IE::DepthToSpaceOp d2sOp,
                                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("found '{0}' at '{1}'", d2sOp->getName(), d2sOp->getLoc());
-
-    if (!_benefitVerifier->isBeneficialConversion(d2sOp)) {
-        return matchFailed(_log, rewriter, d2sOp, "convert DepthToSpace to TransposedConv is not beneficial at '{0}'",
-                           d2sOp->getLoc());
-    }
+    _log.nest().debug("d2sOp = '{0}'", d2sOp);
 
     auto ctx = rewriter.getContext();
+
+    auto input = d2sOp.getInput();
+    auto inputShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
+
+    auto blockSize = d2sOp.getBlockSize();
+    auto mode = d2sOp.getMode();
+
+    if (_benefitVerifier->isBeneficialConversion(_log, rewriter, d2sOp).failed()) {
+        return matchFailed(_log, rewriter, d2sOp, "DepthToSpace is not beneficial as TransposedConv: '{0}'",
+                           d2sOp->getLoc());
+    }
 
     if (d2sOp.getPaddedChannels().has_value()) {  // TODO: Support padded channels: E#109929
         return matchFailed(_log, rewriter, d2sOp, "padded channels are not supported: '{0}'", d2sOp);
     }
 
-    auto mode = d2sOp.getMode();
+    if (inputShape[Dims4D::Act::C] % (blockSize * blockSize) != 0) {
+        return matchFailed(_log, rewriter, d2sOp,
+                           "input channels ({0}) not divisible by {1} (blockSize * blockSize): '{2}'",
+                           inputShape[Dims4D::Act::C], blockSize * blockSize, d2sOp);
+    }
 
     if (mode == IE::DepthToSpaceMode::DEPTH_FIRST) {
         return convertDepthFirstOp(ctx, d2sOp, rewriter, _log);
@@ -235,7 +255,7 @@ mlir::LogicalResult ConvertDepth2SpaceToTransposedConv::matchAndRewrite(IE::Dept
 //
 
 class ConvertDepth2SpaceToTransposedConvPass final :
-        public IE::ConvertDepth2SpaceToTransposedConvBase<ConvertDepth2SpaceToTransposedConvPass> {
+        public IE::impl::ConvertDepth2SpaceToTransposedConvBase<ConvertDepth2SpaceToTransposedConvPass> {
 public:
     explicit ConvertDepth2SpaceToTransposedConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

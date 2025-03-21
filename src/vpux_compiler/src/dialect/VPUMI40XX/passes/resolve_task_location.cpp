@@ -6,17 +6,25 @@
 //
 
 #include <vpux/compiler/dialect/VPUMI40XX/utils.hpp>
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
 using namespace npu40xx;
 
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_RESOLVETASKLOCATION
+#define GEN_PASS_DEF_RESOLVETASKLOCATION
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 namespace vpux {
 
 namespace {
 
-class ResolveTaskLocationPass final : public VPUMI40XX::ResolveTaskLocationBase<ResolveTaskLocationPass> {
+class ResolveTaskLocationPass final : public VPUMI40XX::impl::ResolveTaskLocationBase<ResolveTaskLocationPass> {
 public:
     ResolveTaskLocationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -133,7 +141,7 @@ const std::unordered_map<VPURegMapped::TaskType, size_t> taskBinarySize40XX = {
 
 // TODO: E#121934 Add method for VPURegMapped TaskType to be able to directly return its binary size in an
 // arch-specific way
-size_t getTaskBinarySize(VPURegMapped::TaskType taskType, VPU::ArchKind /*arch*/) {
+size_t getTaskBinarySize(VPURegMapped::TaskType taskType, [[maybe_unused]] VPU::ArchKind arch) {
     return taskBinarySize40XX.at(taskType);
 }
 

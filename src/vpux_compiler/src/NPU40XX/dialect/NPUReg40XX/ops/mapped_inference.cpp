@@ -23,6 +23,7 @@ using namespace npu40xx;
 
 void vpux::NPUReg40XX::MappedInferenceOp::serializeCached(elf::writer::BinaryDataSection<uint8_t>& binDataSection,
                                                           ELF::SymbolReferenceMap& symRefMap) {
+    // E#156570
     auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
     bool isActShaveProfilingEnabled =
             vpux::getProfilingSection(moduleOp, profiling::ExecutorType::ACTSHAVE).has_value();
@@ -81,7 +82,7 @@ void vpux::NPUReg40XX::MappedInferenceOp::serializeCached(elf::writer::BinaryDat
     if (getActShaveStacks().has_value()) {
         auto stackRef = symRefMap.lookupSymbol(getActShaveStacks()->begin()->dyn_cast<mlir::SymbolRefAttr>());
         auto stackOp = mlir::cast<VPUASM::ShaveStackFrameOp>(stackRef);
-        stackSize = stackOp.getBinarySizeCached(symRefMap, VPU::ArchKind::NPU40XX);
+        stackSize = stackOp.getStackSize();
     }
     // NPU40XX does not have stack frames provided by compiler
     // they are resolved by shave driver when initialized.
@@ -118,18 +119,7 @@ size_t vpux::NPUReg40XX::MappedInferenceOp::getBinarySize(VPU::ArchKind) {
 }
 
 size_t vpux::NPUReg40XX::MappedInferenceOp::getAlignmentRequirements(VPU::ArchKind) {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::MappedInferenceOp::getSectionSignature() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-bool vpux::NPUReg40XX::MappedInferenceOp::hasMemoryFootprint() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
+    return alignof(nn_public::VpuMappedInference);
 }
 
 namespace {
@@ -376,7 +366,7 @@ std::vector<ELF::RelocationInfo> vpux::NPUReg40XX::MappedInferenceOp::getRelocat
                     if (auto symRef = attr.dyn_cast<mlir::SymbolRefAttr>()) {
                         auto stacks = symRefMap.lookupSymbol(symRef);
                         auto stackOp = mlir::cast<VPUASM::ShaveStackFrameOp>(stacks);
-                        auto stackSize = stackOp.getBinarySizeCached(symRefMap, VPU::ArchKind::NPU40XX);
+                        auto stackSize = stackOp.getStackSize();
                         // SHAVE stack grows backwards!
                         // set the addend to the top of the allocated section so it does not override
                         // outside of its buffer
@@ -409,4 +399,12 @@ std::vector<ELF::RelocationInfo> vpux::NPUReg40XX::MappedInferenceOp::getRelocat
     }
 
     return relocs;
+}
+
+elf::Version NPUReg40XX::MappedInferenceOp::getVersion() {
+    // PV version of Mapped inference.
+    // Don't expect this to be changed as it is fixed
+    auto returnVersion = elf::Version(NNRT_API_UD2024_44_MAJOR_VERSION, NNRT_API_UD2024_44_MINOR_VERSION,
+                                      NNRT_API_UD2024_44_PATCH_VERSION);
+    return returnVersion;
 }

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/json_utils.hpp"
@@ -15,6 +16,12 @@
 
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_MANUALSTRATEGYUTILS
+#define GEN_PASS_DEF_MANUALSTRATEGYUTILS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 using namespace VPU;
 
@@ -24,7 +31,7 @@ namespace {
 // ManualStrategyUtilsPass
 //
 
-class ManualStrategyUtilsPass final : public ManualStrategyUtilsBase<ManualStrategyUtilsPass> {
+class ManualStrategyUtilsPass final : public VPU::impl::ManualStrategyUtilsBase<ManualStrategyUtilsPass> {
 public:
     ManualStrategyUtilsPass()
             : _writeStrategyToJSON(false),

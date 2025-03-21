@@ -6,7 +6,14 @@
 #pragma once
 
 #include "vpux/compiler/NPU37XX/core/pipelines_options.hpp"
+#include "vpux/compiler/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/utils/core/logger.hpp"
+
+#include <mlir/Pass/Pass.h>
+#include <mlir/Pass/PassManager.h>
+
+#include <memory>
 
 namespace vpux {
 namespace VPU {
@@ -21,7 +28,6 @@ std::unique_ptr<mlir::Pass> createSplitRealDFTOpsPass(Logger log = Logger::globa
 std::unique_ptr<mlir::Pass> createDecomposeMVNPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createApplyTilingMVN1SumPass(bool enablePrefetchTiling = true,
                                                          Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createAddProposalAuxiliaryBufferPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCorrectNCEWorkloadsPass(Logger log = Logger::global());
 
 void buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
@@ -46,22 +52,11 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
-// registerVPUPipelines
+// Registration
 //
 
 void registerVPUPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace VPU

@@ -35,8 +35,8 @@ using EnqueueBarrierTests = ::testing::Test;
  *           |
  *          t6
  */
-std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphSimple() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+std::pair<BarrierInfoMaps, SmallVector<size_t>> graphSimple() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},     // task 0
@@ -59,8 +59,6 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphSimple() {
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType1{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dmaType2{VPU::ExecutorKind::DMA_NN, 1};
@@ -76,7 +74,7 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphSimple() {
 TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphSimple) {
     auto [barrierMapsConfig, barrierToPidVec] = graphSimple();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
@@ -98,14 +96,14 @@ TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphSimple) {
     EXPECT_EQ(enqueueBarrierHandlerTest.getEnqueueBarrier(6).value(), 0);
 }
 
-TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphSimpleBarrierFifo2) {
+TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphSimpleBarrierFifo3) {
     auto [barrierMapsConfig, barrierToPidVec] = graphSimple();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
-                                                           barrierToPidVec, /*barrierFifoDepth*/ 2);
+                                                           barrierToPidVec, /*barrierFifoDepth*/ 3);
 
     const auto res = enqueueBarrierHandlerTest.calculateEnqueueBarriers();
     ASSERT_TRUE(mlir::succeeded(res));
@@ -145,8 +143,8 @@ TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphSimpleBarrierFifo2) {
  *           |
  *          b4(1)
  */
-std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphWithTasksWithoutWaitBar() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+std::pair<BarrierInfoMaps, SmallVector<size_t>> graphWithTasksWithoutWaitBar() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},     // task 0
@@ -169,8 +167,6 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphWithTasksWitho
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType1{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dmaType2{VPU::ExecutorKind::DMA_NN, 1};
@@ -186,7 +182,7 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphWithTasksWitho
 TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphWithTasksWithoutWaitBar) {
     auto [barrierMapsConfig, barrierToPidVec] = graphWithTasksWithoutWaitBar();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
@@ -241,8 +237,8 @@ TEST_F(EnqueueBarrierTests, CheckEnqueueForGraphWithTasksWithoutWaitBar) {
  *    |           but its enqueue will be delayed to that of t5 - b2(1)
  *  b6(2)
  */
-std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBasedOnPrevious() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+std::pair<BarrierInfoMaps, SmallVector<size_t>> graphDelayEnqueueBasedOnPrevious() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},  // task 0
@@ -265,8 +261,6 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBa
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
@@ -284,7 +278,7 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBa
 TEST_F(EnqueueBarrierTests, CheckDelayEnqueueBasedOnPrevious) {
     auto [barrierMapsConfig, barrierToPidVec] = graphDelayEnqueueBasedOnPrevious();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
@@ -330,8 +324,8 @@ TEST_F(EnqueueBarrierTests, CheckDelayEnqueueBasedOnPrevious) {
  *    |           but its enqueue will be delayed until t4(DMA) executes due
  *  b5(2)         to FIFO size = 1 (in this test). Final enqueue would be b3(0)
  */
-std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBasedOnDmaFifoSize() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+std::pair<BarrierInfoMaps, SmallVector<size_t>> graphDelayEnqueueBasedOnDmaFifoSize() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},  // task 0
@@ -352,8 +346,6 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBa
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType0{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dmaType1{VPU::ExecutorKind::DMA_NN, 1};
@@ -369,7 +361,7 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphDelayEnqueueBa
 TEST_F(EnqueueBarrierTests, CheckDelayEnqueueBasedOnDmaFifoSize) {
     auto [barrierMapsConfig, barrierToPidVec] = graphDelayEnqueueBasedOnDmaFifoSize();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     // For test purpose make FIFO depth = 1 and disable optimization to make it easier to trigger scenario
@@ -425,8 +417,8 @@ TEST_F(EnqueueBarrierTests, CheckDelayEnqueueBasedOnDmaFifoSize) {
  *                but its enqueue will be combined with previous DMA task
  *                enqueue as part of optimization
  */
-std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphOptimizeEnqueueWithPrevious() {
-    BarrierInfoTest::BarrierMaps barrierMapsConfig;
+std::pair<BarrierInfoMaps, SmallVector<size_t>> graphOptimizeEnqueueWithPrevious() {
+    BarrierInfoMaps barrierMapsConfig;
 
     barrierMapsConfig.taskUpdateBarriers = {
             {0},  // task 0
@@ -449,8 +441,6 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphOptimizeEnqueu
     };
 
     fillProducersAndConsumers(barrierMapsConfig);
-    barrierMapsConfig.nTasks = barrierMapsConfig.taskUpdateBarriers.size();
-    barrierMapsConfig.nBarriers = barrierMapsConfig.barrierProducerMap.size();
 
     const VPURT::TaskQueueType dmaType0{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dmaType1{VPU::ExecutorKind::DMA_NN, 1};
@@ -466,7 +456,7 @@ std::pair<BarrierInfoTest::BarrierMaps, SmallVector<size_t>> graphOptimizeEnqueu
 TEST_F(EnqueueBarrierTests, CheckOptimizeEnqueueWithPrevious) {
     auto [barrierMapsConfig, barrierToPidVec] = graphOptimizeEnqueueWithPrevious();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
@@ -484,15 +474,15 @@ TEST_F(EnqueueBarrierTests, CheckOptimizeEnqueueWithPrevious) {
     EXPECT_EQ(enqueueBarrierHandlerTest.getEnqueueBarrier(6).value(), 2);
 }
 
-TEST_F(EnqueueBarrierTests, CheckOptimizeEnqueueWithPreviousBarrierFifo2) {
+TEST_F(EnqueueBarrierTests, CheckOptimizeEnqueueWithPreviousBarrierFifo3) {
     auto [barrierMapsConfig, barrierToPidVec] = graphOptimizeEnqueueWithPrevious();
 
-    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.nBarriers);
+    ASSERT_TRUE(barrierToPidVec.size() == barrierMapsConfig.barrierProducerMap.size());
 
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
 
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
-                                                           barrierToPidVec, /*barrierFifoDepth*/ 2);
+                                                           barrierToPidVec, /*barrierFifoDepth*/ 3);
 
     const auto res = enqueueBarrierHandlerTest.calculateEnqueueBarriers();
     ASSERT_TRUE(mlir::succeeded(res));

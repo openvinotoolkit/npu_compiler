@@ -595,6 +595,35 @@ TEST_F(MLIR_IndexedSymbolAttr, CheckNestedAttr) {
 
 ## Pipelines and passes
 
+### Pass implementation
+
+Passes that are defined in Tablegen have their base class auto-generated in the
+associated dialect's `passes.hpp.inc` file. Each pass class has its own macros:
+- `GEN_PASS_DEF_MYPASSNAME`: when defined, including the corresponding `passes.hpp.inc`
+results in the base class definition being included without including the rest of the file
+- `GEN_PASS_DECL_MYPASSNAME`: passes which have options also have a structure generated
+with said options; when this macro is defined, including the corresponding `passes.hpp.inc`
+results in the structure being included
+  - the base class usually contains a constructor which receives this structure as a parameter;
+it is often a good idea to specify both macros
+
+When creating the implementation of a pass, you can make its base class available
+by including it explicitly in the source file. For example, for a pass in IE dialect:
+```C++
+namespace vpux::IE {
+#define GEN_PASS_DECL_MYPASSNAME
+#define GEN_PASS_DEF_MYPASSNAME
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+```
+
+Then, the base class can be found in `vpux::IE::impl::MyPassNameBase`, which
+you can use as the parent class for the pass implementation.
+
+*Note:* When including the base class of a pass using `passes.hpp.inc`, you
+might also need to include the dependencies used in this class. For example,
+the dialect headers for the dependent dialects (e.g. `IE/IR/dialect.hpp`).
+
 ### Adding rewriter to a pass
 
 The IR traversal within a pass usually follows a specific direction: it is

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
@@ -65,13 +66,7 @@ mlir::LogicalResult vpux::IE::SoftMaxOp::reifyResultShapes(mlir::OpBuilder& buil
 
     SmallVector<mlir::OpFoldResult> dims;
     for (auto i : irange(rank)) {
-        if (inputType.isDynamicDim(i)) {
-            auto dim = builder.createOrFold<mlir::tensor::DimOp>(loc, input, i);
-            dims.push_back(dim);
-        } else {
-            auto dim = builder.getIndexAttr(inputType.getDimSize(i));
-            dims.push_back(dim);
-        }
+        dims.push_back(IE::reifyDim(builder, input, inputType, i, loc));
     }
 
     reifiedReturnShapes.emplace_back(std::move(dims));

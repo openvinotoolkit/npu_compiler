@@ -63,7 +63,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_LargeMishInDDR, LargeMishTest_NPU4000,
                                  {1, 64, 32, 514}  // in_shape
                          }),
                          LargeMishTest_NPU3720::getTestCaseName);
-
 class TwoMishTest_NPU3720 : public VpuOv2LayerTest, public testing::WithParamInterface<LargeMishTestParams> {
     void SetUp() override {
         auto inputShape = std::get<ov::Shape>(GetParam());
@@ -107,7 +106,7 @@ class TwoMishTest_NPU4000 : public TwoMishTest_NPU3720 {};
 TEST_P(TwoMishTest_NPU4000, HW) {
     setDefaultHardwareMode();
     // TODO: E129229
-    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "enable-partial-workload-management=false";
+    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "workload-management-enable=false";
     run(Platform::NPU4000);
 }
 
@@ -116,7 +115,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_TwoMishInDDR, TwoMishTest_NPU4000,
                                  {1, 32, 32, 514}  // in_shape
                          }),
                          TwoMishTest_NPU3720::getTestCaseName);
-
 class TwoScatterUpdateTest_NPU3720 : public VpuOv2LayerTest, public testing::WithParamInterface<LargeMishTestParams> {
     void SetUp() override {
         auto inputShape = std::get<ov::Shape>(GetParam());

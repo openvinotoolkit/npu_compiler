@@ -6,11 +6,19 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTOSPATIALOP
+#define GEN_PASS_DEF_CONVERTTOSPATIALOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -272,7 +280,7 @@ mlir::LogicalResult TransposeRoll::matchAndRewrite(IE::RollOp origOp, mlir::Patt
 // ConvertToSpatialOpPass
 //
 
-class ConvertToSpatialOpPass final : public IE::ConvertToSpatialOpBase<ConvertToSpatialOpPass> {
+class ConvertToSpatialOpPass final : public IE::impl::ConvertToSpatialOpBase<ConvertToSpatialOpPass> {
 public:
     explicit ConvertToSpatialOpPass(const bool m2iEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _m2iEnabled(m2iEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled), _log(log) {

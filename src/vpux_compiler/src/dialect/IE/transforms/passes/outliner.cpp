@@ -22,6 +22,12 @@
 #include <mlir/Support/LogicalResult.h>
 #include <mlir/Transforms/RegionUtils.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OUTLINER
+#define GEN_PASS_DEF_OUTLINER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -93,8 +99,8 @@ public:
             for (const auto output : slice.outputs) {
                 outputTypes.push_back(output.getType());
             }
-            const auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), functionSuffix, targetIdx + 1);
-            funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), funcName});
+            auto funcName = printToString("{0}_{1}{2}", netFunc.getName(), functionSuffix, targetIdx + 1);
+            funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), std::move(funcName)});
         }
 
         buildFuncOps(moduleOp, funcsInfo, outlinedTargets);
@@ -426,9 +432,9 @@ public:
                 for (const auto output : slice.outputs) {
                     outputTypes.push_back(output.getType());
                 }
-                const auto funcName = printToString("{0}_{1}{2}_block{3}", netFunc.getName(), functionSuffix,
-                                                    targetIdx + 1, sliceIdx + 1);
-                funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), funcName});
+                auto funcName = printToString("{0}_{1}{2}_block{3}", netFunc.getName(), functionSuffix, targetIdx + 1,
+                                              sliceIdx + 1);
+                funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), std::move(funcName)});
             }
         }
 
@@ -671,14 +677,16 @@ namespace {
 // OutlinerPass
 //
 
-class OutlinerPass final : public IE::OutlinerBase<OutlinerPass> {
+class OutlinerPass final : public IE::impl::OutlinerBase<OutlinerPass> {
 public:
-    explicit OutlinerPass(const Logger& log) {
+    explicit OutlinerPass(const DefaultHWOptionsBase& outlingOptions, const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
+        Base::copyOptionValuesFrom(outlingOptions);
+
+        _options = vpux::OutlinerPassOptions::createFromString(functionOutlining);
     }
 
-    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
-    mlir::LogicalResult delegateInitializeOptions(StringRef functionOutlining);
+    mlir::LogicalResult initializeOptions(StringRef options) final;
 
 private:
     void safeRunOnModule() final;
@@ -688,8 +696,9 @@ private:
     vpux::OutlinerPassOptions _options;
 };
 
-mlir::LogicalResult OutlinerPass::initialize(mlir::MLIRContext* ctx) {
-    if (mlir::failed(Base::initialize(ctx))) {
+mlir::LogicalResult OutlinerPass::initializeOptions(StringRef options) {
+    _log.info("initializeOptions");
+    if (mlir::failed(Base::initializeOptions(options))) {
         return mlir::failure();
     }
 
@@ -699,16 +708,37 @@ mlir::LogicalResult OutlinerPass::initialize(mlir::MLIRContext* ctx) {
     return mlir::success();
 }
 
-mlir::LogicalResult OutlinerPass::delegateInitializeOptions(StringRef functionOutlining) {
-    return Base::initializeOptions(printToString("{0}={1}", this->functionOutlining.getArgStr(), functionOutlining));
-}
-
 //
 // safeRunOnModule
 //
 
 void OutlinerPass::safeRunOnModule() {
     auto moduleOp = getOperation();
+
+    // A module attribute "VPU.debatch" will enforce 'batching' outlining method providing that
+    // other methods defined by OutlinerPassOptions became forbidden,
+    // unless it's the only one `BatchingOptions`
+    if (hasCompileMethodDebatch(moduleOp)) {
+        if (_options.count() != 0) {
+            if (_options.count() != 1) {
+                mlir::emitError(moduleOp->getLoc(), printToString("The module attribute 'VPU.debatch' doesn't support "
+                                                                  "multiple `OutlinerPassOptions`, got: {0}",
+                                                                  _options.count()));
+                signalPassFailure();
+                return;
+            }
+            if (!_options.getIf<vpux::BatchingOptions>(0)) {
+                mlir::emitError(moduleOp->getLoc(),
+                                "The module attribute 'VPU.debatch' expects 'BatchingOptions' only");
+                signalPassFailure();
+                return;
+            }
+            _log.info("{0} Outliner will use \"batching\" as the options has been requested explicilty", getName());
+        } else {
+            _log.info("{0} has detected debatching compile method, enforce \"batching\" outlining", getName());
+            _options = OutlinerPassOptions::createFromString("batching=''");
+        }
+    }
 
     for (size_t i = 0; i < _options.count(); ++i) {
         if (i >= 1) {
@@ -740,11 +770,10 @@ void OutlinerPass::safeRunOnModule() {
 //
 // createOutlinerPass
 //
+std::unique_ptr<mlir::Pass> vpux::IE::createOutlinerPass(const DefaultHWOptionsBase& outlingOptions, Logger log) {
+    return std::make_unique<OutlinerPass>(outlingOptions, log);
+}
 
-std::unique_ptr<mlir::Pass> vpux::IE::createOutlinerPass(const std::string& functionOutlining, Logger log) {
-    auto pass = std::make_unique<OutlinerPass>(log);
-    if (mlir::failed(static_cast<OutlinerPass*>(pass.get())->delegateInitializeOptions(functionOutlining))) {
-        VPUX_THROW("Incorrect option used for \"{0}\" pass initialization: {1}", pass->getName(), functionOutlining);
-    }
-    return pass;
+std::unique_ptr<mlir::Pass> vpux::IE::createOutlinerPass(Logger log) {
+    return createOutlinerPass(DefaultHWOptionsBase{}, log);
 }

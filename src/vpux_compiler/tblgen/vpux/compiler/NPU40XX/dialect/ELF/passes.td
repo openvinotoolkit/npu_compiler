@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -20,12 +20,14 @@ def AddELFSymbolTable : PassBase<"create-elf-symbol-table", "vpux::FunctionPass"
         For each DataSection and LogicalSection operation, an associated ELF symbol op will be added to the SymbolTableSection.
     }];
 
+
     let constructor = "vpux::ELF::createAddELFSymbolTablePass()";
 
     let dependentDialects = [
         "vpux::ELF::ELFDialect"
     ];
 }
+
 
 //
 // CreateELFRelocations
@@ -158,18 +160,18 @@ def RemoveEmptyELFSections : PassBase<"remove-empty-ELF-sections", "vpux::Functi
 }
 
 //
-// AddInnerSectionPadding
+// HandleAlignmentRequirements
 //
 
-def AddInnerSectionPadding : PassBase<"add-inner-section-padding", "vpux::FunctionPass"> {
-    let summary = "Add inner-section Pad ops";
+def HandleAlignmentRequirements : PassBase<"handle-alignment-requirements", "vpux::FunctionPass"> {
+    let summary = "Update ELF section alignment and add inner-section Pad ops ";
 
     let description = [{
-        The pass that ensures that - by adding ELF.PadOps in between the ops -
+        The pass that updates the section alignment requirements and ensures that - by adding ELF.PadOps in between the ops -
         alignment is met within the section.
     }];
 
-    let constructor = "vpux::ELF::createAddInnerSectionPaddingPass()";
+    let constructor = "vpux::ELF::createHandleAlignmentRequirementsPass()";
 
     let dependentDialects = [
         "vpux::ELF::ELFDialect"

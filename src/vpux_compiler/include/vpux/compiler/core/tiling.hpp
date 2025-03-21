@@ -74,6 +74,15 @@ static constexpr double ACTSPARSE_DPU_COST_RATIO = 2;
 // Track [E#126141]
 static constexpr double REDUCEMIN_DPU_THRESHOLD = 96 * 1024;
 
+// Experimental number to get accurate NCEPermute VPUNN cost
+// Track [E#10732]
+static constexpr double NCEPERMUTE_DPU_COST_RATIO = 1.9;
+
+// An experimental number for tiling strategy searching algorithms choice
+// Linear search for the first several times
+// If tilling strategy is not found, then binary search
+static constexpr int LINEAR_SEARCH_TIMES = 3;
+
 //
 // Tiling Mode
 //
@@ -157,6 +166,8 @@ mlir::FailureOr<OutputTiling> fillDividedTiles(ShapeRef divisors, ShapeRef orig,
                                                bool unrollSpatialFirst = false);
 mlir::FailureOr<OutputTiling> fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape);
 
+bool isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
+bool isWeightsFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
 //
 // PadInfo
 //
@@ -227,6 +238,13 @@ InputTiling backInferConvTile(const TileInfo& outputTile, ShapeRef origInputShap
 InputTiling backInferGroupConvTile(const TileInfo& outputTile, ShapeRef origInputShape, ShapeRef origFilterShape,
                                    ShapeRef origBiasShape, mlir::ArrayAttr strides, const PadInfo& origPadding,
                                    int64_t groups);
+
+//
+// NCEMatMul tiling
+//
+
+InputTiling backInferMatMulTile(const TileInfo& outputTile, ShapeRef origInputShape, ShapeRef origFilterShape,
+                                mlir::ArrayAttr strides, const PadInfo& origPadding);
 
 //
 // Pooling tiling
@@ -367,7 +385,7 @@ SmallVector<Strides> adaptStrides(ShapeRef origShape, StridesRef origStrides, Ar
 // EltwiseOp
 //
 
-SmallVector<int64_t> getMaxNumTiles(mlir::Operation* op);
+SmallVector<int64_t> getMaxNumTiles(mlir::Operation* op, bool checkMinimalWidthAndHeight = false);
 InputTiling backInferEltwiseTile(mlir::Operation* op, const vpux::TileInfo& outputTile);
 
 // SWLayer
@@ -382,6 +400,20 @@ InputTiling getSWLayerInputTiles(mlir::Operation* op, const vpux::TileInfo& outp
 SmallVector<int64_t> getMaxNumTilesWithAxesExclusion(mlir::Operation* op, ArrayRef<int64_t> axes);
 
 // HWLayer
+struct HWTilingStrategies {
+    OutputTiling isolatedStrategy;
+    OutputTiling pipeliningStrategy;
+};
+
+mlir::FailureOr<OutputTiling> getHWLayerTilingStrategyWithTileDimOrderForIsolatedOrPrefetch(
+        mlir::Operation* op, TilingMode tilingMode, DimArrRef tileDimOrder, ShapeRef outputShape, Logger log);
+
+OutputTiling getHWLayerTilingStrategyWithTileDimOrderForPipelining(mlir::Operation* op, ShapeRef outputShape,
+                                                                   const OutputTiling& isolatedTiles, Logger log);
+
+mlir::FailureOr<HWTilingStrategies> getHWLayerTilingStrategiesWithTileDimOrder(mlir::Operation* op,
+                                                                               TilingMode tilingMode,
+                                                                               DimArrRef tileDimOrder, Logger log);
 mlir::FailureOr<OutputTiling> getHWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode tilingMode,
                                                                        DimArrRef tileDimOrder, Logger log);
 mlir::FailureOr<OutputTiling> getHWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log);
@@ -421,6 +453,14 @@ std::pair<Dim, int64_t> getAlignDimAndSize(mlir::Operation* op);
 bool isSupportedAlignedDivision(int64_t dimSize, int64_t tiles, int64_t alignment);
 
 /*
+ * Check if the new tile has the same cost as the historical one and has benefits for DMA
+ * It is possible that the tiling strategy cost calculated by VPUNN is the same
+ * However, due to the stride, the DMA cost model may not be very accurate
+ * Choose the tiling strategy at higher dimensions that has potential benefits for DMA
+ */
+bool isNewTileWithSameCostHasPotentialDMABenefits(mlir::Operation* op, ShapeRef currentTileAxis, ShapeRef newTileAxis);
+
+/*
  * Get the dimensions greater than 1
  */
 SmallVector<Dim> getNonOneDim(ShapeRef inputShape);
@@ -437,4 +477,9 @@ std::optional<Dim> getMaxNonOneDim(ShapeRef inputShape);
 mlir::FailureOr<Shape> getNextTiling(Dim targetDim, Dim dimToAlign, int64_t dimAlignment, Shape nTilesOnDim,
                                      ArrayRef<int64_t> maxNumTiles, ShapeRef outputShape);
 
+/*
+Get all feasible tiling strategies for all dim orders for an op
+*/
+SmallVector<OutputTiling> getAllHWLayerTilingStrategies(mlir::Operation* op, TilingMode tilingMode,
+                                                        DimArrRef tileDimOrder, Logger log);
 }  // namespace vpux

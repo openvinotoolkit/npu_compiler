@@ -3,13 +3,21 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_UNROLLENQUEUEOPS
+#define GEN_PASS_DEF_UNROLLENQUEUEOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -46,9 +54,10 @@ void UnrollEnqueuePattern::rewrite(VPURegMapped::EnqueueOp enqueueOp, mlir::Patt
     mlir::Value last = enqueueOp.getPreviousTaskIdx();
     mlir::Value first;
     for (auto taskOp = start; taskOp != iterEnd; taskOp = VPUMI40XX::getNextOp(taskOp)) {
-        auto newEnqueue = rewriter.create<VPURegMapped::EnqueueOp>(taskOp.getLoc(), enqueueOp.getType(), last,
-                                                                   enqueueOp.getBarrier(), enqueueOp.getTaskType(),
-                                                                   taskOp.getResult(), taskOp.getResult());
+        auto newEnqueue = rewriter.create<VPURegMapped::EnqueueOp>(
+                taskOp.getLoc(), enqueueOp.getType(), last, enqueueOp.getBarrier(),
+                /*previousTaskIdxOnSameBarrier*/ nullptr, enqueueOp.getTaskType(), taskOp.getResult(),
+                taskOp.getResult());
         last = newEnqueue.getResult();
 
         if (!first)
@@ -66,7 +75,7 @@ void UnrollEnqueuePattern::rewrite(VPURegMapped::EnqueueOp enqueueOp, mlir::Patt
     rewriter.eraseOp(enqueueOp.getOperation());
 }
 
-class UnrollEnqueueOpsPass : public VPUMI40XX::UnrollEnqueueOpsBase<UnrollEnqueueOpsPass> {
+class UnrollEnqueueOpsPass : public VPUMI40XX::impl::UnrollEnqueueOpsBase<UnrollEnqueueOpsPass> {
 public:
     explicit UnrollEnqueueOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

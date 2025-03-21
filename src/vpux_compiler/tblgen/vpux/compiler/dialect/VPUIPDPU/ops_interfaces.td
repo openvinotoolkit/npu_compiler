@@ -47,18 +47,4 @@ def VPUIPDPU_DPUVariantOpInterface : OpInterface<"DPUVariantOpInterface"> {
     ];
 }
 
-def VPUIPDPU_LowerToNPURegInterface : OpInterface<"LowerToNPURegInterface"> {
-    let description = "Interface for lowering VPUIPDPU op to NPU registers dialect";
-
-    let cppNamespace = "vpux::VPUIPDPU";
-
-    let methods = [
-        InterfaceMethod<
-            "Lower VPUIPDPU ops to specific registers",
-            "void", "lowerToRegisters",
-            (ins "std::map<std::string, std::map<std::string, vpux::VPURegMapped::RegFieldValue>>&":$initValues)
-        >
-    ];
-}
-
 #endif

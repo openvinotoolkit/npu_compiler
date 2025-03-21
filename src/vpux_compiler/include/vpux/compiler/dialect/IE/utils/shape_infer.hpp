@@ -18,6 +18,11 @@ namespace IE {
 
 bool isBroadcastable(int64_t d0, int64_t d1);
 
+mlir::OpFoldResult reifyDim(mlir::OpBuilder builder, mlir::Value value, mlir::RankedTensorType type, size_t idx,
+                            std::optional<mlir::Location> loc = std::nullopt);
+mlir::OpFoldResult reifyDim(mlir::OpBuilder builder, mlir::Value value, size_t idx,
+                            std::optional<mlir::Location> loc = std::nullopt);
+
 mlir::FailureOr<SmallVector<int64_t>> broadcastEltwiseShape(ArrayRef<int64_t> shape1, ArrayRef<int64_t> shape2,
                                                             AutoBroadcastType broadcastType, mlir::Location loc);
 

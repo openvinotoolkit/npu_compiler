@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --lower-VPUIP-to-ELF="wlm-vpurt-enqueue=ENABLED"  %s | FileCheck %s
-// REQUIRES: arch-NPU40XX
-//
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --lower-VPUIP-to-ELF="workload-management-mode=PWLM_V1_BARRIER_FIFO"  %s | FileCheck %s
+// REQUIRES: arch-NPU40XX//
 
 module @Test {
 
@@ -59,7 +58,7 @@ func.func @main(%1: memref<1x1x1x32xf16>, %2: memref<1x1x1x32xf16>) -> memref<1x
     %in_tile0_cmx  = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
     %out_tile0_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
 
-    %b0 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
+    %b0 = VPURT.ConfigureBarrier<2> {isStartBarrier} -> !VPURT.Barrier
     %b1 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     %b2 = VPURT.ConfigureBarrier<4> -> !VPURT.Barrier
     %b3 = VPURT.ConfigureBarrier<5> {isFinalBarrier} -> !VPURT.Barrier
@@ -73,7 +72,7 @@ func.func @main(%1: memref<1x1x1x32xf16>, %2: memref<1x1x1x32xf16>) -> memref<1x
     }
 
     // Genetic Kernel information for the scheduler.
-    VPURT.Task waits(%b1  : !VPURT.Barrier) updates(%b2  : !VPURT.Barrier) enqueueTarget(%b0 : !VPURT.Barrier) {
+    VPURT.Task waits(%b1  : !VPURT.Barrier) updates(%b2  : !VPURT.Barrier) {
         VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>}
                     @VPU.SW::@builtin_hswish            // The reference to the Kernel function.
                     inputs(%in_tile0_cmx as %arg0: memref<1x1x1x32xf16, [@CMX_NN, 0]>)     // Inputs/outputs buffers for generic operation interface
@@ -89,7 +88,7 @@ func.func @main(%1: memref<1x1x1x32xf16>, %2: memref<1x1x1x32xf16>) -> memref<1x
         }
     }
 
-    VPURT.Task waits(%b2 : !VPURT.Barrier) updates(%b3 : !VPURT.Barrier) enqueueTarget(%b0 : !VPURT.Barrier) {
+    VPURT.Task waits(%b2 : !VPURT.Barrier) updates(%b3 : !VPURT.Barrier) {
         %0 = VPUIP.NNDMA {port = 0 : i64} inputs(%out_tile0_cmx : memref<1x1x1x32xf16, [@CMX_NN, 0]>) outputs(%2 : memref<1x1x1x32xf16>) -> memref<1x1x1x32xf16>
     }
     return %2: memref<1x1x1x32xf16>

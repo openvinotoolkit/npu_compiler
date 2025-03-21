@@ -140,13 +140,12 @@ TEST_F(MLIR_ValueSourceInfo, FuncArguments) {
     const auto funcArgSourceExpected = info.getSource(funcArg);
     EXPECT_TRUE(funcArgSourceExpected == nullptr);
 
-    const auto funcArgRootsExpected = info.getRoots(funcArg);
-    EXPECT_EQ(funcArgRootsExpected.size(), 1) << "funcArg roots: %arg";
-    EXPECT_TRUE(*funcArgRootsExpected.begin() == funcArg);
+    const auto funcArgRootExpected = info.getRoot(funcArg);
+    EXPECT_TRUE(funcArgRootExpected == funcArg);
 
     vpux::ValueSourceInfo valueInfo(funcArg);
     const auto funcArgSourceActual = valueInfo.getSource(funcArg);
     EXPECT_TRUE(funcArgSourceActual == funcArgSourceExpected);
-    const auto funcArgRootsActual = valueInfo.getRoots(funcArg);
-    EXPECT_TRUE(*funcArgRootsActual.begin() == *funcArgRootsExpected.begin());
+    const auto funcArgRootActual = valueInfo.getRoot(funcArg);
+    EXPECT_TRUE(funcArgRootActual == funcArgRootExpected);
 }

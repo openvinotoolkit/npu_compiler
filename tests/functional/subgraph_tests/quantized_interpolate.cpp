@@ -24,23 +24,37 @@ namespace {
 //      (quantize)
 //
 
-using QuantizedSEInterpTestParams = std::tuple<ov::element::Type,                  // inPrc
-                                               ov::element::Type,                  // outPrc
-                                               std::vector<float>,                 // fqRanges
-                                               std::vector<ov::test::InputShape>,  // inputShape
-                                               std::vector<float>                  // scales
-                                               >;
+using QuantizedSEInterpTestParams = std::tuple<ov::element::Type,                           // inPrc
+                                               ov::element::Type,                           // outPrc
+                                               std::vector<float>,                          // fqRanges
+                                               std::vector<ov::test::InputShape>,           // inputShape
+                                               std::vector<float>,                          // scales
+                                               ov::op::v4::Interpolate::InterpolateAttrs>;  // interpolate attr
 class QuantizedSEInterpSubGraphTestCommon :
         public VpuOv2LayerTest,
         public testing::WithParamInterface<QuantizedSEInterpTestParams> {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-se-ptrs-operations=true";
     }
+
+    void generate_inputs(const std::vector<ov::Shape>& inputShapes) override {
+        OPENVINO_ASSERT(inputShapes.size() == 1, "Only 1 input shape is supported");
+        const auto& funcInputs = function->inputs();
+        OPENVINO_ASSERT(funcInputs.size() == 1, "Only 1 input is supported");
+        const auto& inputStaticShape = inputShapes[0];
+        const auto totalSize = ov::shape_size(inputStaticShape);
+        auto inputTensor = ov::Tensor{ov::element::f32, inputStaticShape};
+        auto inputData = inputTensor.data<ov::element_type_traits<ov::element::f32>::value_type>();
+        for (size_t i = 0; i < totalSize; i++) {
+            inputData[i] = std::sin(i);
+        }
+        inputs = {
+                {funcInputs[0].get_node_shared_ptr(), inputTensor},
+        };
+    }
+
     void SetUp() override {
-        std::vector<float> dataFQRanges;
-        std::vector<ov::test::InputShape> inputShape;
-        std::vector<float> interpScales;
-        std::tie(inType, outType, dataFQRanges, inputShape, interpScales) = GetParam();
+        auto [inType, outType, dataFQRanges, inputShape, interpScales, interpolate4Attr] = GetParam();
 
         init_input_shapes(inputShape);
 
@@ -61,14 +75,8 @@ class QuantizedSEInterpSubGraphTestCommon :
         auto axes_node = ov::op::v0::Constant::create(ov::element::i64, ov::Shape{4}, {0, 1, 2, 3});
         auto scales_node = ov::op::v0::Constant::create(ov::element::f32, ov::Shape{4}, interpScales);
 
-        auto interpolate4_attr = ov::op::v4::Interpolate::InterpolateAttrs(
-                ov::op::v4::Interpolate::InterpolateMode::NEAREST, ov::op::v4::Interpolate::ShapeCalcMode::SCALES,
-                std::vector<size_t>{0, 0, 0, 0}, std::vector<size_t>{0, 0, 0, 0},
-                ov::op::v4::Interpolate::CoordinateTransformMode::ASYMMETRIC,
-                ov::op::v4::Interpolate::NearestMode::FLOOR, false, -0.75);
-
         auto interp = std::make_shared<ov::op::v4::Interpolate>(dataFq, default_out_shape_node, scales_node, axes_node,
-                                                                interpolate4_attr);
+                                                                interpolate4Attr);
 
         const std::vector<float> outDataLow = {0.0f};
         const std::vector<float> outDataHigh = {255.0f};
@@ -81,12 +89,7 @@ class QuantizedSEInterpSubGraphTestCommon :
 
 public:
     static std::string getTestCaseName(testing::TestParamInfo<QuantizedSEInterpTestParams> obj) {
-        ov::element::Type ip;
-        ov::element::Type op;
-        std::vector<float> fqRanges;
-        std::vector<ov::test::InputShape> inputShape;
-        std::vector<float> interpScales;
-        std::tie(ip, op, fqRanges, inputShape, interpScales) = obj.param;
+        auto [ip, op, fqRanges, inputShape, interpScales, interpolate4Attr] = obj.param;
 
         const std::string sep = "_";
         std::ostringstream result;
@@ -96,6 +99,8 @@ public:
         result << "FQ=" << vectorToString(fqRanges) << sep;
         result << "InputShape=" << inputShape[0].second[0] << sep;
         result << "InterpScales=" << vectorToString(interpScales) << sep;
+        result << "Mode=" << ov::as_string(interpolate4Attr.mode) << sep;
+        result << "CoordMode=" << ov::as_string(interpolate4Attr.coordinate_transformation_mode) << sep;
         return result.str();
     }
 };
@@ -115,24 +120,51 @@ TEST_P(QuantizedSEInterpSubGraphTest_NPU3720_SW, SW) {
     run(Platform::NPU3720);
 }
 
+class QuantizedSEInterpSubGraphTest_NPU4000_HW : public QuantizedSEInterpSubGraphTestCommon {};
+
+TEST_P(QuantizedSEInterpSubGraphTest_NPU4000_HW, HW) {
+    abs_threshold = 1.0;
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
 std::vector<std::vector<float>> fqRanges = {{0.0f, 255.0f, 0.0f, 255.0f}};
 
 std::vector<std::vector<ov::Shape>> inputShapes = {{{1, 16, 16, 16}}, {{1, 48, 40, 40}}};
 
-std::vector<std::vector<float>> interpScales = {{1.0f, 1.0f, 2.0f, 2.0f}, {1.0f, 1.0f, 3.0f, 3.0f}};
+std::vector<std::vector<float>> interpScales = {
+        {1.0f, 1.0f, 2.0f, 2.0f}, {1.0f, 1.0f, 3.0f, 3.0f}, {1.0f, 1.0f, 4.0f, 4.0f}};
 
 const std::vector<ov::element::Type> netInPrecisions = {ov::element::f16};
 
 const std::vector<ov::element::Type> netOutputPrecisions = {ov::element::f16};
 
-const auto basicCases = ::testing::Combine(
-        ::testing::ValuesIn(netInPrecisions), ::testing::ValuesIn(netOutputPrecisions), ::testing::ValuesIn(fqRanges),
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes)), ::testing::ValuesIn(interpScales));
+const std::vector<ov::op::v4::Interpolate::InterpolateAttrs> interpAttrs = {
+        ov::op::v4::Interpolate::InterpolateAttrs(ov::op::v4::Interpolate::InterpolateMode::NEAREST,
+                                                  ov::op::v4::Interpolate::ShapeCalcMode::SCALES,
+                                                  std::vector<size_t>{0, 0, 0, 0}, std::vector<size_t>{0, 0, 0, 0},
+                                                  ov::op::v4::Interpolate::CoordinateTransformMode::ASYMMETRIC,
+                                                  ov::op::v4::Interpolate::NearestMode::FLOOR, false, -0.75),
+        ov::op::v4::Interpolate::InterpolateAttrs(ov::op::v4::Interpolate::InterpolateMode::LINEAR_ONNX,
+                                                  ov::op::v4::Interpolate::ShapeCalcMode::SCALES,
+                                                  std::vector<size_t>{0, 0, 0, 0}, std::vector<size_t>{0, 0, 0, 0},
+                                                  ov::op::v4::Interpolate::CoordinateTransformMode::HALF_PIXEL,
+                                                  ov::op::v4::Interpolate::NearestMode::FLOOR, false, -0.75)};
+
+const auto basicCases = ::testing::Combine(::testing::ValuesIn(netInPrecisions),
+                                           ::testing::ValuesIn(netOutputPrecisions), ::testing::ValuesIn(fqRanges),
+                                           ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes)),
+                                           ::testing::ValuesIn(interpScales), ::testing::ValuesIn(interpAttrs));
 
 INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU3720_HW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU3720_HW::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_SW, QuantizedSEInterpSubGraphTest_NPU3720_SW, basicCases,
                          QuantizedSEInterpSubGraphTest_NPU3720_SW::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_QuantizedInterp_HW, QuantizedSEInterpSubGraphTest_NPU4000_HW, basicCases,
+                         QuantizedSEInterpSubGraphTest_NPU4000_HW::getTestCaseName);
+
+// TODO: E156484 - investigate accuracy issue
 
 }  // namespace

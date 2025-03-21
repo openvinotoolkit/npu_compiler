@@ -6,7 +6,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-groupconv-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertGroupConvToSingleConv
 func.func @ConvertGroupConvToSingleConv(%arg0: tensor<1x64x80x80xf16>) -> tensor<1x64x80x80xf16> {
     %weights = const.Declare tensor<64x16x3x3xf16> = dense<1.0> : tensor<64x16x3x3xf16>

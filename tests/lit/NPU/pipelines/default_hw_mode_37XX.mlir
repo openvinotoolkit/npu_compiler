@@ -244,3 +244,60 @@ module @DynamicReshape {
         // CHECK:       return {{%.+}}, {{%.+}} : memref<1x1x2x240xf32, @DDR>, memref<4xsi32, @DDR>
     }
 }
+
+// -----
+
+module @BatchedGroupConvWithBroadcast {
+  // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
+  // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+  // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
+  // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
+  // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
+    DataInfo "Parameter_1" : tensor<4x1x2x2xf16>
+    DataInfo "Parameter_2" : tensor<1x1x3x3xf16>
+  } outputsInfo : {
+    DataInfo "GroupConvolution_10" : tensor<4x1x2x2xf16>
+  }
+
+  // CHECK:       func.func @main(
+  // CHECK-SAME:      [[ARG0:%.+]]: memref<4x1x2x2xf16, @DDR>,
+  // CHECK-SAME:      [[ARG1:%.+]]: memref<1x1x3x3xf16, @DDR>,
+  // CHECK-SAME:      -> memref<4x1x2x2xf16, @DDR>
+
+  func.func @main(%arg0: tensor<4x1x2x2xf16>, %arg1: tensor<1x1x3x3xf16>) -> tensor<4x1x2x2xf16> {
+    %0 = IE.GroupConvolution(%arg0, %arg1) {dilations = [1, 1], groups = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]
+         } : tensor<4x1x2x2xf16>, tensor<1x1x3x3xf16> -> tensor<4x1x2x2xf16>
+    return %0 : tensor<4x1x2x2xf16>
+
+    // CHECK: VPURT.Task waits([[BAR_0:%.+]] : !VPURT.Barrier) updates([[BAR_1:%.+]] : !VPURT.Barrier) {
+    // CHECK: VPUIP.NCEClusterTask {
+    // CHECK:   kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK:   kernel_size = [3, 3], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>
+    // CHECK-SAME: task_type = #VPUIP.nce_task_type<DWCONV>
+    // CHECK:   input([[INPUT_0:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   weights([[WEIGHTS_0:%.+]] : memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   weight_table([[WT_0:%.+]] : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
+    // CHECK:   parent_input([[PARENT_IN:%.+]] : !VPUIP.DistributedBuffer<1x16x2x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
+    // CHECK:   parent_output([[PARENT_OUT:%.+]] : !VPUIP.DistributedBuffer<1x16x2x2xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
+    // CHECK:   outputs([[OUT_0:%.+]] : memref<1x16x2x2xf16, [@CMX_NN, 0]>) -> memref<1x16x2x2xf16, [@CMX_NN, 0]> variants : {
+    // CHECK:     DPUTask {cluster_id = 0 : i64
+    // CHECK:   PPETask {ppe = #VPU.PPEInt<mode = <NOOP>
+
+    // CHECK: VPURT.Task waits([[BAR_0:%.+]] : !VPURT.Barrier) updates([[BAR_1:%.+]] : !VPURT.Barrier) {
+    // CHECK: VPUIP.NCEClusterTask {
+    // CHECK:   kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
+    // CHECK:   kernel_size = [3, 3], kernel_strides = [1, 1], mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>
+    // CHECK-SAME: task_type = #VPUIP.nce_task_type<DWCONV>
+    // CHECK:   input([[INPUT_1:%.+]] : memref<1x16x2x2xf16, #NHWC, [@CMX_NN, 1]>)
+    // CHECK:   weights([[WEIGHTS_1:%.+]] : memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 1]>)
+    // CHECK:   weight_table([[WT_1:%.+]] : memref<16x1x1x4xsi32, [@CMX_NN, 1]>)
+    // CHECK:   parent_input([[PARENT_IN:%.+]] : !VPUIP.DistributedBuffer<1x16x2x2xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
+    // CHECK:   parent_output([[PARENT_OUT:%.+]] : !VPUIP.DistributedBuffer<1x16x2x2xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>)
+    // CHECK:   outputs([[OUT_1:%.+]] : memref<1x16x2x2xf16, [@CMX_NN, 1]>) -> memref<1x16x2x2xf16, [@CMX_NN, 1]> variants : {
+    // CHECK:     DPUTask {cluster_id = 1 : i64
+    // CHECK:   PPETask {ppe = #VPU.PPEInt<mode = <NOOP>
+
+  }
+}

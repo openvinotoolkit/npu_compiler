@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -19,6 +20,12 @@
 
 #include <utility>
 #include <vpux/utils/core/error.hpp>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_DETECTIONOUTPUTDECOMPOSITION
+#define GEN_PASS_DEF_DETECTIONOUTPUTDECOMPOSITION
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -142,10 +149,9 @@ mlir::Value transposeBoxes(mlir::PatternRewriter& rewriter, mlir::Value boxes4D)
 }
 
 mlir::Value cutOnWidth(mlir::PatternRewriter& rewriter, mlir::Value tensor, int64_t width) {
-    const auto origShape = Shape(getShape(tensor));
-    const auto offsets = Shape(origShape.size());
-    auto slicedShape = Shape(origShape);
+    auto slicedShape = Shape(getShape(tensor));
     slicedShape.back() = width;
+    const auto offsets = Shape(slicedShape.size());
 
     auto sliceOp = rewriter.create<VPU::SliceOp>(tensor.getLoc(), tensor, offsets, slicedShape);
     return sliceOp.getResult();
@@ -237,7 +243,7 @@ mlir::LogicalResult DetectionOutputDecomposition::matchAndRewrite(VPU::Detection
 }
 
 class DetectionOutputDecompositionPass final :
-        public VPU::DetectionOutputDecompositionBase<DetectionOutputDecompositionPass> {
+        public VPU::impl::DetectionOutputDecompositionBase<DetectionOutputDecompositionPass> {
 public:
     explicit DetectionOutputDecompositionPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());

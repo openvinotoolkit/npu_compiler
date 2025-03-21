@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --resolve-shaped-type-result-dims %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !BoundedType = tensor<1x16x32x?xf16, {bounds = [1, 16, 32, 64], order = #NCHW}>
@@ -846,4 +845,59 @@ func.func @ConcatWithOffsets(
 
     return %CONCAT, %DIM_2 : !OutBoundedType, index
     // CHECK:   return [[CONCAT]], [[DIM_2]]
+}
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+
+!InOutBoundedType = tensor<?x128xf16, {bounds = [4096, 128], order = #NC}>
+
+// CHECK-LABEL: @FullyConnected_0
+func.func @FullyConnected_0(
+    %IN0: !InOutBoundedType
+) -> (!InOutBoundedType, index) {
+    // CHECK: [[IN0:%.+]]: tensor<?x128xf16, {bounds = [4096, 128], order = #NC}>
+
+    %IDX_0 = arith.constant 0 : index
+    // CHECK:   [[IDX_0:%.+]] = arith.constant 0 : index
+
+    %cst = const.Declare tensor<128x128xf16> = dense<1.0> : tensor<128x128xf16> isSplat
+    %FC = IE.FullyConnected(%IN0, %cst) : !InOutBoundedType, tensor<128x128xf16> -> !InOutBoundedType
+    // CHECK:   [[FC:%.+]] = IE.FullyConnected([[IN0]]
+
+    %DIM_0 = tensor.dim %FC, %IDX_0 : !InOutBoundedType
+    // CHECK:   [[DIM_0:%.+]] = tensor.dim [[IN0]], [[IDX_0]]
+
+    return %FC, %DIM_0 : !InOutBoundedType, index
+    // CHECK:   return [[FC]], [[DIM_0]]
+}
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+
+!InType = tensor<4096x128xf16, {order = #NC}>
+!WeightsBoundedType = tensor<?x128xf16, {bounds = [128, 128], order = #NC}>
+!OutBoundedType = tensor<4096x?xf16, {bounds = [4096, 128], order = #NC}>
+
+// CHECK-LABEL: @FullyConnected_1
+func.func @FullyConnected_1(
+    %IN0: !InType,
+    %WEIGHTS: !WeightsBoundedType
+) -> (!OutBoundedType, index) {
+    // CHECK: [[IN0:%.+]]: tensor<4096x128xf16, {order = #NC}>
+    // CHECK: [[IWEIGHTS0:%.+]]: tensor<?x128xf16, {bounds = [128, 128], order = #NC}>
+
+    %IDX_1 = arith.constant 1 : index
+    // CHECK:   [[IDX_0:%.+]] = arith.constant 0 : index
+
+    %FC = IE.FullyConnected(%IN0, %WEIGHTS) : !InType, !WeightsBoundedType -> !OutBoundedType
+    // CHECK:   [[FC:%.+]] = IE.FullyConnected([[IN0]], [[IWEIGHTS0]])
+
+    %DIM_1 = tensor.dim %FC, %IDX_1 : !OutBoundedType
+    // CHECK:   [[DIM_1:%.+]] = tensor.dim [[IWEIGHTS0]], [[IDX_0]]
+
+    return %FC, %DIM_1 : !OutBoundedType, index
+    // CHECK:   return [[FC]], [[DIM_1]]
 }

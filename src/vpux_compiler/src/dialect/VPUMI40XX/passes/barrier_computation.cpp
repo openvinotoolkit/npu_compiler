@@ -3,13 +3,23 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include <mlir/Transforms/DialectConversion.h>
-#include <vector>
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+#include <mlir/Transforms/DialectConversion.h>
+
+#include <vector>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_BARRIERCOMPUTATION
+#define GEN_PASS_DEF_BARRIERCOMPUTATION
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -294,7 +304,7 @@ void simulateBarriers(const std::vector<BarrierCountConfig>& barriersConfigs, un
     updateCleanAfterField(m2is);
 }
 
-class BarrierComputationPass final : public VPUMI40XX::BarrierComputationBase<BarrierComputationPass> {
+class BarrierComputationPass final : public VPUMI40XX::impl::BarrierComputationBase<BarrierComputationPass> {
 public:
     explicit BarrierComputationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -360,7 +370,7 @@ private:
             auto dmaList = buildTaskVector<VPUMI40XX::NNDMAOp>(funcOp, vdt_, [&](VPUMI40XX::NNDMAOp dma) {
                 return dmaQueueId == getDMAQueueIdEncoding(dma.getPort(), checked_cast<int64_t>(getChannelId(dma)));
             });
-            dmas.push_back(dmaList);
+            dmas.push_back(std::move(dmaList));
         }
 
         auto dpus = buildTaskVector<VPUMI40XX::DPUInvariantOp>(funcOp, vdt_);

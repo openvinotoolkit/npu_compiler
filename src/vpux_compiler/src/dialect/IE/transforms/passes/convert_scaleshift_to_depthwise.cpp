@@ -13,6 +13,12 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSCALESHIFTTODW
+#define GEN_PASS_DEF_CONVERTSCALESHIFTTODW
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -21,7 +27,7 @@ namespace {
 // ConvertScaleShiftToDepthwisePass
 //
 
-class ConvertScaleShiftToDWPass final : public IE::ConvertScaleShiftToDWBase<ConvertScaleShiftToDWPass> {
+class ConvertScaleShiftToDWPass final : public IE::impl::ConvertScaleShiftToDWBase<ConvertScaleShiftToDWPass> {
 public:
     explicit ConvertScaleShiftToDWPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -74,7 +80,7 @@ mlir::LogicalResult ConvertScaleShiftToDWPass::ScaleShiftOpConverter::matchAndRe
     const SmallVector<int64_t> weightShape = {outShape[Dims4D::Act::C], 1, kernelSize, kernelSize};
     mlir::Value weights;
 
-    auto createConstOp = [&](SmallVector<int64_t> shape, vpux::type::float16 value) -> mlir::Value {
+    auto createConstOp = [&](ArrayRef<int64_t> shape, vpux::type::float16 value) -> mlir::Value {
         const auto elemType = origOp.getOutput().getType().cast<vpux::NDTypeInterface>().getElementType();
         auto shape1x1x1x1 = SmallVector<int64_t>(shape.size(), 1);
         const auto dataStorageType = mlir::RankedTensorType::get(shape1x1x1x1, elemType);

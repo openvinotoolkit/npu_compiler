@@ -21,9 +21,8 @@ std::unique_ptr<IGreedilyPassStrategy> IE::createWeightsDequantizeToFakeQuantize
     case VPU::ArchKind::NPU40XX: {
         return std::make_unique<arch37xx::WeightsDequantizeToFakeQuantizeStrategy>(enableWDBlockArgumentInput);
     }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unable to get WeightsDequantizeToFakeQuantizeStrategy for arch {0}", arch);
     }
     }
+    VPUX_THROW("Unable to get WeightsDequantizeToFakeQuantizeStrategy for arch {0}", arch);
 }

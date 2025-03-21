@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/core/function_outlining_splitter.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/hash.hpp"
@@ -17,6 +19,12 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 #include <mlir/Transforms/RegionUtils.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_CONCATREPEATINGBLOCKSOUTLINING
+#define GEN_PASS_DEF_CONCATREPEATINGBLOCKSOUTLINING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -421,7 +429,7 @@ private:
 //
 
 class ConcatRepeatingBlocksOutliningPass final :
-        public VPU::ConcatRepeatingBlocksOutliningBase<ConcatRepeatingBlocksOutliningPass> {
+        public VPU::impl::ConcatRepeatingBlocksOutliningBase<ConcatRepeatingBlocksOutliningPass> {
 private:
     int64_t _minSeqLength = 1;
     bool _singleFunctionPerConcat = true;
@@ -629,11 +637,11 @@ private:
                 for (const auto output : slice.outputs) {
                     outputTypes.push_back(output.getType());
                 }
-                const auto funcName = _singleFunctionPerConcat
-                                              ? printToString("{0}_concat{1}", mainFuncOp.getName(), targetIdx + 1)
-                                              : printToString("{0}_concat{1}_input{2}", mainFuncOp.getName(),
-                                                              targetIdx + 1, sliceIdx + 1);
-                funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), funcName});
+                auto funcName = _singleFunctionPerConcat
+                                        ? printToString("{0}_concat{1}", mainFuncOp.getName(), targetIdx + 1)
+                                        : printToString("{0}_concat{1}_input{2}", mainFuncOp.getName(), targetIdx + 1,
+                                                        sliceIdx + 1);
+                funcsInfo[targetIdx].push_back({std::move(inputTypes), std::move(outputTypes), std::move(funcName)});
             }
         }
 

@@ -11,16 +11,11 @@ if(NOT ENABLE_NPU_MONO)
     add_definitions(-DOV_BUILD_POSTFIX=${OV_BUILD_POSTFIX_VAR})
 endif()
 
-add_subdirectory(vpux_ngraph_transformations)
-
 if(BUILD_COMPILER_FOR_DRIVER)
+    add_definitions("-DCOMPILER_FOR_DRIVER_ENABLED")
     add_subdirectory(vpux_driver_compiler)
 endif()
 
 add_subdirectory(vpux_utils)
 
 add_subdirectory(vpux_compiler)
-
-if(BUILD_SHARED_LIBS AND ENABLE_MLIR_COMPILER)
-    add_subdirectory(vpux_translate_utils)
-endif()

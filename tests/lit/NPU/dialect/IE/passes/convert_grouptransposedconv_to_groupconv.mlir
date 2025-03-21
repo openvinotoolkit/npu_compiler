@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-group-transposed-conv-to-groupconv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertGroupTransposedConvToGroupConv
 func.func @ConvertGroupTransposedConvToGroupConv(%arg0: tensor<1x64x64x64xf16>) -> tensor<1x64x130x130xf16> {
     %FILTERS = const.Declare tensor<64x1x1x4x4xf16> = dense<1.000000e+00> : tensor<64x1x1x4x4xf16>

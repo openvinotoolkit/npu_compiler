@@ -61,6 +61,8 @@ vpux::NDTypeInterface inferFinalType(vpux::NDTypeInterface contentType,
 std::pair<vpux::NDTypeInterface, bool> inferFinalTypeAndSplat(mlir::ElementsAttr content,
                                                               mlir::ArrayRef<TransformAttrInterface> transformations);
 
+class ContentAttr;
+
 namespace detail {
 // used as a fallback in ContentSetup
 struct NoopGet {
@@ -110,7 +112,8 @@ public:
     [[nodiscard]] SpecializedContentSetup rescale(double scale);
     [[nodiscard]] SpecializedContentSetup relocateWeightsTablePointers(
             ArrayRef<uint32_t> weightsPtr, uint64_t sparsityPtr, vpux::ShapeRef offsets, uint64_t weightsTableSize,
-            uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset);
+            uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset,
+            uint64_t originalOC);
     [[nodiscard]] SpecializedContentSetup swizzleConstant(uint64_t swizzleKey, uint64_t arch);
     [[nodiscard]] SpecializedContentSetup add(double bias);
     [[nodiscard]] SpecializedContentSetup reshape(vpux::ShapeRef newShape);
@@ -131,7 +134,10 @@ public:
     [[nodiscard]] SpecializedContentSetup fuse(mlir::RankedTensorType fusedTensorType, const ContentAttr& weightsTable,
                                                const ContentAttr& weights, const ContentAttr& sparsity,
                                                const ContentAttr& activations);
+    [[nodiscard]] SpecializedContentSetup fuse(mlir::RankedTensorType fusedTensorType,
+                                               const std::vector<ContentAttr>& constants);
     [[nodiscard]] SpecializedContentSetup quantize(mlir::quant::QuantizedType newElemType);
+    [[nodiscard]] SpecializedContentSetup affineReshape(mlir::ArrayAttr dimMapping, mlir::ArrayAttr shapeValue);
 
     // Note: this method only exists when there's an explicit "Get" method
     // provided by the user.

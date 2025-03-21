@@ -34,7 +34,7 @@ std::string capitalize(const std::string& str) {
     return capStr;
 }
 
-std::string getProfilingFileName(ProfilingFormat format) {
+std::string getProfilingFileNameEnv(ProfilingFormat format) {
     const auto filename = env::getEnvVar("NPU_PROFILING_OUTPUT_FILE");
     if (filename.has_value()) {
         return filename.value();
@@ -49,71 +49,59 @@ std::string getProfilingFileName(ProfilingFormat format) {
     }
 }
 
-ProfilingFormat getProfilingFormat(const std::string& format) {
-    if (format == "JSON")
-        return ProfilingFormat::JSON;
-    if (format == "TEXT")
-        return ProfilingFormat::TEXT;
-    if (format == "RAW")
-        return ProfilingFormat::RAW;
-
-    VPUX_THROW("Invalid profiling format '{0}'", format);
+VerbosityLevel getProfilingVerbosityEnv() {
+    const auto verbosity = capitalize(env::getEnvVar("NPU_PROFILING_VERBOSITY", "LOW"));
+    if (verbosity == "LOW") {
+        return VerbosityLevel::LOW;
+    } else if (verbosity == "MEDIUM") {
+        return VerbosityLevel::MEDIUM;
+    } else if (verbosity == "HIGH") {
+        return VerbosityLevel::HIGH;
+    }
+    VPUX_THROW("Invalid NPU_PROFILING_VERBOSITY value");
 }
 
-std::ofstream openProfilingStream(ProfilingFormat* format) {
-    VPUX_THROW_WHEN(format == nullptr, "Invalid argument");
-    *format = ProfilingFormat::NONE;
-    const auto printProfiling = env::getEnvVar("NPU_PRINT_PROFILING");
-    if (printProfiling.has_value()) {
-        *format = getProfilingFormat(capitalize(printProfiling.value()));
+ProfilingFormat getProfilingFormatEnv() {
+    const auto profilingMode = env::getEnvVar("NPU_PRINT_PROFILING");
+    if (!profilingMode.has_value()) {
+        return ProfilingFormat::NONE;
     }
+    const auto format = capitalize(profilingMode.value());
+    if (format == "JSON") {
+        return ProfilingFormat::JSON;
+    } else if (format == "TEXT") {
+        return ProfilingFormat::TEXT;
+    } else if (format == "RAW") {
+        return ProfilingFormat::RAW;
+    }
+    VPUX_THROW("Invalid NPU_PRINT_PROFILING value");
+}
 
+std::ofstream openProfilingStream(ProfilingFormat format) {
     std::ofstream output;
-    if (*format != ProfilingFormat::NONE) {
-        const auto outFileName = getProfilingFileName(*format);
-        auto flags = std::ios::out | std::ios::trunc;
-        if (*format == ProfilingFormat::RAW) {
-            flags |= std::ios::binary;
-        }
-        output.open(outFileName, flags);
-        if (!output) {
-            VPUX_THROW("Can't write into file '{0}'", outFileName);
-        }
+    if (format == ProfilingFormat::NONE) {
+        return output;
     }
+    const auto outFileName = getProfilingFileNameEnv(format);
+    auto flags = std::ios::out | std::ios::trunc;
+    if (format == ProfilingFormat::RAW) {
+        flags |= std::ios::binary;
+    }
+    output.open(outFileName, flags);
+    if (!output) {
+        VPUX_THROW("Can't write into file '{0}'", outFileName);
+    }
+    output.exceptions(std::ios::badbit | std::ios::failbit);
     return output;
 }
 
 void saveProfilingDataToFile(std::ostream& output, ProfilingFormat format, const ProfInfo& profInfo) {
-    static const std::map<std::string, size_t> VERBOSITY_TO_NUM_FILTERS = {
-            {"LOW", 1},
-            {"MEDIUM", 0},
-            {"HIGH", 0},
-    };
-    auto verbosityValue = capitalize(env::getEnvVar("NPU_PROFILING_VERBOSITY", "HIGH"));
-    if (VERBOSITY_TO_NUM_FILTERS.count(verbosityValue) == 0) {
-        VPUX_THROW("Invalid NPU_PROFILING_VERBOSITY");
-    }
-    std::vector<decltype(&isVariantLevelProfilingTask)> verbosityFilters = {&isVariantLevelProfilingTask,
-                                                                            &isClusterLevelProfilingTask};
-    auto numFilters = VERBOSITY_TO_NUM_FILTERS.at(verbosityValue);
-    std::vector<TaskInfo> filteredTasks;
-    // Driver return tasks at maximum verbosity, so filter them to needed level
-    std::copy_if(profInfo.tasks.begin(), profInfo.tasks.end(), std::back_inserter(filteredTasks),
-                 [&](const TaskInfo& task) {
-                     bool toKeep = true;
-                     for (size_t filterId = 0; filterId < numFilters; ++filterId) {
-                         toKeep &= !verbosityFilters[filterId](task);
-                     }
-                     return toKeep;
-                 });
-
-    output.exceptions(std::ios::badbit | std::ios::failbit);
     switch (format) {
     case ProfilingFormat::JSON:
-        printProfilingAsTraceEvent(filteredTasks, profInfo.layers, profInfo.dpuFreq, output);
+        printProfilingAsTraceEvent(profInfo.tasks, profInfo.layers, profInfo.dpuFreq, output);
         break;
     case ProfilingFormat::TEXT:
-        printProfilingAsText(filteredTasks, profInfo.layers, output);
+        printProfilingAsText(profInfo.tasks, profInfo.layers, output);
         break;
     case ProfilingFormat::RAW:
     case ProfilingFormat::NONE:
@@ -130,13 +118,14 @@ void saveRawDataToFile(const uint8_t* rawBuffer, size_t size, std::ostream& outp
 
 std::vector<LayerInfo> getLayerProfilingInfoHook(const uint8_t* profData, size_t profSize, const uint8_t* blobData,
                                                  size_t blobSize) {
-    auto format = ProfilingFormat::NONE;
-    auto output = openProfilingStream(&format);
+    const auto format = getProfilingFormatEnv();
+    auto output = openProfilingStream(format);
     if (format == ProfilingFormat::RAW) {
         // Save raw data first in case post-processing fails
         saveRawDataToFile(profData, profSize, output);
     }
-    auto profInfo = getProfInfo(blobData, blobSize, profData, profSize, VerbosityLevel::HIGH);
+    auto verbosity = getProfilingVerbosityEnv();
+    auto profInfo = getProfInfo(blobData, blobSize, profData, profSize, verbosity);
     if (format != ProfilingFormat::NONE && format != ProfilingFormat::RAW) {
         saveProfilingDataToFile(output, format, profInfo);
     }

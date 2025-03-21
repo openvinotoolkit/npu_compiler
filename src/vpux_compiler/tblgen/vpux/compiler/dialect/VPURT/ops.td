@@ -6,8 +6,8 @@
 #ifndef VPUX_COMPILER_DIALECT_VPURT_OPS
 #define VPUX_COMPILER_DIALECT_VPURT_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/VPUIP/types.td"
 include "vpux/compiler/dialect/VPURT/attributes.td"
 include "vpux/compiler/dialect/VPURT/types.td"

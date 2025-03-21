@@ -10,9 +10,46 @@
 
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTSOFTWAREOPSPRECISION
+#define GEN_PASS_DEF_ADJUSTSOFTWAREOPSPRECISION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
+
+//
+// DequantizeConverter
+//
+
+class DequantizeConverter final : public mlir::OpRewritePattern<IE::DequantizeOp> {
+public:
+    DequantizeConverter(mlir::MLIRContext* ctx, vpux::Logger log)
+            : mlir::OpRewritePattern<IE::DequantizeOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::DequantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult DequantizeConverter::matchAndRewrite(IE::DequantizeOp origOp,
+                                                         mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found '{0}' Operation at '{1}'", origOp->getName(), origOp->getLoc());
+    auto ctx = origOp->getContext();
+    auto origElemType = origOp.getDstElemType();
+    auto cvtElemType = mlir::Float16Type::get(ctx);
+
+    auto newDequantizeOp = rewriter.create<IE::DequantizeOp>(origOp->getLoc(), origOp.getInput(), cvtElemType);
+    const auto outputCvtToOrig = rewriter.createOrFold<IE::ConvertOp>(
+            takeOpLoc(origOp, "_outCvt"), newDequantizeOp.getOutput(), mlir::TypeAttr::get(origElemType));
+    rewriter.replaceOp(origOp, outputCvtToOrig);
+    return mlir::success();
+}
 
 //
 // DynamicDequantizeConverter
@@ -90,7 +127,8 @@ mlir::LogicalResult TopKConverter::matchAndRewrite(IE::TopKOp origOp, mlir::Patt
 // AdjustSoftwareOpsPrecisionPass
 //
 
-class AdjustSoftwareOpsPrecisionPass final : public IE::AdjustSoftwareOpsPrecisionBase<AdjustSoftwareOpsPrecisionPass> {
+class AdjustSoftwareOpsPrecisionPass final :
+        public IE::impl::AdjustSoftwareOpsPrecisionBase<AdjustSoftwareOpsPrecisionPass> {
 public:
     explicit AdjustSoftwareOpsPrecisionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -108,15 +146,19 @@ void AdjustSoftwareOpsPrecisionPass::safeRunOnModule() {
         return inputElemType.isF16() || inputElemType.isF32() || inputElemType.isInteger(32);
     };
 
+    const auto isLegalDequantizeOp = [](IE::DequantizeOp op) {
+        return !op.getDstElemType().isF32();
+    };
+
     const auto isLegalDynamicDequantizeOp = [](IE::DynamicDequantizeOp op) {
-        const auto dstElemType = op.getDstElemType();
-        return !dstElemType.isF32();
+        return !op.getDstElemType().isF32();
     };
 
     mlir::ConversionTarget target(ctx);
     target.addLegalOp<IE::ConvertOp>();
     target.addDynamicallyLegalOp<IE::TopKOp>(isLegalTopKOp);
     target.addDynamicallyLegalOp<IE::DynamicDequantizeOp>(isLegalDynamicDequantizeOp);
+    target.addDynamicallyLegalOp<IE::DequantizeOp>(isLegalDequantizeOp);
     target.markUnknownOpDynamicallyLegal([](mlir::Operation*) {
         return true;
     });
@@ -124,7 +166,7 @@ void AdjustSoftwareOpsPrecisionPass::safeRunOnModule() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<TopKConverter>(&ctx, _log);
     patterns.add<DynamicDequantizeConverter>(&ctx, _log);
-
+    patterns.add<DequantizeConverter>(&ctx, _log);
     auto module = getOperation();
     if (mlir::failed(mlir::applyPartialConversion(module, target, std::move(patterns)))) {
         signalPassFailure();

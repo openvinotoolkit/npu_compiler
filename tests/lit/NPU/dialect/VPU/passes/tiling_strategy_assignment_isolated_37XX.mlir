@@ -119,10 +119,10 @@ func.func @SplitSwAddOverC(
 func.func @SplitAddSameInputOverC(
         %input: tensor<1x2048x14x14xf16>)
             -> tensor<1x2048x14x14xf16> {
-    %1 = VPU.And(%input, %input) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x2048x14x14xf16>, tensor<1x2048x14x14xf16> -> tensor<1x2048x14x14xf16>
+    %1 = VPU.Add(%input, %input) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x2048x14x14xf16>, tensor<1x2048x14x14xf16> -> tensor<1x2048x14x14xf16>
     return %1 : tensor<1x2048x14x14xf16>
 
-    // CHECK:       [[AND:%.+]] = VPU.And([[INPUT]], [[INPUT]])
+    // CHECK:       [[AND:%.+]] = VPU.Add([[INPUT]], [[INPUT]])
     // CHECK-SAME:      tilingStrategy = [1, 2, 1, 1]
     // CHECK-SAME:      -> tensor<1x2048x14x14xf16>
 
@@ -1656,4 +1656,34 @@ func.func @MVN1MeanVarSplitTileAtN(%arg0: tensor<256x1x8x512xf32, {order = #NHWC
     // CHECK-SAME:     :  tensor<256x1x8x512xf32, {order = #NHWC}> -> tensor<256x1x1x2xf16, {order = #NHWC}>
 
     // CHECK:       return [[OUTPUT]] :  tensor<256x1x1x2xf16, {order = #NHWC}>
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @NotSplitGridSample
+// CHECK-SAME:        [[INPUT1:%arg[0-9]]]: tensor<1x1x1920x1088xf16>,
+// CHECK-SAME:        [[INPUT2:%arg[0-9]]]: tensor<1x1920x1088x2xf16>
+func.func @NotSplitGridSample(%arg0: tensor<1x1x1920x1088xf16>, %arg1: tensor<1x1920x1088x2xf16>) -> tensor<1x1x1920x1088xf16> {
+    %0 = VPU.GridSample(%arg0, %arg1) {align_corners, mode = #IE.grid_sample_mode<BILINEAR>, padding_mode = #IE.grid_sample_padding_mode<BORDER>} : tensor<1x1x1920x1088xf16>, tensor<1x1920x1088x2xf16> -> tensor<1x1x1920x1088xf16>
+    return %0 : tensor<1x1x1920x1088xf16>
+
+    // CHECK:       [[GRID_SAMPLE:%.+]] = VPU.GridSample([[INPUT1]], [[INPUT2]]) {align_corners, mode = #IE.grid_sample_mode<BILINEAR>, padding_mode = #IE.grid_sample_padding_mode<BORDER>}
+    // CHECK-SAME:     : tensor<1x1x1920x1088xf16>, tensor<1x1920x1088x2xf16> -> tensor<1x1x1920x1088xf16>
+    // CHECK:       return [[GRID_SAMPLE]] : tensor<1x1x1920x1088xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   func.func @SplitGridSample
+// CHECK-SAME:        [[INPUT1:%arg[0-9]]]: tensor<1x4x960x544xf16>,
+// CHECK-SAME:        [[INPUT2:%arg[0-9]]]: tensor<1x960x544x2xf16>
+func.func @SplitGridSample(%arg0: tensor<1x4x960x544xf16>, %arg1: tensor<1x960x544x2xf16>) -> tensor<1x4x960x544xf16> {
+    %0 = VPU.GridSample(%arg0, %arg1) {align_corners, mode = #IE.grid_sample_mode<BILINEAR>, padding_mode = #IE.grid_sample_padding_mode<BORDER>} : tensor<1x4x960x544xf16>, tensor<1x960x544x2xf16> -> tensor<1x4x960x544xf16>
+    return %0 : tensor<1x4x960x544xf16>
+
+    // CHECK:       [[GRID_SAMPLE:%.+]] = VPU.GridSample([[INPUT1]], [[INPUT2]]) {align_corners, mode = #IE.grid_sample_mode<BILINEAR>, padding_mode = #IE.grid_sample_padding_mode<BORDER>,
+    // CHECK-SAME:          tilingStrategy = [1, 4, 4, 1]}
+    // CHECK-SAME:     : tensor<1x4x960x544xf16>, tensor<1x960x544x2xf16> -> tensor<1x4x960x544xf16>
+
+    // CHECK:       return [[GRID_SAMPLE]] : tensor<1x4x960x544xf16>
 }

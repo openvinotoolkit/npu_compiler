@@ -3,11 +3,21 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_EXPANDACTIVATIONWIDTH
+#define GEN_PASS_DEF_EXPANDACTIVATIONWIDTH
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -143,7 +153,7 @@ mlir::LogicalResult PermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantize
 // ExpandActivationWidthPass
 //
 
-class ExpandActivationWidthPass final : public IE::ExpandActivationWidthBase<ExpandActivationWidthPass> {
+class ExpandActivationWidthPass final : public IE::impl::ExpandActivationWidthBase<ExpandActivationWidthPass> {
 public:
     explicit ExpandActivationWidthPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

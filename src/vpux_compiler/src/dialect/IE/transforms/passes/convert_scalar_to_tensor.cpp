@@ -11,6 +11,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSCALARTOTENSOR
+#define GEN_PASS_DEF_CONVERTSCALARTOTENSOR
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -19,7 +25,7 @@ namespace {
 // ConvertScalarToTensorPass
 //
 
-class ConvertScalarToTensorPass final : public IE::ConvertScalarToTensorBase<ConvertScalarToTensorPass> {
+class ConvertScalarToTensorPass final : public IE::impl::ConvertScalarToTensorBase<ConvertScalarToTensorPass> {
 public:
     explicit ConvertScalarToTensorPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

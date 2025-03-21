@@ -32,14 +32,6 @@ size_t vpux::NPUReg40XX::ActShaveRtOp::getAlignmentRequirements(VPU::ArchKind) {
     return ELF::VPUX_SHAVE_ALIGNMENT;
 }
 
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::ActShaveRtOp::getSectionSignature() {
-    return {};
-}
-
-bool vpux::NPUReg40XX::ActShaveRtOp::hasMemoryFootprint() {
-    return true;
-}
-
 uint32_t vpux::NPUReg40XX::ActShaveRtOp::getKernelEntry() {
     const auto elfBlob = ELF::getKernelELF(getOperation(), getKernelPath());
 

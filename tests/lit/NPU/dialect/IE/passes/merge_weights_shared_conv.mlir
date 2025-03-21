@@ -7,7 +7,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --merge-weights-shared-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @MergeWeightsSharedConv
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x128x1x1xf16>, [[INPUT1:%.+]]: tensor<1x128x1x1xf16>, [[INPUT2:%.+]]: tensor<1x128x1x1xf16>
 func.func @MergeWeightsSharedConv(%arg0: tensor<1x128x1x1xf16>, %arg1: tensor<1x128x1x1xf16>, %arg2: tensor<1x128x1x1xf16>) -> (tensor<1x16x3x1xf16>) {

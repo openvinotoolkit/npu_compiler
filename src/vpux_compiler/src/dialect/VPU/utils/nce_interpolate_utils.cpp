@@ -104,15 +104,7 @@ SmallVector<int64_t> VPU::getNCEInterpolateFactors(ArrayRef<double> scales, VPU:
     } else if (mode == VPU::NCEInterpolateMode::BILINEAR) {
         switch (coordMode) {
         case IE::InterpolateCoordMode::HALF_PIXEL:
-        case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL: {
-            bool isEvenScaleH = scaleH % 2 == 0;
-            bool isEvenScaleW = scaleW % 2 == 0;
-
-            scaleH += scaleH * isEvenScaleH;
-            scaleW += scaleW * isEvenScaleW;
-
-            return SmallVector<int64_t>{scaleH, scaleW};
-        }
+        case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL:
         case IE::InterpolateCoordMode::ASYMMETRIC:
         case IE::InterpolateCoordMode::ALIGN_CORNERS:
         case IE::InterpolateCoordMode::TF_HALF_PIXEL_FOR_NN:
@@ -140,11 +132,11 @@ SmallVector<int64_t> VPU::getNCEInterpolatePadsBegin(ArrayRef<double> scales, VP
         switch (coordMode) {
         case IE::InterpolateCoordMode::HALF_PIXEL:
         case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL: {
-            int64_t isOddScaleH = scaleH % 2;
-            int64_t isOddScaleW = scaleW % 2;
+            const int64_t isEvenScaleH = (scaleH % 2 == 0) ? 1 : 0;
+            const int64_t isEvenScaleW = (scaleW % 2 == 0) ? 1 : 0;
 
-            scaleH = (scaleH - 1) >> isOddScaleH;
-            scaleW = (scaleW - 1) >> isOddScaleW;
+            scaleH = ((scaleH - 1) >> 1) + isEvenScaleH;
+            scaleW = ((scaleW - 1) >> 1) + isEvenScaleW;
 
             return SmallVector<int64_t>{scaleH, scaleW};
         }
@@ -176,11 +168,11 @@ SmallVector<int64_t> VPU::getNCEInterpolatePadsEnd(ArrayRef<double> scales, VPU:
         switch (coordMode) {
         case IE::InterpolateCoordMode::HALF_PIXEL:
         case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL: {
-            int64_t isOddScaleH = scaleH % 2;
-            int64_t isOddScaleW = scaleW % 2;
+            const int64_t isEvenScaleH = (scaleH % 2 == 0) ? 1 : 0;
+            const int64_t isEvenScaleW = (scaleW % 2 == 0) ? 1 : 0;
 
-            scaleH = (scaleH - 1) >> isOddScaleH;
-            scaleW = (scaleW - 1) >> isOddScaleW;
+            scaleH = ((scaleH - 1) >> 1) + isEvenScaleH;
+            scaleW = ((scaleW - 1) >> 1) + isEvenScaleW;
 
             return SmallVector<int64_t>{scaleH, scaleW};
         }
@@ -212,11 +204,11 @@ SmallVector<int64_t> VPU::getNCEInterpolateKernelSize(ArrayRef<double> scales, V
         switch (coordMode) {
         case IE::InterpolateCoordMode::HALF_PIXEL:
         case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL: {
-            bool isEvenScaleH = scaleH % 2 == 0;
-            bool isEvenScaleW = scaleW % 2 == 0;
+            const bool isEvenScaleH = scaleH % 2 == 0;
+            const bool isEvenScaleW = scaleW % 2 == 0;
 
-            scaleH += scaleH * isEvenScaleH;
-            scaleW += scaleW * isEvenScaleW;
+            scaleH += isEvenScaleH;
+            scaleW += isEvenScaleW;
 
             return SmallVector<int64_t>{scaleH, scaleW};
         }
@@ -239,16 +231,12 @@ SmallVector<int64_t> VPU::getNCEInterpolateStrides(ArrayRef<double> scales, VPU:
 
     const auto mode = modeAttr.getValue();
     const auto coordMode = coordModeAttr.getValue();
-    const auto scaleH = static_cast<int64_t>(scales[Dims4D::Act::H.ind()]);
-    const auto scaleW = static_cast<int64_t>(scales[Dims4D::Act::W.ind()]);
     if (mode == VPU::NCEInterpolateMode::NEAREST) {
         return SmallVector<int64_t>{1, 1};
     } else if (mode == VPU::NCEInterpolateMode::BILINEAR) {
         switch (coordMode) {
         case IE::InterpolateCoordMode::HALF_PIXEL:
         case IE::InterpolateCoordMode::PYTORCH_HALF_PIXEL:
-            return SmallVector<int64_t>{(scaleH % 2 == 1) ? int64_t(1) : int64_t(2),
-                                        (scaleW % 2 == 1) ? int64_t(1) : int64_t(2)};
         case IE::InterpolateCoordMode::ASYMMETRIC:
         case IE::InterpolateCoordMode::ALIGN_CORNERS:
             return SmallVector<int64_t>{1, 1};

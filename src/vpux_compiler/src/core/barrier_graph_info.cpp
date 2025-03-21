@@ -377,7 +377,7 @@ void BarrierGraphInfo::buildBarrierDependenceMap() {
 }
 
 BarrierGraphInfoTest::BarrierGraphInfoTest(std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueMaps,
-                                           BarrierInfoTest::BarrierMaps& barrierMaps) {
+                                           BarrierInfoMaps& barrierMaps) {
     _barrierInfo = std::make_shared<BarrierInfoTest>(barrierMaps);
     _taskQueueTypeMap = taskQueueMaps;
     buildTaskFifo();

@@ -5,10 +5,10 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
-#include "vpux/compiler/core/passes.hpp"
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 
@@ -24,9 +24,10 @@ using namespace vpux;
 void vpux::VPUIP::arch37xx::buildOptimizeCopiesPipeline(mlir::OpPassManager& pm,
                                                         const VPUIP::arch37xx::OptimizeCopiesOptions& options,
                                                         Logger log) {
+    pm.addPass(VPUIP::createUnwrapClusterTilingPass(log));
     if (options.enableOptimizeCopies) {
         pm.addPass(VPUIP::createOptimizeCopiesPass(log));
-        pm.addPass(VPUIP::createUnwrapClusterTilingPass(log));
+        pm.addPass(VPUIP::createUniquifyWeightsTableCopiesPass(log));
         pm.addPass(VPUIP::createOptimizeConcatViewCopiesPass(log));
         pm.addPass(VPUIP::createFuseDDRCopiesIntoConcats(log));
         pm.addPass(VPUIP::createOptimizeParallelCopiesPass(options.enableOptimizeConstCopies, log));
@@ -69,6 +70,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     if (options.enableOpsAsDMA) {
         pm.addPass(VPUIP::createWrapWithPermuteAsNNDMAPass(log));
     }
+    pm.addPass(VPUIP::createOptimizeExpandSubviewPass(log));
     pm.addPass(VPUIP::createConvertExpandPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
@@ -177,9 +179,11 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createAdjustInputDataForExplicitSETablePass(log));
     }
 
-    VPUIP::buildDMAUnrollingPipeline(pm, log);
+    VPUIP::arch37xx::buildDMAUnrollingPipeline(pm, log);
 
-    bool isOutliningEnabled = options.functionOutlining.hasValue() || options.enableVerticalFusionOutlining;
+    // TODO: E#140041 enable profiling with outlining
+    bool isOutliningEnabled =
+            (options.functionOutlining.hasValue() || options.enableVerticalFusionOutlining) && !options.enableProfiling;
 
     // TODO: E#118869 For now put the pass before barrier scheduling
     if (isOutliningEnabled) {
@@ -199,12 +203,12 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                      options.reduceParallelControlFlows, log));
     }
 
-    VPURT::buildBarrierLegalizationPipeline(pm, std::nullopt,
+    pm.addPass(VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass(std::nullopt, std::nullopt, log));
+
+    VPURT::buildBarrierLegalizationPipeline(pm, std::nullopt, std::nullopt,
                                             /* unevenVariantSplitFlag */ false, log);
 
     pm.addPass(VPURT::arch37xx::createAddFinalBarrierPass(log));
-
-    pm.addPass(VPURT::arch37xx::createAddUpdateBarrierForSwKernelsPass(log));
 
     pm.addPass(Const::createApplySwizzlingPass());
 
@@ -219,7 +223,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createDMATaskProfilingAfterBarrierSchedPass(dmaProfilingMode, log));
         pm.addPass(VPUIP::createCaptureWorkpointPass(log));
         pm.addPass(VPUIP::createGroupProfilingBuffersPass(log));
-        pm.addPass(createMoveDeclarationsToTopPass(log));
+        pm.addPass(Core::createMoveDeclarationsToTopPass(log));
     }
 
     pm.addPass(VPURT::createAssignPhysicalBarriersPass(options.enableColorBinPhysicalBarrierAssignment, std::nullopt,
@@ -249,6 +253,22 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 }
 
+//
+// DMAUnrollingPipeline
+//
+
+void vpux::VPUIP::arch37xx::buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(VPUIP::createUnrollDMAAnalysisPass(log));
+    pm.addPass(VPUIP::arch37xx::createUnrollDepthToSpaceDMAPass(log));
+    pm.addPass(VPUIP::arch37xx::createUnrollSpaceToDepthDMAPass(log));
+    pm.addPass(VPUIP::createUnrollPermuteToNNDMAPass(log));
+
+    pm.addPass(VPUIP::createUnrollUpsamplingDMAPass(log));
+    pm.addPass(VPUIP::createUnrollExpandDMAPass(log));
+    pm.addPass(VPUIP::createUnrollPerAxisTileDMAPass(log));
+    pm.addPass(VPUIP::createInvalidateUnrollDMAAnalysisPass(log));
+}
+
 void vpux::VPUIP::arch37xx::registerVPUIPPipelines() {
     mlir::PassPipelineRegistration<VPUIP::arch37xx::OptimizeCopiesOptions>(
             "optimize-copies-pipeline", "Optimize Copies Pipeline",
@@ -261,6 +281,10 @@ void vpux::VPUIP::arch37xx::registerVPUIPPipelines() {
             [](mlir::OpPassManager& pm, const VPUIP::arch37xx::MemoryAllocationOptions& options) {
                 VPUIP::arch37xx::buildMemoryAllocationPipeline(pm, options);
             });
+
+    mlir::PassPipelineRegistration<>("dma-unrolling", "DMA unrolling", [](mlir::OpPassManager& pm) {
+        VPUIP::arch37xx::buildDMAUnrollingPipeline(pm);
+    });
 
     mlir::PassPipelineRegistration<VPUIP::arch37xx::DefaultHWOptions>(
             "default-hw-mode-vpuip", "VPUIP dialect part of Default HW pipeline",

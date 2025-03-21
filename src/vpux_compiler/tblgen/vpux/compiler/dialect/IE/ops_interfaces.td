@@ -293,4 +293,28 @@ def IE_LayerWithPermuteInterface : OpInterface<"LayerWithPermuteInterface"> {
     ];
 }
 
+//
+// UnrollBatchOpInterface
+//
+
+def IE_UnrollBatchOpInterface : OpInterface<"UnrollBatchOpInterface"> {
+    let description = "Interface for operations to unroll batch";
+
+    let cppNamespace = "vpux::IE";
+
+    let methods = [
+        InterfaceMethod<
+            "Check if need to unroll",
+            "bool", "doesNeedToUnroll", (ins)
+        >,
+        InterfaceMethod<"Get number of inputs",
+            "size_t", "getNumberInputs", (ins),
+            [{}],
+            [{
+                return 1;
+            }]
+        >
+    ];
+}
+
 #endif

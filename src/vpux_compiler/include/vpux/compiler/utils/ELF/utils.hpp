@@ -8,8 +8,6 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/types.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
-#include "vpux/compiler/utils/logging.hpp"
-#include "vpux/utils/core/error.hpp"
 #include "vpux_headers/platform.hpp"
 
 using namespace vpux;
@@ -86,10 +84,6 @@ ELF::MainOp getElfMainOp(mlir::func::FuncOp funcOp);
 size_t getOffsetOfSymRef(ELF::SymbolReferenceMap& symRefMap, mlir::SymbolRefAttr symRef);
 
 mlir::SymbolRefAttr composeSectionObjectSymRef(ELF::ElfSectionInterface sectionIface, mlir::Operation* op);
-
-constexpr size_t VPUX_SHAVE_ALIGNMENT = Byte(1_KB).count();
-constexpr size_t VPUX_DEFAULT_ALIGNMENT = (64_Byte).count();
-constexpr size_t VPUX_NO_ALIGNMENT = (1_Byte).count();
 
 template <class LHS>
 std::string generateSignatureImpl(LHS&& lhs, const std::string& rhs) {

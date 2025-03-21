@@ -87,7 +87,6 @@ TEST_P(SelectDuplicatedInputTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 INSTANTIATE_TEST_SUITE_P(smoke_SelectDuplicatedInput, SelectDuplicatedInputTestCommon,
                          ::testing::Values(SelectDuplicatedInputTestParams{
                                  1, 1, 1024, 1024  // input shape

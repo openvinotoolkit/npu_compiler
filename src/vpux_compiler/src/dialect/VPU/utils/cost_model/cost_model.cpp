@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model_data.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -22,13 +24,11 @@ ArrayRef<char> getCostModelData(VPU::ArchKind archKind, bool isFastModel) {
             return ArrayRef(VPU::COST_MODEL_2_7_FAST, VPU::COST_MODEL_2_7_FAST_SIZE);
         }
         return ArrayRef(VPU::COST_MODEL_2_7, VPU::COST_MODEL_2_7_SIZE);
-    case VPU::ArchKind::NPU40XX:
+    default:
         if (isFastModel) {
             return ArrayRef(VPU::COST_MODEL_4_0_FAST, VPU::COST_MODEL_4_0_FAST_SIZE);
         }
         return ArrayRef(VPU::COST_MODEL_4_0, VPU::COST_MODEL_4_0_SIZE);
-    default:
-        VPUX_THROW("Unsupported VPU arch type: '{0}'", archKind);
     }
 }
 
@@ -174,8 +174,7 @@ std::optional<VPUNN::DataType> vpux::VPU::getVPUNNElementType(mlir::Type type) {
         if (qType.getStorageTypeIntegralWidth() == 8) {
             return qType.isSigned() ? VPUNN::DataType::INT8 : VPUNN::DataType::UINT8;
         } else if (qType.getStorageTypeIntegralWidth() == 4) {
-            // Temporary enablement; follow up E#103211
-            return qType.isSigned() ? VPUNN::DataType::INT8 : VPUNN::DataType::UINT8;
+            return qType.isSigned() ? VPUNN::DataType::INT4 : VPUNN::DataType::UINT4;
         }
     } else if (type.isF32()) {
         // Temporary enablement; follow up E#149202
@@ -206,19 +205,30 @@ VPUNN::Layout vpux::VPU::getVPUNNLayout(VPUIPDPU::ODUPermuteDataMode oduPermutat
 
 VPUNN::VPUTensor vpux::VPU::getVPUTensor(ShapeRef shape, mlir::Type elemType,
                                          VPUIPDPU::ODUPermuteDataMode oduPermutation) {
-    VPUX_THROW_WHEN(shape.size() != 4, "Non 4D-shape is not supported");
-
     const auto nnType = VPU::getVPUNNElementType(elemType);
     VPUX_THROW_UNLESS(nnType.has_value(), "Unsupported data type: '{0}'", elemType);
 
-    return VPUNN::VPUTensor(
-            {
-                    static_cast<unsigned int>(shape[Dims4D::Act::W]),
-                    static_cast<unsigned int>(shape[Dims4D::Act::H]),
-                    static_cast<unsigned int>(shape[Dims4D::Act::C]),
-                    static_cast<unsigned int>(shape[Dims4D::Act::N]),
-            },
-            nnType.value(), getVPUNNLayout(oduPermutation));
+    if (shape.size() == 5) {
+        return VPUNN::VPUTensor(
+                {
+                        static_cast<unsigned int>(shape[DimsGroups5D::Act::W]),
+                        static_cast<unsigned int>(shape[DimsGroups5D::Act::H]),
+                        static_cast<unsigned int>(shape[DimsGroups5D::Act::C]),
+                        static_cast<unsigned int>(shape[DimsGroups5D::Act::G] * shape[DimsGroups5D::Act::N]),
+                },
+                nnType.value(), getVPUNNLayout(oduPermutation));
+    } else if (shape.size() == 4) {
+        return VPUNN::VPUTensor(
+                {
+                        static_cast<unsigned int>(shape[Dims4D::Act::W]),
+                        static_cast<unsigned int>(shape[Dims4D::Act::H]),
+                        static_cast<unsigned int>(shape[Dims4D::Act::C]),
+                        static_cast<unsigned int>(shape[Dims4D::Act::N]),
+                },
+                nnType.value(), getVPUNNLayout(oduPermutation));
+    } else {
+        VPUX_THROW("Not supported shape, with number of dimensions = {0}", shape.size());
+    }
 }
 
 VPUNN::ExecutionMode vpux::VPU::getExecutionMode(VPU::MPEMode mpeMode) {
@@ -240,13 +250,34 @@ VPUNN::ExecutionMode vpux::VPU::getExecutionMode(VPU::MPEMode mpeMode) {
     }
 }
 
+/*
+ * Determines the appropriate SOK layer strategy based on the distribution mode and architecture.
+ *
+ * SOK_NO_BROADCAST is used for specific architectures (>NPU40XX) to provide more accurate cost calculations
+ * Mode DistributionMode::DUPLICATED | DistributionMode::SEGMENTED maps to VPUNN::VPUTilingStrategy::SOK
+ * Mode DistributionMode::SEGMENTED maps to VPUNN::VPUTilingStrategy::SOK_NO_BROADCAST
+ *
+ * For other architectures, both SOK modes map to VPUNN::VPUTilingStrategy::SOK
+ * SOK_NO_BROADCAST is only utilized when the VPUNN cost is invalid for SOK to avoid performance regressions
+ */
+inline VPUNN::VPUTilingStrategy getSOKLayerStrategy(vpux::VPU::DistributionMode distributionMode,
+                                                    vpux::VPU::ArchKind arch) {
+    if (distributionMode == vpux::VPU::DistributionMode::SEGMENTED && arch > vpux::VPU::ArchKind::NPU40XX) {
+        return VPUNN::VPUTilingStrategy::SOK_NO_BROADCAST;
+    }
+    return VPUNN::VPUTilingStrategy::SOK;
+}
+
 /**
  * @param nTiles the number of CMX tiles
  * @param nDPUs Number of DPU per CMX tile
  * @param nSHVs the number of Act_Shave per CMX tiles
+ * @param prefetching a boolean to determine whether to prefetch
+ * @param distributionMode the tensor distribution mode
  */
 VPUNN::VPULayerStrategy vpux::VPU::getVPULayerStrategy(VPU::MultiClusterStrategy strategy, size_t nDPUs, size_t nTiles,
-                                                       size_t nSHVs, bool prefetching) {
+                                                       ArchKind arch, size_t nSHVs, bool prefetching,
+                                                       DistributionMode distributionMode) {
     VPUNN::VPULayerStrategy VPUNNStrategy;
     VPUNNStrategy.nDPUs = static_cast<unsigned int>(nDPUs);
     VPUNNStrategy.nSHVs = static_cast<unsigned int>(nSHVs);
@@ -263,7 +294,7 @@ VPUNN::VPULayerStrategy vpux::VPU::getVPULayerStrategy(VPU::MultiClusterStrategy
         VPUNNStrategy.tiling_strategy = VPUNN::VPUTilingStrategy::SOH_Overlapped;
         return VPUNNStrategy;
     case VPU::MultiClusterStrategy::SplitOverKernel:
-        VPUNNStrategy.tiling_strategy = VPUNN::VPUTilingStrategy::SOK;
+        VPUNNStrategy.tiling_strategy = getSOKLayerStrategy(distributionMode, arch);
         return VPUNNStrategy;
     case VPU::MultiClusterStrategy::Clustering:
         VPUNNStrategy.tiling_strategy = VPUNN::VPUTilingStrategy::NONE;
@@ -305,6 +336,16 @@ VPUNN::DPULayer vpux::VPU::getDPULayer(const VPUIP::WorkloadCostParams& params) 
             {static_cast<unsigned int>(params.padInfo.top), static_cast<unsigned int>(params.padInfo.bottom),
              static_cast<unsigned int>(params.padInfo.left), static_cast<unsigned int>(params.padInfo.right)});
     vpunnLayer.set_weight_sparsity(params.isWeightsSparsityEnabled, params.weightsSparsityRatio);
+
+    if (params.weightsDataType.has_value()) {
+        vpunnLayer.weight_type = getVPUNNElementType(params.weightsDataType.value());
+    }
+
+    // set superdense
+    if (vpux::VPU::NCESparsity::isSuperdenseRequired(params.outOrder, params.outputShape, params.outDataType)) {
+        vpunnLayer.superdense_memory = true;
+    }
+
     return vpunnLayer;
 }
 
@@ -388,9 +429,13 @@ VPUNN::DPUWorkload vpux::VPU::getDPUWorkload(const VPUIP::WorkloadCostParams& ti
     vpunnDPUWorkload.weight_sparsity_enabled = tileParams.isWeightsSparsityEnabled;
     vpunnDPUWorkload.weight_sparsity = tileParams.weightsSparsityRatio;
 
+    if (tileParams.weightsDataType.has_value()) {
+        vpunnDPUWorkload.weight_type = getVPUNNElementType(tileParams.weightsDataType.value());
+    }
+
     auto getISIStrategy = [&](VPU::MultiClusterStrategy layerStrategy) {
         if (layerStrategy == VPU::MultiClusterStrategy::HKSwitch) {
-            if (tileParams.arch == VPU::ArchKind::NPU40XX) {
+            if (tileParams.arch >= VPU::ArchKind::NPU40XX) {
                 layerStrategy = VPU::MultiClusterStrategy::SplitOverHeightOverlapped;
             } else {
                 layerStrategy = VPU::MultiClusterStrategy::SplitOverHeight;
@@ -423,6 +468,12 @@ VPUNN::DPUWorkload vpux::VPU::getDPUWorkload(const VPUIP::WorkloadCostParams& ti
         vpunnDPUWorkload.activation_function = getVPUNNActivationFunction(tileParams.ppeAttr);
     }
 
+    // set superdense
+    if (vpux::VPU::NCESparsity::isSuperdenseRequired(tileParams.outOrder, tileParams.outputShape,
+                                                     tileParams.outDataType)) {
+        vpunnDPUWorkload.superdense_memory = true;
+    }
+
     return vpunnDPUWorkload;
 }
 
@@ -444,6 +495,9 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
     VPUIP::WorkloadCostParams params = {};
     params.inDataType = inElemType;
     params.outDataType = outElemType;
+    if (nceOp.getWeightsOperand() != nullptr) {
+        params.weightsDataType = nceOp.getWeightsOperand().getType().cast<NDTypeInterface>().getElementType();
+    }
     params.inOrder = inputOrder;
     params.outOrder = outputOrder;
     params.numDPU = numDPU;
@@ -542,8 +596,8 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
             .Case<VPU::NCEMatMulOp>([&](auto) {
                 params.nceTaskType = VPUIP::NCETaskType::CONV;
             })
-            .Case<VPU::NCEReduceOp>([&](VPU::NCEReduceOp) {
-                params.nceTaskType = VPUIP::NCETaskType::REDUCEMEAN;
+            .Case<VPU::NCEReduceOp>([&](VPU::NCEReduceOp origOp) {
+                params.nceTaskType = VPU::configureNCEReduceTaskType(origOp);
             })
             // Only for VPUNN L1 DPU API
             // For L2 API, the strategy SOW is not supported by VPUNN, refer to #86188

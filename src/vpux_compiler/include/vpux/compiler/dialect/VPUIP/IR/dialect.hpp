@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/core/attributes/indexed_symbol_attr.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include <mlir/Dialect/Async/IR/Async.h>
 #include <mlir/IR/Dialect.h>

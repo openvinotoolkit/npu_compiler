@@ -80,8 +80,9 @@ TEST_F(MLIR_OpTilingCacheTest, OutputTilingTest) {
     auto outputTiling1 = vpux::getHWLayerTilingStrategy(nceOps[0], vpux::TilingMode::ISOLATED, Logger::global());
     ASSERT_TRUE(mlir::succeeded(outputTiling1));
 
-    auto opHash = cache.calculateOpHash(nceOps[1], vpux::TilingMode::ISOLATED, tileDimOrder);
-    auto outputTiling2 = cache.getOutputTiling(opHash, nceOps[1], getShape(nceOps[1]->getResult(0)));
+    auto opHash = cache.calculateOpHash(nceOps[1], tileDimOrder);
+    auto opHashWithTilingMode = cache.updateOpHashWithTilingMode(nceOps[1], opHash, vpux::TilingMode::ISOLATED);
+    auto outputTiling2 = cache.getOutputTiling(opHashWithTilingMode, nceOps[1], getShape(nceOps[1]->getResult(0)));
     ASSERT_TRUE(outputTiling2.has_value());
     auto outputTiling2Value = outputTiling2.value();
     ASSERT_TRUE(mlir::succeeded(outputTiling2Value));
@@ -130,14 +131,14 @@ TEST_F(MLIR_OpTilingCacheTest, OpDPUCostTest) {
 
     const auto costParams = VPU::getWorkloadCostParam(mlir::dyn_cast<VPU::NCEOpInterface>(nceOps[0].getOperation()),
                                                       VPU::ArchKind::NPU40XX, numDPUs);
-    const auto vpunnStrategy = VPU::getVPULayerStrategy(strategy, numDPUs, numTiles, 1, true);
+    const auto vpunnStrategy = VPU::getVPULayerStrategy(strategy, numDPUs, numTiles, VPU::ArchKind::NPU40XX, 1, true);
 
     auto layerCostModel = VPU::createLayerCostModel(VPU::ArchKind::NPU40XX);
 
     auto dpuCost1 = getDPUCostForNCEOp(nceOps[0], strategy, outputTiling, costParams, vpunnStrategy, layerCostModel,
                                        Logger::global());
 
-    auto opHash = cache.calculateOpHash(nceOps[1].getOperation(), std::nullopt, std::nullopt, outputTiling);
+    auto opHash = cache.calculateOpHash(nceOps[1].getOperation(), std::nullopt, outputTiling);
     auto dpuCost2 = cache.getOpDpuCost(opHash);
     ASSERT_TRUE(dpuCost2.has_value());
     ASSERT_EQ(dpuCost2.value(), dpuCost1);

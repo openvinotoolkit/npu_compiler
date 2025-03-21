@@ -14,7 +14,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUMI37XX_TYPES
 #define VPUX_COMPILER_DIALECT_VPUMI37XX_TYPES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPUMI37XX/dialect.td"
 include "vpux/compiler/dialect/VPUMI37XX/attributes.td"
 

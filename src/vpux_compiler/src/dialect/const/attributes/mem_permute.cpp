@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include "vpux/utils/core/func_ref.hpp"
 
@@ -119,4 +120,14 @@ Const::Content vpux::Const::MemPermuteAttr::transform(vpux::Const::Content& inpu
     const auto memPerm = getMemPerm().getValue();
 
     return Const::details::memPermuteTransformation(input, outType, memPerm);
+}
+
+//
+// MemPermuteAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::MemPermuteAttr::getStableHashValue() const {
+    const auto order = DimsOrder::fromAffineMap(getDstOrder().getValue());
+    const auto perm = DimsOrder::fromAffineMap(getMemPerm().getValue());
+    return llvm::hash_combine(getMnemonic(), order.code(), perm.code());
 }

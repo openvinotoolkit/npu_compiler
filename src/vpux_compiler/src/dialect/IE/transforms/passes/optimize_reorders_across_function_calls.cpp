@@ -3,10 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/utils/core/format.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEREORDERSACROSSFUNCTIONCALLS
+#define GEN_PASS_DEF_OPTIMIZEREORDERSACROSSFUNCTIONCALLS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -30,7 +37,7 @@ struct ArgOperations {
 //
 
 class OptimizeReordersAcrossFunctionCallsPass final :
-        public IE::OptimizeReordersAcrossFunctionCallsBase<OptimizeReordersAcrossFunctionCallsPass> {
+        public IE::impl::OptimizeReordersAcrossFunctionCallsBase<OptimizeReordersAcrossFunctionCallsPass> {
 public:
     explicit OptimizeReordersAcrossFunctionCallsPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled,
                                                      Logger log)
@@ -250,7 +257,7 @@ std::map<size_t, ArgOperations> OptimizeReordersAcrossFunctionCallsPass::getOpti
         if (userOps.empty()) {
             continue;
         }
-        const auto producerOps = getOuterReorderProducerOps(funcOp, arg);
+        auto producerOps = getOuterReorderProducerOps(funcOp, arg);
         if (producerOps.empty()) {
             continue;
         }
@@ -264,7 +271,7 @@ std::map<size_t, ArgOperations> OptimizeReordersAcrossFunctionCallsPass::getOpti
             continue;
         }
 
-        const auto compatibleUsers = getCompatibleUsers(userOps, inputOrder.value());
+        auto compatibleUsers = getCompatibleUsers(userOps, inputOrder.value());
         if (compatibleUsers.empty()) {
             log.nest().trace("No users are compatible with the producers' input order {0}", inputOrder.value());
             continue;
@@ -273,7 +280,7 @@ std::map<size_t, ArgOperations> OptimizeReordersAcrossFunctionCallsPass::getOpti
         log.trace("{0} user(s) are compatible with the producers' input order {1}", compatibleUsers.size(),
                   inputOrder.value());
 
-        argOperations[arg.getArgNumber()] = ArgOperations{producerOps, compatibleUsers};
+        argOperations[arg.getArgNumber()] = ArgOperations{std::move(producerOps), std::move(compatibleUsers)};
     }
 
     return argOperations;
@@ -457,16 +464,15 @@ void OptimizeReordersAcrossFunctionCallsPass::eraseConnectionsToOriginalArg(mlir
         }
 
         callOp.getOperandsMutable().erase(origArgNumber, 1);
+        const auto numUses = std::distance(operand.getUses().begin(), operand.getUses().end());
+        if (numUses > 0) {
+            continue;
+        }
 
         // The producer operation might be part of the same function as the CallOp, in which case it can be directly
-        // removed when there are no other users
+        // removed since there are no other users
         const auto& producerOps = argOperations.producerOps;
         if (llvm::find(producerOps, parentOp) != producerOps.end()) {
-            const auto numUses = std::distance(parentOp->getResult(resultNumber).getUses().begin(),
-                                               parentOp->getResult(resultNumber).getUses().end());
-            if (numUses >= 1) {
-                continue;
-            }
             parentOp->erase();
             continue;
         }
@@ -474,7 +480,6 @@ void OptimizeReordersAcrossFunctionCallsPass::eraseConnectionsToOriginalArg(mlir
         // Remove the Reorder when it is found inside another function
         if (auto producerCallOp = mlir::dyn_cast<mlir::func::CallOp>(parentOp)) {
             auto producerFuncOp = _callFunction[producerCallOp];
-            bool erasedProducer = false;
             producerFuncOp.walk([&](mlir::func::ReturnOp returnOp) {
                 auto operand = returnOp.getOperand(resultNumber);
                 VPUX_THROW_WHEN(parentOp == nullptr,
@@ -484,20 +489,16 @@ void OptimizeReordersAcrossFunctionCallsPass::eraseConnectionsToOriginalArg(mlir
                 VPUX_THROW_WHEN(llvm::find(producerOps, parentOp) == producerOps.end(),
                                 "Expected producer Reorder to be returned, but got operation {0} at {1}",
                                 parentOp->getName(), parentOp->getLoc());
+                returnOp.getOperandsMutable().erase(resultNumber, 1);
                 const auto numUses =
                         std::distance(parentOp->getResult(0).getUses().begin(), parentOp->getResult(0).getUses().end());
-                if (numUses > 1) {
+                if (numUses > 0) {
                     return;
                 }
-                returnOp.getOperandsMutable().erase(resultNumber, 1);
                 parentOp->erase();
-                erasedProducer = true;
             });
-
-            if (erasedProducer) {
-                eraseResultFromFunction(producerFuncOp, resultNumber);
-                updateCallOps(producerFuncOp);
-            }
+            eraseResultFromFunction(producerFuncOp, resultNumber);
+            updateCallOps(producerFuncOp);
             continue;
         }
 

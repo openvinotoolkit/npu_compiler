@@ -12,14 +12,16 @@
 using namespace vpux;
 using namespace VPU;
 
-StrategyManager::StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling, Logger log,
+StrategyManager::StrategyManager(mlir::func::FuncOp func, int64_t numTiles, bool enablePrefetchTiling,
+                                 VPU::MCOptimizationScope mcOptimizationScope, Logger log,
                                  SiblingOpsAnalysis& siblingsOpsAnalysis)
         : _func(func),
           _numTiles(numTiles),
           _log(log),
           _costModel(func, enablePrefetchTiling, log, siblingsOpsAnalysis),
           _optimizer(func, enablePrefetchTiling, log, siblingsOpsAnalysis),
-          _siblingsOpsAnalysis(siblingsOpsAnalysis) {
+          _siblingsOpsAnalysis(siblingsOpsAnalysis),
+          _mcOptimizationScope(mcOptimizationScope) {
 }
 
 void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLayer) {
@@ -47,6 +49,14 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
         _log.trace("Getting strategy for op {0}", op->getName());
         // Currently the distributed tensor only supports the tiling scheme with numTile shape=4
         // TODO: #E81820
+
+        // E#152917 [ShaveCodeGen] Analyze & settle on GenericSwLayerOp integration & vpux interface usage
+        if (mlir::isa<VPU::GenericSwLayerOp>(op)) {
+            _log.info("Compiler-generated sw layers are not supported by standard multicluster strategy assignment "
+                      "infra");
+            return;
+        }
+
         for (const auto& input : op->getOperands()) {
             const auto inputShape = input.getType().cast<vpux::NDTypeInterface>().getShape();
             if (inputShape.size() != RANK_REQUIRED_FOR_TILING && inputShape.size() != DimsGroups5D::Act::numDims) {
@@ -293,9 +303,9 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                                 isSOCSupportedWithoutTiling(permuteOp.getInput().getDefiningOp());
                         const auto outputOpsSupportSOC =
                                 llvm::all_of(permuteOp->getUsers(), isSOCSupportedWithoutTiling);
-                        // Remove temporary startegy
+                        // Remove temporary strategy
                         clusteredOp->removeAttr(multiClusterStrategy);
-                        return inputOpSupportSOC && outputOpsSupportSOC;
+                        return inputOpSupportSOC || outputOpsSupportSOC;
                     };
 
                     // NCEPermute was disabled in subgraph optimizer, so need to assign correct strategy manually here.
@@ -324,7 +334,9 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
 }
 
 void StrategyManager::optimizeMulticlusterStrategy() {
-    _optimizer.optimizeStrategyAvoidSpillingOnModel();
+    if (_mcOptimizationScope == VPU::MCOptimizationScope::SUBGRAPH) {
+        _optimizer.optimizeStrategyAvoidSpillingOnModel();
+    }
 }
 
 // Temporary strategy is assigned to Concat to help strategy optimization. We need to remove it after strategy manager

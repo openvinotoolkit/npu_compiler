@@ -4,8 +4,10 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/softmax_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -13,6 +15,12 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_PROPAGATEREORDERTONCE
+#define GEN_PASS_DEF_PROPAGATEREORDERTONCE
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -135,7 +143,7 @@ mlir::LogicalResult ActShaveRewriter::matchAndRewrite(IE::ReorderOp origOp, mlir
 // PropagateReorderToNCE
 //
 
-class PropagateReorderToNCE final : public IE::arch37xx::PropagateReorderToNCEBase<PropagateReorderToNCE> {
+class PropagateReorderToNCE final : public IE::arch37xx::impl::PropagateReorderToNCEBase<PropagateReorderToNCE> {
 public:
     explicit PropagateReorderToNCE(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

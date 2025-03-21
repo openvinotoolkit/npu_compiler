@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -73,10 +73,12 @@ void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::In
     pm.addPass(VPU::createInitResourcesPass(options, log));
     pm.addPass(VPU::createSetupPipelineOptionsPass(options, log));
     pm.addPass(VPU::createSetupMaxKernelSizePass(options, log));
-    pm.addPass(VPU::createSetupPerBarrierVariantConstraintPass(options, log));
+    pm.addPass(VPU::createSetupNpuConstraintPass(options, log));
     pm.addPass(VPU::createSetupChannelsAutoPaddingPass(options, log));
     pm.addPass(VPU::createSetupIsReduceSupportedPass(options, log));
     pm.addPass(VPU::createSetupEnableFP16CompressedConvPass(options, log));
+    pm.addPass(VPU::createSetupEnableSEPtrsOperationsPass(options, log));
+    pm.addPass(VPU::createSetupEnableAdaptiveStrippingPass(options, log));
 }
 
 //
@@ -111,8 +113,9 @@ void vpux::VPU::buildWeightsSparsityPipeline(mlir::OpPassManager& pm, const VPU:
                                              Logger log) {
     const auto weightsSparsityHeuristic = getWeightsSparsityHeuristic(options.weightsSparsityHeuristic);
     const auto weightsSparsityThreshold = getWeightsSparsityThreshold(options.weightsSparsityThreshold);
-    pm.addPass(VPU::createSparsifyWeightsPass(weightsSparsityHeuristic, weightsSparsityThreshold,
-                                              options.weightsSparsityLargeConstThreshold, log));
+    pm.addPass(VPU::createSparsifyWeightsPass(
+            weightsSparsityHeuristic, weightsSparsityThreshold, options.weightsSparsityLargeConstThreshold,
+            options.weightsSparsityComputeOpThreshold, options.enableWeightSwizzling, log));
     pm.addPass(VPU::createRecomputeSparsityPtrsPass(log));
 }
 
@@ -135,6 +138,11 @@ void VPU::registerVPUPipelines() {
     mlir::PassPipelineRegistration<VPU::TilingOptions>("tiling", "Apply tiling",
                                                        [](mlir::OpPassManager& pm, const VPU::TilingOptions& options) {
                                                            VPU::buildTilingPipeline(pm, options);
+                                                       });
+
+    mlir::PassPipelineRegistration<VPU::TilingOptions>("vertical-fusion", "Apply VF Pipeline",
+                                                       [](mlir::OpPassManager& pm, const VPU::TilingOptions& options) {
+                                                           VPU::buildVFPipeline(pm, options);
                                                        });
 }
 
@@ -163,7 +171,6 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
                                                       /*enableMCSideLoadDump*/ false, options.modelHash, log));
     }
     // manual strategy debug configuration
-
     pm.addPass(VPU::createApplyTilingPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
@@ -182,16 +189,11 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyFileLocation,
                                                   options.readStrategyFromJson, readStrategyFileLocation,
                                                   /*enableMCSideLoadDump*/ false, options.modelHash, log));
-    if (options.enableVerticalFusionOutlining) {
-        if (options.enableProfiling) {
-            // TODO: E#140041 enable profiling with function outlining
-            log.error(
-                    "Vertical fusion outlining was disabled. TODO: E#140041 enable profiling with function outlining");
-        } else {
-            pm.addPass(VPU::createVerticalFusionOutliningPass(options, log));
-            const auto grc = getDefaultGreedyRewriteConfig();
-            pm.addPass(mlir::createCanonicalizerPass(grc));
-        }
+    // TODO: E#140041 enable profiling with function outlining
+    if (options.enableVerticalFusionOutlining && !options.enableProfiling) {
+        pm.addPass(VPU::createVerticalFusionOutliningPass(options, log));
+        const auto grc = getDefaultGreedyRewriteConfig();
+        pm.addPass(mlir::createCanonicalizerPass(grc));
     }
     pm.addPass(VPU::createVfTilingPass(options.enableVerticalFusionPipelining, log));
 }

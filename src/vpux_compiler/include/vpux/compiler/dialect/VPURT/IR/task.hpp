@@ -65,6 +65,12 @@ TaskQueueType getTaskQueueType(TaskOp task, bool ignoreIndexForNce = true);
 
 std::map<TaskQueueType, std::pair<TaskOp, TaskOp>> getTaskQueuesFirstAndLastOp(mlir::func::FuncOp funcOp);
 }  // namespace VPURT
+
+// Tasks execution groups are used to validate schedule for correct task descriptor fetch operations
+using ExecutionGroup = llvm::SmallVector<size_t>;
+using ExecutionGroupList = llvm::SmallVector<ExecutionGroup>;
+using ExecutionGroupListMap = llvm::DenseMap<VPURT::TaskQueueType, ExecutionGroupList>;
+
 }  // namespace vpux
 
 using namespace vpux;

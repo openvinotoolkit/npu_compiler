@@ -8,7 +8,14 @@
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MOVEMULTIPLYPOSTOP
+#define GEN_PASS_DEF_MOVEMULTIPLYPOSTOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -99,8 +106,9 @@ mlir::LogicalResult MoveMultiplyPostMatmul::matchAndRewrite(IE::MultiplyOp origO
     rewriter.setInsertionPoint(matmulOp);
     auto matmulInput1 = matmulOp.getInput1().getDefiningOp() == origOp ? nonSingleDataOperand : matmulOp.getInput1();
     auto matmulInput2 = matmulOp.getInput2().getDefiningOp() == origOp ? nonSingleDataOperand : matmulOp.getInput2();
-    auto newMatMul = rewriter.create<IE::MatMulOp>(matmulOp->getLoc(), matmulInput1, matmulInput2,
-                                                   matmulOp.getTransposeA(), matmulOp.getTransposeB());
+    auto newMatMul =
+            rewriter.create<IE::MatMulOp>(matmulOp->getLoc(), matmulInput1, matmulInput2, matmulOp.getTransposeA(),
+                                          matmulOp.getTransposeB(), matmulOp.getPostOpAttr());
 
     auto multiplyInput1 = origOp.getInput1() == singleDataInput ? origOp.getInput1() : newMatMul.getOutput();
     auto multiplyInput2 = origOp.getInput2() == singleDataInput ? origOp.getInput2() : newMatMul.getOutput();
@@ -243,7 +251,7 @@ mlir::LogicalResult MoveMultiplyPostConcat::matchAndRewrite(IE::ConcatOp origOp,
 // MoveMultiplyPostOpPass
 //
 
-class MoveMultiplyPostOpPass final : public IE::MoveMultiplyPostOpBase<MoveMultiplyPostOpPass> {
+class MoveMultiplyPostOpPass final : public IE::impl::MoveMultiplyPostOpBase<MoveMultiplyPostOpPass> {
 public:
     explicit MoveMultiplyPostOpPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -6,7 +6,15 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MERGEFULLYCONNECTED
+#define GEN_PASS_DEF_MERGEFULLYCONNECTED
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -1251,7 +1259,7 @@ void MergeFullyConnectedForDQPatternWithDequantize::cleanUpMatMulBranches(ArrayR
     }
 }
 
-class MergeFullyConnectedPass final : public IE::MergeFullyConnectedBase<MergeFullyConnectedPass> {
+class MergeFullyConnectedPass final : public IE::impl::MergeFullyConnectedBase<MergeFullyConnectedPass> {
 public:
     explicit MergeFullyConnectedPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

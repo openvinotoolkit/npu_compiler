@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -52,36 +52,58 @@ mlir::ModuleOp getVPUSWModule(mlir::ModuleOp module, const Logger& log) {
 
 mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, StringRef builtInFunctionName,
                                           const ArrayRef<mlir::Type> inputTypes, StringRef kernelEntryName,
-                                          StringRef kernelSourceFileName, const Logger& log) {
+                                          StringRef kernelSourceFileName, StringRef layerName, const Logger& log) {
     auto* ctx = module.getContext();
     OpBuilderLogger builderLog(log);
-
     auto vpuswModule = getVPUSWModule(module, log);
-
-    auto builtInFlatFunction = mlir::SymbolRefAttr::get(ctx, builtInFunctionName);
-    auto builtInFunction = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {builtInFlatFunction});
-
+    // First try is to keep request name, buildin_+VPUOpName. This happens if VPU Op have just one entry_point kernel
+    // used in the model. If more VpuOp are present, but with different implementation, then we will create unique name
+    // by append to the name the code entry_point string.
+    // Move locally to check first original name and after, by appending ".entry_point", that any name already exist and
+    // not create new one.
+    SmallString builtInFunctionNameFinal(builtInFunctionName);
     // check if this builtInFunction already created - consider names are unique - e.g. no overloads
     if (auto prebuiltFunction = vpuswModule.lookupSymbol<mlir::func::FuncOp>(builtInFunctionName)) {
-        log.trace("Found builtin function: {0}", builtInFunctionName);
-        return builtInFunction;
+        // Check if already created prebuiltFunction refer to the same code entry_point. If this happens, then no new
+        // function will be created and will return the old created name.
+        const auto prebuiltKernelEntryPoint = prebuiltFunction->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+        if (prebuiltKernelEntryPoint == kernelEntryName) {
+            log.trace("Found builtin function: {0}", builtInFunctionName);
+            auto builtInFlatFunction = mlir::SymbolRefAttr::get(ctx, builtInFunctionName);
+            auto builtInFunction = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {builtInFlatFunction});
+            return builtInFunction;
+        }
+        // In this case builtInFunctionName waa found, but not have same entr_point, so not reffere to same kernel code.
+        // It will be check if version with append ".entry_point" already exist.
+        builtInFunctionNameFinal.append(".");
+        builtInFunctionNameFinal.append(kernelEntryName);
+        if (auto prebuiltFunction = vpuswModule.lookupSymbol<mlir::func::FuncOp>(builtInFunctionNameFinal)) {
+            log.trace("Found builtin function: {0}", builtInFunctionNameFinal);
+            auto builtInFlatFunction = mlir::SymbolRefAttr::get(ctx, builtInFunctionNameFinal);
+            auto builtInFunction = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {builtInFlatFunction});
+            return builtInFunction;
+        }
     }
+
+    auto builtInFlatFunction = mlir::SymbolRefAttr::get(ctx, builtInFunctionNameFinal);
+    auto builtInFunction = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {builtInFlatFunction});
 
     const auto funcType = mlir::FunctionType::get(ctx, inputTypes, {});
 
     auto innerModuleBuilder = mlir::OpBuilder::atBlockBegin(vpuswModule.getBody(), &builderLog);
-    auto builtInOp =
-            innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), builtInFunctionName, funcType);
+    auto builtInOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), builtInFunctionNameFinal,
+                                                                   funcType);
 
     // modifying attributes
     builtInOp.setSymVisibilityAttr(mlir::StringAttr::get(ctx, "private"));
 
     builtInOp->setAttr("VPU.kernel_entry", mlir::StringAttr::get(ctx, kernelEntryName));
     builtInOp->setAttr("VPU.kernel_code", mlir::StringAttr::get(ctx, kernelSourceFileName));
+    builtInOp->setAttr("VPU.kernel_name", mlir::StringAttr::get(ctx, layerName));
     builtInOp->setAttr("VPU.task_type",
                        mlir::SymbolRefAttr::get(ctx, VPU::stringifyActShaveTaskType(VPU::ActShaveTaskType::COMPUTE)));
 
-    log.trace("Added new builtin function: {0}", builtInFunctionName);
+    log.trace("Added new builtin function: {0}", builtInFunctionNameFinal);
     return builtInFunction;
 }
 
@@ -126,7 +148,7 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
     });
 
     return VPUIP::createBuiltInFunction(module, builtInFunctionName, inputTypes, kernelInfo.entryName,
-                                        kernelInfo.sourceFileName, log);
+                                        kernelInfo.sourceFileName, kernelInfo.layerName, log);
 }
 
 void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpux::VPU::ArchKind arch) {
@@ -162,7 +184,6 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpu
     auto runtimeFlatSym = mlir::SymbolRefAttr::get(ctx, runtimeKernelName);
     auto runtimeSym = mlir::SymbolRefAttr::get(ctx, vpuswModule.getName().value(), {runtimeFlatSym});
 
-    // TODO: use the computed size when E#147157 is implemented
     static constexpr int64_t defaultStackSize = 4096;
 
     // TODO: always extract num shaves info from VPURT::SW.Runtime, which can be extracted from module
@@ -178,7 +199,7 @@ void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpu
 }
 
 void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::ValueRange outputBuffs,
-                  ArrayRef<mlir::Attribute> args, const Logger& log) {
+                  ArrayRef<mlir::Attribute> args, const Logger& log, VPUIP::SwKernelRun swKernelRunOp) {
     OpBuilderLogger builderLog(log);
     auto* ctx = swKernelOp.getContext();
     auto& bodyRegion = swKernelOp.getBody();
@@ -208,7 +229,45 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::V
     fetchOperands(blockArgs);
 
     auto argsAttr = args.empty() ? nullptr : mlir::ArrayAttr::get(ctx, args);
-    swKernelBlockBuilder.create<VPUIP::SwKernelRun>(mlir::UnknownLoc::get(ctx), mlir::ValueRange(operands), argsAttr);
+
+    if (swKernelRunOp != nullptr) {
+        auto numBlockArgs = swKernelBlock.getNumArguments();
+        auto numSwKernelRunArgs = swKernelRunOp->getNumOperands();
+        VPUX_THROW_UNLESS(numSwKernelRunArgs != 0, "SW Kernel Run has 0 Operands at '{0}'", swKernelOp->getLoc());
+        VPUX_THROW_UNLESS(numBlockArgs % numSwKernelRunArgs == 0, "Invalid block arg num at '{0}'",
+                          swKernelOp->getLoc());
+        auto tileNum = numBlockArgs / numSwKernelRunArgs;
+
+        VPUX_THROW_UNLESS(swKernelOp.getInputs().size() % tileNum == 0 && swKernelOp.getResults().size() % tileNum == 0,
+                          "Invalid block arg num at '{0}'", swKernelOp->getLoc());
+        auto numSwKernelRunInputs = swKernelOp.getInputs().size() / tileNum;
+        auto numSwKernelRunOutputs = swKernelOp.getResults().size() / tileNum;
+
+        if (argsAttr != nullptr) {
+            swKernelRunOp.setAttrsAttr(argsAttr);
+        }
+
+        for (auto tileIdx : irange(tileNum)) {
+            auto newRunOp = swKernelBlockBuilder.clone(*swKernelRunOp.getOperation());
+            for (auto argInputIdx : irange(numSwKernelRunInputs)) {
+                newRunOp->setOperand(checked_cast<unsigned int>(argInputIdx),
+                                     swKernelBlock.getArgument(
+                                             checked_cast<unsigned int>(tileIdx * numSwKernelRunInputs + argInputIdx)));
+            }
+
+            for (auto argOutputIdx : irange(numSwKernelRunOutputs)) {
+                newRunOp->setOperand(
+                        checked_cast<unsigned int>(numSwKernelRunInputs + argOutputIdx),
+                        swKernelBlock.getArgument(checked_cast<unsigned int>(
+                                tileNum * numSwKernelRunInputs + tileIdx * numSwKernelRunOutputs + argOutputIdx)));
+            }
+
+            log.trace("create {0}th tile of SwKernelRun {1}", tileIdx, swKernelRunOp);
+        }
+    } else {
+        swKernelBlockBuilder.create<VPUIP::SwKernelRun>(mlir::UnknownLoc::get(ctx), mlir::ValueRange(operands),
+                                                        argsAttr);
+    }
 }
 
 void initSwKernel(VPUIP::SwKernelOp swKernelOp, VPUIP::SwKernelRun swKernelRunOp, const vpux::Logger& log) {
@@ -241,21 +300,21 @@ void initSwKernel(VPUIP::SwKernelOp swKernelOp, VPUIP::SwKernelRun swKernelRunOp
 
     // pack input/outputs and constants into several sw_kernel_run calls
     // For example: For Operation that has 2 inputs, 1 output and tile number is 2. After tile it should be like:
-    // inputs: [INPUT0_TILE0] as %arg0: First intput with 1th tile
-    //         [INPUT1_TILE0] as %arg1: Second intput with 1th tile
-    //         [INPUT0_TILE1] as %arg2: First intput with 2th tile
-    //         [INPUT1_TILE1] as %arg3: Second intput with 2th tile
-    // outputs:[OUTPUT_TILE0] as %arg4: Output of 1th tile
-    //         [OUTPUT_TILE1] as %arg5: Output of 2th tile
+    // inputs: [INPUT0_TILE0] as %arg0: First input with 1st tile
+    //         [INPUT1_TILE0] as %arg1: Second input with 1st tile
+    //         [INPUT0_TILE1] as %arg2: First input with 2nd tile
+    //         [INPUT1_TILE1] as %arg3: Second input with 2nd tile
+    // outputs:[OUTPUT_TILE0] as %arg4: Output of 1st tile
+    //         [OUTPUT_TILE1] as %arg5: Output of 2nd tile
     // Tile 0: VPUIP.SW.Kernel.run {attrs} (%arg0, %arg1, %arg4)
     // Tile 1: VPUIP.SW.Kernel.run {attrs} (%arg2, %arg3, %arg5)
     // For example: For Operation that has 1 input, 2 output and tile number is 2. After tile it should be like:
-    // inputs: [INPUT0_TILE0] as %arg0: First intput with 1th tile
-    //         [INPUT0_TILE1] as %arg1: First intput with 2th tile
-    // outputs:[OUTPUT_TILE0] as %arg2: First Output of 1th tile
-    //         [OUTPUT_TILE1] as %arg3: Second Output of 1th tile
-    //         [OUTPUT_TILE0] as %arg4: First Output of 2th tile
-    //         [OUTPUT_TILE1] as %arg5: Second Output of 2th tile
+    // inputs: [INPUT0_TILE0] as %arg0: First input with 1st tile
+    //         [INPUT0_TILE1] as %arg1: First input with 2nd tile
+    // outputs:[OUTPUT_TILE0] as %arg2: First Output of 1st tile
+    //         [OUTPUT_TILE1] as %arg3: Second Output of 1st tile
+    //         [OUTPUT_TILE0] as %arg4: First Output of 2nd tile
+    //         [OUTPUT_TILE1] as %arg5: Second Output of 2nd tile
     // Tile 0: VPUIP.SW.Kernel.run {attrs} (%arg0, %arg2, %arg3)
     // Tile 1: VPUIP.SW.Kernel.run {attrs} (%arg1, %arg4, %arg5)
     for (auto tileIdx : irange(tileNum)) {
@@ -281,7 +340,11 @@ SmallString getSwKernelEntryName(VPUIP::SwKernelOp swKernelOp) {
     auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
     auto kernelFunc = module.lookupSymbol<mlir::func::FuncOp>(swKernelOp.getKernelFunctionAttr());
     VPUX_THROW_WHEN(kernelFunc == nullptr, "Cannot find kernel function symbol at '{0}'", swKernelOp->getLoc());
-    const auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+    auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_name");
+    // Ensure backward compatibility; kernel_name can be the same as kernel_entry.
+    if (kernelEntryPoint == nullptr) {
+        kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
+    }
     VPUX_THROW_WHEN(kernelEntryPoint == nullptr, "Cannot find kernel entry point at '{0}'", swKernelOp->getLoc());
     return kernelEntryPoint.getValue();
 }
@@ -451,6 +514,29 @@ InputTiling backInferRMSSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vp
     gammaTile.shape[Dim(0)] = inShape[Dim(0)];
 
     return TilingInfo{{std::move(inTile), std::move(gammaTile)}};
+}
+
+InputTiling backInferRoPESwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
+                                           Logger /*log*/) {
+    auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+    VPUX_THROW_UNLESS(std::distance(swKernelRuns.begin(), swKernelRuns.end()) == 1,
+                      "SwKernelOp has already been tiled at '{0}'", swKernelOp);
+    const auto inputs = swKernelOp.getInputs();
+    TileInfo cosTile(getShape(inputs[1]));
+    TileInfo sinTile(getShape(inputs[2]));
+    auto inTile = outputTile;
+
+    cosTile.shape[Dim(2)] = inTile.shape[Dim(2)];
+    cosTile.offsets[Dim(3)] = inTile.offsets[Dim(3)];
+    cosTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+    cosTile.offsets[Dim(0)] = cosTile.offsets[Dim(1)] = inTile.offsets[Dim(1)];
+
+    sinTile.shape[Dim(2)] = inTile.shape[Dim(2)];
+    sinTile.offsets[Dim(3)] = inTile.offsets[Dim(3)];
+    sinTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+    sinTile.offsets[Dim(0)] = sinTile.offsets[Dim(1)] = inTile.offsets[Dim(1)];
+
+    return TilingInfo{{std::move(inTile), std::move(cosTile), std::move(sinTile)}};
 }
 
 InputTiling backInferDepthToSpaceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
@@ -658,24 +744,35 @@ InputTiling backInferTopKSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
     const auto attrs = swKernelRun.getAttrs().value();
     const auto axis = reverseMemDim(inOrder, attrs[0].cast<mlir::IntegerAttr>().getInt());
 
+    const auto isLargerThanZero = [](const int64_t dimSize) -> bool {
+        return dimSize > 0;
+    };
+
     const auto inShape = getShape(swKernelOp.getInputs()[0]);
     SmallVector<TileInfo> inputTiles;
-    for (auto origInput : swKernelOp.getInputs()) {
-        const auto curShape = getShape(origInput);
-        VPUX_THROW_UNLESS(curShape.size() == outputTile.shape.size(),
-                          "Can't tile SwKernel operation '{0}' at '{1}', which has operands with different rank",
-                          swKernelOp->getName(), swKernelOp->getLoc());
 
-        auto curTile = outputTile;
-        for (auto ind : irange(curShape.size())) {
-            const auto d = Dim(ind);
-            if (axis == d.ind()) {
-                curTile.shape[d] = inShape[d];
-            }
+    VPUX_THROW_UNLESS(inShape.size() == outputTile.shape.size(),
+                      "Can't tile SwKernel operation '{0}' at '{1}', which has operands with different rank",
+                      swKernelOp->getName(), swKernelOp->getLoc());
+
+    auto curTile = outputTile;
+    for (auto ind : irange(inShape.size())) {
+        const auto d = Dim(ind);
+        if (axis == d.ind()) {
+            curTile.shape[d] = inShape[d];
         }
-
-        inputTiles.push_back(curTile);
     }
+    inputTiles.push_back(curTile);
+    if (swKernelOp.getInputs().size() > 1) {
+        const auto topKBufferShape = getShape(swKernelOp.getInputs()[1]);
+        TileInfo topKBufferTile(topKBufferShape);
+        topKBufferTile.shape[Dims4D::Act::W] = topKBufferShape[Dims4D::Act::W] / 2;
+        if (llvm::any_of(outputTile.offsets, isLargerThanZero)) {
+            topKBufferTile.offsets[Dims4D::Act::W] = topKBufferShape[Dims4D::Act::W] / 2;
+        }
+        inputTiles.push_back(topKBufferTile);
+    }
+
     return TilingInfo{inputTiles};
 }
 
@@ -995,6 +1092,7 @@ InputTiling backInferMvn1NormSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, con
 InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const SmallVector<vpux::TileInfo>& outputTiles,
                                        int tileId, Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
+    const auto arch = VPU::getArch(swKernelOp);
     const auto& outputTile = outputTiles[tileId];
     if (kernelEntryName == "interpolate") {
         return backInferInterpolateSwKernelInputTile(swKernelOp, outputTile, log);
@@ -1006,6 +1104,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferGatherElementsSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rms_norm") {
         return backInferRMSSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "rope") {
+        return backInferRoPESwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "pad") {
         return backInferPadSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "mvn1_sum") {
@@ -1028,7 +1128,7 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferLSTMCellSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "lstm_sequence") {
         return backInferLSTMSequenceSwKernelInputTile(swKernelOp, outputTile, log);
-    } else if (kernelEntryName == "detection_output_sort") {
+    } else if ((kernelEntryName == "detection_output_sort") && (arch == VPU::ArchKind::NPU37XX)) {
         return vpux::VPU::DetectionOutputSortOpInputTilingOnShave(swKernelOp, outputTile, tileId, outputTiles.size(),
                                                                   log);
     }
@@ -1103,9 +1203,10 @@ SmallVector<vpux::NDTypeInterface> getSwKernelTiledTypes(VPUIP::SwKernelOp swKer
     if (kernelEntryName == "topk") {
         // For SW TopK, input, output and target shape will be tiled
         const auto inputType = swKernelOp->getOperand(0).getType();
+        const auto auxType = swKernelOp->getOperand(1).getType();
         const auto outputType = swKernelOp->getResult(0).getType();
         const auto targetShapeType = swKernelOp->getResult(1).getType();
-        return {inputType, outputType, targetShapeType};
+        return {inputType, auxType, outputType, targetShapeType};
     } else if (kernelEntryName == "gather") {
         auto args = kernelArgsRange(swKernelOp);
         const auto kernelAxisAttr = args.begin()[0].dyn_cast<mlir::IntegerAttr>();

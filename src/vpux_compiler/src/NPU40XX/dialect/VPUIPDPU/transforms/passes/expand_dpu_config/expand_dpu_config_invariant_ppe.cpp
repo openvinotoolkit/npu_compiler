@@ -90,10 +90,6 @@ mlir::LogicalResult configureFpPPE(const Logger&, PPEConfig::FpPPE& config, VPUI
         } else if (dpuTaskType == VPUIP::NCETaskType::MAXPOOL) {
             config.biasAdd.biasStatic = 0.0f;
             config.scaleMult.scaleStatic = 1.0f;
-        } else if (dpuTaskType == VPUIP::NCETaskType::REDUCEMEAN ||
-                   dpuTaskType == VPUIP::NCETaskType::REDUCESUMSQUARE) {
-            config.biasAdd.biasStatic = 0.0f;
-            config.scaleMult.scaleStatic = 1.0f;
         }
 
         if ((ppeTask.fixedFunction.ppeMode == VPU::PPEMode::LRELU) ||

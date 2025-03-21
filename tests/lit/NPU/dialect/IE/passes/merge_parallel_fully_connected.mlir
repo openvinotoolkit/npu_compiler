@@ -7,7 +7,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --merge-parallel-fully-connected %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: @MergeParallelFCWithReshapeTransposeOrderInput
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x6xf32>
 func.func @MergeParallelFCWithReshapeTransposeOrderInput(%arg0: tensor<1x6xf32>) -> (tensor<1x2xf32>, tensor<1x3xf32>) {

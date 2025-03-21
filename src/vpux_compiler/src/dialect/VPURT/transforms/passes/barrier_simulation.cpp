@@ -6,6 +6,12 @@
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_BARRIERSIMULATION
+#define GEN_PASS_DEF_BARRIERSIMULATION
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
@@ -14,7 +20,7 @@ namespace {
 // BarrierSimulationPass
 //
 
-class BarrierSimulationPass final : public VPURT::BarrierSimulationBase<BarrierSimulationPass> {
+class BarrierSimulationPass final : public VPURT::impl::BarrierSimulationBase<BarrierSimulationPass> {
 public:
     explicit BarrierSimulationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

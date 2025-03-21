@@ -6,8 +6,8 @@
 #pragma once
 
 #include <mlir/IR/BuiltinTypes.h>
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 namespace vpux {
 

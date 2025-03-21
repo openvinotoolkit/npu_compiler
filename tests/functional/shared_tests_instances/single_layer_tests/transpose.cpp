@@ -25,6 +25,7 @@ TEST_P(TransposeLayerTest_NPU4000, SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+
 }  // namespace test
 }  // namespace ov
 

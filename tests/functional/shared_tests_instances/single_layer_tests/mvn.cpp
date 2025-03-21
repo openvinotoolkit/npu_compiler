@@ -111,7 +111,6 @@ TEST_P(Mvn1LayerTest_SW, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
-
 TEST_P(Mvn1ZeroInputLayerTest_NPU3720_HW, HW) {
     abs_threshold = 0.003;
     setDefaultHardwareMode();

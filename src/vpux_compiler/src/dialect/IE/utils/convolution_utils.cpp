@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/logger.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 namespace vpux {
 namespace IE {

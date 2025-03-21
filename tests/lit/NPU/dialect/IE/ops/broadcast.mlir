@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @BroadcastFoldFold
 func.func @BroadcastFoldFold(%arg0 : tensor<1x8x4x4xf32>)-> tensor<1x8x4x4xf32> {
     %0 = const.Declare tensor<4xsi64> = dense<1> : tensor<4xsi64>

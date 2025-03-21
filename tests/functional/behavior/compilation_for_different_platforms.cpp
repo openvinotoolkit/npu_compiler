@@ -64,7 +64,8 @@ const std::vector<ov::AnyMap> configs = {
         {{ov::intel_npu::platform(ov::intel_npu::Platform::NPU4000)},
          ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::MLIR)},
         {{ov::device::id("3720")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::MLIR)},
-        {{ov::device::id("4000")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::MLIR)}};
+        {{ov::device::id("4000")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::MLIR)},
+};
 
 // Driver compiler type config
 const std::vector<ov::AnyMap> driverCompilerConfigs = {
@@ -74,7 +75,8 @@ const std::vector<ov::AnyMap> driverCompilerConfigs = {
         {{ov::intel_npu::platform(ov::intel_npu::Platform::NPU4000)},
          ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::DRIVER)},
         {{ov::device::id("3720")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::DRIVER)},
-        {{ov::device::id("4000")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::DRIVER)}};
+        {{ov::device::id("4000")}, ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::DRIVER)},
+};
 
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest, CompileForDifferentPlatformsTests,
                          ::testing::Combine(::testing::Values(ov::test::utils::DEVICE_NPU),

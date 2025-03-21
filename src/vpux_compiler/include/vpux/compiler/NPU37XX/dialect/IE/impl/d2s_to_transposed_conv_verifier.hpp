@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -14,7 +14,8 @@ namespace vpux::IE::arch37xx {
 */
 class D2SToTransposedConvVerifier : public D2SToTransposedConvVerifierBase {
 public:
-    bool isBeneficialConversion(IE::DepthToSpaceOp d2s) const override;
+    mlir::LogicalResult isBeneficialConversion(Logger log, mlir::PatternRewriter& rewriter,
+                                               IE::DepthToSpaceOp d2sOp) const override;
 };
 
 }  // namespace vpux::IE::arch37xx

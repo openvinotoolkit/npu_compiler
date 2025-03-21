@@ -12,17 +12,17 @@
 #include "vpux/utils/core/common_logger.hpp"
 #include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/func_ref.hpp"
-#include "vpux/utils/core/helper_macros.hpp"
-#include "vpux/utils/core/optional.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 
+#include <llvm/Support/FormatVariadic.h>
 #include <llvm/Support/WithColor.h>
+#include <llvm/Support/raw_ostream.h>
 
+#include <string>
 #include <utility>
 
 #include <cassert>
 #include <cstddef>
-#include <cstdint>
 
 namespace vpux {
 
@@ -77,33 +77,45 @@ public:
 
 public:
     template <typename... Args>
-    void fatal(StringLiteral format, Args&&... args) const {
+    void fatal([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL >= 1
         addEntryPacked(LogLevel::Fatal, format, std::forward<Args>(args)...);
+#endif
     }
 
     template <typename... Args>
-    void error(StringLiteral format, Args&&... args) const {
+    void error([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL >= 2
         addEntryPacked(LogLevel::Error, format, std::forward<Args>(args)...);
+#endif
     }
 
     template <typename... Args>
-    void warning(StringLiteral format, Args&&... args) const {
+    void warning([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL >= 3
         addEntryPacked(LogLevel::Warning, format, std::forward<Args>(args)...);
+#endif
     }
 
     template <typename... Args>
-    void info(StringLiteral format, Args&&... args) const {
+    void info([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL >= 4
         addEntryPacked(LogLevel::Info, format, std::forward<Args>(args)...);
+#endif
     }
 
     template <typename... Args>
-    void debug(StringLiteral format, Args&&... args) const {
+    void debug([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL >= 5
         addEntryPacked(LogLevel::Debug, format, std::forward<Args>(args)...);
+#endif
     }
 
     template <typename... Args>
-    void trace(StringLiteral format, Args&&... args) const {
+    void trace([[maybe_unused]] StringLiteral format, [[maybe_unused]] Args&&... args) const {
+#if BUILD_LOG_LEVEL == 6
         addEntryPacked(LogLevel::Trace, format, std::forward<Args>(args)...);
+#endif
     }
 
 public:

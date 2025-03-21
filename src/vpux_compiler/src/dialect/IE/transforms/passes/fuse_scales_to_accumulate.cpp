@@ -6,8 +6,16 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSESCALESTOACCUMULATE
+#define GEN_PASS_DEF_FUSESCALESTOACCUMULATE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -248,7 +256,7 @@ mlir::LogicalResult FuseScalesToAccumulate::matchAndRewrite(IE::AccumulateOp ori
     return mlir::success();
 }
 
-class FuseScalesToAccumulatePass final : public IE::FuseScalesToAccumulateBase<FuseScalesToAccumulatePass> {
+class FuseScalesToAccumulatePass final : public IE::impl::FuseScalesToAccumulateBase<FuseScalesToAccumulatePass> {
 public:
     explicit FuseScalesToAccumulatePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

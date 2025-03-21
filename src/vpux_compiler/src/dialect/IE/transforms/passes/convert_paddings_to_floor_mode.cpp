@@ -11,6 +11,12 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTPADDINGSTOFLOORMODE
+#define GEN_PASS_DEF_CONVERTPADDINGSTOFLOORMODE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -24,7 +30,8 @@ const size_t INPUT_AND_KERNEL_SIZE_DIFF = 2;
 // ConvertPaddingsToFloorModePass
 //
 
-class ConvertPaddingsToFloorModePass final : public IE::ConvertPaddingsToFloorModeBase<ConvertPaddingsToFloorModePass> {
+class ConvertPaddingsToFloorModePass final :
+        public IE::impl::ConvertPaddingsToFloorModeBase<ConvertPaddingsToFloorModePass> {
 public:
     explicit ConvertPaddingsToFloorModePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -11,6 +11,12 @@
 #include "vpux/compiler/utils/attributes_properties_conversion.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEIDENTITYPOOL
+#define GEN_PASS_DEF_OPTIMIZEIDENTITYPOOL
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -282,7 +288,7 @@ mlir::LogicalResult FuseIdentityWithQuantizedAdd::matchAndRewrite(IE::AddOp orig
 // OptimizeIdentityPoolPass
 //
 
-class OptimizeIdentityPoolPass final : public IE::OptimizeIdentityPoolBase<OptimizeIdentityPoolPass> {
+class OptimizeIdentityPoolPass final : public IE::impl::OptimizeIdentityPoolBase<OptimizeIdentityPoolPass> {
 public:
     explicit OptimizeIdentityPoolPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

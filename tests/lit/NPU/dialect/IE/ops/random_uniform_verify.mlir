@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt %s --split-input-file --init-compiler="vpu-arch=%arch%" --verify-diagnostics
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @MinNotSingleElement
 func.func @MinNotSingleElement(%arg0: tensor<1x200xf16>) -> tensor<1x200xf16> {
     %min = const.Declare tensor<2xf16> = dense<[0.000000e+00, 1.000000e+00]> : tensor<2xf16>

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-parallel-slices-to-gather %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @NotConvertParallelSliceBranchesToPreventGatherWithTiling
 func.func @NotConvertParallelSliceBranchesToPreventGatherWithTiling(
                 %arg0: tensor<8x61440x1x1xf16>,

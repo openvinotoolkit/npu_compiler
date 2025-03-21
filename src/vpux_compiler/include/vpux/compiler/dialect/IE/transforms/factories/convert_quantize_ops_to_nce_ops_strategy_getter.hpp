@@ -9,6 +9,6 @@
 
 namespace vpux::IE {
 
-std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> createConvertQuantizeOpsToNceOpsStrategy(VPU::ArchKind arch);
+std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> createConvertQuantizeOpsToNceOpsStrategy();
 
 }  // namespace vpux::IE

@@ -3,19 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
-
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
@@ -69,16 +69,6 @@ bool vpux::VPU::NCEMaxPoolOp::isSupported(IE::MaxPoolOp op, LogCb logCb, bool ch
     const auto kernelSize = Shape(parseIntArrayAttr<int64_t>(op.getKernelSize()));
     const auto KY = kernelSize[Dims4D::Kernel::Y];
     const auto KX = kernelSize[Dims4D::Kernel::X];
-
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    if (KY != KX && compatibleTargets.count(arch) <= 0) {
-        logCb(formatv("Asymmetric kernel is not supported"));
-        return false;
-    }
-
     const auto kernelStrides = Shape(parseIntArrayAttr<int64_t>(op.getStrides()));
     const auto SY = kernelStrides[Dims4D::Strides::Y];
     const auto SX = kernelStrides[Dims4D::Strides::X];
@@ -99,7 +89,7 @@ bool vpux::VPU::NCEMaxPoolOp::isSupported(IE::MaxPoolOp op, LogCb logCb, bool ch
 
     if (checkChannelAlignment) {
         auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op.getOperation());
-        if (!NCEInvariant::isInputActTypeSupported(arch, inputType, iface.getInputChannelAlignment(), false) ||
+        if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
             !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
@@ -155,7 +145,11 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::verify() {
 
     if (getWeightsTable() != nullptr) {
         const auto outputType = getOutput().getType().cast<NDTypeInterface>();
-        const auto OC = outputType.getShape()[Dims4D::Act::C];
+        auto OC = outputType.getShape()[Dims4D::Act::C];
+
+        if (VPU::canAutopadOutput(op)) {
+            OC = vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+        }
 
         const auto weightsTableShape = getShape(getWeightsTable());
         const auto expectedWeightsTableShape = NCESparsity::inferWeightsTableShape(OC);
@@ -228,7 +222,8 @@ vpux::InputTiling vpux::VPU::NCEMaxPoolOp::backInferTileInfo(const vpux::TileInf
                       "Failed to get an aligned act input tiling");
 
     if (getWeightsTable() != nullptr) {
-        inputTiling.tiles.push_back(VPU::getWeightsTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
 
     return inputTiling;
@@ -358,10 +353,6 @@ bool VPU::NCEMaxPoolOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     return fitIntoCMX(distributedInputType, newDistributedTensorType);
 }
 
-bool vpux::VPU::NCEMaxPoolOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 vpux::NDTypeInterface vpux::VPU::NCEMaxPoolOp::getDistributedTypeForOpOperand(mlir::OpOperand& operand,
                                                                               bool hasExplicitDistributedAttr,
                                                                               SiblingOpsAnalysis& siblingsAnalysis) {
@@ -410,21 +401,14 @@ vpux::NDTypeInterface vpux::VPU::NCEMaxPoolOp::getDistributedTypeForOpOperand(ml
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEMaxPoolOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }
 
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
 }
 
 mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::verifyKernel(IE::MaxPoolOp origOp, Logger log) {
@@ -434,12 +418,7 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::verifyKernel(IE::MaxPoolOp origOp, 
         return mlir::failure();
     }
 
-    const auto arch = VPU::getArch(origOp->getParentOfType<mlir::ModuleOp>());
     const auto kernelSize = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
-    if (kernelSize[0] != kernelSize[1] && arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX) {
-        log.trace("[{0}] Asymmetric kernel is not supported", origOp->getLoc());
-        return mlir::failure();
-    }
     const auto KY = kernelSize[0];
     const auto KX = kernelSize[1];
 

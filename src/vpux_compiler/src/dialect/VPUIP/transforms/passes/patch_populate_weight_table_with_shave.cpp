@@ -14,6 +14,12 @@
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_PATCHPOPULATEWEIGHTTABLEWITHSHAVE
+#define GEN_PASS_DEF_PATCHPOPULATEWEIGHTTABLEWITHSHAVE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 //
 
 class PatchPopulateWeightTableWithShavePass final :
-        public VPUIP::PatchPopulateWeightTableWithShaveBase<PatchPopulateWeightTableWithShavePass> {
+        public VPUIP::impl::PatchPopulateWeightTableWithShaveBase<PatchPopulateWeightTableWithShavePass> {
 public:
     explicit PatchPopulateWeightTableWithShavePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -57,6 +63,11 @@ void PatchPopulateWeightTableWithShavePass::safeRunOnFunc() {
     // fills the buffer. DmaOp's input is expected to be Const::DeclareOp which
     // should be modified by adding relocateWeightTable transformation.
     funcOp.walk([this](vpux::VPUIP::NCEClusterTaskOp nceOp) {
+        // Don't need to run weights table patching if operation has zeroOffset.
+        // Patching is done earlier in compilation by RelocateWeightTableForReuse pass.
+        if (nceOp.getIsZeroOffsetWeightsTable()) {
+            return;
+        }
         auto wTable = VPUIP::getTopBufferOfNCEClusterTiling(nceOp, nceOp.getWeightTable());
         if (wTable == nullptr) {
             return;

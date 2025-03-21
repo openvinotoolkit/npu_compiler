@@ -191,5 +191,20 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
     return mlir::success();
 }
 
+class FloatOutMatMulRewriter final : public mlir::OpRewritePattern<IE::MatMulOp> {
+public:
+    FloatOutMatMulRewriter(mlir::MLIRContext* ctx, const SupportedMixedPrecisionFunctor& isMixPrecisionSupported,
+                           Logger log)
+            : mlir::OpRewritePattern<IE::MatMulOp>(ctx), _isMixPrecisionSupported(isMixPrecisionSupported), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MatMulOp matmulOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    const SupportedMixedPrecisionFunctor _isMixPrecisionSupported;
+    Logger _log;
+};
+
 }  // namespace IE
 }  // namespace vpux

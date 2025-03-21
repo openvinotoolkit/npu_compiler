@@ -4,10 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SETUPCHANNELSAUTOPADDING
+#define GEN_PASS_DEF_SETUPCHANNELSAUTOPADDING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -17,7 +24,8 @@ namespace {
 // SetupChannelsAutoPaddingPass
 //
 
-class SetupChannelsAutoPaddingPass final : public VPU::SetupChannelsAutoPaddingBase<SetupChannelsAutoPaddingPass> {
+class SetupChannelsAutoPaddingPass final :
+        public VPU::impl::SetupChannelsAutoPaddingBase<SetupChannelsAutoPaddingPass> {
 public:
     SetupChannelsAutoPaddingPass() = default;
     SetupChannelsAutoPaddingPass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log)

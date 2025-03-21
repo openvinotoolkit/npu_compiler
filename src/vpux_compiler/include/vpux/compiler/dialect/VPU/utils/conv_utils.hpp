@@ -7,10 +7,10 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
@@ -38,8 +38,9 @@ bool isSupportedSEPTransposedConv(VPU::TransposedConvolutionOp op, LogCb logCb, 
 std::optional<bool> isSEPConvCompatibleWithClusterStrategy(VPU::NCEConvolutionOp nceConv,
                                                            VPU::MultiClusterStrategy strategy);
 
-mlir::LogicalResult verifyConvUtil(mlir::Location loc, mlir::Operation* op, Shape filterShape, Shape kernelStrides,
-                                   PaddingAttr padAttr, ShapeRef weightsTableShape, mlir::Value output);
+mlir::LogicalResult verifyConvUtil(mlir::Location loc, mlir::Operation* op, ShapeRef filterShape,
+                                   ShapeRef kernelStrides, PaddingAttr padAttr, ShapeRef weightsTableShape,
+                                   mlir::Value output);
 
 PadInfo shrinkPadsForDilatedConvolution(const PadInfo& pads, const ArrayRef<int64_t> dilations);
 

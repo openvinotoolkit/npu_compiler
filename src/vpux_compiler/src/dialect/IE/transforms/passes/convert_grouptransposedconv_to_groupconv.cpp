@@ -10,9 +10,16 @@
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/utils/IE/transposed_convolution_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTGROUPTRANSPOSEDCONVTOGROUPCONV
+#define GEN_PASS_DEF_CONVERTGROUPTRANSPOSEDCONVTOGROUPCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -122,7 +129,7 @@ mlir::LogicalResult GroupTransposedConvConverter::matchAndRewrite(IE::GroupTrans
 //
 
 class ConvertGroupTransposedConvToGroupConvPass final :
-        public IE::ConvertGroupTransposedConvToGroupConvBase<ConvertGroupTransposedConvToGroupConvPass> {
+        public IE::impl::ConvertGroupTransposedConvToGroupConvBase<ConvertGroupTransposedConvToGroupConvPass> {
 public:
     explicit ConvertGroupTransposedConvToGroupConvPass(const bool enableSEPTransposedConv, Logger log)
             : _enableSEPTransposedConv(enableSEPTransposedConv) {

@@ -5,12 +5,21 @@
 
 #include <mlir/IR/ValueRange.h>
 #include <cstdint>
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/IE/locations.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNROLLFULLYCONNECTED
+#define GEN_PASS_DEF_UNROLLFULLYCONNECTED
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -482,7 +491,7 @@ mlir::LogicalResult UnrollFullyConnected::matchAndRewrite(IE::FullyConnectedOp o
     return mlir::success();
 }
 
-class UnrollFullyConnectedPass final : public IE::UnrollFullyConnectedBase<UnrollFullyConnectedPass> {
+class UnrollFullyConnectedPass final : public IE::impl::UnrollFullyConnectedBase<UnrollFullyConnectedPass> {
 public:
     explicit UnrollFullyConnectedPass(Logger log, bool accumulateMatmulWithDPU)
             : _accumulateMatmulWithDPU(accumulateMatmulWithDPU) {

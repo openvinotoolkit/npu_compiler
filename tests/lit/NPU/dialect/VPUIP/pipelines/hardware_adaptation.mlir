@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --hardware-adaptation %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module @TwoDMAs {
     IE.CNNNetwork entryPoint : @main
     inputsInfo : {
@@ -447,7 +446,7 @@ module @RepeatingBlocks {
         //CHECK:    VPURT.Task waits([[BARR2]] : !VPURT.Barrier) updates([[BARR3]] : !VPURT.Barrier) {
         //CHECK:        VPUIP.Copy inputs([[TMP_OUT]] : memref<1x4x5x5xf16, @DDR>) outputs([[TMP_IN]] : memref<1x4x5x5xf16, @DDR>) -> memref<1x4x5x5xf16, @DDR>
 
-        //CHECK:    VPURT.Task waits([[BARR3]] : !VPURT.Barrier) updates([[BARR4]] : !VPURT.Barrier) {
+        //CHECK:    VPURT.Task waits([[BARR2]], [[BARR3]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BARR4]] : !VPURT.Barrier) {
         //CHECK:        func.call @foo([[TMP_IN]], [[TMP_OUT]]) : (memref<1x4x5x5xf16, @DDR>, memref<1x4x5x5xf16, @DDR>) -> memref<1x4x5x5xf16, @DDR>
 
         //CHECK:    VPURT.Task waits([[BARR4]] : !VPURT.Barrier) {

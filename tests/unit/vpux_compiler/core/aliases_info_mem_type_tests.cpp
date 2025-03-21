@@ -61,7 +61,9 @@ TEST_F(MLIR_AliasesInfoMemType, CmxAndDdrDma) {
     vpux::AliasesInfoMemType<vpux::VPU::MemoryKind::CMX_NN> aliasInfoCmx(func);
 
     for (auto declBuffOp : func.getOps<vpux::VPURT::DeclareBufferOp>()) {
-        if (declBuffOp.getSection() == vpux::VPURT::BufferSection::DDR) {
+        if (declBuffOp.getSection() == vpux::VPURT::BufferSection::DDR ||
+            declBuffOp.getSection() == vpux::VPURT::BufferSection::FunctionInput ||
+            declBuffOp.getSection() == vpux::VPURT::BufferSection::FunctionOutput) {
             // Since analysis was only for CMX buffers get aliases for a
             // DDR buffer should return an exception
             EXPECT_ANY_THROW(aliasInfoCmx.getAllAliases(declBuffOp.getBuffer()));

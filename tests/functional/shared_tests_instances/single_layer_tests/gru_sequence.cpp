@@ -37,7 +37,7 @@ TEST_P(GRUSequenceLayerTestCommon, NPU3720_HW) {
 TEST_P(GRUSequenceLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     // TODO: E129229
-    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "enable-partial-workload-management=false";
+    configuration["NPU_BACKEND_COMPILATION_PARAMS"] = "workload-management-enable=false";
     run(Platform::NPU4000);
 }
 }  // namespace test

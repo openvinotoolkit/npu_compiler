@@ -3,15 +3,15 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
-
-#include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
@@ -62,9 +62,6 @@ bool vpux::VPU::NCEDepthConvolutionOp::isSupported(IE::GroupConvolutionOp op, Lo
         return false;
     }
 
-    const auto inputShape = getShape(op.getInput());
-    const auto IC = inputShape[Dims4D::Act::C];
-
     const auto filterShape = getShape(op.getFilter());
     const auto fIC = filterShape[Dims4D::Filter::IC];
     const auto OC = filterShape[Dims4D::Filter::OC];
@@ -83,10 +80,9 @@ bool vpux::VPU::NCEDepthConvolutionOp::isSupported(IE::GroupConvolutionOp op, Lo
         logCb(formatv("Group Convolution with more than one filter per input channel is not supported"));
         return false;
     }
-    if (OC != IC) {
-        logCb(formatv("Group Convolution has '{0}' groups, expected '{1}'", OC, IC));
-        return false;
-    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
 
     const auto kernelStrides = Shape(parseIntArrayAttr<int64_t>(op.getStrides()));
     const auto SY = kernelStrides[Dims4D::Strides::Y];
@@ -100,13 +96,9 @@ bool vpux::VPU::NCEDepthConvolutionOp::isSupported(IE::GroupConvolutionOp op, Lo
         return false;
     }
 
-    const auto inputType = op.getInput().getType().cast<vpux::NDTypeInterface>();
-    const auto outputType = op.getOutput().getType().cast<vpux::NDTypeInterface>();
-
     if (checkChannelAlignment) {
         auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op.getOperation());
-
-        if (!NCEInvariant::isInputActTypeSupported(getArch(op), inputType, iface.getInputChannelAlignment(), false) ||
+        if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
             !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
             logCb(formatv("Misaligned tensor shape"));
             return false;
@@ -134,7 +126,6 @@ mlir::LogicalResult verifyDepthConv(mlir::Location loc, mlir::Operation* op,
     };
 
     const auto outputShape = getShape(output);
-    const auto OC = outputShape[Dims4D::Act::C];
 
     const auto filterShape = Shape(parseIntArrayAttr<int64_t>(opAdaptor.getRawFilterShape()));
     const auto KY = filterShape[Dims4D::Filter::KY];
@@ -152,6 +143,9 @@ mlir::LogicalResult verifyDepthConv(mlir::Location loc, mlir::Operation* op,
     if (!VPU::NCEInvariant::isAttrsSupported(op, KY, KX, SY, SX, padTop, padBottom, padLeft, padRight, logCb)) {
         return mlir::failure();
     }
+
+    const auto OC =
+            VPU::canAutopadOutput(op) ? vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT : outputShape[Dims4D::Act::C];
 
     const auto weightsTableShape = getShape(opAdaptor.getWeightsTable());
     const auto expectedWeightsTableShape = VPU::NCESparsity::inferWeightsTableShape(OC);
@@ -308,7 +302,8 @@ vpux::InputTiling vpux::VPU::NCEDepthConvolutionOp::backInferTileInfo(const vpux
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    inputTiling.tiles.push_back(VPU::getWeightsTableTile(this, outputTile));
+    inputTiling.tiles.push_back(
+            VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
 
     return inputTiling;
 }
@@ -432,10 +427,6 @@ bool VPU::NCEDepthConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
 }
 
-bool vpux::VPU::NCEDepthConvolutionOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 vpux::NDTypeInterface vpux::VPU::NCEDepthConvolutionOp::getDistributedTypeForOpOperand(
         mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
@@ -494,10 +485,9 @@ vpux::NDTypeInterface vpux::VPU::NCEDepthConvolutionOp::getDistributedTypeForOpO
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEDepthConvolutionOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }

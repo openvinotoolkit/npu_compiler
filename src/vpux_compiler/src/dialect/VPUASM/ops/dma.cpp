@@ -8,30 +8,11 @@
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
 
-#include <npu_40xx_nnrt.hpp>
-
 using namespace vpux;
 
 //
 // NNDMAOp
 //
-
-void vpux::VPUASM::NNDMAOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-    // TODO: E#80148 after interface refactoring should we not require serialization for NNDMAOp
-#ifdef VPUX_DEVELOPER_BUILD
-    auto logger = Logger::global();
-    logger.warning("Serializing {0} op, which may mean invalid usage");
-#endif
-    return;
-}
-
-size_t vpux::VPUASM::NNDMAOp::getBinarySize(VPU::ArchKind /*arch*/) {
-    return sizeof(npu40xx::nn_public::VpuDMATask);
-}
-
-size_t vpux::VPUASM::NNDMAOp::getAlignmentRequirements(VPU::ArchKind /*arch*/) {
-    return alignof(npu40xx::nn_public::VpuDMATask);
-}
 
 vpux::ELF::SectionFlagsAttr vpux::VPUASM::NNDMAOp::getPredefinedMemoryAccessors() {
     return ELF::SectionFlagsAttr::SHF_EXECINSTR | ELF::SectionFlagsAttr::VPU_SHF_PROC_DMA;

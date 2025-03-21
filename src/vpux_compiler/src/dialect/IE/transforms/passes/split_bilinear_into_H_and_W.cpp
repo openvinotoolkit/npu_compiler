@@ -6,12 +6,19 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SPLITBILINERINTOHANDW
+#define GEN_PASS_DEF_SPLITBILINERINTOHANDW
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -21,7 +28,7 @@ namespace {
 // SplitBilinerIntoHAndWPass
 //
 
-class SplitBilinerIntoHAndWPass final : public IE::SplitBilinerIntoHAndWBase<SplitBilinerIntoHAndWPass> {
+class SplitBilinerIntoHAndWPass final : public IE::impl::SplitBilinerIntoHAndWBase<SplitBilinerIntoHAndWPass> {
 public:
     explicit SplitBilinerIntoHAndWPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

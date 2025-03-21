@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/ArrayRef.h>
@@ -14,7 +15,14 @@
 #include <mlir/Transforms/DialectConversion.h>
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MERGEPARALLELFULLYCONNECTED
+#define GEN_PASS_DEF_MERGEPARALLELFULLYCONNECTED
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -158,6 +166,12 @@ std::optional<SmallVector<IE::FullyConnectedOp>> getFullyConnectedOpWithSameAttr
         }
     }
 
+    // Sorting those ops is required for deterministic compilation as the order of getUsers
+    // might be different between compilations depending on preceding passes
+    llvm::sort(fullyConnectedOps, [](IE::FullyConnectedOp fc1, IE::FullyConnectedOp fc2) {
+        return !fc1->isBeforeInBlock(fc2);
+    });
+
     return fullyConnectedOps;
 }
 
@@ -188,7 +202,7 @@ std::optional<SmallVector<IE::TransposeOp>> getTransposeOpWithSameAttr(
 std::optional<SmallVector<IE::AffineReshapeOp>> getAffineReshapeOpWithSameAttr(ArrayRef<IE::TransposeOp> transposeOps) {
     SmallVector<IE::AffineReshapeOp> affineReshapeOps;
     for (auto transpose : transposeOps) {
-        auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(transpose.getInput().getDefiningOp());
+        auto affineReshape = mlir::dyn_cast_or_null<IE::AffineReshapeOp>(transpose.getInput().getDefiningOp());
         if (affineReshape == nullptr || !affineReshape->hasOneUse()) {
             return std::nullopt;
         }
@@ -213,7 +227,7 @@ namespace TranposeAffineReshapeOrder {
 std::optional<SmallVector<IE::AffineReshapeOp>> getAffineReshapeOpWithSameAttr(ArrayRef<IE::FullyConnectedOp> fcOps) {
     SmallVector<IE::AffineReshapeOp> affineReshapeOps;
     for (auto fc : fcOps) {
-        auto affineReshape = mlir::dyn_cast<IE::AffineReshapeOp>(fc.getWeights().getDefiningOp());
+        auto affineReshape = mlir::dyn_cast_or_null<IE::AffineReshapeOp>(fc.getWeights().getDefiningOp());
         if (affineReshape == nullptr || !affineReshape->hasOneUse()) {
             return std::nullopt;
         }
@@ -562,7 +576,7 @@ mlir::LogicalResult MergeParallelFullyConnected::matchAndRewrite(IE::FullyConnec
 //
 
 class MergeParallelFullyConnectedPass final :
-        public IE::MergeParallelFullyConnectedBase<MergeParallelFullyConnectedPass> {
+        public IE::impl::MergeParallelFullyConnectedBase<MergeParallelFullyConnectedPass> {
 public:
     explicit MergeParallelFullyConnectedPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

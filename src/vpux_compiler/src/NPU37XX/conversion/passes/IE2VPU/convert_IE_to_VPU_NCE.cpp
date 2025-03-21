@@ -1,16 +1,23 @@
 //
-// Copyright (C) 2023-2024 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/conversion/passes/IE2VPU/convert_IE_to_VPU_NCE.hpp"
 #include "vpux/compiler/NPU37XX/conversion/passes/IE2VPU/convert_IE_to_VPU_NCE.hpp"
 
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
+#include <mlir/Dialect/Math/IR/Math.h>
+#include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/Support/LogicalResult.h>
+#include <mlir/Transforms/DialectConversion.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/NPU37XX/conversion.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
@@ -19,15 +26,15 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
-#include <mlir/IR/BuiltinAttributes.h>
-#include <mlir/Support/LogicalResult.h>
-#include <mlir/Transforms/DialectConversion.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+namespace vpux::arch37xx {
+#define GEN_PASS_DECL_CONVERTIETOVPUNCE
+#define GEN_PASS_DEF_CONVERTIETOVPUNCE
+#include "vpux/compiler/NPU37XX/conversion/passes.hpp.inc"
+}  // namespace vpux::arch37xx
 
 using namespace vpux;
 
 //
-// ConvToNCE
 //
 
 mlir::LogicalResult arch37xx::ConvToNCE::matchAndRewrite(IE::ConvolutionOp origOp,
@@ -88,9 +95,15 @@ mlir::LogicalResult arch37xx::ConvToNCE::matchAndRewrite(IE::ConvolutionOp origO
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch);
     const auto mpeEngineAttr = VPU::MPEEngineConfig::retrieveMPEEngineAttribute(origOp, VPU::getArch(origOp));
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch);
+
+    const auto outputType = origOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
+    const auto adaptedOutElemType =
+            VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
+                    ppeAttr, outputType.getElementType());
+
     const auto weightsTableVec =
-            VPU::createWeightsTableData(origOp.getInput(), origOp.getOutput(), alignedFilter, bias, OC, ppeConverter,
-                                        biasConverter, origOp.getStaticScaleAttr());
+            VPU::createWeightsTableData(origOp.getInput(), adaptedOutElemType, alignedFilter, bias, OC, ppeConverter,
+                                        biasConverter, origOp.getStaticScaleAttr(), VPU::canAutopadOutput(origOp));
     const auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
 
     const auto padAttr = VPU::getPaddingAttr(getContext(), PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
@@ -190,8 +203,15 @@ mlir::LogicalResult arch37xx::MatMulToNCE::matchAndRewrite(IE::MatMulOp origOp, 
     auto weightsTableSize = filterShape[DimsGroups5D::Act::G] * filterShape[DimsGroups5D::Act::N];
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch);
+
+    const auto outputType = origOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
+    const auto adaptedOutElemType =
+            VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
+                    ppeAttr, outputType.getElementType());
+
     const auto weightsTableVec = VPU::NCESparsity::create5DWeightsTableData(
-            origOp.getInput1(), origOp.getOutput(), input2, bias, weightsTableSize, ppeConverter, biasConverter);
+            origOp.getInput1(), adaptedOutElemType, input2, bias, weightsTableSize, ppeConverter, biasConverter,
+            VPU::canAutopadOutput(origOp));
 
     const auto weightsTable =
             VPU::NCESparsity::create5DWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec,
@@ -253,8 +273,15 @@ mlir::LogicalResult arch37xx::DepthConvToNCE::matchAndRewrite(IE::GroupConvoluti
 
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(_arch);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(_arch);
-    auto weightsTableVec = VPU::createWeightsTableData(origOp.getInput(), origOp.getOutput(), alignedFilter, bias, OC,
-                                                       ppeConverter, biasConverter, nullptr);
+
+    const auto outputType = origOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
+    const auto adaptedOutElemType =
+            VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
+                    ppeAttr, outputType.getElementType());
+
+    auto weightsTableVec =
+            VPU::createWeightsTableData(origOp.getInput(), adaptedOutElemType, alignedFilter, bias, OC, ppeConverter,
+                                        biasConverter, nullptr, VPU::canAutopadOutput(origOp));
     auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
 
     const auto padAttr = VPU::getPaddingAttr(getContext(), PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd()));
@@ -339,7 +366,7 @@ namespace {
 // ConvertIEToVPUNCEPass
 //
 
-class ConvertIEToVPUNCEPass final : public arch37xx::ConvertIEToVPUNCEBase<ConvertIEToVPUNCEPass> {
+class ConvertIEToVPUNCEPass final : public arch37xx::impl::ConvertIEToVPUNCEBase<ConvertIEToVPUNCEPass> {
 public:
     explicit ConvertIEToVPUNCEPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -377,6 +404,8 @@ void ConvertIEToVPUNCEPass::safeRunOnFunc() {
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<vpux::IE::IEDialect>();
     target.addLegalDialect<vpux::VPU::VPUDialect>();
+    target.addLegalDialect<mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<mlir::math::MathDialect>();
 
     target.addDynamicallyLegalOp<IE::MatMulOp>([&](IE::MatMulOp op) {
         // Layout correction and transformation to 5D is done during lowering so layout check is disabled.

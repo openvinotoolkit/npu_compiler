@@ -3,17 +3,25 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <npu_40xx_nnrt.hpp>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_REORDERMPIOPS
+#define GEN_PASS_DEF_REORDERMPIOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 using namespace npu40xx;
 
 namespace {
-class ReorderMPIOpsPass : public VPUMI40XX::ReorderMPIOpsBase<ReorderMPIOpsPass> {
+class ReorderMPIOpsPass : public VPUMI40XX::impl::ReorderMPIOpsBase<ReorderMPIOpsPass> {
 public:
     explicit ReorderMPIOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

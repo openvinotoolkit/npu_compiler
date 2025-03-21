@@ -8,12 +8,10 @@
 
 namespace vpux {
 namespace VPUIPDPU {
-
 DPUVariantRewriter::DPUVariantRewriter(mlir::MLIRContext* ctx, Logger log, ELF::SymbolReferenceMap& symRefMap)
         : mlir::OpRewritePattern<VPUASM::DPUVariantOp>(ctx), _log(log), _symRefMap(symRefMap) {
     setDebugName("DPUInvariant_VPUIPDPURewriter");
 }
-
 mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
                                                         mlir::PatternRewriter& rewriter) const {
     auto variant = rewriter.create<VPUIPDPU::DPUVariantOp>(
@@ -38,7 +36,6 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
         if (dpuVariantExpandIface.expandGeneralConfig(rewriter, _log).failed()) {
             return mlir::failure();
         }
-
         if (dpuVariantExpandIface.expandIDUConfig(rewriter, _log, _symRefMap).failed()) {
             return mlir::failure();
         }
@@ -46,7 +43,6 @@ mlir::LogicalResult DPUVariantRewriter::matchAndRewrite(VPUASM::DPUVariantOp op,
         if (dpuVariantExpandIface.expandPPEConfig(rewriter, _log, _symRefMap).failed()) {
             return mlir::failure();
         }
-
         if (dpuVariantExpandIface.expandODUConfig(rewriter, _log, varBlock, _symRefMap).failed()) {
             return mlir::failure();
         }

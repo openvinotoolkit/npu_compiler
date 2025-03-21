@@ -6,11 +6,20 @@
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinTypes.h>
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/IE/interfaces/fuse_convert_to_dpu_checker.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_RUNF16TOF32CONVERTONDPU
+#define GEN_PASS_DEF_RUNF16TOF32CONVERTONDPU
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -18,7 +27,7 @@ using namespace vpux;
 // RunF16ToF32ConvertOnDPUPass
 //
 
-class RunF16ToF32ConvertOnDPUPass final : public IE::RunF16ToF32ConvertOnDPUBase<RunF16ToF32ConvertOnDPUPass> {
+class RunF16ToF32ConvertOnDPUPass final : public IE::impl::RunF16ToF32ConvertOnDPUBase<RunF16ToF32ConvertOnDPUPass> {
 public:
     explicit RunF16ToF32ConvertOnDPUPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -43,6 +52,7 @@ void RunF16ToF32ConvertOnDPUPass::fuseWithParentDPUOp(IE::ConvertOp convert, mli
 
 void RunF16ToF32ConvertOnDPUPass::safeRunOnFunc() {
     auto func = getOperation();
+    auto parentCheck = IE::createFuseConvertToDPUChecker(VPU::getArch(func));
 
     auto nestedLog = _log.nest();
     SmallVector<IE::ConvertOp> f16Tof32Converts = {};
@@ -63,33 +73,14 @@ void RunF16ToF32ConvertOnDPUPass::safeRunOnFunc() {
             continue;
         }
 
-        auto parentInputType = mlir::cast<NDTypeInterface>(parentOp->getOperand(0).getType());
-        if (!mlir::isa<mlir::FloatType>(parentInputType.getElementType())) {
-            nestedLog.trace("Parent input is not a float type = {0}.", parentInputType.getElementType());
-            continue;
-        }
-
         if (mlir::failed(VPU::NCEInvariant::isSupported(parentOp))) {
             nestedLog.trace("Parent op of type {0} at loc {1} is not a supported DPU op.", parentOp->getName(),
                             parentOp->getLoc());
             continue;
         }
 
-        if (mlir::isa<IE::MaxPoolOp>(parentOp)) {
-            nestedLog.trace("Parent op of type {0} at loc {1} does not support FP32 output.", parentOp->getName(),
-                            parentOp->getLoc());
+        if (!parentCheck->isFusionToParentDPUOpSupported(parentOp, nestedLog)) {
             continue;
-        }
-
-        if (auto postOpIf = mlir::dyn_cast<IE::LayerWithPostOpInterface>(parentOp)) {
-            if (postOpIf.getPostOp().has_value()) {
-                auto postOp = postOpIf.getPostOp().value();
-                if (postOp.getStringRef() == IE::ClampOp::getOperationName()) {
-                    nestedLog.trace("Parent op of type {0} at loc {1} has Clamp post op.", parentOp->getName(),
-                                    parentOp->getLoc());
-                    continue;
-                }
-            }
         }
 
         f16Tof32Converts.emplace_back(convertOp);

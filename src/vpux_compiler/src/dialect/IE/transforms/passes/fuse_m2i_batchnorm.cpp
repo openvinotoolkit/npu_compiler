@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
@@ -17,6 +18,12 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <numeric>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_M2IBATCHNORMFUSION
+#define GEN_PASS_DEF_M2IBATCHNORMFUSION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -261,7 +268,7 @@ protected:
 // M2IBatchNormFusionPass
 //
 
-class M2IBatchNormFusionPass final : public IE::M2IBatchNormFusionBase<M2IBatchNormFusionPass> {
+class M2IBatchNormFusionPass final : public IE::impl::M2IBatchNormFusionBase<M2IBatchNormFusionPass> {
 public:
     explicit M2IBatchNormFusionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

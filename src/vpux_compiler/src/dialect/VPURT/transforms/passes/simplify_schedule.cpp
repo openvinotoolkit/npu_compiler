@@ -13,6 +13,12 @@
 
 #include <llvm/ADT/SetOperations.h>
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_SIMPLIFYSCHEDULE
+#define GEN_PASS_DEF_SIMPLIFYSCHEDULE
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 namespace {
 
@@ -301,7 +307,7 @@ void reduceParallelControlFlows(std::map<VPURT::TaskQueueType, VPURT::TaskConfig
 //  SimplifySchedulePass
 //
 
-class SimplifySchedulePass final : public VPURT::SimplifyScheduleBase<SimplifySchedulePass> {
+class SimplifySchedulePass final : public VPURT::impl::SimplifyScheduleBase<SimplifySchedulePass> {
 public:
     explicit SimplifySchedulePass(const bool shareWaitAndUpdateBarriersFlag, const bool reduceParallelControlFlowsFlag,
                                   Logger log)
@@ -322,17 +328,17 @@ void SimplifySchedulePass::safeRunOnFunc() {
     auto& cycleCostInfo = getAnalysis<CycleCostInfo>();
 
     // If barrier order by producer, some task's wait barrier number is bigger than update barrier, but some functions
-    // in this pass like resolveOutOfOrderDependencies and reduceParallelControlFlowsr need task's wait barrier number
-    // smaller than update barrier, so here we will reorder the barrier by consumption to garentee the requirement.
+    // in this pass like resolveOutOfOrderDependencies and reduceParallelControlFlows need task's wait barrier number
+    // smaller than update barrier, so here we will reorder the barrier by consumption to guarantee the requirement.
     // order tasks and barriers
-    VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, true);
+    VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log, true);
 
     // 1. avoid out of order dependencies
     auto dmaTaskOpQueues = VPURT::getTaskOpQueues(funcOp, barrierInfo, VPU::ExecutorKind::DMA_NN);
     // inject dependencies where needed
     resolveOutOfOrderDependencies(dmaTaskOpQueues, barrierInfo);
     // re-order execution
-    VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log);
 
     // 2. make execution fully controlled by barriers
     if (_shareWaitAndUpdateBarriers) {
@@ -340,7 +346,7 @@ void SimplifySchedulePass::safeRunOnFunc() {
         barrierInfo.buildTaskQueueTypeMap();
         barrierInfo.shareWaitAndUpdateBarriers(legalVariantCount);
         // re-order execution
-        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo);
+        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log);
     }
 
     if (_reduceParallelControlFlows) {
@@ -350,19 +356,19 @@ void SimplifySchedulePass::safeRunOnFunc() {
 
         // Before BarrierScheduling barriers must be ordered not by consumption order but this is done in following
         // passes
-        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, true);
+        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log, true);
 
         // 3. reduce parallel control flows based on cycles
         reduceParallelControlFlows(infSim.getQueueTaskMap(), barrierInfo);
 
         // re-order execution
-        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo);
+        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log);
 
         // optimize
         barrierInfo.optimizeBarriers(/* checkValidSlotCount */ false, /* considerTaskFifoDependency */ false);
 
         // order to by producer after optimization
-        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo);
+        VPURT::orderExecutionTasksAndBarriers(funcOp, barrierInfo, _log);
     }
 
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");

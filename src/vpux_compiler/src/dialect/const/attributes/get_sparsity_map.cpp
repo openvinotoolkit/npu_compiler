@@ -125,3 +125,11 @@ Const::Content vpux::Const::GetSparsityMapAttr::transform(vpux::Const::Content& 
 Const::details::PositionRequirement Const::GetSparsityMapAttr::getPositionRequirement() const {
     return Const::details::PositionRequirement::PREFERRED_LAST;
 }
+
+//
+// GetSparsityMapAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::GetSparsityMapAttr::getStableHashValue() const {
+    return llvm::hash_combine(getMnemonic());
+}

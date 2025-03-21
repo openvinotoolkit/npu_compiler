@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --apply-tiling-mvn1sum="tiling-mode=ISOLATED" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 // CHECK-LABEL: func.func @ClusteringNoTilingMVN1Sum
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<3x1x20001x1xf16, {order = #NHWC}>

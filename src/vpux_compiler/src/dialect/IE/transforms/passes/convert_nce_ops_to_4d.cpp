@@ -6,11 +6,18 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTNCEOPSTO4D
+#define GEN_PASS_DEF_CONVERTNCEOPSTO4D
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -132,7 +139,10 @@ mlir::LogicalResult ConvGeneralExpansion<ConcreteOp>::matchAndRewrite(ConcreteOp
         newConvOp->setAttr("output_padding", newOutputPadding);
     }
 
-    vpux::inferReturnTypes(newConvOp, vpux::InferShapedTypeMode::ALL);
+    // Note: only infer shape (and layout because it is related to shape).
+    // inferring other parameters (element type, memory space) may result in
+    // invalid IR being produced because this pass only "legalizes" shape.
+    vpux::inferReturnTypes(newConvOp, vpux::InferShapedTypeMode::SHAPE | vpux::InferShapedTypeMode::LAYOUT);
 
     const auto outputType = origOp.getOutput().getType().template dyn_cast<vpux::NDTypeInterface>();
     const auto outputShapeAttr = getIntArrayAttr(ctx, outputType.getShape());
@@ -198,7 +208,10 @@ mlir::LogicalResult PoolingGeneralExpansion<ConcreteOp>::matchAndRewrite(Concret
     newPoolingOp->setAttr("pads_end", newPadsEnd);
     newPoolingOp->setAttr("strides", newStrides);
     newPoolingOp->setAttr("kernel_size", newKernelSize);
-    vpux::inferReturnTypes(newPoolingOp, vpux::InferShapedTypeMode::ALL);
+    // Note: only infer shape (and layout because it is related to shape).
+    // inferring other parameters (element type, memory space) may result in
+    // invalid IR being produced because this pass only "legalizes" shape.
+    vpux::inferReturnTypes(newPoolingOp, vpux::InferShapedTypeMode::SHAPE | vpux::InferShapedTypeMode::LAYOUT);
 
     const auto outputType = origOp.getOutput().getType().template dyn_cast<vpux::NDTypeInterface>();
     const auto outputShapeAttr = getIntArrayAttr(ctx, outputType.getShape());
@@ -240,7 +253,7 @@ bool isLegalPoolNceOp(ConcreteOp pool) {
 //
 // ConvertNceOpsTo4DPass
 //
-class ConvertNceOpsTo4DPass final : public IE::ConvertNceOpsTo4DBase<ConvertNceOpsTo4DPass> {
+class ConvertNceOpsTo4DPass final : public IE::impl::ConvertNceOpsTo4DBase<ConvertNceOpsTo4DPass> {
 public:
     explicit ConvertNceOpsTo4DPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

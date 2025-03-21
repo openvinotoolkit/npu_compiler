@@ -30,11 +30,20 @@ class ConvolutionLayerTest_FP32_SW : public ConvolutionLayerTestCommon {
     }
 };
 
-class ConvolutionLayerTest_MULTI_BATCH_HW : public ConvolutionLayerTestCommon {
+class ConvolutionLayerTest_NPU3720_MULTI_BATCH_HW : public ConvolutionLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "skip-unroll-batch=true";
     }
 };
+
+class ConvolutionLayerTest_MULTI_BATCH_HW : public ConvolutionLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "batch-compile-method=unroll batch-unroll-settings={skip-unroll-batch=true}";
+    }
+};
+
+class ConvolutionLayerTest_NPU4000_MULTI_BATCH_HW : public ConvolutionLayerTest_MULTI_BATCH_HW {};
 
 // NPU3720
 TEST_P(ConvolutionLayerTest_NPU3720_HW, HW) {
@@ -67,7 +76,7 @@ TEST_P(ConvolutionLayerTestLatency_NPU3720, HW) {
     run(Platform::NPU3720);
 }
 
-TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU3720_HW) {
+TEST_P(ConvolutionLayerTest_NPU3720_MULTI_BATCH_HW, NPU3720_HW) {
     rel_threshold = 0.02;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -91,7 +100,7 @@ TEST_P(ConvolutionLayerTest_NPU4000_HW, HW) {
     run(Platform::NPU4000);
 }
 
-TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU4000_HW) {
+TEST_P(ConvolutionLayerTest_NPU4000_MULTI_BATCH_HW, NPU4000_HW) {
     rel_threshold = 0.02;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
@@ -587,7 +596,7 @@ const auto conv2DParams_SOB = ::testing::Combine(::testing::ValuesIn<std::vector
                                                  ::testing::Values(ov::op::PadType::VALID)  // padType
 );
 
-INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOB, ConvolutionLayerTest_MULTI_BATCH_HW,
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOB, ConvolutionLayerTest_NPU3720_MULTI_BATCH_HW,
                          ::testing::Combine(conv2DParams_SOB,                     //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
@@ -595,6 +604,13 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOB, ConvolutionLayerTest_MULTI_BAT
                                             ::testing::Values(DEVICE_NPU)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOB, ConvolutionLayerTest_NPU4000_MULTI_BATCH_HW,
+                         ::testing::Combine(conv2DParams_SOB,                     //
+                                            ::testing::Values(ov::element::f16),  // netPrc
+                                            ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
+                                                    2, 3, 96, 96}})}),       // inputShapes
+                                            ::testing::Values(DEVICE_NPU)),  //
+                         ConvolutionLayerTest::getTestCaseName);
 /* ============= SCM ============= */
 
 // Disabled due to E-123991

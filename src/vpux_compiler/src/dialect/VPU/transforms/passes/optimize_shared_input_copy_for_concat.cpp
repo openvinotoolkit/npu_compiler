@@ -3,16 +3,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/strings.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OPTIMIZESHAREDINPUTCOPYFORCONCAT
+#define GEN_PASS_DEF_OPTIMIZESHAREDINPUTCOPYFORCONCAT
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -39,14 +47,11 @@ bool isCopyDDR2CMX(mlir::Operation* op) {
            checkMemoryKind(op->getResult(0), VPU::MemoryKind::CMX_NN);
 }
 
-SmallVector<int64_t> getOffsetsFromConcat(mlir::Value input, VPU::ConcatOp concatOp) {
+SmallVector<int64_t> getOffsetsFromConcat(int64_t inputIdx, VPU::ConcatOp concatOp) {
     auto offsets = parseIntArrayOfArrayAttr<int64_t>(concatOp.getStaticOffsets().value());
-    for (auto item : concatOp.getInputs() | indexed) {
-        if (item.value() == input) {
-            return offsets[item.index()];
-        }
-    }
-    VPUX_THROW("input {0} is not input of ConcatOp {1}", input.getLoc(), concatOp->getLoc());
+    VPUX_THROW_WHEN(checked_cast<int64_t>(offsets.size()) < inputIdx, "Invalid input index {0} for Concat op at '{1}'",
+                    inputIdx, concatOp->getLoc());
+    return offsets[inputIdx];
 }
 
 NDTypeInterface getConcatDistributedType(VPU::DistributedTypeInterface origType, ShapeRef shape) {
@@ -66,20 +71,6 @@ NDTypeInterface getConcatDistributedType(VPU::DistributedTypeInterface origType,
     }
 
     return origType.cast<NDTypeInterface>().changeTypeComponents(typeComponents);
-}
-
-mlir::DenseSet<int64_t> getConcatAxes(VPU::ConcatOp concat) {
-    mlir::DenseSet<int64_t> concatAxes;
-    const auto staticOffsets = concat.getStaticOffsets().value();
-    const auto offsets = parseIntArrayOfArrayAttr<int64_t>(staticOffsets);
-    for (auto& offset : offsets) {
-        for (size_t axis = 0; axis < offset.size(); ++axis) {
-            if (offset[axis] != 0) {
-                concatAxes.insert(axis);
-            }
-        }
-    }
-    return concatAxes;
 }
 
 int64_t getSliceDimSize(VPU::SliceOp sliceOp) {
@@ -105,8 +96,9 @@ private:
     mlir::LogicalResult matchAndRewrite(VPU::ConcatOp origOp, mlir::PatternRewriter& rewriter) const final;
     bool meetConcatPattern(VPU::ConcatOp) const;
 
-    std::optional<mlir::Value> createNewBranchInput(mlir::Value concatInput, VPU::ConcatOp concat,
-                                                    VPU::SliceOp sliceUser, SmallVector<int64_t>& newConcatOffset,
+    std::optional<mlir::Value> createNewBranchInput(mlir::Value concatInput, int64_t concatInputIdx,
+                                                    VPU::ConcatOp concat, VPU::SliceOp sliceUser,
+                                                    SmallVector<int64_t>& newConcatOffset,
                                                     mlir::PatternRewriter& rewriter) const;
 
 private:
@@ -162,9 +154,11 @@ mlir::LogicalResult SharedCopyInputRewriter::matchAndRewrite(VPU::ConcatOp origO
 
             auto slice = mlir::cast<VPU::SliceOp>(user);
             auto copyOp = *user->getUsers().begin();
-            for (auto input : concat.getInputs()) {
+            for (auto item : concat.getInputs() | indexed) {
+                auto input = item.value();
+                auto inputIdx = item.index();
                 SmallVector<int64_t> newConcatOffset;
-                auto newInput = createNewBranchInput(input, concat, slice, newConcatOffset, rewriter);
+                auto newInput = createNewBranchInput(input, inputIdx, concat, slice, newConcatOffset, rewriter);
                 if (newInput.has_value()) {
                     newInputs.push_back(newInput.value());
                     newConcatOffsets.push_back(newConcatOffset);
@@ -199,7 +193,7 @@ bool SharedCopyInputRewriter::meetConcatPattern(VPU::ConcatOp concatOp) const {
         // Only handle concat op with static offset
         return false;
     }
-    auto concatAxes = getConcatAxes(concatOp);
+    auto concatAxes = vpux::VPU::getConcatAxes(concatOp);
     if (concatAxes.size() != 1) {
         // For concat on multi dims, the input and output tensor of the new copy has strides on multi dims,
         // which may cause accuracy regression when lowering to DMA op
@@ -241,11 +235,12 @@ bool SharedCopyInputRewriter::meetConcatPattern(VPU::ConcatOp concatOp) const {
     return true;
 }
 
-std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::Value concatInput, VPU::ConcatOp concat,
+std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::Value concatInput,
+                                                                         int64_t concatInputIdx, VPU::ConcatOp concat,
                                                                          VPU::SliceOp sliceUser,
                                                                          SmallVector<int64_t>& newConcatOffset,
                                                                          mlir::PatternRewriter& rewriter) const {
-    const auto concatOffset = getOffsetsFromConcat(concatInput, concat);
+    const auto concatOffset = getOffsetsFromConcat(concatInputIdx, concat);
     const auto concatSize = to_small_vector(getShape(concatInput));
 
     const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceUser.getStaticOffsets());
@@ -301,7 +296,7 @@ std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::V
 //
 
 class OptimizeSharedInputCopyForConcatPass final :
-        public OptimizeSharedInputCopyForConcatBase<OptimizeSharedInputCopyForConcatPass> {
+        public VPU::impl::OptimizeSharedInputCopyForConcatBase<OptimizeSharedInputCopyForConcatPass> {
 public:
     explicit OptimizeSharedInputCopyForConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

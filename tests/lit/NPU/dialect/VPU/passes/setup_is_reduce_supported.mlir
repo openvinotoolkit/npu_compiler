@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --vpu-arch=%arch% --setup-is-reduce-supported="enable-is-reduce-supported" %s | FileCheck %s --strict-whitespace
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module @mainModule attributes {} {
 }
 

@@ -300,7 +300,6 @@ typedef struct {
             uint32_t cast_offset : 28;
         } odu_cast_bf;
     } odu_cast[3];
-
     uint32_t reserved1;
 
     union {
@@ -312,7 +311,6 @@ typedef struct {
             uint32_t unused_2 : 13;
         } ppe_lut_ptr_bf;
     } reserved2;
-
     uint32_t nvar_tag;
 
     uint32_t pallet[8];

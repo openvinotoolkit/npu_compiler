@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --simplify-schedule %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @tasksWithoutDeclareBuffer
 func.func @tasksWithoutDeclareBuffer(%arg0: memref<1x1x1x1xf16>, %arg1: memref<1x1x1x1xf16>) -> memref<1x1x1x1xf16> {
     %0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier

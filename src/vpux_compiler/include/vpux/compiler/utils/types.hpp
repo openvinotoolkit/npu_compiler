@@ -6,16 +6,17 @@
 #pragma once
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/attributes/indexed_symbol_attr.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 
 #include "vpux/utils/core/enums.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 
+#include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Value.h>
@@ -34,7 +35,10 @@ using memref_type_if = enable_t<OutT, std::is_enum<Enum>, details::HasStringifyE
 
 mlir::IntegerType getInt1Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getInt2Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getInt3Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getInt4Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getInt5Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getInt6Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getInt8Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getInt16Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getInt32Type(mlir::MLIRContext* ctx);
@@ -46,7 +50,12 @@ mlir::IntegerType getSInt16Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getSInt32Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getSInt64Type(mlir::MLIRContext* ctx);
 
+mlir::IntegerType getUInt1Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getUInt2Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getUInt3Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getUInt4Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getUInt5Type(mlir::MLIRContext* ctx);
+mlir::IntegerType getUInt6Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getUInt8Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getUInt16Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getUInt32Type(mlir::MLIRContext* ctx);

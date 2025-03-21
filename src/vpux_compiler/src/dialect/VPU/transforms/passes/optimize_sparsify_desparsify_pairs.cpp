@@ -3,11 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_OPTIMIZESPARSIFYDESPARSIFYPAIRS
+#define GEN_PASS_DEF_OPTIMIZESPARSIFYDESPARSIFYPAIRS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -18,7 +25,7 @@ namespace {
 //
 
 class OptimizeSparsifyDesparsifyPairsPass final :
-        public VPU::OptimizeSparsifyDesparsifyPairsBase<OptimizeSparsifyDesparsifyPairsPass> {
+        public VPU::impl::OptimizeSparsifyDesparsifyPairsBase<OptimizeSparsifyDesparsifyPairsPass> {
 public:
     explicit OptimizeSparsifyDesparsifyPairsPass(const VPU::ActivationSparsityOptions& options, Logger log) {
         Base::initLogger(log, Base::getArgumentName());

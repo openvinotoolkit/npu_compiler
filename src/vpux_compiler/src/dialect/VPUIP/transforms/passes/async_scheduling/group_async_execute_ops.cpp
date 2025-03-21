@@ -20,6 +20,12 @@
 
 #include <algorithm>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_GROUPASYNCEXECUTEOPS
+#define GEN_PASS_DEF_GROUPASYNCEXECUTEOPS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -279,7 +285,7 @@ mlir::LogicalResult GroupAsyncExecuteOps::matchAndRewrite(mlir::async::ExecuteOp
 // GroupAsyncExecuteOpsPass
 //
 
-class GroupAsyncExecuteOpsPass final : public VPUIP::GroupAsyncExecuteOpsBase<GroupAsyncExecuteOpsPass> {
+class GroupAsyncExecuteOpsPass final : public VPUIP::impl::GroupAsyncExecuteOpsBase<GroupAsyncExecuteOpsPass> {
 public:
     explicit GroupAsyncExecuteOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

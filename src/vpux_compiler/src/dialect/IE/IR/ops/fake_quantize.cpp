@@ -96,7 +96,7 @@ public:
 };
 
 SmallVector<unsigned> TransposeGroups::getTransposition(mlir::Value output) const {
-    const SmallVector<unsigned> fallbackValue = {2, 0, 1};
+    SmallVector<unsigned> fallbackValue = {2, 0, 1};
     if (!output.hasOneUse()) {
         return fallbackValue;
     }
@@ -117,7 +117,7 @@ SmallVector<unsigned> TransposeGroups::getTransposition(mlir::Value output) cons
     };
     SmallVector<int64_t> flatMapping;
     std::transform(dimMapping.begin(), dimMapping.end(), std::back_inserter(flatMapping), flattenMap);
-    SmallVector<unsigned> permutationMap = fallbackValue;
+    SmallVector<unsigned> permutationMap = std::move(fallbackValue);
     // 1. FQ [1280, 20, 128] * [1280, 1, 128] -> Reshape [[0], [1], [1]] -> [1280, 2560]
     // Transpose [1280, 20, 128] to [20, 128, 1280]
     // 2. FQ [1280, 20, 128] * [1280, 1, 128] -> Reshape [[0], [0], [1]] -> [2560, 128]

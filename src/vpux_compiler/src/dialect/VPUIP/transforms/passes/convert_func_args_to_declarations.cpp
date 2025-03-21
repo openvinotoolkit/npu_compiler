@@ -16,6 +16,12 @@
 #include "vpux/compiler/utils/hash.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTFUNCARGSTODECLARATIONS
+#define GEN_PASS_DEF_CONVERTFUNCARGSTODECLARATIONS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -54,12 +60,15 @@ bool operator==(const BufferDeclarationChain& lhs, const BufferDeclarationChain&
     return hashOperation(lhs.declBuffOp) == hashOperation(rhs.declBuffOp);
 }
 
+bool operator!=(const BufferDeclarationChain& lhs, const BufferDeclarationChain& rhs) {
+    return !(lhs == rhs);
+}
 //
 // ConvertFuncArgsToDeclarationsPass
 //
 
 class ConvertFuncArgsToDeclarationsPass final :
-        public VPUIP::ConvertFuncArgsToDeclarationsBase<ConvertFuncArgsToDeclarationsPass> {
+        public VPUIP::impl::ConvertFuncArgsToDeclarationsBase<ConvertFuncArgsToDeclarationsPass> {
 public:
     explicit ConvertFuncArgsToDeclarationsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -78,6 +87,10 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
                 .getResult();
     };
 
+    const auto isPureViewLike = [](mlir::Operation* op) {
+        return mlir::isa<mlir::ViewLikeOpInterface>(op) && !mlir::isa<VPUIP::LayerOpInterface>(op);
+    };
+
     const auto replaceArgs = [&](mlir::func::FuncOp funcOp, auto buildDecl) {
         VPUX_THROW_WHEN(funcOp.isExternal(), "It is assumed that the method is run only for functions with body");
         VPUX_THROW_UNLESS(funcOp.getNumArguments() >= funcOp.getNumResults(), "Function '{0}' is not bufferized",
@@ -90,6 +103,7 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
 
         auto argBuilder = mlir::OpBuilder::atBlockBegin(&funcOp.getBody().front());
 
+        size_t argIndex = 0;
         const auto replaceUse = [&](mlir::ValueRange args, VPURT::BufferSection section) {
             for (auto p : args | indexed) {
                 auto val = p.value();
@@ -100,10 +114,25 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
 
                 argBuilder.setInsertionPoint(&firstOp);
                 auto newArg = buildDecl(argBuilder, val, section, p.index());
+                if (hasCompileMethodDebatch(moduleOp)) {
+                    auto argDeclareOp = newArg.template getDefiningOp<VPURT::DeclareBufferOp>();
+                    if (argDeclareOp != nullptr) {
+                        VPURT::BufferSection declarationSection = argDeclareOp.getSection();
+                        if (declarationSection == VPURT::BufferSection::DDR) {
+                            argDeclareOp.setSection(VPURT::BufferSection::FunctionInput);
 
-                _log.trace("Replace all uses of '{0}' with '{1}'",
-                           newArg.template getDefiningOp<VPURT::DeclareBufferOp>());
+                            VPUX_THROW_WHEN(argDeclareOp.getSectionIndexAttr(),
+                                            "Declaration {0} must not carry any section index attribute");
+                            argDeclareOp.setSectionIndexAttr(
+                                    getIntArrayAttr(argDeclareOp.getContext(), SmallVector<size_t>{argIndex}));
+                            extendOpLoc(argDeclareOp, StringLiteral("func_{0}_arg_{1}"), funcOp.getName(), argIndex);
+                        }
+                    }
+                }
+                _log.trace("Replace all uses of '{0}' with '{1}', argIndex: {2}", val,
+                           newArg.template getDefiningOp<VPURT::DeclareBufferOp>(), argIndex);
                 val.replaceAllUsesExcept(newArg, llvm::SmallPtrSet<mlir::Operation*, 1>{returnOp});
+                argIndex++;
             }
         };
 
@@ -119,10 +148,6 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
     SmallVector<mlir::func::FuncOp> funcOps;
     funcOps.push_back(netFunc);
 
-    const auto isPureViewLike = [](mlir::Operation* op) {
-        return mlir::isa<mlir::ViewLikeOpInterface>(op) && !mlir::isa<VPUIP::LayerOpInterface>(op);
-    };
-
     const auto getDeclaration = [&](mlir::func::CallOp callOp, mlir::Value val) {
         auto funcBlockArg = mlir::cast<mlir::BlockArgument>(val);
 
@@ -137,7 +162,6 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
         auto originDeclOp = mlir::dyn_cast_or_null<VPURT::DeclareBufferOp>(producerOp);
         VPUX_THROW_WHEN(originDeclOp == nullptr, "Could not find declare buffer op for CallOp '{0}' operand '{1}'",
                         callOp, callOperand);
-
         return BufferDeclarationChain{std::move(viewOps), originDeclOp};
     };
 
@@ -156,13 +180,36 @@ void ConvertFuncArgsToDeclarationsPass::safeRunOnModule() {
                         }
 
                         auto declChain = getDeclaration(callOp, arg);
-                        VPUX_THROW_UNLESS(
-                                funcToDeclChains[func][arg.getArgNumber()] == declChain,
-                                "Declaration chain for argument at idx '{0}' of CallOp with callee '{1}' is not equal "
-                                "to the chain of the first call of the same function.",
-                                arg.getArgNumber(), func.getName());
+                        if (hasCompileMethodDebatch(moduleOp)) {
+                            // Limitation in having a same declaration chain for all repeating calls
+                            // wasn't completely overcomed here by using the additional FunctionInpu/Output section.
+                            // A scenario with isPureViewLike operations propagation hasn't been solved yet.
+                            // We throw an exception here only when a declChain contains isPureViewLike operations and
+                            // support different non-pure-view buffer declarations as function arguments
+                            if (funcToDeclChains[func][arg.getArgNumber()] != declChain) {
+                                VPUX_THROW_WHEN(declChain.viewOps.size() != 0 ||
+                                                        funcToDeclChains[func][arg.getArgNumber()].viewOps.size() != 0,
+                                                "Declaration chain for argument at idx '{0}' of CallOp with callee "
+                                                "'{1}' is not "
+                                                "equal "
+                                                "to the chain of the first call of the same function.",
+                                                arg.getArgNumber(), func.getName());
+
+                                _log.info("Declaration chain for argument at idx '{0}' of CallOp with callee '{1}' is "
+                                          "not "
+                                          "equal "
+                                          "to the chain of the first call of the same function.",
+                                          arg.getArgNumber(), func.getName());
+                            }
+                        } else {
+                            // Default way for declaration chains processing
+                            VPUX_THROW_UNLESS(funcToDeclChains[func][arg.getArgNumber()] == declChain,
+                                              "Declaration chain for argument at idx '{0}' of CallOp with callee '{1}' "
+                                              "is not equal "
+                                              "to the chain of the first call of the same function.",
+                                              arg.getArgNumber(), func.getName());
+                        }
                     }
-                    return;
                 }
 
                 ArgToBufferDeclarationMap declChainsMap;

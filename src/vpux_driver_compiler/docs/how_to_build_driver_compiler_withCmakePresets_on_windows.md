@@ -17,6 +17,7 @@ Before you start to build Driver Compiler targets, please make sure you have ins
     - Ccache (Download latest version of ccache binaries or build from source code on this [link](https://github.com/ccache/ccache/releases))
     - Ninja (Install it via Visual Studio Installer or "Getting Ninja" section on this [link](https://ninja-build.org/))
 
+> Notice: Ccache and Ninja are required for the build options defined in the CMake Presets. Therefore, both of these tools are necessary. If you are unable to install them, please remove and update the relevant sections in [CMakePresets.json](https://github.com/openvinotoolkit/npu_compiler/blob/develop/CMakePresets.json#L7C1-L16C19).
 
 Before you start building, please refer to the notes at the end to avoid potential build issue.
 
@@ -129,8 +130,6 @@ All instructions are perfromed on **x64 Native Tools Command Prompt for VS XXXX(
             "value": "C:\Users\Local_Admin\workspace\path\to\downloaded\tbb"
         }
     ```
-    
-    The version of TBB download by [OpenVINO Project] is 2021.2.5 and you can find the version info in this [file](https://github.com/openvinotoolkit/openvino/blob/master/cmake/dependencies.cmake#L105) in [OpenVINO Project].
 
     </details>
 
@@ -150,4 +149,4 @@ All instructions are perfromed on **x64 Native Tools Command Prompt for VS XXXX(
 
 
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler

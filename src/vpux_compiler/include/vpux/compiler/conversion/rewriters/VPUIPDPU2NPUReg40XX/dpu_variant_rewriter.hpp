@@ -28,9 +28,7 @@ private:
 
     mlir::LogicalResult verifyDPUVariant(VPUIPDPU::DPUVariantOp op) const;
 
-    void fillIDUCfg(mlir::Region& DPURegion, vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const;
-    void fillODUCfg(mlir::Region& DPURegion, vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const;
-
+    void fillDPUConfigs(mlir::Region& DPURegion, vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const;
     void fillBarrierCfg(VPUIPDPU::DPUVariantOp op, vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const;
     void fillProfilingCfg(VPUIPDPU::DPUVariantOp origOp,
                           vpux::NPUReg40XX::Descriptors::DpuVariantRegister& descriptor) const;

@@ -9,11 +9,18 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <functional>
+
+namespace vpux {
+#define GEN_PASS_DECL_ADDBUFFERSFORNETRESULTS
+#define GEN_PASS_DEF_ADDBUFFERSFORNETRESULTS
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
 
 using namespace vpux;
 
@@ -141,7 +148,7 @@ void updateCallOp(mlir::ModuleOp module) {
 // AddBuffersForNetResults
 //
 
-class AddBuffersForNetResults final : public AddBuffersForNetResultsBase<AddBuffersForNetResults> {
+class AddBuffersForNetResults final : public impl::AddBuffersForNetResultsBase<AddBuffersForNetResults> {
 public:
     explicit AddBuffersForNetResults(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

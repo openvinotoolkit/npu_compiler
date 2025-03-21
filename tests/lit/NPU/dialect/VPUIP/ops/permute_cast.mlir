@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
@@ -129,17 +128,31 @@ func.func @PermuteCastDistributedWithOnlyOrderChanged(%arg0: !InputDistributed) 
 
 // -----
 
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
 
-func.func @FoldConstPermuteCast() -> memref<1x64x1x64xf16, #NHWC> {
-    %cst = const.Declare memref<1x1x64x64xf16> = dense<1.0> : tensor<64x64xf16>, [#const.Reshape<[1, 1, 64, 64]>]
-    %0 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NCHW} inputs(%cst : memref<1x1x64x64xf16>) -> memref<1x64x1x64xf16, #NHWC>
-
-    return %0 : memref<1x64x1x64xf16, #NHWC>
-
-    // CHECK-DAG:      [[VAL0:%.*]] = const.Declare memref<1x64x1x64xf16, #NHWC>
-    // CHECK-SAME:         dense<1.000000e+00> : tensor<64x64xf16>, [#const.Reshape<[1, 64, 1, 64]>, #const.Reorder<#NHWC>]
-    // CHECK:          return [[VAL0]] : memref<1x64x1x64xf16, #NHWC>
-    // CHECK-NOT:      VPUIP.PermuteCast
+func.func @PermuteCastMemPermute() -> memref<1x2xf32, #CN> {
+    %cst = const.Declare memref<1x2xf32> = dense<[[1.0, 2.0]]> : memref<1x2xf32>
+    %permute_cast = VPUIP.PermuteCast {dst_order = #CN, mem_perm = #CN} inputs(%cst : memref<1x2xf32>) -> memref<1x2xf32, #CN>
+    return %permute_cast : memref<1x2xf32, #CN>
 }
+
+// CHECK: func.func @PermuteCastMemPermute() -> memref<1x2xf32, #CN> {
+// CHECK:    [[CST:%.+]] = const.Declare memref<1x2xf32, #CN> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : memref<1x2xf32>, [#const.MemPermute<#CN, #CN>]
+// CHECK:    return [[CST]] : memref<1x2xf32, #CN>
+// CHECK: }
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+#CN = affine_map<(d0, d1) -> (d1, d0)>
+
+func.func @PermuteCastNoOp() -> memref<1x2xf32> {
+    %cst = const.Declare memref<1x2xf32> = dense<[[1.0, 2.0]]> : memref<1x2xf32>
+    %permute_cast_0 = VPUIP.PermuteCast {dst_order = #NC, mem_perm = #NC} inputs(%cst : memref<1x2xf32>) -> memref<1x2xf32>
+    return %permute_cast_0 : memref<1x2xf32>
+}
+
+// CHECK: func.func @PermuteCastNoOp() -> memref<1x2xf32> {
+// CHECK:     [[CST:%.+]] = const.Declare memref<1x2xf32> = dense<{{\[\[}}1.000000e+00, 2.000000e+00]]> : memref<1x2xf32>
+// CHECK:     return [[CST]] : memref<1x2xf32>
+// CHECK: }

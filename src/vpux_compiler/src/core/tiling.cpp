@@ -12,12 +12,14 @@
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
@@ -118,7 +120,8 @@ mlir::LogicalResult divideTiles(OutputTiling& dividedTiles, ShapeRef divisors, S
                                 bool unrollSpatialFirst) {
     // If spatial first, unroll in order of NHWC
     // else, follow the default order NCHW
-    const auto spatialFirstOrder = DimsOrder::NHWC;
+    // If we got here for GNHWC then probably grouped MatMul is not efficient
+    const auto spatialFirstOrder = shape.size() == DimsGroups5D::Act::numDims ? DimsOrder::GNHWC : DimsOrder::NHWC;
     const auto dimension = unrollSpatialFirst ? spatialFirstOrder.dimAt(dimensionIndex) : Dim(dimensionIndex);
 
     auto tileSizeIntervalResult = divideTileSizeAndInterval(dimension, divisors, shape, alignment);
@@ -301,11 +304,11 @@ mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(ShapeRef divisors, ShapeRef
 /*
  * Consider memory sharing and compare the DMA cost of different loop orders
  * Spatial first - Unroll the op in the order of NHWC
- * Non spatial first - Unroll the op in the order of NCHW
+ * Weights first - Unroll the op in the order of NCHW
  * If the inputMemSize * divisors[C] > filterMemSize * divisors[H] * divisors[W], spatial first
- * else tiling over C first
+ * else weights first
  */
-bool isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors) {
+bool vpux::isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors) {
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
     if (nceOp == nullptr || nceOp.getWeightsOperand() == nullptr) {
         // Only use spatial first for operations with weights
@@ -317,7 +320,30 @@ bool isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors) {
     }
     auto inputMemSize = getTotalSize(nceOp->getOperand(0));
     auto filterMemSize = getTotalSize(nceOp.getWeightsOperand());
+
+    // #E152765 - generic support for GNCHW
+    if (mlir::isa<VPU::NCEMatMulOp>(op)) {
+        return inputMemSize * divisors[DimsGroups5D::Act::C] >
+               filterMemSize * divisors[DimsGroups5D::Act::H] * divisors[DimsGroups5D::Act::W];
+    }
+
     return inputMemSize * divisors[Dims4D::Act::C] >
+           filterMemSize * divisors[Dims4D::Act::H] * divisors[Dims4D::Act::W];
+}
+
+bool vpux::isWeightsFirstNestedTiling(mlir::Operation* op, ShapeRef divisors) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr || nceOp.getWeightsOperand() == nullptr) {
+        // Only use weights first for operations with weights
+        // The memory sharing has no difference if the op has no weights
+        return false;
+    }
+    if (getNonOneDim(divisors).size() <= 1) {
+        return false;
+    }
+    auto inputMemSize = getTotalSize(nceOp->getOperand(0));
+    auto filterMemSize = getTotalSize(nceOp.getWeightsOperand());
+    return inputMemSize * divisors[Dims4D::Act::C] <=
            filterMemSize * divisors[Dims4D::Act::H] * divisors[Dims4D::Act::W];
 }
 
@@ -361,8 +387,9 @@ std::optional<SmallVector<int64_t>> getAlignment(mlir::Operation* op, ShapeRef d
         alignment[vpux::Dims4D::Act::W.ind()] = VPU::NCEInvariant::getAlignment(outputType.getElementType());
         optionalAlignment = std::move(alignment);
     } else if (auto tilingIface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
-        alignment[vpux::Dims4D::Act::C.ind()] =
-                std::lcm(tilingIface.getOutputChannelAlignment(), alignment[vpux::Dims4D::Act::C.ind()]);
+        // #E152765 - generic support for GNCHW
+        const auto C = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::C.ind() : Dims4D::Act::C.ind();
+        alignment[C] = std::lcm(tilingIface.getOutputChannelAlignment(), alignment[C]);
         optionalAlignment = std::move(alignment);
     }
 
@@ -420,6 +447,9 @@ mlir::FailureOr<OutputTiling> vpux::fillDividedTiles(mlir::Operation* op, ShapeR
     }
 
     auto unrollSpatialFirst = isSpatialFirstNestedTiling(op, divisors);
+    if (VPU::isWeightsDequant(op)) {
+        optionalAlignment = VPU::DISTRIBUTED_N_ALIGNMENT;
+    }
     return vpux::fillDividedTiles(divisors, shape, optionalAlignment, unrollSpatialFirst);
 }
 
@@ -505,26 +535,27 @@ struct PlaneTileSolution final {
 // size.
 // * initialInputDims - Dims of the whole input tensor (not of specific tile).
 // * initialPad - padding which should be applied to the whole input tensor (not to specific tile).
+template <typename Dims>
 std::tuple<PlaneTile, PadInfo> inputForOutputTile(const PlaneTile& output, int64_t kernelX, int64_t kernelY,
                                                   int64_t strideX, int64_t strideY, ShapeRef initialInputDims,
                                                   const PadInfo& initialPad) {
     PlaneTile inputTile = {{0, 0}, {0, 0}};
     PadInfo pad = {0, 0, 0, 0};
-
     std::tie(inputTile.height, pad.top, pad.bottom) = inputForOutputDim(
-            output.height, kernelY, strideY, {0, initialInputDims[Dims4D::Act::H]}, initialPad.top, initialPad.bottom);
+            output.height, kernelY, strideY, {0, initialInputDims[Dims::Act::H]}, initialPad.top, initialPad.bottom);
 
     std::tie(inputTile.width, pad.left, pad.right) = inputForOutputDim(
-            output.width, kernelX, strideX, {0, initialInputDims[Dims4D::Act::W]}, initialPad.left, initialPad.right);
+            output.width, kernelX, strideX, {0, initialInputDims[Dims::Act::W]}, initialPad.left, initialPad.right);
 
     return std::make_tuple(inputTile, pad);
 }
 
+template <typename Dims>
 PlaneTileSolution solutionForOutputTile(const PlaneTile& output, int64_t kernelX, int64_t kernelY, int64_t strideX,
                                         int64_t strideY, ShapeRef initialInputDims, const PadInfo& initialPad) {
     PlaneTileSolution solution;
     std::tie(solution.inputTile, solution.inputPad) =
-            inputForOutputTile(output, kernelX, kernelY, strideX, strideY, initialInputDims, initialPad);
+            inputForOutputTile<Dims>(output, kernelX, kernelY, strideX, strideY, initialInputDims, initialPad);
 
     return solution;
 }
@@ -535,8 +566,9 @@ PlaneTileSolution solutionForOutputTile(const PlaneTile& output, int64_t kernelX
 // However the back inferring size may become smaller, e.g., OutputTile 7x7, Kernel 1x1, Stride 2x2.
 // The inferring inputTile planar shape is 13x13 however original planar input shape may be 14x14, which will cause
 // a redundant data slice from input. Here is to restore original input planar shape to avoid extra copies.
+template <typename Dims>
 void restorePlanarShapeForInputTile(TileInfo& inputTile, ShapeRef origInputShape, vpux::Dim planarDim) {
-    if (planarDim != Dims4D::Act::H && planarDim != Dims4D::Act::W) {
+    if (planarDim != Dims::Act::H && planarDim != Dims::Act::W) {
         VPUX_THROW("Invalid planar dim {0}", planarDim);
     }
     if (inputTile.shape[planarDim] > origInputShape[planarDim]) {
@@ -561,9 +593,9 @@ InputTiling vpux::backInferConvTile(const TileInfo& outputTile, ShapeRef origInp
     const auto strideY = strides[Dims4D::Strides::Y.ind()].cast<mlir::IntegerAttr>().getValue().getSExtValue();
     const auto strideX = strides[Dims4D::Strides::X.ind()].cast<mlir::IntegerAttr>().getValue().getSExtValue();
 
-    const auto solution =
-            solutionForOutputTile(output, origFilterShape[Dims4D::Filter::KX], origFilterShape[Dims4D::Filter::KY],
-                                  strideX, strideY, origInputShape, origPadding);
+    const auto solution = solutionForOutputTile<Dims4D>(output, origFilterShape[Dims4D::Filter::KX],
+                                                        origFilterShape[Dims4D::Filter::KY], strideX, strideY,
+                                                        origInputShape, origPadding);
 
     TileInfo inputTile(origInputShape);
     TileInfo filterTile(origFilterShape);
@@ -580,10 +612,10 @@ InputTiling vpux::backInferConvTile(const TileInfo& outputTile, ShapeRef origInp
     inputTile.shape[Dims4D::Act::W] = solution.inputTile.width.length();
 
     if (outputTile.isCompletedTile && outputTile.axis[Dims4D::Act::H] == 1) {
-        restorePlanarShapeForInputTile(inputTile, origInputShape, Dims4D::Act::H);
+        restorePlanarShapeForInputTile<Dims4D>(inputTile, origInputShape, Dims4D::Act::H);
     }
     if (outputTile.isCompletedTile && outputTile.axis[Dims4D::Act::W] == 1) {
-        restorePlanarShapeForInputTile(inputTile, origInputShape, Dims4D::Act::W);
+        restorePlanarShapeForInputTile<Dims4D>(inputTile, origInputShape, Dims4D::Act::W);
     }
 
     filterTile.shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
@@ -627,6 +659,69 @@ InputTiling vpux::backInferGroupConvTile(const TileInfo& outputTile, ShapeRef or
 }
 
 //
+// NCEMatMul tiling
+//
+
+InputTiling vpux::backInferMatMulTile(const TileInfo& outputTile, ShapeRef origInputShape, ShapeRef origFilterShape,
+                                      mlir::ArrayAttr strides, const PadInfo& origPadding) {
+    const auto stridesY = DimsGroups5D::Strides::Y;
+    const auto stridesX = DimsGroups5D::Strides::X;
+
+    const auto actH = DimsGroups5D::Act::H;
+    const auto actW = DimsGroups5D::Act::W;
+    const auto actN = DimsGroups5D::Act::N;
+    const auto actC = DimsGroups5D::Act::C;
+    const auto actG = DimsGroups5D::Act::G;
+
+    const auto filterY = DimsGroups5D::Filter::KY;
+    const auto filterX = DimsGroups5D::Filter::KX;
+    const auto filterOC = DimsGroups5D::Filter::OC;
+    const auto filterG = DimsGroups5D::Filter::G;
+
+    PlaneTile output;
+    output.height.begin = outputTile.offsets[actH];
+    output.height.end = outputTile.offsets[actH] + outputTile.shape[actH];
+    output.width.begin = outputTile.offsets[actW];
+    output.width.end = outputTile.offsets[actW] + outputTile.shape[actW];
+
+    const auto strideY = strides[stridesY.ind()].cast<mlir::IntegerAttr>().getValue().getSExtValue();
+    const auto strideX = strides[stridesX.ind()].cast<mlir::IntegerAttr>().getValue().getSExtValue();
+
+    const auto solution = solutionForOutputTile<DimsGroups5D>(
+            output, origFilterShape[filterX], origFilterShape[filterY], strideX, strideY, origInputShape, origPadding);
+
+    TileInfo inputTile(origInputShape);
+    TileInfo filterTile(origFilterShape);
+
+    inputTile.shape[actN] = outputTile.shape[actN];
+    inputTile.offsets[actN] = outputTile.offsets[actN];
+    inputTile.axis = outputTile.axis;
+
+    inputTile.offsets[actH] = solution.inputTile.height.begin;
+    inputTile.shape[actH] = solution.inputTile.height.length();
+
+    inputTile.offsets[actW] = solution.inputTile.width.begin;
+    inputTile.shape[actW] = solution.inputTile.width.length();
+    inputTile.shape[actG] = outputTile.shape[actG];
+    inputTile.offsets[actG] = outputTile.offsets[actG];
+
+    if (outputTile.isCompletedTile && outputTile.axis[actH] == 1) {
+        restorePlanarShapeForInputTile<DimsGroups5D>(inputTile, origInputShape, actH);
+    }
+    if (outputTile.isCompletedTile && outputTile.axis[actW] == 1) {
+        restorePlanarShapeForInputTile<DimsGroups5D>(inputTile, origInputShape, actW);
+    }
+
+    filterTile.shape[filterOC] = outputTile.shape[actC];
+    filterTile.offsets[filterOC] = outputTile.offsets[actC];
+    filterTile.shape[filterOC] = outputTile.shape[actC];
+    filterTile.shape[filterG] = outputTile.shape[actG];
+    filterTile.offsets[filterG] = outputTile.offsets[actG];
+
+    return TilingInfo{{std::move(inputTile), std::move(filterTile)}, solution.inputPad};
+}
+
+//
 // Pooling tiling
 //
 
@@ -645,7 +740,7 @@ InputTiling vpux::backInferPoolTile(const TileInfo& outputTile, ShapeRef origInp
     const auto strideX = strides[Dims4D::Strides::X.ind()].cast<mlir::IntegerAttr>().getValue().getSExtValue();
 
     const auto solution =
-            solutionForOutputTile(output, kernelX, kernelY, strideX, strideY, origInputShape, origPadding);
+            solutionForOutputTile<Dims4D>(output, kernelX, kernelY, strideX, strideY, origInputShape, origPadding);
 
     TileInfo inputTile(origInputShape);
 
@@ -662,10 +757,10 @@ InputTiling vpux::backInferPoolTile(const TileInfo& outputTile, ShapeRef origInp
     inputTile.shape[Dims4D::Act::W] = solution.inputTile.width.length();
 
     if (outputTile.isCompletedTile && outputTile.axis[Dims4D::Act::H] == 1) {
-        restorePlanarShapeForInputTile(inputTile, origInputShape, Dims4D::Act::H);
+        restorePlanarShapeForInputTile<Dims4D>(inputTile, origInputShape, Dims4D::Act::H);
     }
     if (outputTile.isCompletedTile && outputTile.axis[Dims4D::Act::W] == 1) {
-        restorePlanarShapeForInputTile(inputTile, origInputShape, Dims4D::Act::W);
+        restorePlanarShapeForInputTile<Dims4D>(inputTile, origInputShape, Dims4D::Act::W);
     }
 
     return TilingInfo{{inputTile}, solution.inputPad};
@@ -1282,6 +1377,13 @@ DimArr getTileDimOrderByShape(mlir::Operation* op, Dim filterDimToCompare, Dim a
     const auto isFilterLargerToTile =
             (filterType.getShape()[filterDimToCompare] > activationType.getShape()[actInputDimToCompare]) ||
             !isChannelValid;
+
+    // #E152765 - generic support for GNCHW
+    if (mlir::isa<VPU::NCEMatMulOp>(op)) {
+        return isFilterLargerToTile
+                       ? DimArr{DimsGroups5D::Act::G, DimsGroups5D::Act::C, DimsGroups5D::Act::H, DimsGroups5D::Act::W}
+                       : DimArr{DimsGroups5D::Act::G, DimsGroups5D::Act::H, DimsGroups5D::Act::C, DimsGroups5D::Act::W};
+    }
     return isFilterLargerToTile ? DimArr{Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W}
                                 : DimArr{Dims4D::Act::H, Dims4D::Act::C, Dims4D::Act::W};
 }
@@ -1314,6 +1416,18 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
                             return DimArr{Dims4D::Act::H, Dims4D::Act::C, Dims4D::Act::W};
                         } else {
                             return DimArr{Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W};
+                        }
+                    })
+                    .Case<VPU::NCEMatMulOp>([&](mlir::Operation* op) {
+                        log.nest(2).trace("Check tile Dim order for Op at {0}", op->getLoc());
+                        const auto outputShape = getShape(op->getResult(0));
+                        const auto isChannelValid = VPU::doesNCEOpChannelSatisfyWorkload(op, TileInfo(outputShape));
+                        if (isChannelValid) {
+                            return DimArr{DimsGroups5D::Act::G, DimsGroups5D::Act::H, DimsGroups5D::Act::C,
+                                          DimsGroups5D::Act::W};
+                        } else {
+                            return DimArr{DimsGroups5D::Act::G, DimsGroups5D::Act::C, DimsGroups5D::Act::H,
+                                          DimsGroups5D::Act::W};
                         }
                     })
                     .Case<VPU::MVNOp>([&](mlir::Operation* op) {
@@ -1437,6 +1551,19 @@ DimArr vpux::getTileDimOrder(mlir::Operation* op, TilingMode tilingMode, Logger 
 
                         return tileDimOrder;
                     })
+                    .Case<VPU::DynamicDequantizeOp>([&](VPU::DynamicDequantizeOp) {
+                        log.nest(2).trace("Check tile Dim order for Op at {0}", op->getLoc());
+                        const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
+                        auto tileDimOrder = getTileDimOrderND(outputType.getMemShape(), outputType.getDimsOrder());
+                        // Ensure tile less the W dim to avoid using slow C algo
+                        auto dimIt = std::find(tileDimOrder.begin(), tileDimOrder.end(), Dims4D::Act::W);
+                        if (dimIt != tileDimOrder.end()) {
+                            tileDimOrder.erase(dimIt);
+                            tileDimOrder.push_back(Dims4D::Act::W);
+                        }
+
+                        return tileDimOrder;
+                    })
                     .Default([&](mlir::Operation* op) -> DimArr {
                         log.nest(2).trace("Check tile Dim order for Op at {0}", op->getLoc());
                         const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
@@ -1470,27 +1597,42 @@ bool vpux::isMultiClusterCompatibleForTiling(mlir::Operation* op, const OutputTi
     return llvm::all_of(tileCandidates, isStrategyCompatibleWithTile);
 }
 
-// Compute the maximum of tile number for each dimension to make sure:
-// the tiling numbers are compatible for each dimension
-// (Height) DPUs are fully used - at least one line for each DPU
-// (Channel) No extra channel alignment - output channel for each cluster should be larger than minChannelSize
-SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op) {
+// Compute the maximum number of tiles for each dimension to ensure:
+// 1. Tiling numbers are compatible for each dimension.
+// 2. (Height) DPUs are fully utilized - at least one line per DPU.
+// 3. checkMinimalWidthAndHeight ensures each DPU processes at least 4 lines for efficiency.
+// 4. (Channel) No extra channel alignment - the output channel for each cluster should be larger than minChannelSize.
+SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op, bool checkMinimalWidthAndHeight) {
     const auto outputShape = getShape(op->getResult(0));
+    // #E152765 - generic support for GNCHW
+    const auto dimH = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::H : Dims4D::Act::H;
+    const auto dimW = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::W : Dims4D::Act::W;
+    const auto dimC = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
     auto maxNumTiles = SmallVector<int64_t>(outputShape.begin(), outputShape.end());
 
-    if (!mlir::isa<VPU::MemPermuteOp>(op)) {
-        VPUX_THROW_UNLESS(outputShape.size() == 4, "Unsupported shape rank: {0}", outputShape.size());
+    if (outputShape.size() != 4 && outputShape.size() != DimsGroups5D::Act::numDims) {
+        if (mlir::isa<VPU::MemPermuteOp>(op)) {
+            return maxNumTiles;
+        }
+
+        VPUX_THROW("Unsupported shape rank: {0}", outputShape.size());
     }
 
     int64_t minChannelSize = 1;
+    int64_t minHeightSize = 1;
+    int64_t minWidthSize = 1;
+    if (mlir::isa<VPU::NCEOpInterface>(op) && checkMinimalWidthAndHeight) {
+        // Stencils are using 4x4x16 tile configuration
+        // NCE is more efficient when height and width are larger than 4 lines
+        minHeightSize = 4;
+        minWidthSize = 4;
+    }
     // NCEPermute operation requires alignment only for width
     if (mlir::isa<VPU::NCEPermuteOp>(op)) {
         VPUX_THROW_UNLESS(outputShape.size() == 4, "Unsupported shape rank: {0}", outputShape.size());
 
         const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
-        auto minWidthSize = VPU::NCEInvariant::getAlignment(outputType.getElementType());
-        const auto maxWidthTiles = outputShape[Dims4D::Act::W] / minWidthSize;
-        maxNumTiles[Dims4D::Act::W.ind()] = maxWidthTiles;
+        minWidthSize = VPU::NCEInvariant::getAlignment(outputType.getElementType());
     } else {
         if (auto channelsInfo = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
             VPUX_THROW_UNLESS(outputShape.size() == 4 || outputShape.size() == DimsGroups5D::Act::numDims,
@@ -1507,10 +1649,8 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op) {
             }
         }
 
-        const auto channelDim =
-                outputShape.size() == DimsGroups5D::Act::numDims ? DimsGroups5D::Act::C : Dims4D::Act::C;
-        const auto maxChannelTiles = outputShape[channelDim] / minChannelSize;
-        maxNumTiles[channelDim.ind()] = maxChannelTiles;
+        const auto maxChannelTiles = outputShape[dimC] / minChannelSize;
+        maxNumTiles[dimC.ind()] = maxChannelTiles;
     }
 
     if (op->hasAttr(VPU::multiClusterStrategy)) {
@@ -1522,25 +1662,47 @@ SmallVector<int64_t> vpux::getMaxNumTiles(mlir::Operation* op) {
         auto tileOp = IE::getTileExecutor(module);
         if (strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
             strategy == VPU::MultiClusterStrategy::SplitOverHeightOverlapped) {
-            // To make sure the SOH MultiCluster strategy still compatible after tiling,
-            // Each cluster should compute at least one output line
-            // e.g., 4 cluster compilation, when tiling a layer with output height = 16
-            // the tile number for height should be <= 16/4 = 4
-            maxNumTiles[Dims4D::Act::H.ind()] = outputShape[Dims4D::Act::H] / tileOp.getCount();
+            // To ensure the SOH MultiCluster strategy remains compatible and maintains NCE efficiency after tiling:
+            // 1. Each cluster should compute at least minHeightSize output lines.
+            //    - For example, in a 4-cluster compilation, each NCE tile should have a height of at least 4x4 = 16.
+            //    - When tiling an NCE layer with an output height of 64, the number of tiles in the height dimension
+            //    should be <= 64/16 = 4.
+            // 2. For sw layers, ensure that each cluster computes at least 1 output line.
+            // Allow tiling down to a single line if the tiling dimension and the MultiCluster segmented dimension are
+            // the same.
+            minHeightSize = 1;
+            minHeightSize *= tileOp.getCount();
+        } else if (strategy == VPU::MultiClusterStrategy::SplitOverWidth) {
+            minWidthSize = 1;
+            minWidthSize *= tileOp.getCount();
         } else if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
             // To make sure the SOK MultiCluster strategy still compatible after tiling,
             // each cluster should compute at least minChannelSize(=16) output channels.
             // For SOK, we can use less than the specified number of clusters, to avoid the requirement to align output
             int64_t minNumClustersForSOK = tileOp.getCount();
-            while (minNumClustersForSOK > 0 &&
-                   outputShape[Dims4D::Act::C] % (minChannelSize * minNumClustersForSOK) != 0) {
+            while (minNumClustersForSOK > 0 && outputShape[dimC] % (minChannelSize * minNumClustersForSOK) != 0) {
                 --minNumClustersForSOK;
             }
             if (minNumClustersForSOK <= 1) {
                 minNumClustersForSOK = tileOp.getCount();
             }
-            maxNumTiles[Dims4D::Act::C.ind()] = outputShape[Dims4D::Act::C] / (minChannelSize * minNumClustersForSOK);
+            maxNumTiles[dimC.ind()] = outputShape[dimC] / (minChannelSize * minNumClustersForSOK);
+        } else if (strategy == VPU::MultiClusterStrategy::SplitOverGroup) {
+            maxNumTiles[DimsGroups5D::Act::G.ind()] = divUp(outputShape[DimsGroups5D::Act::G], tileOp.getCount());
         }
+    }
+
+    if ((mlir::isa<VPU::NCEOpInterface>(op) && checkMinimalWidthAndHeight) ||
+        mlir::isa<VPU::DetectionOutputSortOp>(op)) {
+        // For DetectionOutputSortOp, there are some cases where the height dimension of the tiles
+        // is smaller than the number of available clusters.
+        // TODO: E#-150388 generic solution for all sw layers
+        maxNumTiles[dimH.ind()] = divUp(outputShape[dimH], minHeightSize);
+        maxNumTiles[dimW.ind()] = divUp(outputShape[dimW], minWidthSize);
+    } else {
+        // For other sw layers, ensure at least one line per cluster
+        maxNumTiles[dimH.ind()] = outputShape[dimH] / minHeightSize;
+        maxNumTiles[dimW.ind()] = outputShape[dimW] / minWidthSize;
     }
 
     return maxNumTiles;
@@ -1567,14 +1729,6 @@ InputTiling vpux::backInferEltwiseTile(mlir::Operation* op, const vpux::TileInfo
         inputTiles.push_back(curTile);
     }
     return TilingInfo{inputTiles};
-}
-
-std::shared_future<bool> checkSupportedTilingAsync(mlir::Operation* op, ShapeRef nTilesOnDim, TilingMode tilingMode,
-                                                   llvm::ThreadPoolTaskGroup& taskGroup, Logger log) {
-    return taskGroup.async([op, nTilesOnDim, tilingMode, log]() {
-        log.trace("[Async] Check tiling {0} for op {1}", nTilesOnDim, op->getLoc());
-        return mlir::succeeded(isSupportedTileSize(op, nTilesOnDim, tilingMode, log)) ? true : false;
-    });
 }
 
 // SWLayer
@@ -1714,30 +1868,82 @@ SmallVector<int64_t> vpux::getMaxNumTilesWithAxesExclusion(mlir::Operation* op, 
     return maxNumTiles;
 }
 
-// HWLayer
+namespace {
 
-mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode tilingMode,
-                                                                             DimArrRef tileDimOrder, Logger log) {
+inline bool compareShape(ShapeRef smallShape, ShapeRef bigShape, Dim dimToTile) {
+    VPUX_THROW_UNLESS(smallShape.size() == bigShape.size(), "Can't compare two shapes with different ranks");
+    VPUX_THROW_UNLESS(smallShape.size() >= static_cast<size_t>(dimToTile.ind()), "Dim to tile exceeds shape size");
+    return smallShape[dimToTile] < bigShape[dimToTile];
+}
+
+// Allow uneven tiling over OC, such as OC = 80 can be tiled as three tiles [32, 32, 16]
+bool isSupportedAlignedDivision(int64_t dimSize, int64_t tiles, int64_t alignment) {
+    auto base = vpux::divUp(dimSize, tiles);
+    auto alignedBase = alignValUp(base, alignment);
+    auto remainder = dimSize - alignedBase * (tiles - 1);
+    return remainder > 0;
+}
+
+void dimPlus(Shape& nTilesOnDim, Dim dimToTile, Dim dimToAlign, int64_t dimAlignment, ShapeRef outputShape,
+             ArrayRef<int64_t> maxNumTiles, const Logger& log) {
+    if (dimToTile == dimToAlign && dimAlignment != 1) {
+        do {
+            ++nTilesOnDim[dimToTile];
+        } while (!isSupportedAlignedDivision(outputShape[dimToTile], nTilesOnDim[dimToTile], dimAlignment) &&
+                 isDimLeftToTile(nTilesOnDim, maxNumTiles, dimToTile));
+    } else {
+        ++nTilesOnDim[dimToTile];
+    }
+    log.nest().trace("dimPlus: nTilesOnDim - {0}", nTilesOnDim);
+}
+
+void dimMinus(Shape& nTilesOnDim, Dim dimToTile, Dim dimToAlign, int64_t dimAlignment, ShapeRef outputShape,
+              const Logger& log) {
+    --nTilesOnDim[dimToTile];
+    // Skip the tiling numbers which are not aligned
+    while (dimToTile == dimToAlign && dimAlignment != 1 && nTilesOnDim[dimToTile] > 1 &&
+           !isSupportedAlignedDivision(outputShape[dimToTile], nTilesOnDim[dimToTile], dimAlignment)) {
+        --nTilesOnDim[dimToTile];
+    }
+    log.nest().trace("dimMinus: nTilesOnDim - {0}", nTilesOnDim);
+}
+
+void ensureNTilesIsCompatibleWithMultiCluster(mlir::Operation* op, Shape& nTilesOnDim, Dim dimToTile,
+                                              ShapeRef outputShape, TilingMode tilingModeToCheck, const Logger& log) {
+    const auto dimAlignInfo = getAlignDimAndSize(op);
+    auto dimToAlign = dimAlignInfo.first;
+    auto dimAlignment = dimAlignInfo.second;
+    auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+    while (nTilesOnDim[dimToTile] > 1) {
+        if (!mlir::failed(tiles)) {
+            auto isMCCompatible = isMultiClusterCompatibleForTiling(op, tiles.value(), log);
+            if (isMCCompatible) {
+                if (tilingModeToCheck == TilingMode::ISOLATED) {
+                    break;
+                }
+                const auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+                const auto isChannelDivisible = nceOp == nullptr || dimToTile != Dims4D::Act::C ||
+                                                VPU::isDivisibleTile(op, tiles.value()[0].axis, dimToTile);
+                if (isChannelDivisible) {
+                    break;
+                }
+            }
+        }
+        dimMinus(nTilesOnDim, dimToTile, dimToAlign, dimAlignment, outputShape, log);
+        tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+    }
+}
+
+}  // namespace
+
+// HWLayer
+mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrderForIsolatedOrPrefetch(
+        mlir::Operation* op, TilingMode tilingMode, DimArrRef tileDimOrder, ShapeRef outputShape, Logger log) {
     auto tilingInfo = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
     VPUX_THROW_WHEN(tilingInfo == nullptr, "Operation '{0}' doesn't implement TilingInfoOpInterface", op->getName());
     auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
     VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
                     op->getName());
-
-    const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
-
-    // NB: bounds information is used for tiling when dynamic shape is passed
-    // TODO: E#113258 this logic can be put inside getShape impelementation
-    const auto outputShape = [&outputType] {
-        const auto origOutputShape = outputType.getShape();
-        if (origOutputShape.isDynamic()) {
-            const auto bounds =
-                    parseIntArrayAttr<int64_t>(outputType.dyn_cast<vpux::BoundedTypeInterface>().getBounds());
-            return vpux::Shape(bounds.begin(), bounds.end());
-        }
-        return vpux::Shape(origOutputShape.begin(), origOutputShape.end());
-    }();
-
     VPUX_THROW_UNLESS(outputShape.size() == 4 || outputShape.size() == DimsGroups5D::Act::numDims,
                       "Unsupported operation '{0}' at '{1}', it has non 4D/5D result", op->getName(), op->getLoc());
 
@@ -1748,193 +1954,157 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrder(mli
     Shape nTilesOnDim(outputShape.size(), 1);
 
     auto tileDimIter = tileDimOrder.begin();
-    auto dimToTile = *tileDimIter;
 
-    // Allow uneven tiling over OC, such as OC = 80 can be tiled as three tiles [32, 32, 16]
-    const auto isSupportedAlignedDivision = [](int64_t dimSize, int64_t tiles, int64_t alignment) {
-        auto base = vpux::divUp(dimSize, tiles);
-        auto alignedBase = alignValUp(base, alignment);
-        auto remainder = dimSize - alignedBase * (tiles - 1);
-        return remainder > 0;
-    };
-
-    const auto& maxNumTiles = tilingBuilder.getMaxNumTiles();
+    const auto maxNumTiles = tileDimOrder.size() <= 1 ? tilingBuilder.getMaxNumTiles() : getMaxNumTiles(op, true);
 
     // In case of pipelining, an isolated tiling strategy is first created
     // Then the tiling number would be increased to get a pipelining tiling strategy
     // If no feasible pipelining tiling could be found, fallback to isolated tiling strategy
-    const auto tilingModeToCheck = tilingMode == TilingMode::PIPELINING ? TilingMode::ISOLATED : tilingMode;
 
-    auto dimPlus = [&](Shape& nTilesOnDim, Dim dimToTile) -> void {
-        if (dimToTile == dimToAlign && dimAlignment != 1) {
-            do {
-                ++nTilesOnDim[dimToTile];
-            } while (!isSupportedAlignedDivision(outputShape[dimToTile], nTilesOnDim[dimToTile], dimAlignment) &&
-                     isDimLeftToTile(nTilesOnDim, maxNumTiles, dimToTile));
-        } else {
-            ++nTilesOnDim[dimToTile];
-        }
-        log.nest().trace("dimPlus: nTilesOnDim - {0}", nTilesOnDim);
+    auto findMiddleTile = [&](Shape& small, Shape& big, Dim dimToTile) {
+        auto rank = small.size();
+        VPUX_THROW_UNLESS(rank == big.size(), "Can't get middle for two shapes with different ranks");
+        auto middle = Shape(small);
+        VPUX_THROW_UNLESS(small[dimToTile] < big[dimToTile], "small {0} and big {1} illegal", small, big);
+        middle[dimToTile] = (small[dimToTile] + big[dimToTile] + 1) / 2;
+        ensureNTilesIsCompatibleWithMultiCluster(op, middle, dimToTile, outputShape, tilingMode, log);
+        return middle;
     };
 
-    auto dimMinus = [&](Shape& nTilesOnDim, Dim dimToTile) -> void {
-        --nTilesOnDim[dimToTile];
-        // Skip the tiling numbers which are not aligned
-        while (dimToTile == dimToAlign && dimAlignment != 1 && nTilesOnDim[dimToTile] > 1 &&
-               !isSupportedAlignedDivision(outputShape[dimToTile], nTilesOnDim[dimToTile], dimAlignment)) {
-            --nTilesOnDim[dimToTile];
+    auto storeAndReturnFailure = [&]() -> mlir::FailureOr<OutputTiling> {
+        if (tilingMode == TilingMode::ISOLATED) {
+            log.nest(1).trace("Failed to tile {0} at '{1}'", op->getName(), op->getLoc());
+            return mlir::failure();
         }
-        log.nest().trace("dimMinus: nTilesOnDim - {0}", nTilesOnDim);
+        // If still not find the tiling strategy in PREFETCHING, fall back to neutral tiling
+        auto neutralTiling = Shape(outputShape.size(), 1);
+        auto tiles = fillDividedTiles(op, neutralTiling, outputShape);
+        if (mlir::failed(tiles)) {
+            return mlir::failure();
+        }
+        log.nest(1).trace("Fallback to neutral tiling while attempting prefetching: {0}", neutralTiling);
+        return tiles;
     };
 
-    // TODO E#107313: refactor to use the appropriate amount of threads
-    auto checkSupportedTilingMultithreaded = [op, dimPlus, log](Shape& nTilesOnDim, Dim dimToTile,
-                                                                ArrayRef<int64_t> maxNumTiles,
-                                                                TilingMode tilingMode) -> bool {
-        constexpr int64_t MAX_CONCURRENT_CHECKERS = 2;
-        SmallVector<std::shared_future<bool>> pendingCheckers;
-        SmallVector<Shape> tilingCandidates;
-        auto currTilesOnDim = nTilesOnDim;
-
-        auto ctx = op->getContext();
-        auto& threadPool = ctx->getThreadPool();
-        llvm::ThreadPoolTaskGroup taskGroup(threadPool);
-
-        // check supported tiling asynchronously
-        for (size_t i = 0; i < MAX_CONCURRENT_CHECKERS; i++) {
-            // number of tiles provided by dimPlus() might be larger than maxNumTiles
-            // so we only enqueue checker when tiles number is legal
-            if (currTilesOnDim[dimToTile] <= maxNumTiles[dimToTile.ind()]) {
-                tilingCandidates.push_back(currTilesOnDim);
-                pendingCheckers.push_back(
-                        checkSupportedTilingAsync(op, tilingCandidates.back(), tilingMode, taskGroup, log));
+    auto adjustTilingNumberOnDim = [&](Shape& left, Shape& right, Dim dimToTile) -> bool {
+        while (compareShape(left, right, dimToTile)) {
+            // Left not supported; right supported
+            // Now search for a smaller supported than right
+            auto middle = findMiddleTile(left, right, dimToTile);
+            if (!compareShape(left, middle, dimToTile) || !compareShape(middle, right, dimToTile)) {
+                log.trace("Search finished, left {0}, middle {1}, right {2}", left, middle, right);
+                return true;
             }
-
-            dimPlus(currTilesOnDim, dimToTile);
-        }
-
-        taskGroup.wait();
-
-        // synchronize the check results
-        bool isSupported = false;
-        for (size_t i = 0; i < pendingCheckers.size(); i++) {
-            nTilesOnDim = tilingCandidates[i];
-            isSupported = pendingCheckers[i].get();
-            if (isSupported) {
-                // supported tiling is found, break and return true
-                break;
+            log.trace("Iter left {0}, right {1}, middle {2}", left, right, middle);
+            if (mlir::succeeded(isSupportedTileSize(op, middle, tilingMode, log))) {
+                right = middle;
+                nTilesOnDim = std::move(middle);
+            } else {
+                left = std::move(middle);
             }
         }
-
-        return isSupported;
+        return false;
     };
 
-    auto checkSupportedTiling = [op, checkSupportedTilingMultithreaded, log](Shape& nTilesOnDim, Dim dimToTile,
-                                                                             ArrayRef<int64_t> maxNumTiles,
-                                                                             TilingMode tilingMode) -> bool {
-        if (op->getContext()->isMultithreadingEnabled()) {
-            return checkSupportedTilingMultithreaded(nTilesOnDim, dimToTile, maxNumTiles, tilingMode);
-        } else {
-            return mlir::succeeded(isSupportedTileSize(op, nTilesOnDim, tilingMode, log)) ? true : false;
-        }
-    };
-
-    auto ensureNTilesIsCompatibleWithMultiCluster = [dimMinus](mlir::Operation* op, Shape& nTilesOnDim, Dim dimToTile,
-                                                               ShapeRef outputShape, const Logger& log) {
-        auto tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
-        while (nTilesOnDim[dimToTile] > 1) {
-            if (!mlir::failed(tiles)) {
-                if (isMultiClusterCompatibleForTiling(op, tiles.value(), log)) {
-                    break;
-                }
+    // For small layers, binary search is less efficient than linear search
+    // Try the first small tiling numbers first to fix the compile time increases
+    auto tryFirstNSmallTiles = [&](Shape& smallTiling, Dim curDimToTile) -> bool {
+        auto cnt = 0;
+        while (cnt <= LINEAR_SEARCH_TIMES) {
+            cnt++;
+            dimPlus(smallTiling, curDimToTile, dimToAlign, dimAlignment, outputShape, maxNumTiles, log);
+            if (mlir::succeeded(isSupportedTileSize(op, smallTiling, tilingMode, log))) {
+                return true;
             }
-            dimMinus(nTilesOnDim, dimToTile);
-            tiles = fillDividedTiles(op, nTilesOnDim, outputShape);
         }
-    };
-    // If input or filter is too big, the operation can't be fit into cmx even all the first dim tiled.
-    // So decrease the next dim firstly to make first dim can be tiled exactly.
-    auto feasibleNextDim = [&](Shape& nTilesOnDim, Dim dimToTile) -> void {
-        if (tileDimOrder.size() <= 1) {
-            return;
-        }
-
-        auto newTilesOnDim = nTilesOnDim;
-        newTilesOnDim[dimToTile] = maxNumTiles[dimToTile.ind()];
-
-        // If the maximum of number tiles on current dimension is not supported because of incompatible multicluster
-        // strategy decrease the number of tiles until the multicluster strategy is compatible again
-        ensureNTilesIsCompatibleWithMultiCluster(op, newTilesOnDim, dimToTile, outputShape, log);
-
-        log.trace("feasibleNextDim: maxNumTiles - {0}, newTilesOnDim init value - {1}, nTilesOnDim init value - {2}",
-                  maxNumTiles, newTilesOnDim, nTilesOnDim);
-
-        auto nextTileDimIter = tileDimIter;
-        ++nextTileDimIter;
-        while ((nextTileDimIter < tileDimOrder.end()) &&
-               (!checkSupportedTiling(newTilesOnDim, *nextTileDimIter, maxNumTiles, tilingModeToCheck))) {
-            if (!isDimLeftToTile(newTilesOnDim, maxNumTiles, *nextTileDimIter)) {
-                // If the number of tiles on current dimension is not supported because of incompatible multicluster
-                // strategy decrease the number of tiles until the multicluster strategy is compatible again
-                ensureNTilesIsCompatibleWithMultiCluster(op, newTilesOnDim, *nextTileDimIter, outputShape, log);
-                nTilesOnDim[*nextTileDimIter] = newTilesOnDim[*nextTileDimIter];
-                ++nextTileDimIter;
-                continue;
-            }
-
-            dimPlus(newTilesOnDim, *nextTileDimIter);
-        }
-
-        if (nextTileDimIter != tileDimOrder.end()) {
-            nTilesOnDim[*nextTileDimIter] = newTilesOnDim[*nextTileDimIter];
-        }
+        return false;
     };
 
-    // Step1. get an feasible isolated tiling strategy or prefetching strategy
-    // feasibleNextDim to firstly fix the second dim with a proper tile number to reduce time
-    feasibleNextDim(nTilesOnDim, dimToTile);
-    log.trace("feasibleNextDim: final feasible nTilesOnDim - {0}", nTilesOnDim);
-    while (!checkSupportedTiling(nTilesOnDim, dimToTile, maxNumTiles, tilingModeToCheck)) {
-        // Move to next dim if current dim can not go on
-        // TODO: remove or refactor it as below while logic hardly get into
-        while ((tileDimIter < tileDimOrder.end()) && (!isDimLeftToTile(nTilesOnDim, maxNumTiles, dimToTile))) {
-            // If the number of tiles on current dimension is not supported because of incompatible multicluster
-            // strategy decrease the number of tiles until the multicluster strategy is compatible again
-            ensureNTilesIsCompatibleWithMultiCluster(op, nTilesOnDim, dimToTile, outputShape, log);
-            dimToTile = *(++tileDimIter);
+    auto left = nTilesOnDim;
+    auto right = nTilesOnDim;
+    // Binary search the minimum tiling number to meet the tiling mode requirement
+    while (tileDimIter < tileDimOrder.end()) {
+        log.trace("searching tileDim {0}", *tileDimIter);
+        right[*tileDimIter] = maxNumTiles[(*tileDimIter).ind()];
+        ensureNTilesIsCompatibleWithMultiCluster(op, left, *tileDimIter, outputShape, tilingMode, log);
+        ensureNTilesIsCompatibleWithMultiCluster(op, right, *tileDimIter, outputShape, tilingMode, log);
+        log.trace("original left {0} and right {1}", left, right);
+        // Check edge to make sure the left bound is unsupported and right bound is supported
+        if (mlir::succeeded(isSupportedTileSize(op, left, tilingMode, log))) {
+            nTilesOnDim = left;
+            log.trace("Find left tileDim supported {0}", left);
+            break;
+        }
+        if (tryFirstNSmallTiles(left, *tileDimIter)) {
+            nTilesOnDim = left;
+            log.trace("Find small tiling supported {0}", left);
+            break;
+        }
+        if (mlir::failed(isSupportedTileSize(op, right, tilingMode, log)) || !compareShape(left, right, *tileDimIter)) {
+            log.trace("right {0} unsupported, goto next dim {1}", right, *tileDimIter);
+            left[*tileDimIter] = right[*tileDimIter];
+            tileDimIter++;
             if (tileDimIter == tileDimOrder.end()) {
-                if (tilingModeToCheck == TilingMode::ISOLATED) {
-                    log.nest(1).trace("Failed to tile {0} at '{1}'", op->getName(), op->getLoc());
-                    return mlir::failure();
-                }
-                // If still not find the tiling strategy in PREFETCHING, fall back to neutral tiling
-                auto neutralTiling = Shape(outputShape.size(), 1);
-                log.nest(1).trace("Fallback to neutral tiling while attempting prefetching: {0}", neutralTiling);
-                return fillDividedTiles(op, neutralTiling, outputShape);
+                log.trace("dim end but tiling not found");
+                return storeAndReturnFailure();
             }
+            continue;
         }
-
-        // Tile current dim to find a proper number
-        dimPlus(nTilesOnDim, dimToTile);
+        nTilesOnDim = right;
+        if (!adjustTilingNumberOnDim(left, right, *tileDimIter)) {
+            left[*tileDimIter] = right[*tileDimIter];
+            tileDimIter++;
+            if (tileDimIter == tileDimOrder.end()) {
+                return storeAndReturnFailure();
+            }
+        } else {
+            log.trace("Converged to {0}", nTilesOnDim);
+            break;
+        }
     }
+
+    // Decrease the first dim until the tiling is just supported
+    auto firstDimIter = tileDimOrder.begin();
+    left = nTilesOnDim;
+    left[*firstDimIter] = 1;
+    right = nTilesOnDim;
+
+    if (mlir::succeeded(isSupportedTileSize(op, left, tilingMode, log))) {
+        nTilesOnDim = std::move(left);
+    } else {
+        adjustTilingNumberOnDim(left, right, *firstDimIter);
+    }
+    log.trace("Decreased first dim to {0}", nTilesOnDim);
 
     auto dimsToTile = getNonOneDim(nTilesOnDim);
-    auto isolatedTiles = fillDividedTiles(op, nTilesOnDim, outputShape);
+    return fillDividedTiles(op, nTilesOnDim, outputShape);
+}
 
-    if (tilingMode != TilingMode::PIPELINING) {
-        // return isolated tiling when getting nested tiles.
-        log.nest(1).trace("Return isolated strategy: {0}", nTilesOnDim);
-        return isolatedTiles;
-    }
+OutputTiling vpux::getHWLayerTilingStrategyWithTileDimOrderForPipelining(mlir::Operation* op, ShapeRef outputShape,
+                                                                         const OutputTiling& isolatedTiles,
+                                                                         Logger log) {
+    // For pipelining, continue to increase on the dimension of isolated tiling
+    // or on the channel dimension in case of neutral tiling to cover cases with large constants
 
+    VPUX_THROW_WHEN(isolatedTiles.empty(), "Empty tiles for op '{0}'", op->getLoc());
+    auto nTilesOnDim = isolatedTiles.front().axis;
+    auto dimsToTile = getNonOneDim(nTilesOnDim);
     if (dimsToTile.size() > 1) {
         log.nest(1).trace("Fallback to isolated strategy due to nested tiling: {0}", nTilesOnDim);
         return isolatedTiles;
     }
 
-    // Step2. For pipelining, continue to increase on the dimension of isolated tiling
-    //        or on the channel dimension in case of neutral tiling to cover cases with large constants
-    const auto targetDim = dimsToTile.size() == 0 ? Dims4D::Act::C : dimsToTile[0];
+    auto tilingBuilder = mlir::cast<VPU::TilingBuilderOpInterface>(op);
+    const auto& maxNumTiles = tilingBuilder.getMaxNumTiles();
+    const auto dimAlignInfo = getAlignDimAndSize(op);
+    auto dimToAlign = dimAlignInfo.first;
+    auto dimAlignment = dimAlignInfo.second;
+
+    // For pipelining, continue to increase on the dimension of isolated tiling or on the channel dimension in case of
+    // neutral tiling to cover cases with large constants
+    // #E152765 - generic support for GNCHW
+    auto dimActC = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
+    const auto targetDim = dimsToTile.size() == 0 ? dimActC : dimsToTile[0];
     Shape prefetchableTilesOnDim = nTilesOnDim;
     log.trace("Attempting to generate tiling strategy for pipelining");
     while (mlir::failed(isSupportedTileSize(op, prefetchableTilesOnDim, TilingMode::PIPELINING, log))) {
@@ -1957,14 +2127,68 @@ mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrder(mli
     }
 
     log.trace("Pipelining tiling strategy: {0}", prefetchableTilesOnDim);
-    return fillDividedTiles(op, prefetchableTilesOnDim, outputShape);
+    auto pipeliningTiles = fillDividedTiles(op, prefetchableTilesOnDim, outputShape);
+    if (mlir::failed(pipeliningTiles)) {
+        return isolatedTiles;
+    }
+    return pipeliningTiles.value();
+}
+
+mlir::FailureOr<HWTilingStrategies> vpux::getHWLayerTilingStrategiesWithTileDimOrder(mlir::Operation* op,
+                                                                                     TilingMode tilingMode,
+                                                                                     DimArrRef tileDimOrder,
+                                                                                     Logger log) {
+    const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
+
+    // NB: bounds information is used for tiling when dynamic shape is passed
+    // TODO: E#113258 this logic can be put inside getShape impelementation
+    const auto outputShape = [&outputType] {
+        const auto origOutputShape = outputType.getShape();
+        if (origOutputShape.isDynamic()) {
+            const auto bounds =
+                    parseIntArrayAttr<int64_t>(outputType.dyn_cast<vpux::BoundedTypeInterface>().getBounds());
+            return vpux::Shape(bounds.begin(), bounds.end());
+        }
+        return vpux::Shape(origOutputShape.begin(), origOutputShape.end());
+    }();
+
+    // In case of pipelining, an isolated tiling strategy is first created
+    // Then the tiling number would be increased to get a pipelining tiling strategy
+    // If no feasible pipelining tiling could be found, fallback to isolated tiling strategy
+    const auto tilingModeToCheck = tilingMode == TilingMode::PIPELINING ? TilingMode::ISOLATED : tilingMode;
+    auto& cache = VPU::OpTilingCache::instance();
+    const auto opHash = cache.calculateOpHash(op, tileDimOrder);
+    auto isolatedTiles = cache.getHWLayerTilingStrategyWithTileDimOrder(op, opHash, tilingModeToCheck, tileDimOrder,
+                                                                        outputShape, std::nullopt, log);
+    if (mlir::failed(isolatedTiles)) {
+        return mlir::failure();
+    }
+
+    if (tilingMode != TilingMode::PIPELINING) {
+        return HWTilingStrategies{isolatedTiles.value(), isolatedTiles.value()};
+    }
+    auto pipelineTiles = cache.getHWLayerTilingStrategyWithTileDimOrder(op, opHash, TilingMode::PIPELINING,
+                                                                        tileDimOrder, outputShape, isolatedTiles, log);
+    if (mlir::failed(pipelineTiles)) {
+        return HWTilingStrategies{isolatedTiles.value(), isolatedTiles.value()};
+    }
+
+    return HWTilingStrategies{isolatedTiles.value(), pipelineTiles.value()};
+}
+
+mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode tilingMode,
+                                                                             DimArrRef tileDimOrder, Logger log) {
+    auto tilingResult = vpux::getHWLayerTilingStrategiesWithTileDimOrder(op, tilingMode, tileDimOrder, log);
+    if (mlir::failed(tilingResult)) {
+        return mlir::failure();
+    }
+    return tilingResult->pipeliningStrategy;
 }
 
 mlir::FailureOr<OutputTiling> vpux::getHWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log) {
     const auto tileDimOrder = getTileDimOrder(op, tilingMode, log);
     log.nest(2).trace("Tile Dim order is {0}", tileDimOrder);
-    auto& cache = VPU::OpTilingCache::instance();
-    return cache.getHWLayerTilingStrategyWithTileDimOrder(op, tilingMode, tileDimOrder, log);
+    return getHWLayerTilingStrategyWithTileDimOrder(op, tilingMode, tileDimOrder, log);
 }
 
 bool vpux::isDimLeftToTile(ShapeRef curNumTiles, ArrayRef<int64_t> maxNumTiles, Dim testTileDim) {
@@ -2003,7 +2227,8 @@ mlir::FailureOr<OutputTiling> vpux::isSupportedTileSize(mlir::Operation* op, Sha
 
 std::pair<Dim, int64_t> vpux::getAlignDimAndSize(mlir::Operation* op) {
     int64_t dimAlignment = 1;
-    auto dimToAlign = Dims4D::Act::C;
+    // #E152765 - generic support for GNCHW
+    auto dimToAlign = mlir::isa<VPU::NCEMatMulOp>(op) ? DimsGroups5D::Act::C : Dims4D::Act::C;
 
     if (auto channelsInfo = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
         dimAlignment = channelsInfo.getOutputChannelAlignment();
@@ -2018,6 +2243,26 @@ std::pair<Dim, int64_t> vpux::getAlignDimAndSize(mlir::Operation* op) {
     }
 
     return std::make_pair(dimToAlign, dimAlignment);
+}
+
+bool vpux::isNewTileWithSameCostHasPotentialDMABenefits(mlir::Operation* op, ShapeRef currentTileAxis,
+                                                        ShapeRef newTileAxis) {
+    auto inputDimOrder = DimsOrder::fromValue(op->getOperand(0));
+
+    VPUX_THROW_UNLESS(currentTileAxis.size() == newTileAxis.size(),
+                      "currentTileAxis {0} should have the same dimension size as newTileAxis {1}", currentTileAxis,
+                      newTileAxis);
+
+    auto currentMemoryTile = inputDimOrder.toMemoryOrder(currentTileAxis);
+    auto newMemoryTile = inputDimOrder.toMemoryOrder(newTileAxis);
+
+    // Choose the tiling strategy with fewer tiles in the lower dimensions
+    // Scenario 1: Same tile number, NHWC, Tile [1, 4, 8, 1] is better than Tile [1, 8, 4, 1]
+    // Scenario 2: Different tile number, NHWC, Tile [1, 4, 8, 1] is better than Tile [1, 6, 4, 1]
+    // Considering the same 'DPU + DMA' cost, there are more possible benefits from the higher continuous data movement
+    // with a smaller tiling number in the lower dimensions
+    return std::lexicographical_compare(newMemoryTile.rbegin(), newMemoryTile.rend(), currentMemoryTile.rbegin(),
+                                        currentMemoryTile.rend());
 }
 
 // Allow uneven tiling over OC, such as OC = 80 can be tiled as three tiles [32, 32, 16]
@@ -2069,4 +2314,126 @@ std::optional<Dim> vpux::getMaxNonOneDim(ShapeRef inputShape) {
         return std::nullopt;
     }
     return maxNonOneDim;
+}
+
+// Optimize the compilation time by optimizing heuristic search permutations before calculating tiling strategy
+SmallVector<SmallVector<Dim>> getValidPermutations(mlir::Operation* op, TilingMode tilingMode,
+                                                   SmallVector<Dim>& dimensions, Logger log) {
+    auto tilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
+    VPUX_THROW_WHEN(tilingBuilder == nullptr, "Operation '{0}' doesn't implement TilingBuilderOpInterface",
+                    op->getName());
+    // Generate 1-dim and 2-dim permutations, skip 3-dim permutations
+    // dimensions = [C, H, W]
+    // oneDimPermutations = [C], [H], [W]
+    // twoDimPermutations = [C, H], [C, W], [H, W], [H, C], [W, C], [W, H]
+    SmallVector<SmallVector<Dim>> oneDimPermutations;
+    SmallVector<SmallVector<Dim>> twoDimPermutations;
+    SmallVector<SmallVector<Dim>> validPermutationsRes;
+    for (const auto& dim : dimensions) {
+        oneDimPermutations.push_back({dim});
+    }
+    for (size_t i = 0; i < dimensions.size(); ++i) {
+        for (size_t j = 0; j < dimensions.size(); ++j) {
+            if (i != j) {
+                twoDimPermutations.push_back({dimensions[i], dimensions[j]});
+            }
+        }
+    }
+
+    const auto outputShape = getShape(op->getResult(0));
+    const auto& maxNumTiles = tilingBuilder.getMaxNumTiles();
+    const auto tilingModeToCheck = tilingMode == TilingMode::PIPELINING ? TilingMode::ISOLATED : tilingMode;
+
+    Shape maxTilesOnDim(outputShape.size(), 1);
+    for (auto dimToTile : dimensions) {
+        Shape newTilesOnDim(outputShape.size(), 1);
+        newTilesOnDim[dimToTile] = maxNumTiles[dimToTile.ind()];
+        // If the number of tiles on current dimension is not supported because of incompatible multicluster
+        // strategy decrease the number of tiles until the multicluster strategy is compatible again
+        ensureNTilesIsCompatibleWithMultiCluster(op, newTilesOnDim, dimToTile, outputShape, tilingModeToCheck, log);
+        maxTilesOnDim[dimToTile] = newTilesOnDim[dimToTile];
+    }
+
+    const auto isValidPermutation = [&](ArrayRef<Dim> permutation) -> bool {
+        Shape tilesOnDim(outputShape.size(), 1);
+        for (auto dimToTile : permutation) {
+            tilesOnDim[dimToTile] = maxTilesOnDim[dimToTile];
+        }
+        // If operation tiling with maxTilesOnDim on current dimension
+        // can not fit into CMX, this permutation is invalid
+        if (mlir::failed(isSupportedTileSize(op, tilesOnDim, tilingModeToCheck, log))) {
+            return false;
+        }
+        return true;
+    };
+
+    // Check 1-dim permutations
+    for (const auto& oneDimPermutation : oneDimPermutations) {
+        if (isValidPermutation(oneDimPermutation)) {
+            validPermutationsRes.push_back(oneDimPermutation);
+        }
+    }
+
+    // Stop checking 2-dim permutations, if any 1-dim permutations are valid
+    if (!validPermutationsRes.empty()) {
+        return validPermutationsRes;
+    }
+
+    // Check 2-dim permutations
+    std::set<std::set<Dim>> invalidPermutationSet;
+    std::set<std::set<Dim>> validPermutationSet;
+    for (const auto& twoDimPermutation : twoDimPermutations) {
+        std::set<Dim> permutationSet(twoDimPermutation.begin(), twoDimPermutation.end());
+        // If [C, H] is invalid, [H, C] is also invalid
+        if (invalidPermutationSet.find(permutationSet) != invalidPermutationSet.end()) {
+            continue;
+        }
+        // If [C, H] is valid, [H, C] is also valid
+        if (validPermutationSet.find(permutationSet) != validPermutationSet.end()) {
+            validPermutationsRes.push_back(twoDimPermutation);
+            continue;
+        }
+        if (!isValidPermutation(twoDimPermutation)) {
+            invalidPermutationSet.insert(permutationSet);
+        } else {
+            validPermutationSet.insert(permutationSet);
+            validPermutationsRes.push_back(twoDimPermutation);
+        }
+    }
+    return validPermutationsRes;
+}
+
+SmallVector<Dim> getValidNonOneDim(ShapeRef inputShape, DimArrRef tileDimOrder) {
+    SmallVector<Dim> nonOneDims;
+    for (auto dim : tileDimOrder) {
+        if (inputShape[dim] != 1) {
+            nonOneDims.push_back(dim);
+        }
+    }
+    return nonOneDims;
+}
+
+SmallVector<OutputTiling> vpux::getAllHWLayerTilingStrategies(mlir::Operation* op, TilingMode tilingMode,
+                                                              DimArrRef tileDimOrder, Logger log) {
+    SmallVector<OutputTiling> feasibleStrategies;
+    const auto outputShape = getShape(op->getResult(0));
+    auto dimensions = getValidNonOneDim(outputShape, tileDimOrder);
+    auto validPermutations = getValidPermutations(op, tilingMode, dimensions, log);
+
+    auto insertStrategy = [&](const OutputTiling& strategy) {
+        if (std::find(feasibleStrategies.begin(), feasibleStrategies.end(), strategy) == feasibleStrategies.end() &&
+            getNonOneDim(strategy[0].axis).size() >= 1) {
+            feasibleStrategies.push_back(strategy);
+        }
+    };
+
+    for (const auto& permutation : validPermutations) {
+        auto tileStrategy = vpux::getHWLayerTilingStrategiesWithTileDimOrder(op, tilingMode, permutation, log);
+        if (mlir::succeeded(tileStrategy)) {
+            insertStrategy(tileStrategy->isolatedStrategy);
+            insertStrategy(tileStrategy->pipeliningStrategy);
+        }
+    }
+
+    return feasibleStrategies;
 }

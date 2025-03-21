@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @LogicalAndBroadcastable
 func.func @LogicalAndBroadcastable(%arg0: tensor<1x28x300x1xf16>, %arg1: tensor<1x1x300x28xf16>) -> tensor<1x28x300x28xi8> {
     %0 = IE.Convert(%arg0) {dstElemType = i8} : tensor<1x28x300x1xf16> -> tensor<1x28x300x1xi8>

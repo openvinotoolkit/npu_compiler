@@ -23,7 +23,9 @@ public:
     }
 
     RelocManager() = delete;
+    ~RelocManager() = default;
     RelocManager(RelocManager& other) = delete;
+    RelocManager& operator=(const RelocManager&) = delete;
 
     void createRelocations(ELF::RelocatableOpInterface relocatableOp);
 

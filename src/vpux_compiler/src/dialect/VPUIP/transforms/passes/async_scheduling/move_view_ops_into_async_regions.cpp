@@ -15,6 +15,12 @@
 
 #include <algorithm>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_MOVEVIEWOPSINTOASYNCREGIONS
+#define GEN_PASS_DEF_MOVEVIEWOPSINTOASYNCREGIONS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -85,7 +91,7 @@ mlir::LogicalResult AsyncRegionRewriter::matchAndRewrite(mlir::async::ExecuteOp 
 //
 
 class MoveViewOpsIntoAsyncRegionsPass final :
-        public VPUIP::MoveViewOpsIntoAsyncRegionsBase<MoveViewOpsIntoAsyncRegionsPass> {
+        public VPUIP::impl::MoveViewOpsIntoAsyncRegionsBase<MoveViewOpsIntoAsyncRegionsPass> {
 public:
     explicit MoveViewOpsIntoAsyncRegionsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

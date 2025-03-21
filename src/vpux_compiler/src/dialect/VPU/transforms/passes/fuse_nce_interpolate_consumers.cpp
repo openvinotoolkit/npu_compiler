@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
@@ -10,6 +11,12 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_FUSENCEINTERPOLATECONSUMERS
+#define GEN_PASS_DEF_FUSENCEINTERPOLATECONSUMERS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 namespace {
@@ -65,7 +72,7 @@ mlir::LogicalResult FuseNCEInterpolateConsumers::matchAndRewrite(VPU::NCEInterpo
 //
 
 class FuseNCEInterpolateConsumersPass final :
-        public VPU::FuseNCEInterpolateConsumersBase<FuseNCEInterpolateConsumersPass> {
+        public VPU::impl::FuseNCEInterpolateConsumersBase<FuseNCEInterpolateConsumersPass> {
 public:
     explicit FuseNCEInterpolateConsumersPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

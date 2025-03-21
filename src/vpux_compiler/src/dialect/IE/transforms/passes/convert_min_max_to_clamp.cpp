@@ -6,11 +6,18 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTMINMAXTOCLAMP
+#define GEN_PASS_DEF_CONVERTMINMAXTOCLAMP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -20,7 +27,7 @@ namespace {
 // ConvertMinMaxToClampPass
 //
 
-class ConvertMinMaxToClampPass final : public IE::ConvertMinMaxToClampBase<ConvertMinMaxToClampPass> {
+class ConvertMinMaxToClampPass final : public IE::impl::ConvertMinMaxToClampBase<ConvertMinMaxToClampPass> {
 public:
     explicit ConvertMinMaxToClampPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

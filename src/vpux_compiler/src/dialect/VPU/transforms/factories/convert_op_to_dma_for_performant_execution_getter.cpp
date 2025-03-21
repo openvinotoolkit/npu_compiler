@@ -13,14 +13,9 @@ using namespace vpux::VPU;
 
 std::unique_ptr<vpux::IConversionPassStrategy> vpux::VPU::createConvertOpToDMAForPerformantExecutionStrategy(
         ArchKind arch) {
-    switch (arch) {
-    case VPU::ArchKind::NPU40XX: {
+    if (arch >= VPU::ArchKind::NPU40XX) {
         return std::make_unique<arch40xx::ConvertOpToDMAForPerformantExecutionStrategy>();
     }
-    case ArchKind::UNKNOWN:
-    default: {
-        // TODO : E#118296 Other ops and architectures will be enabled.
-        VPUX_THROW("Currently ConvertOpToDMAForPerformantExecutionStrategy is available for NPU40XX arch");
-    }
-    }
+    // TODO : E#-118296 Other ops and architectures will be enabled.
+    VPUX_THROW("Currently ConvertOpToDMAForPerformantExecutionStrategy is available for NPU40XX arch");
 }

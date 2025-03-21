@@ -128,7 +128,6 @@ TEST_P(EyeLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 TEST_P(EyeLayerTestWithConstantFoldingCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);

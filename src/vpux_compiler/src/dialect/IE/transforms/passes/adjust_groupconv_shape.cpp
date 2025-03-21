@@ -8,9 +8,16 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTGROUPCONVSHAPE
+#define GEN_PASS_DEF_ADJUSTGROUPCONVSHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -380,7 +387,7 @@ mlir::LogicalResult SliceGroupConvInput::matchAndRewrite(IE::GroupConvolutionOp 
 // AdjustGroupConvShape
 //
 
-class AdjustGroupConvShapePass final : public IE::AdjustGroupConvShapeBase<AdjustGroupConvShapePass> {
+class AdjustGroupConvShapePass final : public IE::impl::AdjustGroupConvShapeBase<AdjustGroupConvShapePass> {
 public:
     explicit AdjustGroupConvShapePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

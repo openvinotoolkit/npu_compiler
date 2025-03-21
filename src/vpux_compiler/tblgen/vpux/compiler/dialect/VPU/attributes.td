@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPU_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPU/attr_interfaces.td"
 include "vpux/compiler/dialect/VPU/dialect.td"
 
@@ -47,7 +47,7 @@ def VPU_ArchKind :
             [
                 I64EnumAttrCase<"UNKNOWN", 0>,
                 I64EnumAttrCase<"NPU37XX", 3>,
-                I64EnumAttrCase<"NPU40XX", 4>
+                I64EnumAttrCase<"NPU40XX", 4>,
             ]
         > {
 }
@@ -125,9 +125,8 @@ def VPU_CompilationMode  :
             "Compilation Mode",
             [
                 I64EnumAttrCase<"ReferenceSW",  0>,
-                I64EnumAttrCase<"ReferenceHW",  1>,
-                I64EnumAttrCase<"DefaultHW",    2>,
-                I64EnumAttrCase<"ShaveCodeGen", 3>
+                I64EnumAttrCase<"DefaultHW",    1>,
+                I64EnumAttrCase<"ShaveCodeGen", 2>
             ]
         > {
 }
@@ -313,7 +312,8 @@ def VPU_MPEMode :
                 I64EnumAttrCase<"CUBOID_16x16", 3>,
                 I64EnumAttrCase<"CUBOID_8x16",  4>,
                 I64EnumAttrCase<"CUBOID_4x16",  5>,
-                I64EnumAttrCase<"NOP",          6>
+                I64EnumAttrCase<"DCIM",         6>,
+                I64EnumAttrCase<"NOP",          7>
             ]
         > {
 }
@@ -507,6 +507,23 @@ def VPU_MultiClusterStrategy :
 def VPU_MultiClusterStrategyAttr : VPU_EnumAttr<VPU_MultiClusterStrategy, "multi_cluster_strategy">;
 
 //
+// MultiClusterOptimizationScope
+//
+
+def VPU_MCOptimizationScope :
+        VPU_I64EnumAttr<
+            "MCOptimizationScope",
+            "Selects the scope of optimization to perform on multicluster strategy selection",
+            [
+                I64EnumAttrCase<"LOCAL",    0>,    // Greedy layer-wise strategy applied
+                I64EnumAttrCase<"SUBGRAPH", 1>     // Subgraph optimization based on dynamically built subgraphs
+            ]
+        > {
+}
+
+def VPU_MCOptimizationScopeAttr : VPU_EnumAttr<VPU_MCOptimizationScope, "mc_optimization_scope">;
+
+//
 // NCE Interpolate
 //
 
@@ -552,12 +569,12 @@ def VPU_DistributionModeAttr : VPU_EnumAttr<VPU_DistributionMode, "tensor_distri
 // mode - hint for how data and compute are distributed across clusters
 //      * SEGMENTED - data and compute is split in a simple manner across clusters
 //      not taking into account the overlap lines. This is possible for
-//      input tensors in NPU3XXX since HW can read the overlap lines from
+//      input tensors in VPUX3XXX since HW can read the overlap lines from
 //      neighboring clusters.
 //          * for NPU40XX we continue to use SEGMENTED yet we take into account the overlap
 //          lines, this is intended to be improve in the future, for easier understanding
 //      * OVERLAPPED - data is split taking into account the overlap lines in
-//      memory, compute does not differ from SEGMENTED. This is done for NPU3XXX for the
+//      memory, compute does not differ from SEGMENTED. This is done for VPUX3XXX for the
 //      layers which can't perform intercluster read accesses, and for all case in NPU40XX
 //      and following.
 //      * DUPLICATED - both data and compute are duplicated on the specified clusters.
@@ -989,6 +1006,10 @@ def VPU_SEPaddingAttr : VPU_Attr<"SEPadding", [
         OptionalParameter<"mlir::ArrayAttr">:$sizes
     );
 
+    let extraClassDeclaration = [{
+        std::tuple<Shape, Shape, Shape> inferPadInputTileParams(ShapeRef outputTileOffset, ShapeRef outputTileShape, ShapeRef inputShape) const;
+    }];
+
     let assemblyFormat = "`<` struct(params) `>`";
     let genVerifyDecl = 1;
 }
@@ -1153,5 +1174,26 @@ def VPU_M2iInterp :
 }
 
 def VPU_M2iInterpAttr : VPU_EnumAttr<VPU_M2iInterp, "m2i_interp">;
+
+//
+// TaskType
+//
+
+def VPU_TaskType :
+    VPU_I64EnumAttr<
+        "TaskType",
+        "The type of processing code relevant to the VPU task",
+        [
+            I64EnumAttrCase<"DMA",                 0>,
+            I64EnumAttrCase<"ActKernelInvocation", 1>,
+            I64EnumAttrCase<"ActKernelRange",      2>,
+            I64EnumAttrCase<"DPUInvariant",        3>,
+            I64EnumAttrCase<"DPUVariant",          4>,
+            I64EnumAttrCase<"M2I",                 5>
+        ]
+    > {
+}
+
+def VPU_TaskTypeAttr : VPU_EnumAttr<VPU_TaskType, "reg_task_type">;
 
 #endif

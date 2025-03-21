@@ -28,8 +28,21 @@ extern "C" {
 #define DLLEXPORT __attribute__((visibility("default")))
 #endif
 
-DLLEXPORT vcl_result_t vclCompilerCreate(vcl_compiler_desc_t desc, vcl_compiler_handle_t* compiler,
-                                         vcl_log_handle_t* logHandle) {
+DLLEXPORT vcl_result_t vclGetVersion(vcl_version_info_t* compilerVersion, vcl_version_info_t* profilingVersion) {
+    if (!compilerVersion || !profilingVersion) {
+        return VCL_RESULT_ERROR_INVALID_ARGUMENT;
+    }
+
+    compilerVersion->major = VCL_COMPILER_VERSION_MAJOR;
+    compilerVersion->minor = VCL_COMPILER_VERSION_MINOR;
+    profilingVersion->major = VCL_PROFILING_VERSION_MAJOR;
+    profilingVersion->minor = VCL_PROFILING_VERSION_MINOR;
+
+    return VCL_RESULT_SUCCESS;
+}
+
+DLLEXPORT vcl_result_t vclCompilerCreate(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc,
+                                         vcl_compiler_handle_t* compiler, vcl_log_handle_t* logHandle) {
     VPUXDriverCompiler::VCLLogger* vclLogger = nullptr;
     if (logHandle != nullptr) {
         /// Create logger which saves latest error messages, output other messages to terminal
@@ -45,38 +58,8 @@ DLLEXPORT vcl_result_t vclCompilerCreate(vcl_compiler_desc_t desc, vcl_compiler_
         return VCL_RESULT_ERROR_INVALID_ARGUMENT;
     }
 
-    /// Set all default configs here
-    std::map<std::string, std::string> config;
-    config[ov::intel_npu::compiler_type.name()] = "MLIR";
-
-    /// Set default log level based on the compiler description passed by user
-    auto& log_level = config[ov::log::level.name()];
-    switch (desc.debug_level) {
-    case VCL_LOG_NONE:
-        log_level = "LOG_NONE";
-        break;
-    case VCL_LOG_ERROR:
-        log_level = "LOG_ERROR";
-        break;
-    case VCL_LOG_WARNING:
-        log_level = "LOG_WARNING";
-        break;
-    case VCL_LOG_INFO:
-        log_level = "LOG_INFO";
-        break;
-    case VCL_LOG_DEBUG:
-        log_level = "LOG_DEBUG";
-        break;
-    case VCL_LOG_TRACE:
-        log_level = "LOG_TRACE";
-        break;
-    default:
-        log_level = "LOG_ERROR";
-        desc.debug_level = VCL_LOG_ERROR;
-    };
-
     /// Change the output level of logger
-    int debugLevel = static_cast<int>(desc.debug_level);
+    int debugLevel = static_cast<int>(compilerDesc->debugLevel);
     if (debugLevel > 0) {
         // OV does not have CONFIG_VALUE(LOG_FATAL), so does not use LogLevel::Fatal in VCL.
         vclLogger->setLevel(static_cast<LogLevel>(debugLevel + 1));
@@ -85,7 +68,7 @@ DLLEXPORT vcl_result_t vclCompilerCreate(vcl_compiler_desc_t desc, vcl_compiler_
     /// Create compiler
     VPUXDriverCompiler::VPUXCompilerL0* pCompiler = nullptr;
     try {
-        pCompiler = new VPUXDriverCompiler::VPUXCompilerL0(desc, config, vclLogger);
+        pCompiler = new VPUXDriverCompiler::VPUXCompilerL0(compilerDesc, deviceDesc, vclLogger);
         *compiler = reinterpret_cast<vcl_compiler_handle_t>(pCompiler);
     } catch (const std::exception& error) {
         vclLogger->outputError(error.what());

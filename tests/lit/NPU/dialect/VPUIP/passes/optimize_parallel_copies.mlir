@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-parallel-copies %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @OptimizeParallelConstCopies(
@@ -2150,4 +2149,222 @@ func.func @NotOptimizeConstCopyForDynamicReshape(%arg0: memref<100xsi32, [@CMX_N
     // CHECK:        }
 
     // CHECK:        return [[RESULTS_0]], [[RESULTS_1]] : memref<1x100xsi32, [@CMX_NN, 0]>, memref<1x2xsi32, [@CMX_NN, 0]>
+}
+
+// -----
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!Weights_table_CMX = memref<128x1x1x4xsi32, @CMX_NN>
+func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256xf16, @DDR>, %arg1: memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR> {
+    %cst_0 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<256x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
+    %cst_1 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<256x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[128, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
+    %table = memref.alloc() : !Weights_table_CMX
+    %0 = VPUIP.GenericReshape inputs(%arg0 : memref<1x1024x256xf16, @DDR>) -> memref<1024x256x1x1xf16, @DDR>
+    %1 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>} inputs(%0 : memref<1024x256x1x1xf16, @DDR>) -> memref<1x256x1024x1xf16, #NHWC, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x256x1024x1xf16, #NHWC, @DDR>) -> memref<1x256x256x4xf16, #NHWC, @DDR>
+    %3 = VPUIP.SubView %2 [0, 0, 0, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %4 = VPUIP.Copy inputs(%cst_0 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_1 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = VPUIP.Copy inputs(%3 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_1 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_2 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %6 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%4 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%5 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %7 = VPUIP.SubView %2 [0, 0, 0, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_3 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %8 = VPUIP.Copy inputs(%cst_1 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_3 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_4 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // %7 will be fused to %5, since it is within cost distance
+    %9 = VPUIP.Copy inputs(%7 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_4 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_5 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %10 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%8 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %11 = VPUIP.SubView %2 [0, 0, 128, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_6 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // %12 will not be fused, since it is beyond cost distance
+    %12 = VPUIP.Copy inputs(%cst_0 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_6 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_7 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %13 = VPUIP.Copy inputs(%11 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_7 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_8 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %14 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%12 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%13 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %15 = VPUIP.SubView %2 [0, 0, 128, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_9 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // %16 will not be fused, since it is beyond cost distance
+    %16 = VPUIP.Copy inputs(%cst_1 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_9 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_10 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // %17 will be fused to %13, since it is within cost distance
+    %17 = VPUIP.Copy inputs(%15 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_10 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_11 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %18 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%16 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%17 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %alloc_12 = memref.alloc() : memref<1x256x256x4xf16, #NHWC, @DDR>
+    %19 = VPUIP.SubView %alloc_12 [0, 0, 0, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %20 = VPUIP.Copy inputs(%6 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%19 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %21 = VPUIP.SubView %alloc_12 [0, 128, 0, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %22 = VPUIP.Copy inputs(%10 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%21 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %23 = VPUIP.SubView %alloc_12 [0, 0, 128, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %24 = VPUIP.Copy inputs(%14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%23 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %25 = VPUIP.SubView %alloc_12 [0, 128, 128, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %26 = VPUIP.Copy inputs(%18 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%25 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %27 = VPUIP.ConcatView inputs(%20, %22, %24, %26 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_12 : memref<1x256x256x4xf16, #NHWC, @DDR>) -> memref<1x256x256x4xf16, #NHWC, @DDR>
+    %28 = VPUIP.GenericReshape inputs(%27 : memref<1x256x256x4xf16, #NHWC, @DDR>) -> memref<1x256x1024x1xf16, #NHWC, @DDR>
+    %29 = VPUIP.PermuteCast {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>} inputs(%28 : memref<1x256x1024x1xf16, #NHWC, @DDR>) -> memref<1024x256x1x1xf16, @DDR>
+    %30 = VPUIP.GenericReshape inputs(%29 : memref<1024x256x1x1xf16, @DDR>) -> memref<1x1024x256xf16, @DDR>
+    %31 = VPUIP.Copy inputs(%30 : memref<1x1024x256xf16, @DDR>) outputs(%arg1 : memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR>
+    return %31 : memref<1x1024x256xf16, @DDR>
+    // CHECK: [[COPY_1:%.+]] = VPUIP.Copy inputs([[CST:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_1:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[COPY_2:%.+]] = VPUIP.Copy inputs([[SUBVIEW_0:%.+]] : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs([[ALLOC_2:%.+]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK: [[NCE_1:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_2]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_1]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_3:%.+]] = VPUIP.Copy inputs([[CST_0:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_4:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_2:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_2]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_3]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_4:%.+]] = VPUIP.Copy inputs([[CST:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_6:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[COPY_5:%.+]] = VPUIP.Copy inputs([[SUBVIEW_1:%.+]] : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs([[ALLOC_7:%.+]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK: [[NCE_3:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_5]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_4]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_6:%.+]] = VPUIP.Copy inputs([[CST_0:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_9:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_4:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_5]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_6]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+}
+// -----
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!Weights_table_CMX = memref<128x1x1x4xsi32, @CMX_NN>
+func.func @TwoAxisTilingConsiderDistanceSiblingCopy(%arg0: memref<1x1024x256xf16, @DDR>, %arg1: memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR> {
+    %cst_0 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<256x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
+    %cst_1 = const.Declare memref<128x256x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<256x256x1x1xf16, {order = #NHWC}>, [#const.SubView<[128, 0, 0, 0], [128, 256, 1, 1]>, #const.Sparsify<false>]
+    %table = memref.alloc() : !Weights_table_CMX
+    %0 = VPUIP.GenericReshape inputs(%arg0 : memref<1x1024x256xf16, @DDR>) -> memref<1024x256x1x1xf16, @DDR>
+    %1 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>} inputs(%0 : memref<1024x256x1x1xf16, @DDR>) -> memref<1x256x1024x1xf16, #NHWC, @DDR>
+    %2 = VPUIP.GenericReshape inputs(%1 : memref<1x256x1024x1xf16, #NHWC, @DDR>) -> memref<1x256x256x4xf16, #NHWC, @DDR>
+    %3 = VPUIP.SubView %2 [0, 0, 0, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %4 = VPUIP.Copy inputs(%3 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_1 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %5 = VPUIP.Copy inputs(%cst_0 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_1 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_2 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %6 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%4 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%5 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%4 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_2 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %7 = VPUIP.SubView %2 [0, 0, 0, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_3 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // %8 will be fused to %4, since it is within cost distance
+    %8 = VPUIP.Copy inputs(%7 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_3 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_4 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %9 = VPUIP.Copy inputs(%cst_1 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_4 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_5 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %10 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%8 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%9 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%8 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_5 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %11 = VPUIP.SubView %2 [0, 0, 128, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_6 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %12 = VPUIP.Copy inputs(%11 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_6 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_7 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // %13 will not be fused, since it is beyond cost distance
+    %13 = VPUIP.Copy inputs(%cst_0 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_7 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_8 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %14 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%12 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%13 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%12 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_8 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %15 = VPUIP.SubView %2 [0, 0, 128, 0] [1, 256, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %alloc_9 = memref.alloc() : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // %16 will be fused to %12, since it is within cost distance
+    %16 = VPUIP.Copy inputs(%15 : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_9 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %alloc_10 = memref.alloc() : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // %17 will not be fused, since it is beyond cost distance
+    %17 = VPUIP.Copy inputs(%cst_1 : memref<128x256x1x1xf16, {order = #NHWC}>) outputs(%alloc_10 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    %alloc_11 = memref.alloc() : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    %18 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], task_type = #VPUIP.nce_task_type<CONV>}
+    input(%16 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) weights(%17 : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) weight_table(%table : !Weights_table_CMX) parent_input(%16 : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%alloc_11 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]> variants : {
+      DPUTask {inEnd = [3, 127, 255], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [3, 127, 127], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+    } PPE : {
+    }
+    %alloc_12 = memref.alloc() : memref<1x256x256x4xf16, #NHWC, @DDR>
+    %19 = VPUIP.SubView %alloc_12 [0, 0, 0, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %20 = VPUIP.Copy inputs(%6 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%19 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %21 = VPUIP.SubView %alloc_12 [0, 128, 0, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %22 = VPUIP.Copy inputs(%10 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%21 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %23 = VPUIP.SubView %alloc_12 [0, 0, 128, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %24 = VPUIP.Copy inputs(%14 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%23 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %25 = VPUIP.SubView %alloc_12 [0, 128, 128, 0] [1, 128, 128, 4] : memref<1x256x256x4xf16, #NHWC, @DDR> to memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %26 = VPUIP.Copy inputs(%18 : memref<1x128x128x4xf16, #NHWC, [@CMX_NN, 0]>) outputs(%25 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) -> memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>
+    %27 = VPUIP.ConcatView inputs(%20, %22, %24, %26 : memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>, memref<1x128x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs(%alloc_12 : memref<1x256x256x4xf16, #NHWC, @DDR>) -> memref<1x256x256x4xf16, #NHWC, @DDR>
+    %28 = VPUIP.GenericReshape inputs(%27 : memref<1x256x256x4xf16, #NHWC, @DDR>) -> memref<1x256x1024x1xf16, #NHWC, @DDR>
+    %29 = VPUIP.PermuteCast {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>} inputs(%28 : memref<1x256x1024x1xf16, #NHWC, @DDR>) -> memref<1024x256x1x1xf16, @DDR>
+    %30 = VPUIP.GenericReshape inputs(%29 : memref<1024x256x1x1xf16, @DDR>) -> memref<1x1024x256xf16, @DDR>
+    %31 = VPUIP.Copy inputs(%30 : memref<1x1024x256xf16, @DDR>) outputs(%arg1 : memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR>
+    return %31 : memref<1x1024x256xf16, @DDR>
+    // CHECK: [[COPY_1:%.+]] = VPUIP.Copy inputs([[SUBVIEW_0:%.+]] : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs([[ALLOC_1:%.+]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK: [[COPY_2:%.+]] = VPUIP.Copy inputs([[CST:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_2:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_1:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_1]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_2]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_3:%.+]] = VPUIP.Copy inputs([[CST_0:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_4:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_2:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_1]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_3]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_4:%.+]] = VPUIP.Copy inputs([[SUBVIEW_1:%.+]] : memref<1x256x128x4xf16, {order = #NHWC, strides = [262144, 1, 1024, 256]}, @DDR>) outputs([[ALLOC_6:%.+]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK: [[COPY_5:%.+]] = VPUIP.Copy inputs([[CST:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_7:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_3:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_4]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_5]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+    // CHECK: [[COPY_6:%.+]] = VPUIP.Copy inputs([[CST_0:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}>) outputs([[ALLOC_9:%.+]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>) -> memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>
+    // CHECK: [[NCE_4:%.+]] = VPUIP.NCEClusterTask
+    // CHECK:     input([[COPY_4]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:     weights([[COPY_6]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DoNotOptimizeParallelCopiesNoUsers
+// CHECK-SAME:    ([[INPUT:%.+]]: memref<1x32x1x12544xf16, #NHWC, @DDR>)
+func.func @DoNotOptimizeParallelCopiesNoUsers(%input: memref<1x32x1x12544xf16, #NHWC, @DDR>)  -> memref<1x32x112x112xf16, #NHWC, @DDR> {
+    %reshape = VPUIP.GenericReshape inputs(%input: memref<1x32x1x12544xf16, #NHWC, @DDR>) -> memref<1x32x112x112xf16, #NHWC, @DDR>
+
+    %subview1 = VPUIP.SubView %reshape [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC, @DDR> to memref<1x16x112x112xf16, { order = #NHWC, strides = [401408, 1, 3584, 32] }, @DDR>
+    %alloc1 = memref.alloc() : memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+    %copy1 = VPUIP.Copy inputs(%subview1 : memref<1x16x112x112xf16, { order = #NHWC, strides = [401408, 1, 3584, 32] }, @DDR>)
+                           outputs(%alloc1 : memref<1x16x112x112xf16, #NHWC, @CMX_NN>) -> memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+
+    %subview2 = VPUIP.SubView %reshape [0, 0, 0, 0] [1, 16, 112, 112] : memref<1x32x112x112xf16, #NHWC, @DDR> to memref<1x16x112x112xf16, { order = #NHWC, strides = [401408, 1, 3584, 32] }, @DDR>
+    %alloc2 = memref.alloc() : memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+    %copy2 = VPUIP.Copy inputs(%subview2 : memref<1x16x112x112xf16, { order = #NHWC, strides = [401408, 1, 3584, 32] }, @DDR>)
+                           outputs(%alloc2 : memref<1x16x112x112xf16, #NHWC, @CMX_NN>) -> memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+
+    return %reshape : memref<1x32x112x112xf16, #NHWC, @DDR>
+
+    // CHECK:       [[RESHAPE:%.+]] = VPUIP.GenericReshape inputs([[INPUT]]
+    // CHECK:       [[SUBVIEW1:%.+]] = VPUIP.SubView [[RESHAPE]]
+    // CHECK:       [[ALLOC1:%.+]] = memref.alloc() : memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs([[SUBVIEW1]]
+    // CHECK-SAME:                             outputs([[ALLOC1]]
+    // CHECK:       [[SUBVIEW2:%.+]] = VPUIP.SubView [[RESHAPE]]
+    // CHECK:       [[ALLOC2:%.+]] = memref.alloc() : memref<1x16x112x112xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[COPY2:%.+]] = VPUIP.Copy inputs([[SUBVIEW2]]
+    // CHECK-SAME:                             outputs([[ALLOC2]]
+    // CHECK:       return [[RESHAPE]]
 }

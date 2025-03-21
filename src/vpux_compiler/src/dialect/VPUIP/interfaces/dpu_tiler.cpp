@@ -315,6 +315,8 @@ VPUNN::Operation vpux::VPUIP::getOperationType(VPUIP::NCETaskType taskType) {
         return VPUNN::Operation::ELTWISE;
     case VPUIP::NCETaskType::REDUCEMEAN:
         return VPUNN::Operation::CONVOLUTION;
+    case VPUIP::NCETaskType::REDUCESUM:
+        return VPUNN::Operation::CONVOLUTION;
     // unsupported type for vpunn, use convolution as work around
     case VPUIP::NCETaskType::IDENTITY:
         return VPUNN::Operation::CONVOLUTION;

@@ -42,7 +42,8 @@ public:
     using ColDesc = std::vector<std::pair<std::string, int>>;
 
 protected:
-    DebugFormattableRecordMixin(size_t inMemoryOffset): _inMemoryOffset(inMemoryOffset) {
+    DebugFormattableRecordMixin(size_t inMemoryOffset, size_t inClusterIndex = 0)
+            : _inMemoryOffset(inMemoryOffset), _inClusterIndex(inClusterIndex) {
     }
 
     virtual ColDesc getColDesc() const = 0;
@@ -59,12 +60,17 @@ public:
         return _inMemoryOffset;
     }
 
+    size_t getInClusterIndex() const {
+        return _inClusterIndex;
+    }
+
     virtual size_t getDebugDataSize() const = 0;
 
     virtual void printDebugInfo(std::ostream& outStream) const = 0;
 
 private:
     size_t _inMemoryOffset;
+    size_t _inClusterIndex;
 };
 
 class RawProfilingRecord {
@@ -130,12 +136,11 @@ private:
 
 protected:
     template <typename RawMetadata>
-    RawProfilingRecord(const RawMetadata* metadata, const BarriersSet& wBarriers, const BarriersSet& uBarriers) {
-        const auto parsedNameMetaData = deserializeTaskName(metadata->name()->str());
-        _name = metadata->name()->str();
-        _layerType = parsedNameMetaData.layerType;
-        _waitBarriers = wBarriers;
-        _updateBarriers = uBarriers;
+    RawProfilingRecord(const RawMetadata* metadata, const BarriersSet& wBarriers, const BarriersSet& uBarriers)
+            : _name(metadata->name()->str()),
+              _layerType(deserializeTaskName(metadata->name()->str()).layerType),
+              _waitBarriers(wBarriers),
+              _updateBarriers(uBarriers) {
     }
 
     template <typename RawMetadata>
@@ -199,7 +204,7 @@ public:
     }
 
     virtual TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const {
-        TaskInfo taskInfo;
+        TaskInfo taskInfo{};
         taskInfo.name = getTaskName();
         taskInfo.layer_type = getLayerType();
         taskInfo.exec_type = convertToTaskExec(getExecutorType());
@@ -225,12 +230,9 @@ public:
     }
 
 private:
-    std::string _name;
+    const std::string _name;
+    const std::string _layerType;
 
-protected:
-    std::string _layerType;
-
-private:
     BarriersSet _waitBarriers;
     BarriersSet _updateBarriers;
 };
@@ -275,7 +277,7 @@ public:
     }
 
 protected:
-    RecordDataType _record;
+    const RecordDataType _record;
 };
 
 template <class RecordDataType>
@@ -386,12 +388,12 @@ protected:
 class RawProfilingDPURecord : public RawProfilingRecord, public DebugFormattableRecordMixin {
 protected:
     RawProfilingDPURecord(const ProfilingFB::DPUTask* metadata, uint32_t variantId, size_t inMemoryOffset,
-                          uint32_t inClusterOffset)
+                          uint32_t inClusterIndex)
             : RawProfilingRecord(metadata),
-              DebugFormattableRecordMixin(inMemoryOffset),
+              DebugFormattableRecordMixin(inMemoryOffset, inClusterIndex),
               _bufferId(metadata->bufferId()),
-              _inClusterIndex(inClusterOffset),
               _clusterId(metadata->clusterId()),
+              _taskId(metadata->taskId()),
               _variantId(variantId) {
     }
 
@@ -401,6 +403,13 @@ public:
     std::string getTaskName() const override {
         // adding variant suffix as it is not stored in meta data
         return getOriginalName() + "/" + VARIANT_LEVEL_PROFILING_SUFFIX + "_" + std::to_string(_variantId);
+    }
+
+    TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
+        auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
+        profInfoItem.clusterId = _clusterId;
+        profInfoItem.isSubtask = true;
+        return profInfoItem;
     }
 
     void sanitize(vpux::Logger& log, FrequenciesSetup frequenciesSetup) const override {
@@ -420,18 +429,22 @@ public:
         return _clusterId;
     }
 
+    uint32_t getTaskId() {
+        return _taskId;
+    }
+
 protected:
-    uint32_t _bufferId;
-    uint32_t _inClusterIndex;
-    uint32_t _clusterId;
-    uint32_t _variantId;
+    const uint32_t _bufferId;
+    const uint32_t _clusterId;
+    const uint32_t _taskId;
+    const uint32_t _variantId;
 };
 
 class RawProfilingDPUHW27Record : public RawProfilingDPURecord {
 public:
     explicit RawProfilingDPUHW27Record(HwpDpu27Mode0Data_t timestamps, const ProfilingFB::DPUTask* metadata,
-                                       uint32_t variantId, size_t inMemoryOffset, uint32_t inClusterOffset)
-            : RawProfilingDPURecord(metadata, variantId, inMemoryOffset, inClusterOffset), _timestamps(timestamps) {
+                                       uint32_t variantId, size_t inMemoryOffset, uint32_t inClusterIndex)
+            : RawProfilingDPURecord(metadata, variantId, inMemoryOffset, inClusterIndex), _timestamps(timestamps) {
     }
 
     void checkDataOrDie() const override {
@@ -481,7 +494,7 @@ protected:
 
     void printDebugInfo(std::ostream& outStream) const override {
         const auto hwpDpuCol = getColDesc();
-        const auto bufferOffsetBytes = _inClusterIndex * getDebugDataSize();
+        const auto bufferOffsetBytes = getInClusterIndex() * getDebugDataSize();
 
         outStream << std::setw(hwpDpuCol[0].second) << _bufferId << std::setw(hwpDpuCol[1].second) << _clusterId
                   << std::setw(hwpDpuCol[2].second) << bufferOffsetBytes << std::setw(hwpDpuCol[3].second)
@@ -493,14 +506,14 @@ protected:
     }
 
 private:
-    HwpDpu27Mode0Data_t _timestamps;
+    const HwpDpu27Mode0Data_t _timestamps;
 };
 
 class RawProfilingDPUHW40Record : public RawProfilingDPURecord {
 public:
     explicit RawProfilingDPUHW40Record(HwpDpuIduOduData_t timestamps, const ProfilingFB::DPUTask* metadata,
-                                       uint32_t variantId, size_t inMemoryOffset, uint32_t inClusterOffset)
-            : RawProfilingDPURecord(metadata, variantId, inMemoryOffset, inClusterOffset), _timestamps(timestamps) {
+                                       uint32_t variantId, size_t inMemoryOffset, uint32_t inClusterIndex)
+            : RawProfilingDPURecord(metadata, variantId, inMemoryOffset, inClusterIndex), _timestamps(timestamps) {
     }
 
     void checkDataOrDie() const override {
@@ -546,7 +559,7 @@ protected:
 
     void printDebugInfo(std::ostream& outStream) const override {
         const auto hwpDpuCol = getColDesc();
-        const auto bufferOffsetBytes = _inClusterIndex * getDebugDataSize();
+        const auto bufferOffsetBytes = getInClusterIndex() * getDebugDataSize();
 
         outStream << std::setw(hwpDpuCol[0].second) << _bufferId << std::setw(hwpDpuCol[1].second) << _clusterId
                   << std::setw(hwpDpuCol[2].second) << bufferOffsetBytes << std::setw(hwpDpuCol[3].second)
@@ -558,7 +571,7 @@ protected:
     }
 
 protected:
-    HwpDpuIduOduData_t _timestamps;
+    const HwpDpuIduOduData_t _timestamps;
 };
 
 class RawProfilingDPUHW50Record : public RawProfilingDPUHW40Record {
@@ -580,15 +593,15 @@ class RawProfilingACTRecord : public RawProfilingRecord, public DebugFormattable
 public:
     explicit RawProfilingACTRecord(ActShaveData_t data, const ProfilingFB::SWTask* metadata, size_t inMemoryOffset)
             : RawProfilingRecord(metadata),
-              DebugFormattableRecordMixin(inMemoryOffset),
+              DebugFormattableRecordMixin(inMemoryOffset, metadata->dataIndex()),
               _data(data),
               _bufferId(metadata->bufferId()),
-              _inClusterIndex(metadata->dataIndex()),
               _clusterId(metadata->clusterId()) {
     }
 
     TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
         auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
+        profInfoItem.clusterId = _clusterId;
         profInfoItem.total_cycles = _data.clockCycles;
         profInfoItem.stall_cycles = _data.stallCycles;
         return profInfoItem;
@@ -627,7 +640,7 @@ protected:
 
     void printDebugInfo(std::ostream& outStream) const override {
         const auto actShaveCol = getColDesc();
-        const auto bufferOffsetBytes = _inClusterIndex * getDebugDataSize();
+        const auto bufferOffsetBytes = getInClusterIndex() * getDebugDataSize();
 
         outStream << std::setw(actShaveCol[0].second) << _bufferId << std::setw(actShaveCol[1].second) << _clusterId
                   << std::setw(actShaveCol[2].second) << bufferOffsetBytes << std::setw(actShaveCol[3].second)
@@ -638,25 +651,24 @@ protected:
     }
 
 private:
-    ActShaveData_t _data;
-    uint32_t _bufferId;
-    uint32_t _inClusterIndex;
-    uint32_t _clusterId;
+    const ActShaveData_t _data;
+    const uint32_t _bufferId;
+    const uint32_t _clusterId;
 };
 
 class RawProfilingACTExRecord : public RawProfilingRecord, public DebugFormattableRecordMixin {
 public:
     explicit RawProfilingACTExRecord(ActShaveDataEx_t data, const ProfilingFB::SWTask* metadata, size_t inMemoryOffset)
             : RawProfilingRecord(metadata),
-              DebugFormattableRecordMixin(inMemoryOffset),
+              DebugFormattableRecordMixin(inMemoryOffset, metadata->dataIndex()),
               _data(data),
               _bufferId(metadata->bufferId()),
-              _inClusterIndex(metadata->dataIndex()),
               _clusterId(metadata->clusterId()) {
     }
 
     TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
         auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
+        profInfoItem.clusterId = _clusterId;
         profInfoItem.total_cycles = _data.clockCycles;
         profInfoItem.stall_cycles = _data.lsu0Stalls + _data.lsu1Stalls + _data.instStalls;
         profInfoItem.stall_counters = {_data.lsu0Stalls, _data.lsu1Stalls, _data.instStalls};
@@ -697,7 +709,7 @@ protected:
 
     void printDebugInfo(std::ostream& outStream) const override {
         const auto actShaveCol = getColDesc();
-        const auto bufferOffsetBytes = _inClusterIndex * getDebugDataSize();
+        const auto bufferOffsetBytes = getInClusterIndex() * getDebugDataSize();
 
         outStream << std::setw(actShaveCol[0].second) << _bufferId << std::setw(actShaveCol[1].second) << _clusterId
                   << std::setw(actShaveCol[2].second) << bufferOffsetBytes << std::setw(actShaveCol[3].second)
@@ -709,10 +721,9 @@ protected:
     }
 
 private:
-    ActShaveDataEx_t _data;
-    uint32_t _bufferId;
-    uint32_t _inClusterIndex;
-    uint32_t _clusterId;
+    const ActShaveDataEx_t _data;
+    const uint32_t _bufferId;
+    const uint32_t _clusterId;
 };
 
 class RawProfilingM2IRecord : public RawProfilingRecord, public DebugFormattableRecordMixin {
@@ -763,7 +774,7 @@ protected:
     }
 
 private:
-    M2IData_t _data;
+    const M2IData_t _data;
 };
 
 class ArrayRecord : public RawProfilingRecord {
@@ -793,8 +804,19 @@ public:
         return _records.front()->getExecutorType();
     }
 
+    TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
+        VPUX_THROW_WHEN(_records.size() == 0, "Empty ArrayRecord");
+        auto taskInfo = _records.front()->getTaskInfo(frequenciesSetup);
+        taskInfo.name = getTaskName();
+        taskInfo.isSubtask = false;
+        taskInfo.start_time_ns = getStartTime(frequenciesSetup);
+        taskInfo.duration_ns = getDuration(frequenciesSetup);
+        //  Ignore cycle information. Not used for DPU
+        return taskInfo;
+    }
+
 protected:
-    RawProfilingRecords _records;
+    const RawProfilingRecords _records;
 };
 
 }  // namespace vpux::profiling

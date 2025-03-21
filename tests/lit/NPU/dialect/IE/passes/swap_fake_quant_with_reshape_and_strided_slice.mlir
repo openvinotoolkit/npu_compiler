@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-fake-quant-with-reshape-and-strided-slice %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @SwapFakeQuantReshape
 func.func @SwapFakeQuantReshape(
         %input: tensor<1x1x40xf16>,

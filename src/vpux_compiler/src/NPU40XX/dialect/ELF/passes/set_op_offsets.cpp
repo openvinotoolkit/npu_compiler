@@ -11,11 +11,17 @@
 
 #include <mlir/IR/SymbolTable.h>
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_SETOPOFFSETS
+#define GEN_PASS_DEF_SETOPOFFSETS
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
 
-class SetOpOffsetsPass : public ELF::SetOpOffsetsBase<SetOpOffsetsPass> {
+class SetOpOffsetsPass : public ELF::arch40xx::impl::SetOpOffsetsBase<SetOpOffsetsPass> {
 public:
     explicit SetOpOffsetsPass(Logger log): _log(log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -75,16 +81,7 @@ void SetOpOffsetsPass::safeRunOnFunc() {
             auto offsetAttr = mlir::IntegerAttr::get(u64Type, mlir::APInt(64, tracker, false));
             if (auto binaryOperation = mlir::dyn_cast_or_null<ELF::BinaryOpInterface>(&operation)) {
                 tracker += binaryOperation.getBinarySizeCached(symRefMap, arch);
-            }
-
-            // each wrappable operation is binary one, all operations in sections are wrappable
-            // the reason why we need to check separately for binary and wrappable interfaces is PadOp
-            // PadOp is binary operation which doesn't implement getSectionInteface method,
-            // because it could be inserted into any section, after move-ops-into-section pass is executed
-            // (as a part of add-inner-section-padding pass logic), however, it is a part of a section content
-            // refactor E#85213
-            if (auto wrappableOperation = mlir::dyn_cast_or_null<ELF::WrappableOpInterface>(&operation)) {
-                wrappableOperation.setMemoryOffset(offsetAttr);
+                binaryOperation.setMemoryOffset(offsetAttr);
             }
         }
     }

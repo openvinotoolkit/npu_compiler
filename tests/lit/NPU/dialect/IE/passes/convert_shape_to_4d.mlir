@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-shape-to-4d --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK:       func.func @main(
 // CHECK-SAME:      [[VAL_0:%.+]]: tensor<1x1000xf32>
 // CHECK-SAME:      [[VAL_1:%.+]]: tensor<1x224x224xf32>

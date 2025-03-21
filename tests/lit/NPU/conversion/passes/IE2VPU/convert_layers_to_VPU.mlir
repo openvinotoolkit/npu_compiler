@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-layers-to-VPU %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @SingleLayer
 func.func @SingleLayer(%arg0: tensor<1x1000xf16>) -> tensor<1x1000xf16> {
     %prob = IE.SoftMax(%arg0) {axisInd = 1} : tensor<1x1000xf16> -> tensor<1x1000xf16>
@@ -600,7 +599,7 @@ func.func @TopKWithKValue(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128
     return %target_shape : tensor<1x1x128x128xsi32>
 
     // CHECK: [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK(%arg0)
-    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
     // CHECK-SAME:         : tensor<1x64x128x128xf32> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
     // CHECK: return [[SHAPE]] : tensor<1x1x128x128xsi32>
 }
@@ -617,7 +616,7 @@ func.func @TopKWithKConst(%arg0: tensor<1x64x128x128xf32>) -> tensor<1x1x128x128
 
     // CHECK-DAG:   [[CST_K:%.*]] = const.Declare tensor<si32> = dense<1> : tensor<si32>
     // CHECK: [[VALUES:%.*]], [[SHAPE:%.*]] = VPU.TopK(%arg0, [[CST_K]])
-    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    // CHECK-SAME:         {axis = 1 : i64, element_type = si32, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 1, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
     // CHECK-SAME:         : tensor<1x64x128x128xf32>, tensor<si32> -> tensor<1x1x128x128xf32>, tensor<1x1x128x128xsi32>
     // CHECK: return [[SHAPE]] : tensor<1x1x128x128xsi32>
 }
@@ -1157,4 +1156,41 @@ func.func @DynamicDequantizeWithZP(%arg0: tensor<1x28x4608x128x!qElemType>, %arg
 
     // CHECK-NOT:   IE.DynamicDequantize
     // CHECK:       VPU.DynamicDequantize([[INPUT]], [[SCALE]], [[ZP]]) {dstElemType = f16} : tensor<1x28x4608x128x!qElemType>, tensor<1x28x4608x1xf16>, tensor<1x28x4608x128xi4> -> tensor<1x28x4608x128xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ExperimentalDetectronROIFeatureExtractor
+// CHECK-SAME:  [[INPUT_ROIS:%.+]]: tensor<100x4xf32>
+// CHECK-SAME:  [[INPUT_FEATURE0:%.+]]: tensor<1x64x192x320xf32>
+// CHECK-SAME:  [[INPUT_FEATURE1:%.+]]: tensor<1x64x96x160xf32>
+// CHECK-SAME:  [[INPUT_FEATURE2:%.+]]: tensor<1x64x48x80xf32>
+func.func @ExperimentalDetectronROIFeatureExtractor(%arg0: tensor<100x4xf32>, %arg1: tensor<1x64x192x320xf32>, %arg2: tensor<1x64x96x160xf32>, %arg3: tensor<1x64x48x80xf32>) -> (tensor<100x64x14x14xf32>, tensor<100x4xf32>) {
+    %output, %outputROIs = IE.ExperimentalDetectronROIFeatureExtractor(%arg0, %arg1, %arg2, %arg3) {attr = #IE.ExperimentalDetectronROIFeatureExtractor<output_size = 14 : i64, sampling_ratio = 2 : i64, aligned = false, pyramid_scales = [4, 8, 16]>} : tensor<100x4xf32>, tensor<1x64x192x320xf32>, tensor<1x64x96x160xf32>, tensor<1x64x48x80xf32> -> tensor<100x64x14x14xf32>, tensor<100x4xf32>
+    return %output, %outputROIs : tensor<100x64x14x14xf32>, tensor<100x4xf32>
+
+    // CHECK-NOT:    IE.ExperimentalDetectronROIFeatureExtractor
+    // CHECK:        [[OUT_FEATURES:%.+]], [[OUT_ROIS:%.+]] = VPU.ExperimentalDetectronROIFeatureExtractor([[INPUT_ROIS]], [[INPUT_FEATURE0]], [[INPUT_FEATURE1]], [[INPUT_FEATURE2]])
+    // CHECK-SAME:   {attr = #IE.ExperimentalDetectronROIFeatureExtractor<output_size = 14 : i64, sampling_ratio = 2 : i64, aligned = false, pyramid_scales = [4, 8, 16]>, operandSegmentSizes = array<i32: 4, 0, 0, 0, 0>}
+    // CHECK-SAME:   : tensor<100x4xf32>, tensor<1x64x192x320xf32>, tensor<1x64x96x160xf32>, tensor<1x64x48x80xf32> -> tensor<100x64x14x14xf32>, tensor<100x4xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @RoPETest
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x32x1x64xf32>, [[ARG1:%.+]]: tensor<1x1x1x64xf32>, [[ARG2:%.+]]: tensor<1x1x1x64xf32>) -> tensor<1x32x1x64xf32>
+func.func @RoPETest(%arg0: tensor<1x32x1x64xf32>, %arg1: tensor<1x1x1x64xf32>, %arg2: tensor<1x1x1x64xf32>) -> tensor<1x32x1x64xf32> {
+    %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x32x1x64xf32> -> tensor<1x32x1x64xf16>
+    %1 = VPU.Convert(%arg1) {dstElemType = f16} : tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf16>
+    %2 = VPU.Convert(%arg2) {dstElemType = f16} : tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf16>
+    %3 = VPU.RoPE(%0, %1, %2) : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
+    %4 = VPU.Convert(%3) {dstElemType = f32} : tensor<1x32x1x64xf16> -> tensor<1x32x1x64xf32>
+    return %4 : tensor<1x32x1x64xf32>
+
+    // CHECK:       [[CONVERT_0:%.+]] = VPU.Convert([[ARG0]]) {dstElemType = f16} : tensor<1x32x1x64xf32> -> tensor<1x32x1x64xf16>
+    // CHECK:       [[CONVERT_1:%.+]] = VPU.Convert([[ARG1]]) {dstElemType = f16} : tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf16>
+    // CHECK:       [[CONVERT_2:%.+]] = VPU.Convert([[ARG2]]) {dstElemType = f16} : tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf16>
+    // CHECK:       [[ROPE:%.+]] = VPU.RoPE([[CONVERT_0]], [[CONVERT_1]], [[CONVERT_2]]) : tensor<1x32x1x64xf16>, tensor<1x1x1x64xf16>, tensor<1x1x1x64xf16> -> tensor<1x32x1x64xf16>
+    // CHECK:       [[CONVERT_3:%.+]] = VPU.Convert([[ROPE]]) {dstElemType = f32} : tensor<1x32x1x64xf16> -> tensor<1x32x1x64xf32>
+    // CHECK:       return [[CONVERT_3]] : tensor<1x32x1x64xf32>
 }

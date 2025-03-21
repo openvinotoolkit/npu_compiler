@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_CONST_OPS
 #define VPUX_COMPILER_DIALECT_CONST_OPS
 
-include "vpux/compiler/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/const/dialect.td"
 include "vpux/compiler/dialect/const/attributes.td"
 include "vpux/compiler/dialect/ELFNPU37XX/ops_interfaces.td"
@@ -79,7 +79,7 @@ def Const_DeclareOp :
             setNameFn(getResult(), "cst");
         }
 
-        const vpux::Const::ContentAttr& getContentAttr() const;
+        vpux::Const::ContentAttr getContentAttr() const;
         auto transformContentAttr() const {
             return getContentAttr().transform();
         }

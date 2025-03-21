@@ -62,13 +62,12 @@ vpux::VPU::DistributionInfo vpux::VPU::AndOp::getExplicitDistributionInfoAttr(
 //
 
 void vpux::VPU::AndOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input1,
-                             ::mlir::Value input2, vpux::IE::AutoBroadcastTypeAttr auto_broadcast,
-                             /*optional*/ vpux::IE::PostOpAttr post_op) {
-    build(odsBuilder, odsState, input1, input2, auto_broadcast.getValue(), post_op, nullptr);
+                             ::mlir::Value input2, vpux::IE::AutoBroadcastTypeAttr auto_broadcast) {
+    build(odsBuilder, odsState, input1, input2, auto_broadcast.getValue(), nullptr);
 }
 
 bool vpux::VPU::AndOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
-    VPUX_THROW_UNLESS(buffers.size() == 2, "AndOp requires 1 input and 1 output, but the number of buffer is {0}",
+    VPUX_THROW_UNLESS(buffers.size() == 3, "AndOp requires 2 input and 1 output, but the number of buffer is {0}",
                       buffers.size());
 
     SmallVector<Byte> buffersSize;

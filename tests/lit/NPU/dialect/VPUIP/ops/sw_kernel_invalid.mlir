@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --verify-diagnostics --init-compiler="vpu-arch=%arch%" %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module {
   module @VPU.SW {
     func.func private @builtin_dummy(memref<*xf16>, memref<*xf16>, i64, i64) attributes {VPU.kernel_code = "dummy.cpp", VPU.kernel_entry = "dummy"}

@@ -75,4 +75,18 @@ def FindWlmEnqueueBarrier : PassBase<"find-wlm-enqueue-barrier", "vpux::Function
     let constructor = "vpux::VPURT::arch40xx::createFindWlmEnqueueBarrierPass()";
 }
 
+//
+// OrderBarriersForWlm
+//
+
+def OrderBarriersForWlm : PassBase<"order-barriers-for-wlm", "vpux::FunctionPass"> {
+    let summary = "Order barriers for WLM";
+
+    let description = [{
+        For WLM barriers are epxected to be ordered following consumption order
+    }];
+
+    let constructor = "vpux::VPURT::arch40xx::createOrderBarriersForWlmPass()";
+}
+
 #endif

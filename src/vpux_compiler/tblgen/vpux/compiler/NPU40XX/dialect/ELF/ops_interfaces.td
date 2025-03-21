@@ -131,6 +131,17 @@ def ELF_SectionInterface : OpInterface<"ElfSectionInterface"> {
 
                 return ELF::SectionSignature(name, symTabFlags);
             }]
+        >,
+        InterfaceMethod<
+            "Update the section address alignment if present",
+            "void",
+            "updateSectionAddressAlignment", (ins "mlir::IntegerAttr":$alignment), [{}], [{
+                auto op = this->getOperation();
+                if (!op->hasAttr("secAddrAlign")) {
+                    return;
+                }
+                op->setAttr("secAddrAlign", alignment);
+            }]
         >
     ];
 }
@@ -201,7 +212,6 @@ def ELF_BinaryOpInterface : OpInterface<"BinaryOpInterface"> {
                 $_op.serialize(binDataSection);
             }]
         >,
-
         InterfaceMethod<
             "Get the size in bytes of the serialized form of this object, using a symbol reference map for faster look-up",
             "size_t",
@@ -209,8 +219,48 @@ def ELF_BinaryOpInterface : OpInterface<"BinaryOpInterface"> {
             /*defaultImplementation*/ [{
                 return $_op.getBinarySize(arch);
             }]
+        >,
+
+        InterfaceMethod<
+            "Get the alignment requirements for the serialization of this op",
+            "size_t",
+            "getAlignmentRequirements", (ins "::vpux::VPU::ArchKind":$arch), [{}],
+            /*defaultImplementation*/ [{
+                return ELF::VPUX_NO_ALIGNMENT;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Set the offset of an operation inside an ELF section op",
+            "void",
+            "setMemoryOffset", (ins "mlir::IntegerAttr":$offset), [{}],
+            /*defaultImplementation*/ [{
+                this->getOperation()->setAttr(BinaryOpInterface::elfMemOffsetAttrName(), offset);
+            }]
+        >,
+
+        InterfaceMethod<
+            "Get the offset of an operation inside an ELF section op",
+            "uint64_t",
+            "getMemoryOffset", (ins), [{}],
+            /*defaultImplementation*/ [{
+                auto op = this->getOperation();
+                if(op->hasAttr(BinaryOpInterface::elfMemOffsetAttrName())) {
+                    auto attr = op->template getAttrOfType<mlir::IntegerAttr>(BinaryOpInterface::elfMemOffsetAttrName());
+                    return attr.getUInt();
+                }
+                else {
+                    return 0;
+                }
+            }]
         >
     ];
+
+    let extraClassDeclaration = [{
+        static llvm::StringLiteral elfMemOffsetAttrName() {
+            return "elfMemOffsetAttrKey";
+        }
+    }];
 }
 
 //
@@ -251,44 +301,7 @@ def ELF_WrappableOpInterface : OpInterface<"WrappableOpInterface"> {
             "bool",
             "hasMemoryFootprint", (ins)
         >,
-
-        InterfaceMethod<
-            "Get the alignment requirements for the serialization of this op",
-            "size_t",
-            "getAlignmentRequirements", (ins "::vpux::VPU::ArchKind":$arch)
-        >,
-
-        InterfaceMethod<
-            "Set the offset of an operation inside an ELF section op",
-            "void",
-            "setMemoryOffset", (ins "mlir::IntegerAttr":$offset), [{}],
-            /*defaultImplementation*/ [{
-                this->getOperation()->setAttr(WrappableOpInterface::elfMemOffsetAttrName(), offset);
-            }]
-        >,
-
-        InterfaceMethod<
-            "Get the offset of an operation inside an ELF section op",
-            "uint64_t",
-            "getMemoryOffset", (ins), [{}],
-            /*defaultImplementation*/ [{
-                auto op = this->getOperation();
-                if(op->hasAttr(WrappableOpInterface::elfMemOffsetAttrName())) {
-                    auto attr = op->template getAttrOfType<mlir::IntegerAttr>(WrappableOpInterface::elfMemOffsetAttrName());
-                    return attr.getUInt();
-                }
-                else {
-                    return 0;
-                }
-            }]
-        >
     ];
-
-    let extraClassDeclaration = [{
-        static llvm::StringLiteral elfMemOffsetAttrName() {
-            return "elfMemOffsetAttrKey";
-        }
-    }];
 }
 
 //

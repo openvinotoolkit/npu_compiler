@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
@@ -13,6 +14,12 @@
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_HANDLEU16FAKEQUANTIZE
+#define GEN_PASS_DEF_HANDLEU16FAKEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -21,7 +28,7 @@ namespace {
 // HandleU16FakeQuantizePass
 //
 
-class HandleU16FakeQuantizePass final : public IE::HandleU16FakeQuantizeBase<HandleU16FakeQuantizePass> {
+class HandleU16FakeQuantizePass final : public IE::impl::HandleU16FakeQuantizeBase<HandleU16FakeQuantizePass> {
 public:
     explicit HandleU16FakeQuantizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

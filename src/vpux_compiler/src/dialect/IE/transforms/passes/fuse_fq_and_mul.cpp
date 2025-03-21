@@ -15,6 +15,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEFQANDMUL
+#define GEN_PASS_DEF_FUSEFQANDMUL
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -155,7 +161,7 @@ mlir::LogicalResult FuseFQAndMul::matchAndRewrite(IE::MultiplyOp multiplyOp, mli
 // FuseFQAndMulPass
 //
 
-class FuseFQAndMulPass final : public IE::FuseFQAndMulBase<FuseFQAndMulPass> {
+class FuseFQAndMulPass final : public IE::impl::FuseFQAndMulBase<FuseFQAndMulPass> {
 public:
     explicit FuseFQAndMulPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

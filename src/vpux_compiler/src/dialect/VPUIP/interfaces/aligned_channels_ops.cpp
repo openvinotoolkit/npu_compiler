@@ -5,7 +5,6 @@
 
 #include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
@@ -13,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
@@ -24,9 +24,8 @@ class AlignedChannelsOpModel final :
         public IE::AlignedChannelsOpInterface::ExternalModel<AlignedChannelsOpModel<MainOpType>, MainOpType> {
 public:
     mlir::LogicalResult verifyChannels(mlir::Operation* op) const {
-        auto arch = VPU::getArch(op);
         return mlir::success(vpux::VPU::NCEInvariant::isInputActTypeSupported(
-                                     arch, op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
+                                     op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
                                      getInputChannelAlignment(op), false) &&
                              vpux::VPU::NCEInvariant::isOutputActTypeSupported(
                                      op->getResult(0).getType().template cast<vpux::NDTypeInterface>(),
@@ -40,7 +39,7 @@ public:
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
         const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
 
-        if (VPU::hasAutoPaddingODU(getModuleOp(op)) && VPU::outputCompatibleWithAutoPad(outputType)) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -53,9 +52,8 @@ class AlignedChannelsCompressConvOpModel final :
                                                              VPU::NCECompressConvolutionOp> {
 public:
     mlir::LogicalResult verifyChannels(mlir::Operation* op) const {
-        auto arch = VPU::getArch(op);
         return mlir::success(vpux::VPU::NCEInvariant::isInputActTypeSupported(
-                                     arch, op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
+                                     op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
                                      getInputChannelAlignment(op), true) &&
                              vpux::VPU::NCEInvariant::isOutputActTypeSupported(
                                      op->getResult(0).getType().template cast<vpux::NDTypeInterface>(),
@@ -68,7 +66,7 @@ public:
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
         const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
 
-        if (VPU::hasAutoPaddingODU(getModuleOp(op)) && VPU::outputCompatibleWithAutoPad(outputType)) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -108,7 +106,7 @@ public:
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
         const auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
 
-        if (VPU::hasAutoPaddingODU(getModuleOp(op)) && VPU::outputCompatibleWithAutoPad(outputType)) {
+        if (VPU::canAutopadOutput(op)) {
             return 1;
         }
 
@@ -121,9 +119,8 @@ class AlignedChannelsDepthConvOpModel final :
                                                              VPU::NCEDepthConvolutionOp> {
 public:
     mlir::LogicalResult verifyChannels(mlir::Operation* op) const {
-        auto arch = VPU::getArch(op);
         return mlir::success(vpux::VPU::NCEInvariant::isInputActTypeSupported(
-                                     arch, op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
+                                     op->getOperand(0).getType().template cast<vpux::NDTypeInterface>(),
                                      getInputChannelAlignment(op), false) &&
                              vpux::VPU::NCEInvariant::isOutputActTypeSupported(
                                      op->getResult(0).getType().template cast<vpux::NDTypeInterface>(),
@@ -143,7 +140,12 @@ public:
                 return dataType.getShape()[Dims4D::Act::C] / seTableType.getShape()[Dims4D::Act::C];
             }
         }
+
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
+        if (VPU::hasAutoPaddingODU(getModuleOp(op)) && VPU::outputCompatibleWithAutoPad(outputType)) {
+            return 1;
+        }
+
         return VPU::NCEInvariant::getAlignment(outputType.getElementType());
     }
 };

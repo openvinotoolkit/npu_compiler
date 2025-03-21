@@ -13,5 +13,6 @@ void registerLayoutInfoOpInterfaces(mlir::DialectRegistry& registry);
 void registerDDRAccessOpModelInterface(mlir::DialectRegistry& registry);
 void registerNCEOpInterface(mlir::DialectRegistry& registry);
 void registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry);
+void registerUnrollBatchOpInterfaces(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::VPU::arch37xx

@@ -91,12 +91,12 @@ InputTiling vpux::VPU::DetectionOutputNmsCaffeOp::backInferTileInfo(const vpux::
     const auto classesOffset = outputTile.offsets[Dims4D::Act::H];
     const auto classesAxis = outputTile.axis[Dims4D::Act::H];
 
-    const auto confidenceTile = tileOnHeight(getConfidence(), numClasses, classesOffset, classesAxis);
-    const auto decodedBoxesTile = tileDecodedBoxes(getBoxes(), numClasses, classesOffset, classesAxis);
-    const auto indicesTile = tileOnHeight(getIndices(), numClasses, classesOffset, classesAxis);
-    const auto sizesTile = tileSizes(getSizes(), numClasses, classesOffset, classesAxis);
-
-    return InputTiling{{confidenceTile, decodedBoxesTile, indicesTile, sizesTile}};
+    auto confidenceTile = tileOnHeight(getConfidence(), numClasses, classesOffset, classesAxis);
+    auto decodedBoxesTile = tileDecodedBoxes(getBoxes(), numClasses, classesOffset, classesAxis);
+    auto indicesTile = tileOnHeight(getIndices(), numClasses, classesOffset, classesAxis);
+    auto sizesTile = tileSizes(getSizes(), numClasses, classesOffset, classesAxis);
+    return InputTiling{
+            {std::move(confidenceTile), std::move(decodedBoxesTile), std::move(indicesTile), std::move(sizesTile)}};
 }
 
 void vpux::VPU::DetectionOutputNmsCaffeOp::adjustAttrs(const TilingInfo&, const TileInfo& outputTile) {

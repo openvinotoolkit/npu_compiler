@@ -4,10 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SETUPISREDUCESUPPORTED
+#define GEN_PASS_DEF_SETUPISREDUCESUPPORTED
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -17,7 +24,7 @@ namespace {
 // SetupIsReduceSupportedPass
 //
 
-class SetupIsReduceSupportedPass final : public VPU::SetupIsReduceSupportedBase<SetupIsReduceSupportedPass> {
+class SetupIsReduceSupportedPass final : public VPU::impl::SetupIsReduceSupportedBase<SetupIsReduceSupportedPass> {
 public:
     SetupIsReduceSupportedPass() = default;
     SetupIsReduceSupportedPass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log)

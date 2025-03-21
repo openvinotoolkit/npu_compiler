@@ -1,13 +1,11 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #pragma once
 
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
@@ -15,6 +13,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/Quant/QuantOps.h>
@@ -43,14 +42,6 @@ namespace VPUIP {
 
 constexpr Bit FP16_SIZE = 16_Bit;
 constexpr KB SHAVE_LIB_DATA_SIZE = 112_KB;
-
-// According to the documentation, total transfer length (LEN) field is stored in 24 bits that means max value is 16MB
-constexpr Byte DMA_LIMIT = MB(16).to<Byte>() - Byte(1);
-constexpr int64_t CMX_DMA_MAX_NUM_PLANES_37XX = 255;
-// According to the documentation, size of the highest dimension is stored in 16 bits on NPU40XX
-constexpr int64_t CMX_DMA_MAX_NUM_PLANES_40XX = INT16_MAX;
-constexpr int64_t CMX_DMA_MAX_STRIDING_LEVEL_37XX = 2;
-constexpr int64_t CMX_DMA_MAX_STRIDING_LEVEL_40XX = 6;
 
 }  // namespace VPUIP
 }  // namespace vpux

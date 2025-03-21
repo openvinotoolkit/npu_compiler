@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/attributes.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
@@ -16,6 +15,7 @@
 #include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/SymbolTable.h>

@@ -8,7 +8,6 @@
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 
-
 // -----
 
 // CHECK-LABEL: @MergeTileOnFirstDim
@@ -213,4 +212,54 @@ func.func @NotMergeWithInvalidTranspose(%arg0: tensor<1x2x16x32xf16>) -> (tensor
     // CHECK:    [[SLICE0:%.*]] = IE.Slice [[TRANSPOSE]]
     // CHECK:    [[SLICE1:%.*]] = IE.Slice [[TRANSPOSE]]
     // CHECK:    return      [[SLICE0]], [[SLICE1]]
+}
+
+// -----
+
+// CHECK-LABEL: @MergeTileWithSlice
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x16x32xf16>
+func.func @MergeTileWithSlice(%arg0: tensor<1x1x16x32xf16>) -> (tensor<1x1x16x32xf16>, tensor<1x1x16x32xf16>) {
+    %0 = IE.Tile(%arg0) {repeats_values = [1, 2, 1, 1]} : tensor<1x1x16x32xf16> -> tensor<1x2x16x32xf16>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 1, 16, 32] : tensor<1x2x16x32xf16> to tensor<1x1x16x32xf16>
+    %2 = IE.Slice %0 [0, 1, 0, 0] [1, 1, 16, 32] : tensor<1x2x16x32xf16> to tensor<1x1x16x32xf16>
+
+    return  %1, %2 : tensor<1x1x16x32xf16>, tensor<1x1x16x32xf16>
+
+    // CHECK-NOT:    IE.Tile
+    // CHECK-NOT:    IE.Slice
+    // CHECK:    return      [[INPUT]], [[INPUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotMergeTileWithSliceDueToDifferentRepeats
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x16x32xf16>
+func.func @NotMergeTileWithSliceDueToDifferentRepeats(%arg0: tensor<1x1x16x32xf16>) -> (tensor<1x1x16x32xf16>, tensor<1x2x16x16xf16>) {
+    %0 = IE.Tile(%arg0) {repeats_values = [1, 2, 1, 1]} : tensor<1x1x16x32xf16> -> tensor<1x2x16x32xf16>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 1, 16, 32] : tensor<1x2x16x32xf16> to tensor<1x1x16x32xf16>
+    %2 = IE.Slice %0 [0, 0, 0, 0] [1, 2, 16, 16] : tensor<1x2x16x32xf16> to tensor<1x2x16x16xf16>
+
+    return  %1, %2 : tensor<1x1x16x32xf16>, tensor<1x2x16x16xf16>
+
+    // CHECK:    [[TILE:%.+]] = IE.Tile([[INPUT]])
+    // CHECK:    [[SLICE_1:%.+]] = IE.Slice [[TILE]]
+    // CHECK:    [[SLICE_2:%.+]] = IE.Slice [[TILE]]
+
+    // CHECK:    return      [[SLICE_1]], [[SLICE_2]]
+}
+
+// -----
+
+// CHECK-LABEL: @NotMergeTileWithSliceWhenSliceNotInOriginalInput
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x2x16x32xf16>
+func.func @NotMergeTileWithSliceWhenSliceNotInOriginalInput(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf16> {
+    %0 = IE.Tile(%arg0) {repeats_values = [1, 2, 1, 1]} : tensor<1x2x16x32xf16> -> tensor<1x4x16x32xf16>
+    %1 = IE.Slice %0 [0, 1, 0, 0] [1, 2, 16, 32] : tensor<1x4x16x32xf16> to tensor<1x2x16x32xf16>
+
+    return  %1 : tensor<1x2x16x32xf16>
+
+    // CHECK:    [[TILE:%.+]] = IE.Tile([[INPUT]])
+    // CHECK:    [[SLICE_1:%.+]] = IE.Slice [[TILE]]
+
+    // CHECK:    return      [[SLICE_1]]
 }

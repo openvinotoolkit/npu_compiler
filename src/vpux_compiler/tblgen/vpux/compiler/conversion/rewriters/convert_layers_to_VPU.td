@@ -280,8 +280,8 @@ def createFakeQuantizeOp :
 
 def RewriteFakeQuantize :
         Pat<
-            (IE_FakeQuantizeOp $input, $input_low, $input_high, $output_low, $output_high, $levels, $fp_low_type, $auto_broadcast),
-            (createFakeQuantizeOp $input, $input_low, $input_high, $output_low, $output_high, $levels, $fp_low_type, $auto_broadcast)
+            (IE_FakeQuantizeOp $input, $input_low, $input_high, $output_low, $output_high, $levels, $low_fp_type, $auto_broadcast),
+            (createFakeQuantizeOp $input, $input_low, $input_high, $output_low, $output_high, $levels, $low_fp_type, $auto_broadcast)
         >;
 
 //
@@ -1061,8 +1061,8 @@ def RewriteMultiply :
 
 def RewriteAnd :
         Pat<
-            (IE_AndOp $input1, $input2, $auto_broadcast, $post_op, $clamp, $output_channels, $input_channels),
-            (createEltwiseOpWithPostOp<"And"> $input1, $input2, $auto_broadcast, $post_op, $clamp)
+            (IE_AndOp $input1, $input2, $auto_broadcast),
+            (createEltwiseOp<"And"> $input1, $input2, $auto_broadcast)
         >;
 
 def RewriteBitwiseAnd :
@@ -1179,13 +1179,13 @@ def RewriteFullyConnected :
 def createMatMulOp :
         NativeCodeCall<[{
             $_builder.create<vpux::VPU::MatMulOp>(
-                $_loc, $0, $1, $2, $3)
+                $_loc, $0, $1, $2, $3, $4)
         }]>;
 
 def RewriteMatMul :
         Pat<
-            (IE_MatMulOp $input1, $input2, $transpose_a, $transpose_b),
-            (createMatMulOp $input1, $input2, $transpose_a, $transpose_b)
+            (IE_MatMulOp $input1, $input2, $transpose_a, $transpose_b, $post_op),
+            (createMatMulOp $input1, $input2, $transpose_a, $transpose_b, $post_op)
         >;
 
 //
@@ -2229,6 +2229,21 @@ def RewriteDynamicDequantizeOp :
         Pat<
             (IE_DynamicDequantizeOp $input, $scale, $zp, $dstElemType),
             (createDynamicDequantizeOp $input, $scale, $zp, $dstElemType)
+        >;
+
+//
+// IE.RoPEOp -> VPU.RoPEOp
+//
+
+def createRoPEOp :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::RoPEOp>($_loc, $0, $1, $2)
+        }]>;
+
+def RewriteRoPE :
+        Pat<
+            (IE_RoPEOp $input, $input_cos, $input_sin),
+            (createRoPEOp $input, $input_cos, $input_sin)
         >;
 
 #endif

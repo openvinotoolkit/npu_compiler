@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --override-tile-executor-num="mode=revert" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --override-tile-executor-num="override-to-tiles-per-batch-mode=revert" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @OverrideToTilesPerBatchForNonBatchedCase {
     IE.TileResource 4 of @NCE at 1.700000e+03 MHz
     IE.CNNNetwork entryPoint : @SingleInputSingleOutputNonBatched

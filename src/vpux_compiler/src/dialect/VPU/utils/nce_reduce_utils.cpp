@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
+#include "llvm/ADT/TypeSwitch.h"
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
@@ -17,18 +18,20 @@
 using namespace vpux;
 
 bool vpux::VPU::isNCEReduceSupported(mlir::Operation* op, LogCb logCb) {
-    /*To do: Add ReduceSum, ReduceSumOfSquares etc. -- switch statements could be used
-    instead */
-    if (auto reduceOp = mlir::dyn_cast<IE::ReduceMeanOp>(op)) {
-        auto axes = IE::extractAxes(reduceOp->getLoc(), reduceOp);
-        if (axes.size() != 1 || axes.front() != Dims4D::Act::C.ind()) {
-            logCb(formatv(
-                    "Axes attribute must be a scalar, containing channel dimension index {0}, but instead got {1}",
-                    Dims4D::Act::C.ind(), axes.front()));
-            return false;
-        }
-    }
-    return true;
+    return llvm::TypeSwitch<mlir::Operation*, bool>(op)
+            .Case<IE::ReduceMeanOp, IE::ReduceSumOp>([&](auto reduceOp) {
+                auto axes = IE::extractAxes(reduceOp->getLoc(), reduceOp);
+                if (axes.size() != 1 || axes.front() != Dims4D::Act::C.ind()) {
+                    logCb(formatv("Axes attribute must be a scalar containing channel dimension index {0}, but got {1}",
+                                  Dims4D::Act::C.ind(), axes.front()));
+                    return false;
+                }
+                return true;
+            })
+            .Default([&](mlir::Operation*) {
+                logCb(formatv("Unknown operation: {0}", op->getName()));
+                return false;
+            });
 }
 
 bool vpux::VPU::isReduceOpSupportedOnNCE(mlir::Operation* op) {
@@ -39,4 +42,15 @@ bool vpux::VPU::isReduceOpSupportedOnNCE(mlir::Operation* op) {
     auto attrValue = pipelineOptionOp.lookupSymbol<IE::OptionOp>(REDUCE_SUPPORTED);
     VPUX_THROW_WHEN(attrValue == nullptr, "Failed to find ReduceOpSupported IE.OptionOp attribute");
     return static_cast<bool>(attrValue.getOptionValue());
+}
+
+VPUIP::NCETaskType vpux::VPU::configureNCEReduceTaskType(VPU::NCEReduceOp origOp) {
+    switch (origOp.getOpType()) {
+    case VPU::ReduceType::MEAN:
+        return VPUIP::NCETaskType::REDUCEMEAN;
+    case VPU::ReduceType::SUM:
+        return VPUIP::NCETaskType::REDUCESUM;
+    default:
+        VPUX_THROW("Unknown nceTaskType {0} ", stringifyReduceType(origOp.getOpType()));
+    }
 }

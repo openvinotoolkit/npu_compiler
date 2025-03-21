@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 namespace vpux {
 namespace VPUIPDPU {

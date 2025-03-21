@@ -21,12 +21,11 @@ size_t ELF::LogicalSectionOp::getTotalSize(vpux::ELF::SymbolReferenceMap& symRef
     size_t totalSize = 0;
     auto calcSpan = [&](mlir::Operation& op) {
         auto binaryOp = mlir::dyn_cast<ELF::BinaryOpInterface>(&op);
-        auto wrappableOp = mlir::dyn_cast<ELF::WrappableOpInterface>(&op);
 
-        if (binaryOp && wrappableOp) {
+        if (binaryOp) {
             // getting the BinarySize using VPU::ArchKind::UNKNOWN is OK at this point because the binaryOps should
             // already all be in their arch-specific form or are arch-independent
-            auto span = binaryOp.getBinarySizeCached(symRefMap, VPU::ArchKind::UNKNOWN) + wrappableOp.getMemoryOffset();
+            auto span = binaryOp.getBinarySizeCached(symRefMap, VPU::ArchKind::UNKNOWN) + binaryOp.getMemoryOffset();
             totalSize = std::max(totalSize, span);
         }
     };

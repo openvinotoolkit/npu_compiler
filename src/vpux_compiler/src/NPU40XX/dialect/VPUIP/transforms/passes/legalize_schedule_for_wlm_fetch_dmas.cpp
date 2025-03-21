@@ -10,28 +10,33 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
-#include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/wlm_legalization_utils.hpp"
+
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_LEGALIZESCHEDULEFORWLMFETCHDMAS
+#define GEN_PASS_DEF_LEGALIZESCHEDULEFORWLMFETCHDMAS
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
 
 using namespace vpux;
 namespace {
-
-using ExecutionGroup = llvm::SmallVector<size_t>;
-using ExecutionGroupList = llvm::SmallVector<ExecutionGroup>;
-enum class MinMaxOption { Min, Max };
 
 //
 //  LegalizeScheduleForWlmFetchDmasPass
 //
 class LegalizeScheduleForWlmFetchDmasPass final :
-        public VPUIP::arch40xx::LegalizeScheduleForWlmFetchDmasBase<LegalizeScheduleForWlmFetchDmasPass> {
+        public VPUIP::arch40xx::impl::LegalizeScheduleForWlmFetchDmasBase<LegalizeScheduleForWlmFetchDmasPass> {
 public:
-    explicit LegalizeScheduleForWlmFetchDmasPass(const int virtualBarrierThreshold, Logger log)
-            : _virtualBarrierThreshold(virtualBarrierThreshold) {
+    explicit LegalizeScheduleForWlmFetchDmasPass(const int virtualBarrierThreshold,
+                                                 WorkloadManagementMode workloadManagementMode, Logger log)
+            : _virtualBarrierThreshold(virtualBarrierThreshold),
+              _legalizeEachTileSeparately(workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     int _virtualBarrierThreshold;
+    bool _legalizeEachTileSeparately;
     void safeRunOnFunc() final;
 
     bool isValidDMA(BarrierInfo& barrierInfo, size_t dmaIdx);
@@ -39,11 +44,6 @@ private:
     VPURT::TaskOp findFirstDmaAfterExecGroup(BarrierInfo& barrierInfo, ExecutionGroup& executionGroup);
     VPURT::TaskOp findDMAsThroughBarriersBFS(size_t startBarrier, BarrierInfo& barrierInfo, MinMaxOption option,
                                              bool bfsDirUp);
-    void createSWTaskExecutionGroups(BarrierInfo& barrierInfo,
-                                     std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& swQueue, size_t tilesCount);
-    void createDPUTaskExecutionGroups(BarrierInfo& barrierInfo,
-                                      std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& dpuQueue,
-                                      size_t tilesCount);
 
     VPURT::TaskOp createDummyDma(mlir::OpBuilder& builder, mlir::Value inputBuf, mlir::Value outputBuf,
                                  BarrierInfo& barrierInfo, SmallVector<VPURT::TaskOp>& dummyDmas);
@@ -54,252 +54,23 @@ private:
                                 SmallVector<VPURT::TaskOp>& dummyDmas, size_t tilesCount,
                                 SmallVector<std::pair<size_t, size_t>>& blockRange);
 
+    void legalizeForWorkloadManagementMode(DenseMap<VPURT::TaskQueueType, ExecutionGroupList>& listOfExecutionGroups,
+                                           VPU::ExecutorKind executorKind, mlir::Operation* bufferInsertionPoint,
+                                           mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
+                                           SmallVector<VPURT::TaskOp>& dummyDmas, size_t tilesCount,
+                                           SmallVector<std::pair<size_t, size_t>>& blockRange,
+                                           VPURT::TaskQueueType queueType, mlir::Value& inBuffer,
+                                           mlir::Value& outBuffer, size_t iterTile = 0);
+
     SmallVector<size_t> getDmasUpdatingBarriers(llvm::DenseSet<size_t>& barriers, BarrierInfo& barrierInfo);
 
 private:
     // Will be initialized in safeRunOnFunc(), this is done to suppress the UNINIT_CTOR warning
-    size_t _maxKernelInvoCount = 0;
-    size_t _maxKernelRangeCount = 0;
-    size_t _maxInvarCount = 0;
-    size_t _maxVarCount = 0;
     size_t _numAllTaskOps = 0;
 
     VPURT::TaskOp _firstDMATaskOp;
     VPURT::TaskOp _lastDMATaskOp;
-    DenseMap<VPURT::TaskQueueType, ExecutionGroupList> _listOfSWExecutionGroups;
-    DenseMap<VPURT::TaskQueueType, ExecutionGroupList> _listOfDPUExecutionGroups;
 };
-
-void updateBarriersForDma(SmallVector<size_t>& consumes, SmallVector<size_t>& producesIn, VPURT::TaskOp dmaOp,
-                          BarrierInfo& barrierInfo) {
-    auto dmaIdx = barrierInfo.getIndex(dmaOp);
-    for (auto pIn : producesIn) {
-        barrierInfo.addProducer(pIn, dmaIdx);
-    }
-    for (auto consume : consumes) {
-        barrierInfo.addConsumer(consume, dmaIdx);
-    }
-}
-
-void updateBarriersForDma(SmallVector<mlir::Value>& consumes, SmallVector<mlir::Value>& producesIn, VPURT::TaskOp dmaOp,
-                          BarrierInfo& barrierInfo) {
-    auto dmaIdx = barrierInfo.getIndex(dmaOp);
-    for (auto pIn : producesIn) {
-        auto barrOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(pIn.getDefiningOp());
-        barrierInfo.addProducer(barrOp, dmaIdx);
-    }
-    for (auto consume : consumes) {
-        auto barrOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(consume.getDefiningOp());
-        barrierInfo.addConsumer(barrOp, dmaIdx);
-    }
-}
-
-// Fetch tasks are only attached to DMAs on port 0 and list 0 in later dialect
-// In this context supportedDMA is a DMA which has channel DDR and port 0
-bool isDMAOnSupportedPortAndChannel(VPURT::TaskOp dmaTaskOp) {
-    if (auto dma = mlir::dyn_cast<VPUIP::DMATypeOpInterface>(dmaTaskOp.getInnerTaskOp())) {
-        // Check if this is DMA on Port 0 Channel DDR
-        if (vpux::getDMAQueueIdEncoding(0, VPUIP::DmaChannelType::DDR) ==
-            vpux::getDMAQueueIdEncoding(dma.getPortVal().value_or(0), dma.getChannelType())) {
-            return true;
-        }
-    }
-    return false;
-}
-
-mlir::Value createDummyBuffer(mlir::OpBuilder& builder, mlir::Operation* insertionPoint) {
-    auto ctx = builder.getContext();
-    mlir::OpBuilder::InsertionGuard guard(builder);
-    if (insertionPoint != nullptr) {
-        builder.setInsertionPoint(insertionPoint);
-    }
-
-    const auto nameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::DDR));
-    const auto ddrSymbolAttr = vpux::IndexedSymbolAttr::get(ctx, nameAttr);
-    const auto layout = DimsOrder::NCHW.toAffineMap(ctx);
-
-    auto zeroBufferMemref = mlir::MemRefType::get({0, 0, 0, 0}, builder.getI32Type(), layout, ddrSymbolAttr);
-    return builder.create<VPURT::DeclareBufferOp>(builder.getUnknownLoc(), zeroBufferMemref, VPURT::BufferSection::DDR,
-                                                  0);
-}
-
-/*
-Function returns the sibling task on the last tile by default
-When a value of tile is provided it returns the sibling task on questioned tile
-If the task is not running on the asked tile e.g. SHV running on single cluster then it returns SIZE_MAX
-
-In following case when passed the index of Task 0 it will return Task 3
-    Task 0 (CMX, 0) .. Task 1 (CMX, 1) .. Task 2 (CMX, 2) .. Task 3 (CMX, 3)
-*/
-size_t getSiblingTaskOpOnTile(size_t inputTaskOpIdx, BarrierInfo& barrierInfo, size_t tile = SIZE_MAX) {
-    if (tile == 0) {
-        return inputTaskOpIdx;
-    }
-    auto inputTaskOp = barrierInfo.getTaskOpAtIndex(inputTaskOpIdx);
-
-    auto getTileIndex = [&](mlir::Operation* op) -> size_t {
-        auto taskOp = llvm::cast<VPURT::TaskOp>(op);
-        // For the usage pattern of tile index in this function all DMAs should have 0 tile index
-        if (taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN) {
-            return 0;
-        }
-        return VPURT::getTaskQueueType(taskOp, false).id;
-    };
-
-    mlir::Operation* prevOp = nullptr;
-    mlir::Operation* currentOp = inputTaskOp->getNextNode();
-
-    while (currentOp != nullptr) {
-        size_t tileIndex = getTileIndex(currentOp);
-
-        // If the requested tile is not SIZE_MAX, check for a match
-        if (tile != SIZE_MAX && tileIndex == tile) {
-            auto siblingOp = mlir::cast<VPURT::TaskOp>(currentOp);
-            return barrierInfo.getIndex(siblingOp);
-        }
-
-        // If tile index is 0, return the previous operation
-        // If prev operation is null then we have case when the inputTaskOpIdx is only running on 1 tile
-        if (tileIndex == 0) {
-            if (prevOp != nullptr) {
-                auto prev = mlir::cast<VPURT::TaskOp>(prevOp);
-                return barrierInfo.getIndex(prev);
-            } else {
-                return inputTaskOpIdx;
-            }
-        }
-
-        // Move to the next node
-        prevOp = currentOp;
-        currentOp = currentOp->getNextNode();
-    }
-
-    // If the requested tile was provided but not found, return SIZE_MAX
-    if (tile != SIZE_MAX) {
-        return SIZE_MAX;
-    }
-    return 0;
-}
-
-template <typename T>
-bool compareVPURTOpPosition(const T& lhs, const T& rhs, const BarrierInfo& barrierInfo, bool useIROrder = false) {
-    static_assert(std::is_same_v<T, mlir::Value> || std::is_same_v<T, VPURT::TaskOp> ||
-                          std::is_same_v<T, VPURT::DeclareVirtualBarrierOp> || std::is_same_v<T, size_t>,
-                  "Unsupported type for comparison");
-
-    if constexpr (std::is_same_v<T, mlir::Value>) {
-        auto lfsOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(lhs.getDefiningOp());
-        auto rhsOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(rhs.getDefiningOp());
-        return barrierInfo.getIndex(lfsOp) < barrierInfo.getIndex(rhsOp);
-    } else if constexpr (std::is_same_v<T, VPURT::DeclareVirtualBarrierOp>) {
-        return barrierInfo.getIndex(lhs) < barrierInfo.getIndex(rhs);
-    } else if constexpr (std::is_same_v<T, size_t>) {
-        return lhs < rhs;
-    } else if constexpr (std::is_same_v<T, VPURT::TaskOp>) {
-        if (useIROrder) {
-            // Use IR order for comparison
-            return lhs->isBeforeInBlock(rhs);
-        } else {
-            return barrierInfo.getIndex(lhs) < barrierInfo.getIndex(rhs);
-        }
-    }
-}
-
-// Function to find min or max position in a vector of TaskOps
-VPURT::TaskOp findMinMaxPosition(const SmallVector<size_t>& dmas, BarrierInfo& barrierInfo, MinMaxOption option) {
-    if (dmas.empty()) {
-        return nullptr;
-    }
-
-    auto comparePositions = [](size_t lhs, size_t rhs) {
-        return lhs < rhs;
-    };
-
-    if (option == MinMaxOption::Min) {
-        auto minPosIt = std::min_element(dmas.begin(), dmas.end(), comparePositions);
-        return barrierInfo.getTaskOpAtIndex(*minPosIt);
-    } else {
-        auto maxPosIt = std::max_element(dmas.begin(), dmas.end(), comparePositions);
-        return barrierInfo.getTaskOpAtIndex(*maxPosIt);
-    }
-}
-
-// Check if two list of barriers have any barrier in common
-std::optional<mlir::Value> findCommonBarrier(const SmallVector<mlir::Value>& barrierListOne,
-                                             const SmallVector<mlir::Value>& barrierListTwo, BarrierInfo& barrierInfo) {
-    mlir::DenseSet<mlir::Value> elements(barrierListOne.begin(), barrierListOne.end());
-    SmallVector<mlir::Value> commonBarriers;
-
-    for (mlir::Value barr : barrierListTwo) {
-        if (elements.find(barr) != elements.end()) {
-            commonBarriers.push_back(barr);
-        }
-    }
-
-    if (commonBarriers.empty()) {
-        return std::nullopt;
-    }
-
-    llvm::sort(commonBarriers, [&](const auto& lhs, const auto& rhs) {
-        return compareVPURTOpPosition(lhs, rhs, barrierInfo, true);
-    });
-
-    return commonBarriers[commonBarriers.size() - 1];
-}
-
-// Return last task that updates series of barriers
-// As we check for the last DMA, sort the vector and use the last one
-mlir::Operation* findLastTaskToUpdate(mlir::ValueRange barriers, BarrierInfo& barrierInfo) {
-    auto barrierVector = to_small_vector(barriers);
-
-    // Collect all tasks that update any barrier in barrierVector
-    SmallVector<VPURT::TaskOp> allUpdatingTasks;
-    for (auto barrierOp : barrierVector) {
-        // Lambda to check if a task updates the current barrierOp
-        auto validUser = [&barrierOp, &barrierInfo](VPURT::TaskOp op) -> bool {
-            auto updateBarrierList = to_small_vector(op.getUpdateBarriers());
-            return findCommonBarrier(updateBarrierList, {barrierOp}, barrierInfo).has_value();
-        };
-
-        // Get all users of the current barrierOp and filter based on the validUser condition
-        auto bOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(barrierOp.getDefiningOp());
-        for (auto usr : bOp.getResult().getUsers()) {
-            auto taskOp = mlir::dyn_cast<VPURT::TaskOp>(usr);
-            if (taskOp && validUser(taskOp)) {
-                allUpdatingTasks.push_back(taskOp);
-            }
-        }
-    }
-
-    // Sort all updating tasks collected based on position to find the last one
-    if (!allUpdatingTasks.empty()) {
-        llvm::sort(allUpdatingTasks, [&](const auto& lhs, const auto& rhs) {
-            return compareVPURTOpPosition(lhs, rhs, barrierInfo, true);
-        });
-        return allUpdatingTasks[allUpdatingTasks.size() - 1];
-    }
-
-    return nullptr;
-}
-
-// Create new barrier and add producer and consumer
-VPURT::DeclareVirtualBarrierOp createNewBarrier(mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
-                                                mlir::Operation* insertionPoint, VPURT::TaskOp producer,
-                                                VPURT::TaskOp consumer) {
-    builder.setInsertionPointAfter(insertionPoint);
-    auto newBarrierOp = builder.create<VPURT::DeclareVirtualBarrierOp>(insertionPoint->getLoc());
-    barrierInfo.addNewBarrier(newBarrierOp);
-
-    if (producer != nullptr) {
-        barrierInfo.addProducer(newBarrierOp, barrierInfo.getIndex(producer));
-    }
-
-    if (consumer != nullptr) {
-        barrierInfo.addConsumer(newBarrierOp, barrierInfo.getIndex(consumer));
-    }
-
-    return newBarrierOp;
-}
 
 // Returns a DMA which copies 0 len data from DDR to DDR
 VPURT::TaskOp LegalizeScheduleForWlmFetchDmasPass::createDummyDma(mlir::OpBuilder& builder, mlir::Value inputBuf,
@@ -321,107 +92,6 @@ bool LegalizeScheduleForWlmFetchDmasPass::isValidDMA(BarrierInfo& barrierInfo, s
     auto taskOp = barrierInfo.getTaskOpAtIndex(dmaIdx);
     return taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN && isDMAOnSupportedPortAndChannel(taskOp) &&
            dmaIdx < _numAllTaskOps;
-}
-
-void LegalizeScheduleForWlmFetchDmasPass::createDPUTaskExecutionGroups(
-        BarrierInfo& barrierInfo, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& dpuQueue, size_t tilesCount) {
-    VPURT::TaskQueueType queueType;
-    queueType.type = VPU::ExecutorKind::DPU;
-
-    for (size_t tile = 0; tile < tilesCount; ++tile) {
-        queueType.id = tile;
-        auto tileDpuQueue = dpuQueue[queueType];
-
-        ExecutionGroup execGroup;
-        uint32_t execGroupVariantCount = 0;
-        uint32_t execGroupInVariantCount = 0;
-
-        auto& tempVector = _listOfDPUExecutionGroups[queueType];
-
-        for (auto taskIdx : tileDpuQueue) {
-            auto taskOp = barrierInfo.getTaskOpAtIndex(taskIdx);
-            uint32_t dpuSize = 0;
-
-            for (auto op : llvm::make_early_inc_range(taskOp.getBody().getOps<VPUIP::NCEClusterTaskOp>())) {
-                const auto& dpuTasks = to_small_vector(op.getVariants().getOps<VPUIP::DPUTaskOp>());
-                dpuSize = dpuTasks.size();
-                execGroupVariantCount += dpuTasks.size();
-                execGroupInVariantCount++;
-            }
-
-            // Check if the current task exceeds either variant or invariant limits
-            if (execGroupVariantCount > _maxVarCount || execGroupInVariantCount > _maxInvarCount) {
-                // Push current group to the list
-                tempVector.push_back(execGroup);
-
-                // Start a new group
-                execGroup.clear();
-                execGroup.push_back(taskIdx);
-
-                // Reset counts for the new group
-                execGroupVariantCount = dpuSize;
-                execGroupInVariantCount = 1;
-            } else {
-                // Otherwise, continue adding to the current group
-                execGroup.push_back(taskIdx);
-            }
-        }
-
-        // Push any remaining group
-        if (!execGroup.empty()) {
-            tempVector.push_back(execGroup);
-        }
-    }
-}
-
-// Create SW execution groups of tasks for each cluster
-void LegalizeScheduleForWlmFetchDmasPass::createSWTaskExecutionGroups(
-        BarrierInfo& barrierInfo, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& swQueue, size_t tilesCount) {
-    VPURT::TaskQueueType queueType;
-    queueType.type = VPU::ExecutorKind::SHAVE_ACT;
-
-    for (size_t tile = 0; tile < tilesCount; ++tile) {
-        queueType.id = tile;
-        auto tileSWQueue = swQueue[queueType];
-
-        ExecutionGroup execGroup;
-        uint32_t execGroupInvoCount = 0;
-        uint32_t execGroupRangeCount = 0;
-
-        auto& tempVector = _listOfSWExecutionGroups[queueType];
-
-        for (auto taskIdx : tileSWQueue) {
-            auto taskOp = barrierInfo.getTaskOpAtIndex(taskIdx);
-            auto ops = taskOp.getBody().getOps<VPUIP::SwKernelOp>();
-            auto count = std::distance(ops.begin(), ops.end());
-
-            // Update counts with the current task
-            execGroupInvoCount += count;
-            execGroupRangeCount += count;
-
-            // Check if current group exceeds kernel invocation or range limits
-            if (execGroupInvoCount > _maxKernelInvoCount || execGroupRangeCount > _maxKernelRangeCount) {
-                // Push the current group to the vector
-                tempVector.push_back(execGroup);
-
-                // Start a new group
-                execGroup.clear();
-                execGroup.push_back(taskIdx);
-
-                // Reset counts for the new group
-                execGroupInvoCount = count;
-                execGroupRangeCount = count;
-            } else {
-                // Otherwise, continue adding to the current group
-                execGroup.push_back(taskIdx);
-            }
-        }
-
-        // Push any remaining group
-        if (!execGroup.empty()) {
-            tempVector.push_back(execGroup);
-        }
-    }
 }
 
 VPURT::TaskOp LegalizeScheduleForWlmFetchDmasPass::findDMAsThroughBarriersBFS(size_t startBarrier,
@@ -490,10 +160,10 @@ VPURT::TaskOp LegalizeScheduleForWlmFetchDmasPass::findFirstDmaAfterExecGroup(Ba
                                                                               ExecutionGroup& executionGroup) {
     SmallVector<VPURT::DeclareVirtualBarrierOp> updateBarriers;
     for (const auto& taskIndex : executionGroup) {
-        auto taskOp = barrierInfo.getTaskOpAtIndex(taskIndex);
-        auto upBarriers = taskOp.getUpdateBarriers();
+        auto upBarriers = barrierInfo.getUpdateBarriers(taskIndex);
         for (auto updateBarrier : upBarriers) {
-            auto updateBarrierOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(updateBarrier.getDefiningOp());
+            auto bOpInterface = barrierInfo.getBarrierOpAtIndex(updateBarrier);
+            auto updateBarrierOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(bOpInterface.getOperation());
             updateBarriers.push_back(updateBarrierOp);
         }
     }
@@ -542,10 +212,10 @@ VPURT::TaskOp LegalizeScheduleForWlmFetchDmasPass::findLastDmaBeforeExecGroup(Ba
     SmallVector<size_t> possibleUpdatingDMAs;
 
     for (const auto& taskIdx : executionGroup) {
-        auto taskOp = barrierInfo.getTaskOpAtIndex(taskIdx);
-        auto wBarriers = taskOp.getWaitBarriers();
+        auto wBarriers = barrierInfo.getUpdateBarriers(taskIdx);
         for (auto waitBarrier : wBarriers) {
-            auto waitBarrierOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(waitBarrier.getDefiningOp());
+            auto bOpInterface = barrierInfo.getBarrierOpAtIndex(waitBarrier);
+            auto waitBarrierOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(bOpInterface.getOperation());
             waitBarriers.push_back(waitBarrierOp);
         }
     }
@@ -726,16 +396,33 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
         DenseMap<VPURT::TaskQueueType, ExecutionGroupList>& listOfExecutionGroups, VPU::ExecutorKind executorKind,
         mlir::Operation* bufferInsertionPoint, mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
         SmallVector<VPURT::TaskOp>& dummyDmas, size_t tilesCount, SmallVector<std::pair<size_t, size_t>>& blockRange) {
-    auto inSameTaskBlock = [&blockRange](size_t task1, size_t task2) {
-        return any_of(blockRange.begin(), blockRange.end(), [&](const std::pair<size_t, size_t>& range) {
-            return (task1 >= range.first && task1 <= range.second) && (task2 >= range.first && task2 <= range.second);
-        });
-    };
-
     VPURT::TaskQueueType queueType;
     queueType.type = executorKind;
     queueType.id = 0;
 
+    // Reuse the same Decl Buffer for all Dummy DMAs
+    mlir::Value inBuffer = nullptr;
+    mlir::Value outBuffer = nullptr;
+
+    if (_legalizeEachTileSeparately) {
+        for (size_t iterTile = 0; iterTile < tilesCount; ++iterTile) {
+            queueType.id = iterTile;
+            legalizeForWorkloadManagementMode(listOfExecutionGroups, executorKind, bufferInsertionPoint, builder,
+                                              barrierInfo, dummyDmas, tilesCount, blockRange, queueType, inBuffer,
+                                              outBuffer, iterTile);
+        }
+    } else {
+        legalizeForWorkloadManagementMode(listOfExecutionGroups, executorKind, bufferInsertionPoint, builder,
+                                          barrierInfo, dummyDmas, tilesCount, blockRange, queueType, inBuffer,
+                                          outBuffer);
+    }
+}
+
+void LegalizeScheduleForWlmFetchDmasPass::legalizeForWorkloadManagementMode(
+        DenseMap<VPURT::TaskQueueType, ExecutionGroupList>& listOfExecutionGroups, VPU::ExecutorKind executorKind,
+        mlir::Operation* bufferInsertionPoint, mlir::OpBuilder& builder, BarrierInfo& barrierInfo,
+        SmallVector<VPURT::TaskOp>& dummyDmas, size_t tilesCount, SmallVector<std::pair<size_t, size_t>>& blockRange,
+        VPURT::TaskQueueType queueType, mlir::Value& inBuffer, mlir::Value& outBuffer, size_t iterTile) {
     auto executionGroupListForTile = listOfExecutionGroups[queueType];
     if (executionGroupListForTile.size() < 3) {
         return;
@@ -746,10 +433,6 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
 
     size_t groupIdx = 1;
     auto travelingGroup = executionGroupListForTile[groupIdx];
-
-    // Reuse the same Decl Buffer for all Dummy DMAs
-    mlir::Value inBuffer = nullptr;
-    mlir::Value outBuffer = nullptr;
 
     while (groupIdx < executionGroupListForTile.size()) {
         auto hasGrandParent = !grandParentGroup.empty();
@@ -777,16 +460,19 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
             auto lastParentTaskOpIdx = parentGroup[parentTaskIdx];
             auto lastGrandParentTaskIdx = grandParentGroup[grandParentGroup.size() - 1];
 
-            auto lastGrandParentTaskOpIdx = getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo);
+            auto lastGrandParentTaskOpIdx =
+                    _legalizeEachTileSeparately
+                            ? lastGrandParentTaskIdx
+                            : getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo, tilesCount);
             auto lastGrandParentTaskOp = barrierInfo.getTaskOpAtIndex(lastGrandParentTaskOpIdx);
-            auto lastGrandParentTaskUpdateBarriers = to_small_vector(lastGrandParentTaskOp.getUpdateBarriers());
-            auto lastGrandParentTaskWaitBarriers = to_small_vector(lastGrandParentTaskOp.getWaitBarriers());
 
-            auto lastParentTaskOp = barrierInfo.getTaskOpAtIndex(lastParentTaskOpIdx);
-            auto lastParentTaskWaitBarriers = to_small_vector(lastParentTaskOp.getWaitBarriers());
-            auto lastParentTaskUpdateBarriers = to_small_vector(lastParentTaskOp.getUpdateBarriers());
+            auto lastGrandParentTaskUpdateBarriers = barrierInfo.getUpdateBarriers(lastGrandParentTaskOpIdx);
+            auto lastGrandParentTaskWaitBarriers = barrierInfo.getWaitBarriers(lastGrandParentTaskOpIdx);
 
-            if (!inSameTaskBlock(lastParentTaskOpIdx, lastGrandParentTaskIdx)) {
+            auto lastParentTaskWaitBarriers = barrierInfo.getWaitBarriers(lastParentTaskOpIdx);
+            auto lastParentTaskUpdateBarriers = barrierInfo.getUpdateBarriers(lastParentTaskOpIdx);
+
+            if (!inSameTaskBlock(lastParentTaskOpIdx, lastGrandParentTaskIdx, blockRange)) {
                 grandParentGroup = parentGroup;
                 parentGroup = travelingGroup;
 
@@ -797,41 +483,46 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                 continue;
             }
 
-            inBuffer = inBuffer != nullptr ? inBuffer : createDummyBuffer(builder, bufferInsertionPoint);
-            outBuffer = outBuffer != nullptr ? outBuffer : createDummyBuffer(builder, bufferInsertionPoint);
+            inBuffer = inBuffer != nullptr ? inBuffer : VPUIP::createDummyBuffer(builder, bufferInsertionPoint);
+            outBuffer = outBuffer != nullptr ? outBuffer : VPUIP::createDummyBuffer(builder, bufferInsertionPoint);
 
             auto commonWaitBarrierOpt =
-                    findCommonBarrier(lastGrandParentTaskWaitBarriers, lastParentTaskWaitBarriers, barrierInfo);
-            auto commonUpdateBarrierOpt =
-                    findCommonBarrier(lastGrandParentTaskUpdateBarriers, lastParentTaskUpdateBarriers, barrierInfo);
+                    getEarliestCommonBarrier(lastGrandParentTaskWaitBarriers, lastParentTaskWaitBarriers, barrierInfo);
+            auto commonUpdateBarrierOpt = getEarliestCommonBarrier(lastGrandParentTaskUpdateBarriers,
+                                                                   lastParentTaskUpdateBarriers, barrierInfo);
 
             if (commonWaitBarrierOpt && commonUpdateBarrierOpt) {
-                auto insertionBarrier =
-                        mlir::cast<VPURT::DeclareVirtualBarrierOp>(commonWaitBarrierOpt.value().getDefiningOp());
+                auto insertionBarrier = barrierInfo.getBarrierOpAtIndex(commonWaitBarrierOpt.value());
                 auto newBarrierOneOp = createNewBarrier(builder, barrierInfo, insertionBarrier, nullptr, nullptr);
                 auto newBarrierTwoOp = createNewBarrier(builder, barrierInfo, insertionBarrier, nullptr, nullptr);
 
-                for (auto barr : lastParentTaskWaitBarriers) {
-                    auto barrOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(barr.getDefiningOp());
-                    for (size_t tile = 0; tile < tilesCount; ++tile) {
-                        // Along with updating dependencies for lastParentTaskOpIdx, we must also update the
-                        // dependencies for sibling on other tiles
-                        /*
-                            Example: If the original consumers for BarrierX, for legalization also needs to consume
-                            BarrierY then all the siblings on other tiles must also consume BarrierY This helps to
-                            eliminate the need to perform legalization per tile
-                                        |---->DPU0_0                            |---->DPU0_0
-                                        |---->DPU0_1                            |---->DPU0_1
-                            BarrierX                        =>        BarrierY
-                                        |---->DPU0_2                            |---->DPU0_2
-                                        |---->DPU0_3                            |---->DPU0_3
+                for (auto barrIdx : lastParentTaskWaitBarriers) {
+                    auto barrOp = barrierInfo.getBarrierOpAtIndex(barrIdx);
+                    if (_legalizeEachTileSeparately) {
+                        barrierInfo.removeConsumer(barrOp, lastParentTaskOpIdx);
+                        barrierInfo.addConsumer(newBarrierTwoOp, lastParentTaskOpIdx);
+                    } else {
+                        for (size_t tile = 0; tile < tilesCount; ++tile) {
+                            // Along with updating dependencies for lastParentTaskOpIdx, we must also update the
+                            // dependencies for sibling on other tiles
+                            /*
+                                Example: If the original consumers for BarrierX, for legalization also needs to consume
+                                BarrierY then all the siblings on other tiles must also consume BarrierY This helps to
+                                eliminate the need to perform legalization per tile
+                                            |---->DPU0_0                            |---->DPU0_0
+                                            |---->DPU0_1                            |---->DPU0_1
+                                BarrierX                        =>        BarrierY
+                                            |---->DPU0_2                            |---->DPU0_2
+                                            |---->DPU0_3                            |---->DPU0_3
 
-                            This is done inorder to also legalize the siblings as FetchTasks are for tasks per tile
-                        */
-                        auto siblingIdxOnTile = getSiblingTaskOpOnTile(lastParentTaskOpIdx, barrierInfo, tile);
-                        if (siblingIdxOnTile != SIZE_MAX) {
-                            barrierInfo.removeConsumer(barrOp, siblingIdxOnTile);
-                            barrierInfo.addConsumer(newBarrierTwoOp, siblingIdxOnTile);
+                                This is done inorder to also legalize the siblings as FetchTasks are for tasks per tile
+                            */
+                            auto siblingIdxOnTile =
+                                    getSiblingTaskOpOnTile(lastParentTaskOpIdx, barrierInfo, tilesCount, tile);
+                            if (siblingIdxOnTile != SIZE_MAX) {
+                                barrierInfo.removeConsumer(barrOp, siblingIdxOnTile);
+                                barrierInfo.addConsumer(newBarrierTwoOp, siblingIdxOnTile);
+                            }
                         }
                     }
                 }
@@ -843,13 +534,19 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                 SmallVector<mlir::Value> consumes = {newBarrierOneOp};
                 updateBarriersForDma(consumes, produceIn, dummyDmaOne, barrierInfo);
 
-                for (auto barr : lastGrandParentTaskUpdateBarriers) {
-                    auto barrOp = mlir::cast<VPURT::DeclareVirtualBarrierOp>(barr.getDefiningOp());
-                    for (size_t tile = 0; tile < tilesCount; ++tile) {
-                        auto siblingIdxOnTile = getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo, tile);
-                        if (siblingIdxOnTile != SIZE_MAX) {
-                            barrierInfo.removeProducer(barrOp, siblingIdxOnTile);
-                            barrierInfo.addProducer(newBarrierOneOp, siblingIdxOnTile);
+                for (auto barrIdx : lastGrandParentTaskUpdateBarriers) {
+                    auto barrOp = barrierInfo.getBarrierOpAtIndex(barrIdx);
+                    if (_legalizeEachTileSeparately) {
+                        barrierInfo.removeProducer(barrOp, lastGrandParentTaskIdx);
+                        barrierInfo.addProducer(newBarrierOneOp, lastGrandParentTaskIdx);
+                    } else {
+                        for (size_t tile = 0; tile < tilesCount; ++tile) {
+                            auto siblingIdxOnTile =
+                                    getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo, tilesCount, tile);
+                            if (siblingIdxOnTile != SIZE_MAX) {
+                                barrierInfo.removeProducer(barrOp, siblingIdxOnTile);
+                                barrierInfo.addProducer(newBarrierOneOp, siblingIdxOnTile);
+                            }
                         }
                     }
                 }
@@ -859,8 +556,9 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                 updateBarriersForDma(consumes, produceIn, dummyDmaTwo, barrierInfo);
 
                 /*
-                    Since DMAX position in FIFO is before DMA1 and since the barriers are same for GP and TG we would
-                    end up enqueuing them at same barrier this leads to inference hang as TG wouldn't be fetched
+                    Since DMAX position in FIFO is before DMA1 and since the barriers are same for GP and TG we
+                    would end up enqueuing them at same barrier this leads to inference hang as TG wouldn't be
+                    fetched
 
                     To overcome this we must also update all DPU/SW task that waits on the same barrier as GP (except
                     the tasks in GP)
@@ -882,6 +580,13 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                         return false;
                     }
 
+                    // If we are legalizing per tile only then check if the task is on same tile
+                    if (_legalizeEachTileSeparately) {
+                        if (VPURT::getTaskQueueType(taskOp, false).id != static_cast<int64_t>(iterTile)) {
+                            return false;
+                        }
+                    }
+
                     // Don't modify DMA and tasks which doesn't not have same type as tasks in GP as they will be
                     // legalized with insertFetchTask for DPU/SW
                     if (taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN ||
@@ -898,24 +603,30 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                     barrierInfo.addConsumer(newBarrierTwoOp, consumer);
                 }
 
-            } else if (auto commonBarrOpt = findCommonBarrier(lastGrandParentTaskUpdateBarriers,
-                                                              lastParentTaskWaitBarriers, barrierInfo)) {
-                auto commonBarrierOp =
-                        mlir::cast<VPURT::DeclareVirtualBarrierOp>(commonBarrOpt.value().getDefiningOp());
-                auto commonBarrierIndex = barrierInfo.getIndex(commonBarrierOp);
+            } else if (auto commonBarrOpt = getEarliestCommonBarrier(lastGrandParentTaskUpdateBarriers,
+                                                                     lastParentTaskWaitBarriers, barrierInfo)) {
+                auto commonBarrierIndex = commonBarrOpt.value();
+                auto commonBarrierOp = barrierInfo.getBarrierOpAtIndex(commonBarrierIndex);
 
                 builder.setInsertionPointAfter(lastGrandParentTaskOp);
                 auto dummyDmaOne = createDummyDma(builder, inBuffer, outBuffer, barrierInfo, dummyDmas);
                 auto newBarrierOneOp = createNewBarrier(builder, barrierInfo, commonBarrierOp, nullptr, nullptr);
 
-                for (size_t tile = 0; tile < tilesCount; ++tile) {
-                    auto siblingIdxOnTile = getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo, tile);
-                    if (siblingIdxOnTile != SIZE_MAX) {
-                        barrierInfo.removeProducer(commonBarrierIndex, siblingIdxOnTile);
-                        barrierInfo.addProducer(newBarrierOneOp, siblingIdxOnTile);
+                if (_legalizeEachTileSeparately) {
+                    barrierInfo.removeProducer(commonBarrierIndex, lastGrandParentTaskIdx);
+                    barrierInfo.addProducer(newBarrierOneOp, lastGrandParentTaskIdx);
+                } else {
+                    for (size_t tile = 0; tile < tilesCount; ++tile) {
+                        auto siblingIdxOnTile =
+                                getSiblingTaskOpOnTile(lastGrandParentTaskIdx, barrierInfo, tilesCount, tile);
+                        if (siblingIdxOnTile != SIZE_MAX) {
+                            barrierInfo.removeProducer(commonBarrierIndex, siblingIdxOnTile);
+                            barrierInfo.addProducer(newBarrierOneOp, siblingIdxOnTile);
+                        }
                     }
                 }
-                SmallVector<mlir::Value> produceIn = {commonBarrierOp};
+
+                SmallVector<mlir::Value> produceIn = {commonBarrierOp.getBarrier()};
                 SmallVector<mlir::Value> consumes = {newBarrierOneOp};
                 updateBarriersForDma(consumes, produceIn, dummyDmaOne, barrierInfo);
 
@@ -938,7 +649,7 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
 
                     Case 2: If we have atleast 1 barrier from wait barrier of last parent task which has all users after
                     grand parent Then this barrier can be used for legalization but other can't e.g. we can use barrier
-                   D as all users are after last grand parent task
+                    D as all users are after last grand parent task
 
                     Examples:
 
@@ -963,12 +674,25 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                 auto lastGrandParentUpdateBarriersIdx =
                         to_small_vector(barrierInfo.getUpdateBarriers(lastGrandParentTaskIdx));
 
+                auto validUser = [&](size_t taskIdx) -> bool {
+                    // If we're not legalizing per tile i.e. wlm mode is LCA based, in that case all users are legal so
+                    // return early
+                    if (!_legalizeEachTileSeparately) {
+                        return true;
+                    }
+                    auto taskOp = barrierInfo.getTaskOpAtIndex(taskIdx);
+                    if (VPURT::getTaskQueueType(taskOp, false).id == static_cast<int64_t>(iterTile)) {
+                        return true;
+                    }
+                    return false;
+                };
+
                 // Collect all barriers which can be used for legalizing
                 SmallVector<size_t> barrierIndexesToUpdateByDummyDma;
                 for (auto barrierIdx : lastParentWaitBarriersIdx) {
                     bool isUsedBeforeGrandParent = false;
                     for (auto barrierConsumer : barrierInfo.getBarrierConsumers(barrierIdx)) {
-                        if (barrierConsumer < lastGrandParentTaskIdx) {
+                        if (validUser(barrierConsumer) && barrierConsumer < lastGrandParentTaskIdx) {
                             isUsedBeforeGrandParent = true;
                             break;
                         }
@@ -978,7 +702,7 @@ void LegalizeScheduleForWlmFetchDmasPass::insertDMAForFetchTasks(
                     }
                 }
 
-                // If not barriers were available for use, create a new barrier
+                // If no barriers were available for use, create a new barrier
                 if (barrierIndexesToUpdateByDummyDma.empty()) {
                     // Need to create new barrier for dummyDma -> lastParentTask dependency
                     auto insertionPointBarrierOp = barrierInfo.getBarrierOpAtIndex(lastParentWaitBarriersIdx[0]);
@@ -1049,6 +773,11 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
     auto netFunc = getOperation();
     auto module = netFunc->getParentOfType<mlir::ModuleOp>();
 
+    // For all WLM Mode except PWLM_V0_LCA perform legalization per tile
+    if (workloadManagementModeOpt.hasValue()) {
+        _legalizeEachTileSeparately = workloadManagementModeOpt.getValue() != WorkloadManagementMode::PWLM_V0_LCA;
+    }
+
     auto barriersOps = netFunc.getOps<VPURT::DeclareVirtualBarrierOp>();
     auto numVirtualBarriers = static_cast<int64_t>(std::distance(barriersOps.begin(), barriersOps.end()));
     if (numVirtualBarriers > _virtualBarrierThreshold) {
@@ -1056,27 +785,6 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
         return;
     }
-
-    // Ease LIT tests by reducing the group sizes
-    auto archKind = VPU::getArch(netFunc);
-    _maxVarCount = maxVarCountPerGroup.hasValue()
-                           ? checked_cast<size_t>(maxVarCountPerGroup.getValue())
-                           : VPURegMapped::getDefaultTaskListCount(VPURegMapped::TaskType::DPUVariant, archKind) / 2;
-
-    _maxInvarCount =
-            maxInvarCountPerGroup.hasValue()
-                    ? checked_cast<size_t>(maxInvarCountPerGroup.getValue())
-                    : VPURegMapped::getDefaultTaskListCount(VPURegMapped::TaskType::DPUInvariant, archKind) / 2;
-
-    _maxKernelInvoCount =
-            maxKernelInvoCountPerGroup.hasValue()
-                    ? checked_cast<size_t>(maxKernelInvoCountPerGroup.getValue())
-                    : VPURegMapped::getDefaultTaskListCount(VPURegMapped::TaskType::ActKernelInvocation, archKind) / 2;
-
-    _maxKernelRangeCount =
-            maxKernelRangeCountPerGroup.hasValue()
-                    ? checked_cast<size_t>(maxKernelRangeCountPerGroup.getValue())
-                    : VPURegMapped::getDefaultTaskListCount(VPURegMapped::TaskType::ActKernelRange, archKind) / 2;
 
     mlir::OpBuilder builder(netFunc);
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
@@ -1091,7 +799,7 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
     }
 
     _numAllTaskOps = barrierInfo.getNumOfTasks();
-    VPURT::orderExecutionTasksAndBarriers(netFunc, barrierInfo, true);
+    VPURT::orderExecutionTasksAndBarriers(netFunc, barrierInfo, _log, true);
     barrierInfo.buildTaskQueueTypeMap();
 
     // Identify existing position of DeclareBufferOp, will be used as insertion point
@@ -1110,22 +818,30 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
     _firstDMATaskOp = barrierInfo.getTaskOpAtIndex(dQueue[0]);
     _lastDMATaskOp = barrierInfo.getTaskOpAtIndex(dQueue[dQueue.size() - 1]);
 
-    createDPUTaskExecutionGroups(barrierInfo, taskQueues, tilesCount);
-    createSWTaskExecutionGroups(barrierInfo, taskQueues, tilesCount);
+    auto& execGroupAnalysis = getAnalysis<ExecutionGroupAnalysis>();
+    execGroupAnalysis.logExecutionGroupTasks(_log);
+    auto listOfDPUExecutionGroups = execGroupAnalysis.getDPUExecutionGroups();
+    auto listOfSWExecutionGroups = execGroupAnalysis.getActShvExecutionGroups();
 
     SmallVector<VPURT::TaskOp> dummyDmas;
-    insertDMAForFetchTasks(_listOfDPUExecutionGroups, VPU::ExecutorKind::DPU, bufferInsertionPoint, builder,
-                           barrierInfo, dummyDmas, tilesCount, blockRange);
+    insertDMAForFetchTasks(listOfDPUExecutionGroups, VPU::ExecutorKind::DPU, bufferInsertionPoint, builder, barrierInfo,
+                           dummyDmas, tilesCount, blockRange);
 
-    insertDMAForFetchTasks(_listOfSWExecutionGroups, VPU::ExecutorKind::SHAVE_ACT, bufferInsertionPoint, builder,
+    insertDMAForFetchTasks(listOfSWExecutionGroups, VPU::ExecutorKind::SHAVE_ACT, bufferInsertionPoint, builder,
                            barrierInfo, dummyDmas, tilesCount, blockRange);
 
     // Apply the changes now as we need to make sure the new DMAs don't break the schedule
     barrierInfo.updateIR();
 
+    // Log the number of inserted DMAs for fetch legalization
+    if (!dummyDmas.empty()) {
+        _log.info("Inserted '{0}' DMAs for fetch legalization", dummyDmas.size());
+    }
+
     // Correct the position of new dmas after realizing the changes from barrierInfo
     for (auto dummyDma : dummyDmas) {
-        auto waitBarriers = to_small_vector(dummyDma.getWaitBarriers());
+        auto dummyDmaIdx = barrierInfo.getIndex(dummyDma);
+        auto waitBarriers = barrierInfo.getWaitBarriers(dummyDmaIdx);
         if (waitBarriers.empty()) {
             continue;
         }
@@ -1137,7 +853,7 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
     }
 
     // Reorder barriers in production order, this will also verify the schedule
-    VPURT::orderExecutionTasksAndBarriers(netFunc, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(netFunc, barrierInfo, _log);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(netFunc);
@@ -1150,6 +866,6 @@ void LegalizeScheduleForWlmFetchDmasPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPUIP::arch40xx::createLegalizeScheduleForWlmFetchDmasPass(
-        const int virtualBarrierThreshold, Logger log) {
-    return std::make_unique<LegalizeScheduleForWlmFetchDmasPass>(virtualBarrierThreshold, log);
+        const int virtualBarrierThreshold, WorkloadManagementMode workloadManagementMode, Logger log) {
+    return std::make_unique<LegalizeScheduleForWlmFetchDmasPass>(virtualBarrierThreshold, workloadManagementMode, log);
 }

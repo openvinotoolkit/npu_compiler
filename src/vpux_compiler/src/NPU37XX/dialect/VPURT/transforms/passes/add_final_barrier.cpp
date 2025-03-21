@@ -11,11 +11,17 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPURT::arch37xx {
+#define GEN_PASS_DECL_ADDFINALBARRIER
+#define GEN_PASS_DEF_ADDFINALBARRIER
+#include "vpux/compiler/NPU37XX/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT::arch37xx
+
 using namespace vpux;
 
 namespace {
 
-class AddFinalBarrierPass final : public VPURT::arch37xx::AddFinalBarrierBase<AddFinalBarrierPass> {
+class AddFinalBarrierPass final : public VPURT::arch37xx::impl::AddFinalBarrierBase<AddFinalBarrierPass> {
 public:
     explicit AddFinalBarrierPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

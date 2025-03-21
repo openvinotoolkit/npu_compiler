@@ -12,11 +12,17 @@
 #include <mlir/IR/Value.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_LINEARIZATION
+#define GEN_PASS_DEF_LINEARIZATION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
 
-class LinearizationPass final : public VPUIP::LinearizationBase<LinearizationPass> {
+class LinearizationPass final : public VPUIP::impl::LinearizationBase<LinearizationPass> {
 public:
     explicit LinearizationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -11,9 +11,17 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLUPSAMPLINGDMA
+#define GEN_PASS_DEF_UNROLLUPSAMPLINGDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -129,13 +137,17 @@ mlir::LogicalResult UpsamplingDMARewriter::matchAndRewrite(VPUIP::UpsamplingDMAO
         }
     }
 
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(upsamplingDMAOp));
+    const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+    const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
+
     auto fullCopySize = static_cast<Byte>(getCompactSize(upsamplingDMAOp.getInput()));
-    auto numberDMAsPlanesRestriction = divUp(totalNumPlane, VPUIP::DMA_MAX_NUMBER_PLANES);
-    auto numberDMAsSizeRestriction = divUp(fullCopySize.count(), VPUIP::DMA_LIMIT.count());
+    auto numberDMAsPlanesRestriction = divUp(totalNumPlane, dmaMaxNumPlanes);
+    auto numberDMAsSizeRestriction = divUp(fullCopySize.count(), dmaMaxLength);
     auto numberDMAs = std::max(numberDMAsPlanesRestriction, numberDMAsSizeRestriction);
     auto singlePlaneSize = fullCopySize.count() / totalNumPlane;
-    auto maxNumberOfPlanesPerDMA = std::min(VPUIP::DMA_LIMIT.count() / singlePlaneSize, totalNumPlane);
-    auto numberPlanesPerDMA = std::min(VPUIP::DMA_MAX_NUMBER_PLANES, maxNumberOfPlanesPerDMA);
+    auto maxNumberOfPlanesPerDMA = std::min(dmaMaxLength / singlePlaneSize, totalNumPlane);
+    auto numberPlanesPerDMA = std::min(dmaMaxNumPlanes, maxNumberOfPlanesPerDMA);
     subShape[Dims4D::Act::N] = 1;
     subShape[Dims4D::Act::H] = numberPlanesPerDMA;
 
@@ -204,7 +216,7 @@ mlir::LogicalResult UpsamplingDMARewriter::matchAndRewrite(VPUIP::UpsamplingDMAO
 // UnrollUpsamplingDMAPass
 //
 
-class UnrollUpsamplingDMAPass final : public VPUIP::UnrollUpsamplingDMABase<UnrollUpsamplingDMAPass> {
+class UnrollUpsamplingDMAPass final : public VPUIP::impl::UnrollUpsamplingDMABase<UnrollUpsamplingDMAPass> {
 public:
     explicit UnrollUpsamplingDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

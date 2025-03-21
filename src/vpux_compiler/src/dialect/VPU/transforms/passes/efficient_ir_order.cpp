@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_config.hpp"
@@ -10,6 +11,12 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_EFFICIENTIRORDER
+#define GEN_PASS_DEF_EFFICIENTIRORDER
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -20,7 +27,7 @@ namespace {
 // EfficientIROrderPass
 //
 
-class EfficientIROrderPass final : public EfficientIROrderBase<EfficientIROrderPass> {
+class EfficientIROrderPass final : public VPU::impl::EfficientIROrderBase<EfficientIROrderPass> {
 public:
     explicit EfficientIROrderPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

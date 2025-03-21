@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-extract-image-patches %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertExtractImagePatchesTransposeAffineReshapeToSliceConcat
 func.func @ConvertExtractImagePatchesTransposeAffineReshapeToSliceConcat(%arg0: tensor<1x1x6x5xf16>) -> tensor<1x4x3x5xf16> {
   %0 = IE.ExtractImagePatches(%arg0) {autoPad = #IE.pad_type<VALID>, rates = [1, 1], sizes = [3, 5], strides = [1, 1]} : tensor<1x1x6x5xf16> -> tensor<1x15x4x1xf16>

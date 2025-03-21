@@ -5,8 +5,12 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sep_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -35,7 +39,12 @@ public:
             return false;
         }
 
-        if (!isSupportedODUPermute(permuteOp)) {
+        // Check if the operation is a valid NCE Op
+        if (VPU::NCEInvariant::isSupported(nceOp).failed()) {
+            return false;
+        }
+
+        if (!isSupportedODUPermute(nceOp, permuteOp)) {
             return false;
         }
 
@@ -49,7 +58,7 @@ public:
     }
 
 private:
-    bool isSupportedODUPermute(mlir::Operation* permuteOp) const {
+    bool isSupportedODUPermute(mlir::Operation* nceOp, mlir::Operation* permuteOp) const {
         if (!mlir::isa<IE::ReorderOp, IE::MemPermuteOp>(permuteOp)) {
             return false;
         }
@@ -62,9 +71,32 @@ private:
         }
 
         // Check that permutation is supported by ODU
-        const std::unordered_set<DimsOrder> supportedOrders = {
+        std::unordered_set<DimsOrder> supportedOrders = {
                 DimsOrder::NCHW, DimsOrder::NCWH, DimsOrder::NHCW, DimsOrder::NHWC, DimsOrder::NWCH, DimsOrder::NWHC,
         };
+
+        /* SEP dilated convolution must have contiguous channels in output
+           since it is always followed by strided concat.
+           Strided concat interleaves H and W. If one of them is inner dimesion,
+           it will lead to extremely slow DMA concatenation. */
+        auto moduleOp = getModuleOp(nceOp);
+        auto seOpsEnabled = VPU::hasEnableSEPtrsOperations(moduleOp);
+        auto seExperimentalOpsEnabled = VPU::hasEnableExperimentalSEPtrsOperations(moduleOp);
+
+        if (seExperimentalOpsEnabled && seOpsEnabled) {
+            const auto logCb = [&](const formatv_object_base& msg) {
+                Logger::global().trace("{0}", msg.str());
+            };
+            // TODO: E153229
+            if (auto groupConv = mlir::dyn_cast_or_null<IE::GroupConvolutionOp>(nceOp)) {
+                const auto isSepDilatedConv =
+                        VPU::isSupportedSEPDilatedConv(groupConv, logCb,
+                                                       /*checkLayout=*/false, /*checkChannelAlignment=*/false);
+                if (isSepDilatedConv) {
+                    supportedOrders = {DimsOrder::NHWC, DimsOrder::NWHC};
+                }
+            }
+        }
 
         DimsOrder targetOrder;
         if (auto maybeMemPermute = mlir::dyn_cast_or_null<IE::MemPermuteOp>(permuteOp)) {

@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
@@ -106,6 +107,10 @@ public:
             return mlir::failure();
         }
         auto wdInfo = maybeWdInfo.value();
+        if (wdInfo.getDynamicScale()) {
+            _log.trace("Can't create FakeQuantize with dynamic scale");
+            return mlir::failure();
+        }
         return commonMatchAndRewrite(origOp, wdInfo, rewriter);
     }
 
@@ -130,6 +135,18 @@ public:
             return mlir::failure();
         }
         auto wdInfo = maybeWdInfo.value();
+        if (wdInfo.getDynamicScale()) {
+            _log.trace("Can't create FakeQuantize with dynamic scale");
+            return mlir::failure();
+        }
+        if (!wdInfo.getInput()) {
+            _log.trace("Can't create FakeQuantize without a valid input");
+            return mlir::failure();
+        }
+        if (!wdInfo.getScale() && !wdInfo.getShift()) {
+            _log.trace("Can't create FakeQuantize without static scale and shift");
+            return mlir::failure();
+        }
         return commonMatchAndRewrite(origOp, wdInfo, rewriter);
     }
 

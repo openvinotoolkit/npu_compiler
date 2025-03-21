@@ -42,16 +42,34 @@ vcl_result_t testCompiler(int argc, char** argv) {
         return -1;
     }
 
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+    vcl_version_info_t compilerVersion;
+    vcl_version_info_t profilingVersion;
+    ret = vclGetVersion(&compilerVersion, &profilingVersion);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printf("Failed to get version! Result:%x\n", ret);
+        return ret;
+    } else {
+        printf("\n############################################\n\n");
+        printf("Library VCL API version info:\n");
+        printf("Compiler version:%d.%d\n", compilerVersion.major, compilerVersion.minor);
+        printf("Profiling version:%d.%d\n", profilingVersion.major, profilingVersion.minor);
+        printf("\n############################################\n\n");
+    }
+
     /// Control if we save error log or output to terminal
     char* saveErrorLog = getenv("VCL_SAVE_ERROR");
-    vcl_result_t ret = VCL_RESULT_SUCCESS;
-    vcl_compiler_desc_t compilerDesc = {VCL_PLATFORM_VPU3720, VCL_LOG_TRACE};
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_TRACE;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = NULL;
     vcl_log_handle_t logHandle = NULL;
     if (saveErrorLog == NULL) {
-        ret = vclCompilerCreate(compilerDesc, &compiler, NULL);
+        ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, NULL);
     } else {
-        ret = vclCompilerCreate(compilerDesc, &compiler, &logHandle);
+        ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, &logHandle);
     }
     if (ret) {
         printf("Failed to create compiler! Result:%x\n", ret);
@@ -250,6 +268,9 @@ vcl_result_t testCompiler(int argc, char** argv) {
     if (ret != VCL_RESULT_SUCCESS) {
         getLastError(logHandle);
         printf("Failed to query network! Result:%x\n", ret);
+        free(newOptions);
+        free(modelIR);
+        vclCompilerDestroy(compiler);
         return ret;
     }
     uint8_t* layerRawData = NULL;
@@ -377,16 +398,34 @@ vcl_result_t testCompilerAllocator(int argc, char** argv, const char* blobFileNa
         return -1;
     }
 
+    vcl_result_t ret = VCL_RESULT_SUCCESS;
+    vcl_version_info_t compilerVersion;
+    vcl_version_info_t profilingVersion;
+    ret = vclGetVersion(&compilerVersion, &profilingVersion);
+    if (ret != VCL_RESULT_SUCCESS) {
+        printf("Failed to get version! Result:%x\n", ret);
+        return ret;
+    } else {
+        printf("\n############################################\n\n");
+        printf("Library VCL API version info:\n");
+        printf("Compiler version:%d.%d\n", compilerVersion.major, compilerVersion.minor);
+        printf("Profiling version:%d.%d\n", profilingVersion.major, profilingVersion.minor);
+        printf("\n############################################\n\n");
+    }
+
     /// Control if we save error log or output to terminal
     char* saveErrorLog = getenv("VCL_SAVE_ERROR");
-    vcl_result_t ret = VCL_RESULT_SUCCESS;
-    vcl_compiler_desc_t compilerDesc = {VCL_PLATFORM_VPU3720, VCL_LOG_TRACE};
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = NULL;
     vcl_log_handle_t logHandle = NULL;
     if (saveErrorLog == NULL) {
-        ret = vclCompilerCreate(compilerDesc, &compiler, NULL);
+        ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, NULL);
     } else {
-        ret = vclCompilerCreate(compilerDesc, &compiler, &logHandle);
+        ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, &logHandle);
     }
     if (ret) {
         printf("Failed to create compiler! Result:%x\n", ret);
@@ -585,6 +624,9 @@ vcl_result_t testCompilerAllocator(int argc, char** argv, const char* blobFileNa
     if (ret != VCL_RESULT_SUCCESS) {
         getLastError(logHandle);
         printf("Failed to query network! Result:%x\n", ret);
+        free(newOptions);
+        free(modelIR);
+        vclCompilerDestroy(compiler);
         return ret;
     }
     uint8_t* layerRawData = NULL;

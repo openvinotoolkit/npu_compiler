@@ -5,12 +5,19 @@
 
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEOPTHROUGHBATCHCONCAT
+#define GEN_PASS_DEF_PROPAGATEOPTHROUGHBATCHCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -308,7 +315,7 @@ mlir::LogicalResult PropagateFakeQuantize::matchAndRewrite(IE::FakeQuantizeOp or
 //
 
 class PropagateOpThroughBatchConcat final :
-        public IE::PropagateOpThroughBatchConcatBase<PropagateOpThroughBatchConcat> {
+        public IE::impl::PropagateOpThroughBatchConcatBase<PropagateOpThroughBatchConcat> {
 public:
     explicit PropagateOpThroughBatchConcat(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

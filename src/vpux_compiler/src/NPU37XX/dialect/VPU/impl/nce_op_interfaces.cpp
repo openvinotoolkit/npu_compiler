@@ -22,15 +22,13 @@ std::vector<unsigned int> getNTHWNTKGrid(VPU::MPEMode mode) {
         return {16, 16, 64};
     }
 }
-
-VPU::MPEMode getMpeModeForConv(ShapeRef shape) {
+VPU::MPEMode getMpeModeForConv([[maybe_unused]] VPU::ArchKind arch, ShapeRef shape) {
     std::vector<std::pair<double, VPU::MPEMode>> MPECost = {{0.0, VPU::MPEMode::CUBOID_4x16},
                                                             {0.0, VPU::MPEMode::CUBOID_8x16},
                                                             {0.0, VPU::MPEMode::CUBOID_16x16}};
 
     for (unsigned int idx = 0; idx < MPECost.size(); idx++) {
         auto grid = getNTHWNTKGrid(MPECost[idx].second);
-
         // Get the number of weights and activation grid reads
         double numWtGrids = std::ceil((double)shape[Dims4D::Act::C] / (double)grid[2]);
         double numActGrids = std::ceil((double)shape[Dims4D::Act::H] / (double)grid[1]) *
@@ -49,8 +47,9 @@ VPU::MPEMode getMpeModeForConv(ShapeRef shape) {
 
 class ConvMpeModeModel {
 public:
-    VPU::MPEMode getMpeModeImpl(mlir::Operation*, mlir::Type, mlir::Type, ShapeRef shape) const {
-        return getMpeModeForConv(shape);
+    VPU::MPEMode getMpeModeImpl(mlir::Operation* op, mlir::Type, mlir::Type, ShapeRef shape) const {
+        auto archKind = VPU::getArch(op);
+        return getMpeModeForConv(archKind, shape);
     }
 };
 

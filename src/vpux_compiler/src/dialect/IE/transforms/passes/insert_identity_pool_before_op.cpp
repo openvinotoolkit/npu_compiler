@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes/insert_identity_pool_before_op.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 
 #include <mlir/IR/IRMapping.h>
 
@@ -28,7 +29,7 @@ bool vpux::IE::isEligiblePostOp(mlir::Operation* op, Logger log) {
     }
 
     // Insert AvgPool between MaxPool and Clamp since MaxPool fused with Clamp is not fully supported
-    // by firmware. Tracking Number: E#145636
+    // by firmware. Tracking Number: E#-145636
     auto parentMaxPoolOp = op->getOperand(0).getDefiningOp<IE::MaxPoolOp>();
     if (parentMaxPoolOp != nullptr && mlir::isa<IE::ClampOp>(op)) {
         log.trace("A MaxPool Op followed by a Clamp Op at {0} will not trigger a fusion, insert an AvgPool Op then",

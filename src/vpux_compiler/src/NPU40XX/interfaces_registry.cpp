@@ -29,6 +29,7 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPU::arch37xx::registerDDRAccessOpModelInterface(registry);
     // NB: arch37xx::LayerWithPermuteInterfaceForIE can be re-used for 40XX
     VPU::arch37xx::registerLayerWithPermuteInterfaceForIE(registry);
+    VPU::arch37xx::registerUnrollBatchOpInterfaces(registry);
     VPU::arch37xx::registerNCEOpInterface(registry);
     // NB: arch40xx::registerClusterBroadcastingOpInterfaces uses its own logic
     VPU::arch40xx::registerClusterBroadcastingOpInterfaces(registry);
@@ -42,8 +43,6 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPUIPDPU::arch40xx::registerDPUExpandOpInterfaces(registry);
     // NB: arch40xx::VerifiersOpModel uses its own logic
     VPUIPDPU::arch40xx::registerVerifiersOpInterfaces(registry);
-    // arch40xx::LowerToRegVPUIPDPUOpModels use their own logic
-    VPUIPDPU::arch40xx::registerLowerToRegistersInterfaces(registry);
 }
 
 }  // namespace vpux

@@ -16,18 +16,6 @@ using namespace npu40xx;
 // ManagedBarrierOp
 //
 
-void vpux::VPUASM::ManagedBarrierOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-    VPUX_THROW("Should not serialize ManagedBarrierOp directly");
-}
-
-size_t vpux::VPUASM::ManagedBarrierOp::getBinarySize(VPU::ArchKind /*arch*/) {
-    return sizeof(npu40xx::nn_public::VpuTaskBarrierMap);
-}
-
-size_t vpux::VPUASM::ManagedBarrierOp::getAlignmentRequirements(VPU::ArchKind /*arch*/) {
-    return alignof(npu40xx::nn_public::VpuTaskBarrierMap);
-}
-
 vpux::ELF::SectionFlagsAttr vpux::VPUASM::ManagedBarrierOp::getPredefinedMemoryAccessors() {
     return (ELF::SectionFlagsAttr::SHF_EXECINSTR);
 }

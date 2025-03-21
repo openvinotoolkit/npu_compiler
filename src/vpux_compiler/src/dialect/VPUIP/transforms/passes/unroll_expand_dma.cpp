@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2024 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -13,11 +13,19 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/dma_limits.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <numeric>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLEXPANDDMA
+#define GEN_PASS_DEF_UNROLLEXPANDDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -239,9 +247,13 @@ void ExpandDMARewriter::createTilesForLargeSize(VPUIP::ExpandDMAOp origOp,
     //          impossible to split 4 channels into 3 tiles each of those would fit the limits
     const auto numPlanesOfFullShape = origInputShape[tileDim];
     const auto singlePlaneSize = fullCopySize / numPlanesOfFullShape;
-    const auto numPlanesPerTile = (VPUIP::DMA_LIMIT.count() / singlePlaneSize.count());
+
+    // Deeply rooted in NPU2.7 representation
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(origOp));
+    const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+    const auto numPlanesPerTile = (dmaMaxLength / singlePlaneSize.count());
     VPUX_THROW_UNLESS(numPlanesPerTile != 0,
-                      "Couldn't split a ExpandDMAOp with single plane size greater than DMA_LIMIT");
+                      "Couldn't split a ExpandDMAOp with single plane size greater than plane limit");
 
     auto inputDeclBuff = origOp.getInput().getDefiningOp<VPURT::DeclareBufferOp>();
     auto outputDeclBuff = origOp.getOutputBuff().getDefiningOp<VPURT::DeclareBufferOp>();
@@ -330,9 +342,11 @@ mlir::LogicalResult ExpandDMARewriter::matchAndRewrite(VPUIP::ExpandDMAOp expand
         _log.trace("ExpandDMA's result is not DistributedBufferType");
 
         const auto dmaSize = static_cast<Byte>(getCompactSize(expandDmaOp.getInput()));
-        if (dmaSize > VPUIP::DMA_LIMIT) {
+        const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(VPU::getArch(expandDmaOp));
+        const auto dmaMaxLength = dmaEngineLimits.getMaxLength();
+        if (dmaSize > Byte(dmaMaxLength)) {
             _log.trace("ExpandDMA with input size '{0}' large than limitation '{1}' and need to tile", dmaSize,
-                       VPUIP::DMA_LIMIT);
+                       dmaMaxLength);
             createTilesForLargeSize(expandDmaOp, dmaDescriptorGenerator, rewriter);
             return mlir::success();
         }
@@ -379,7 +393,7 @@ mlir::LogicalResult ExpandDMARewriter::matchAndRewrite(VPUIP::ExpandDMAOp expand
 // UnrollExpandDMAPass
 //
 
-class UnrollExpandDMAPass final : public VPUIP::UnrollExpandDMABase<UnrollExpandDMAPass> {
+class UnrollExpandDMAPass final : public VPUIP::impl::UnrollExpandDMABase<UnrollExpandDMAPass> {
 public:
     explicit UnrollExpandDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --tile-gather %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
-
 // -----
 
 // CHECK-LABEL: @TileGatherElement

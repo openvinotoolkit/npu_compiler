@@ -83,6 +83,7 @@ The `IE.ExecutorResource` and `IE.MemoryResource` are added by underlying low-le
 
     let dependentDialects = [
         "vpux::Const::ConstDialect",
+        "vpux::Core::CoreDialect",
         "mlir::func::FuncDialect",
         "mlir::tensor::TensorDialect",
         "mlir::quant::QuantizationDialect"

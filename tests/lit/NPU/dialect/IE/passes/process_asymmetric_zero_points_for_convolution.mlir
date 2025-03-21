@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --process-asymmetric-zero-points-for-convolution --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @FixZeroPointForConvolution
 
 !qElemType = !quant.uniform<i8:f16, 1.600000e+01>

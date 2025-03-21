@@ -4,10 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/IERT/ops.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/IERT/types.hpp"
 
-#include "vpux/compiler/core/attributes/memref_attr.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 

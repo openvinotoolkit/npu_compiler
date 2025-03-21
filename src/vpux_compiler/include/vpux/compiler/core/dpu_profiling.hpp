@@ -54,7 +54,7 @@ protected:
 
     virtual mlir::Operation* createAllocationOp(unsigned totalSizeCMXElements, const std::string& location) = 0;
 
-    virtual mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned, SmallVector<int64_t>) = 0;
+    virtual mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned, ArrayRef<int64_t>) = 0;
 
     virtual mlir::Value copyToDDR(mlir::BlockArgument& profilingResult, mlir::Operation*,
                                   SmallVector<mlir::Value>& dpuProfilingOutputs, unsigned numElements, unsigned offset,
@@ -92,7 +92,7 @@ protected:
                           StringRef name) override;
 
     mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
-                                SmallVector<int64_t> sizes) override;
+                                ArrayRef<int64_t> sizes) override;
 };
 
 class MultiClusterScheduler : public BaseClusterBufferScheduler {
@@ -114,7 +114,7 @@ protected:
                           StringRef name) override;
 
     mlir::Value getViewToBuffer(mlir::Operation* currentProfilingBuffer, unsigned profilingSamplesInCMX,
-                                SmallVector<int64_t> sizes) override;
+                                ArrayRef<int64_t> sizes) override;
 };
 
 }  // namespace vpux

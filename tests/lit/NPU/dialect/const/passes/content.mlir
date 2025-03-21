@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --verify-diagnostics %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @ParsePrintDenseConst() -> tensor<2xf16> {
     %cst = const.Declare tensor<2xf16> = dense<[1.0, 2.0]> : tensor<2xf16>
 

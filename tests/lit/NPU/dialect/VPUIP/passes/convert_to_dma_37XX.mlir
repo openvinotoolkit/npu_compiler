@@ -350,9 +350,8 @@ func.func @ConvertMemPermuteWHCToCHW(%arg0: memref<1x16x4x76xf16, #NWHC, @DDR>)
     // CHECK:   [[VAR0:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
     // CHECK:   [[VAR1:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x4x76xf16, #NWHC, @DDR>) outputs([[VAR0]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
     // CHECK:   [[VAR2:%.*]] = memref.alloc() : memref<1x16x4x76xf16, [@CMX_NN, 0]>
-    // CHECK:   [[VAR3:%.*]] = VPUIP.PermuteCast {dst_order = #NWHC, mem_perm = #NCHW} inputs([[VAR1]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
     // CHECK:   [[VAR4:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>
-    // CHECK:   [[VAR5:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHWC} inputs([[VAR3]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) outputs([[VAR4]] : memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>
+    // CHECK:   [[VAR5:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHWC} inputs([[VAR1]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) outputs([[VAR4]] : memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>
     // CHECK:   [[VAR6:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHCW} inputs([[VAR5]] : memref<1x16x4x76xf16, #NHCW, [@CMX_NN, 0]>) outputs([[VAR2]] : memref<1x16x4x76xf16, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, [@CMX_NN, 0]>
     // CHECK:   [[VAR7:%.*]] = memref.alloc() : memref<1x16x4x76xf16, @DDR>
     // CHECK:   [[VAR8:%.*]] = VPUIP.Copy inputs([[VAR6]] : memref<1x16x4x76xf16, [@CMX_NN, 0]>) outputs([[VAR7]] : memref<1x16x4x76xf16, @DDR>) -> memref<1x16x4x76xf16, @DDR>
@@ -422,9 +421,8 @@ func.func @ConvertMemPermuteCWHToHWC(%arg0: memref<1x16x4x76xf16, #NCWH, @DDR>)
     // CHECK:   [[VAR0:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>
     // CHECK:   [[VAR1:%.*]] = VPUIP.Copy inputs(%arg0 : memref<1x16x4x76xf16, #NCWH, @DDR>) outputs([[VAR0]] : memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>
     // CHECK:   [[VAR2:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[VAR3:%.*]] = VPUIP.PermuteCast {dst_order = #NCWH, mem_perm = #NCHW} inputs([[VAR1]] : memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>
     // CHECK:   [[VAR4:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
-    // CHECK:   [[VAR5:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHWC} inputs([[VAR3]] : memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>) outputs([[VAR4]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
+    // CHECK:   [[VAR5:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHWC} inputs([[VAR1]] : memref<1x16x4x76xf16, #NCWH, [@CMX_NN, 0]>) outputs([[VAR4]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>
     // CHECK:   [[VAR6:%.*]] = VPUIP.PermuteDMA {mem_perm = #NHCW} inputs([[VAR5]] : memref<1x16x4x76xf16, #NWHC, [@CMX_NN, 0]>) outputs([[VAR2]] : memref<1x16x4x76xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x4x76xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:   [[VAR7:%.*]] = memref.alloc() : memref<1x16x4x76xf16, #NHWC, @DDR>
     // CHECK:   [[VAR8:%.*]] = VPUIP.Copy inputs([[VAR6]] : memref<1x16x4x76xf16, #NHWC, [@CMX_NN, 0]>) outputs([[VAR7]] : memref<1x16x4x76xf16, #NHWC, @DDR>) -> memref<1x16x4x76xf16, #NHWC, @DDR>

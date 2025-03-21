@@ -6,8 +6,16 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <vpux/compiler/utils/rewriter.hpp>
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADAPTSHAPESFORSCALESHIFTPASS
+#define GEN_PASS_DEF_ADAPTSHAPESFORSCALESHIFTPASS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -121,7 +129,8 @@ mlir::LogicalResult BroadcastEltwiseRewriter<EltwiseOp>::matchAndRewrite(Eltwise
 // AdaptShapesForScaleShiftPass
 //
 
-class AdaptShapesForScaleShiftPass final : public IE::AdaptShapesForScaleShiftPassBase<AdaptShapesForScaleShiftPass> {
+class AdaptShapesForScaleShiftPass final :
+        public IE::impl::AdaptShapesForScaleShiftPassBase<AdaptShapesForScaleShiftPass> {
 public:
     explicit AdaptShapesForScaleShiftPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

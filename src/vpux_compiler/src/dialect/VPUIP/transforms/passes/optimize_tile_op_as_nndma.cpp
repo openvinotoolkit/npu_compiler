@@ -3,20 +3,22 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Support/LogicalResult.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_OPTIMIZETILEOPASNNDMA
+#define GEN_PASS_DEF_OPTIMIZETILEOPASNNDMA
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -486,7 +488,7 @@ mlir::LogicalResult FuseTileWithConcatClusteredCopy::matchAndRewrite(VPUIP::Conc
 // OptimizeTileOpAsNNDMAPass
 //
 
-class OptimizeTileOpAsNNDMAPass final : public VPUIP::OptimizeTileOpAsNNDMABase<OptimizeTileOpAsNNDMAPass> {
+class OptimizeTileOpAsNNDMAPass final : public VPUIP::impl::OptimizeTileOpAsNNDMABase<OptimizeTileOpAsNNDMAPass> {
 public:
     explicit OptimizeTileOpAsNNDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

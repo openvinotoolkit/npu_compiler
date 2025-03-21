@@ -4,10 +4,17 @@
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_quantize_ops_to_nce_ops.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/factories/convert_quantize_ops_to_nce_ops_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTQUANTIZEOPSTONCEOPS
+#define GEN_PASS_DEF_CONVERTQUANTIZEOPSTONCEOPS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -17,7 +24,8 @@ namespace {
 // ConvertQuantizeOpsToNceOpsPass
 //
 
-class ConvertQuantizeOpsToNceOpsPass final : public IE::ConvertQuantizeOpsToNceOpsBase<ConvertQuantizeOpsToNceOpsPass> {
+class ConvertQuantizeOpsToNceOpsPass final :
+        public IE::impl::ConvertQuantizeOpsToNceOpsBase<ConvertQuantizeOpsToNceOpsPass> {
 public:
     explicit ConvertQuantizeOpsToNceOpsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -38,14 +46,12 @@ bool isPerAxisQuant(mlir::Value val) {
 void ConvertQuantizeOpsToNceOpsPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-    auto module = func->getParentOfType<mlir::ModuleOp>();
-    const auto arch = VPU::getArch(module);
 
-    auto archSpecificStrategy = IE::createConvertQuantizeOpsToNceOpsStrategy(arch);
+    auto strategy = IE::createConvertQuantizeOpsToNceOpsStrategy();
 
     mlir::ConversionTarget toAvgPoolTarget(ctx);
     mlir::RewritePatternSet toAvgPoolPatterns(&ctx);
-    archSpecificStrategy->prepareAvgPool(toAvgPoolTarget, toAvgPoolPatterns, ctx, _log);
+    strategy->prepareAvgPool(toAvgPoolTarget, toAvgPoolPatterns, ctx, _log);
     if (mlir::failed(mlir::applyPartialConversion(func, toAvgPoolTarget, std::move(toAvgPoolPatterns)))) {
         signalPassFailure();
     }
@@ -53,7 +59,7 @@ void ConvertQuantizeOpsToNceOpsPass::safeRunOnFunc() {
     // perTensor quantize/dequantize convert to add or and
     mlir::ConversionTarget toEltwiseTarget(ctx);
     mlir::RewritePatternSet toEltwisePatterns(&ctx);
-    archSpecificStrategy->prepareEltwise(toEltwiseTarget, toEltwisePatterns, ctx, _log);
+    strategy->prepareEltwise(toEltwiseTarget, toEltwisePatterns, ctx, _log);
     if (mlir::failed(mlir::applyPartialConversion(func, toEltwiseTarget, std::move(toEltwisePatterns)))) {
         signalPassFailure();
     }
@@ -61,7 +67,7 @@ void ConvertQuantizeOpsToNceOpsPass::safeRunOnFunc() {
     // per-axis scales and per-tensor zero points quantize/dequantize convert to DW conv
     mlir::ConversionTarget quantToDwTarget(ctx);
     mlir::RewritePatternSet quantToDwPatterns(&ctx);
-    archSpecificStrategy->prepareQuantToDw(quantToDwTarget, quantToDwPatterns, ctx, _log);
+    strategy->prepareQuantToDw(quantToDwTarget, quantToDwPatterns, ctx, _log);
     if (mlir::failed(mlir::applyPartialConversion(func, quantToDwTarget, std::move(quantToDwPatterns)))) {
         signalPassFailure();
     }

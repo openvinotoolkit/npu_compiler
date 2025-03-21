@@ -23,7 +23,7 @@
 func.func @PatchFusedConstantWithSwizzling() -> !IpOp_Stub {
 
     %cst_26 = const.Declare !FusedConstantType_DDR = dense<1> : tensor<64x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x5120xui8>,
+        [#const.FuseWeights<tensor<1x1x1x5120xui8>,
             weightsTable=<dense<1> : tensor<64x1x1x4xsi32>>,
             weights=<dense<1.0> : tensor<64x64x1x1xf16>>>,
         #const.SwizzleConstant<5 : i64, 3 : i64>

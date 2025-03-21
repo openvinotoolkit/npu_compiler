@@ -34,9 +34,8 @@ using BarrierGraphInfoTests = ::testing::Test;
  *    /        \
  *  SHV11       DMA12
  */
-std::pair<BarrierInfoTest::BarrierMaps, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>>
-barrierMapWithMultiTaskQueueTypes() {
-    BarrierInfoTest::BarrierMaps inputBarrierMaps;
+std::pair<BarrierInfoMaps, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>> barrierMapWithMultiTaskQueueTypes() {
+    BarrierInfoMaps inputBarrierMaps;
     inputBarrierMaps.taskWaitBarriers = {
             {},   // task 0
             {},   // task 1
@@ -85,9 +84,6 @@ barrierMapWithMultiTaskQueueTypes() {
             {9, 10},    // barrier 4
     };
 
-    inputBarrierMaps.nTasks = 13;
-    inputBarrierMaps.nBarriers = 5;
-
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
     const VPURT::TaskQueueType shvType{VPU::ExecutorKind::SHAVE_ACT, 0};
@@ -103,12 +99,12 @@ TEST_F(BarrierGraphInfoTests, CheckParentAndChildBarriers) {
     auto [barrierConfig, taskQueueTypeMap] = barrierMapWithMultiTaskQueueTypes();
     BarrierGraphInfoTest graphInfoTest(taskQueueTypeMap, barrierConfig);
 
-    for (auto barInd : irange(barrierConfig.nBarriers)) {
+    for (auto barInd : irange(barrierConfig.barrierProducerMap.size())) {
         BarrierGraphInfo::BarrierSet expectedParentBarriers, expectedChildrenBarriers;
         if (barInd != 0) {
             expectedParentBarriers.insert(barInd - 1);
         }
-        if (barInd != barrierConfig.nBarriers - 1) {
+        if (barInd != barrierConfig.barrierProducerMap.size() - 1) {
             expectedChildrenBarriers.insert(barInd + 1);
         }
         auto parentBarriers = graphInfoTest.getParentBarrier(barInd);
@@ -156,9 +152,9 @@ TEST_F(BarrierGraphInfoTests, CheckBarrierFirstAndLastExecutionStep) {
     BarrierGraphInfoTest graphInfoTest(taskQueueTypeMap, barrierConfig);
     auto firstExecutionStep = graphInfoTest.getBarrierFirstExecutionStep();
     auto lastExecutionStep = graphInfoTest.getBarrierLastExecutionStep();
-    SmallVector<size_t> expectedFirstStep(barrierConfig.nBarriers);
-    SmallVector<size_t> expectedLastStep(barrierConfig.nBarriers);
-    for (auto barInd : irange(barrierConfig.nBarriers)) {
+    SmallVector<size_t> expectedFirstStep(barrierConfig.barrierProducerMap.size());
+    SmallVector<size_t> expectedLastStep(barrierConfig.barrierProducerMap.size());
+    for (auto barInd : irange(barrierConfig.barrierProducerMap.size())) {
         // first step is equal to its producer's min execution step
         expectedFirstStep[barInd] = barInd;
         // last step is equal to its consumer's max execution step

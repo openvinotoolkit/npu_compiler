@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
@@ -126,11 +127,7 @@ bool VPU::isOperationSplitOverWidthCompatible(mlir::Operation* op, ShapeRef outp
     };
 
     auto isSOWCompatible = widthCompatibleCheck(outputShape);
-
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) > 0) {
+    if (arch >= VPU::ArchKind::NPU40XX) {
         // For NPU40XX, W segmented output needs to have explicit halo regions defined.
         // Thus the applicability of SOW on the current operation is tightly dependent
         // if the consumer operations can be SOW themselves.
@@ -159,6 +156,10 @@ bool VPU::isOperationSplitOverKernelCompatible(mlir::Operation* op, ShapeRef out
         outputShape = getShape(clusteredOp->getResult(0));
     }
     const auto OC = outputShape[Dims4D::Act::C];
+
+    if (mlir::isa<NCEOpInterface>(op) && VPU::canAutopadOutput(op)) {
+        return false;
+    }
 
     // Sparse Eltwise consuming SOK activations leads to the storage element size different than the number of input
     // channels, which is not a validated scenario

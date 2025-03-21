@@ -99,7 +99,7 @@ mlir::LogicalResult configureStorageElement(const Logger& log, IDUConfig::Storag
 mlir::LogicalResult configureSparsityPattern(const Logger& log, IDUConfig::InputLayerCfg& config,
                                              std::optional<int64_t> spPattern,
                                              std::optional<bool> inChannelsCompression);
-
+mlir::LogicalResult configurePalletization(const Logger& log, IDUConfig::Weights& config, mlir::Type weightsType);
 mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& config, VPUIP::NCETaskType taskType,
                                      mlir::Type inActType, mlir::Type weightsType, bool wtSparse);
 

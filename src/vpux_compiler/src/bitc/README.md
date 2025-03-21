@@ -35,7 +35,7 @@ cd to validation/build/
         - This can contain ranges like: file[1-10].bin which resolves to file1.bin file2.bin ... file10.bin
     - **bitmap_data_path** - path to bitmap dataset
     - **bitmap_data** - list with the bitmap dataset
-        - This can contain ranges like: file[1-10].bin which resolves to file1.bin file2.bin ... file10.bin
+      - This can contain ranges like: file[1-10].bin which resolves to file1.bin file2.bin ... file10.bin
     - **sparse_block_size** - a number divisible by 16
 
 ## Ref-data

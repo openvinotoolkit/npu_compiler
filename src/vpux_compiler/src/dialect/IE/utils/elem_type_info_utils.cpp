@@ -5,7 +5,9 @@
 
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 
+#include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 using namespace IE;
@@ -67,7 +69,7 @@ bool vpux::IE::isSupportedElemTypeInfoCase(mlir::Operation* op, bool seOpsEnable
 void vpux::IE::propagateElemTypeDownForAffineReshapeOp(IE::AffineReshapeOp affineReshape,
                                                        IE::LayerDataInfo<mlir::Type>& info) {
     auto outputElemType = inferElemTypeAffineReshape(affineReshape, info.getInput(0));
-    if (mlir::failed(outputElemType)) {
+    if (!outputElemType.has_value()) {
         return;
     }
 
@@ -144,59 +146,12 @@ void vpux::IE::propagateElemTypeUpForExpandDilatedOp(IE::ExpandDilatedOp expandD
 // AffineReshapeOp
 //
 
-mlir::FailureOr<mlir::Type> vpux::IE::inferElemTypeAffineReshape(AffineReshapeOpAdaptor affineReshapeOp,
-                                                                 mlir::Type inputElemType) {
-    const auto perAxisQType = inputElemType.dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>();
-    if (perAxisQType == nullptr) {
-        return inputElemType;
-    }
-
-    const auto inputQAxis = perAxisQType.getQuantizedDimension();
-
+std::optional<mlir::Type> vpux::IE::inferElemTypeAffineReshape(AffineReshapeOpAdaptor affineReshapeOp,
+                                                               mlir::Type inputElemType) {
+    const auto inputType = mlir::cast<NDTypeInterface>(affineReshapeOp.getInput().getType());
     const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(affineReshapeOp.getDimMapping());
-    const auto outputShape = parseIntArrayAttr<int64_t>(affineReshapeOp.getShapeValue());
-    const auto inputShape = getShape(affineReshapeOp.getInput()).raw();
-
-    // get output dims for input Q axis
-    const auto outputDims = dimMapping[inputQAxis];
-    int64_t outQAxis = -1;
-    int64_t inputQAxisSize = inputShape[inputQAxis];
-
-    if (inputQAxisSize == 1) {
-        // Per tensor, but must be per channel, do not handle it here
-        return mlir::failure();
-    }
-
-    for (const auto& dim : outputDims) {
-        if (inputQAxisSize == outputShape[dim]) {
-            // firstly check that element is unique and others == 1
-            if (std::find_if(outputDims.begin(), outputDims.end(), [&](int64_t elem) {
-                    return (outputShape[elem] != 1 && outputShape[elem] != inputQAxisSize);
-                }) != outputDims.end()) {
-                return mlir::failure();
-            }
-            outQAxis = dim;
-            break;
-        }
-    }
-
-    if (outQAxis == -1) {
-        return mlir::failure();
-    }
-
-    if (const auto perAxisQuantileQType = inputElemType.dyn_cast_or_null<mlir::quant::QuantileQuantizedPerAxisType>()) {
-        return mlir::quant::QuantileQuantizedPerAxisType::get(
-                perAxisQuantileQType.getFlags(), perAxisQuantileQType.getStorageType(),
-                perAxisQuantileQType.getQuantileType(), perAxisQuantileQType.getExpressedType(),
-                perAxisQuantileQType.getQuantiles(), perAxisQuantileQType.getScales(),
-                perAxisQuantileQType.getZeroPoints(), static_cast<int32_t>(outQAxis),
-                perAxisQuantileQType.getStorageTypeMin(), perAxisQuantileQType.getStorageTypeMax());
-    }
-
-    return mlir::quant::UniformQuantizedPerAxisType::get(
-            perAxisQType.getFlags(), perAxisQType.getStorageType(), perAxisQType.getExpressedType(),
-            perAxisQType.getScales(), perAxisQType.getZeroPoints(), static_cast<int32_t>(outQAxis),
-            perAxisQType.getStorageTypeMin(), perAxisQType.getStorageTypeMax());
+    const auto shapeValue = parseIntArrayAttr<int64_t>(affineReshapeOp.getShapeValue());
+    return Const::inferElemTypeAffineReshape(inputType.getShape(), inputElemType, dimMapping, shapeValue);
 }
 
 //

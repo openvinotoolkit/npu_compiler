@@ -4,10 +4,19 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/logging.hpp"
+
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_ADDCOPYBETWEENSWKERNELSANDNETWORKIO
+#define GEN_PASS_DEF_ADDCOPYBETWEENSWKERNELSANDNETWORKIO
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -490,7 +499,7 @@ void addCopyForCallOpWithBlockArgIO(FunctionWithSwKernelCalls& functionWithSwKer
 //
 
 class AddCopyBetweenSWKernelsAndNetworkIOPass final :
-        public VPUIP::AddCopyBetweenSWKernelsAndNetworkIOBase<AddCopyBetweenSWKernelsAndNetworkIOPass> {
+        public VPUIP::impl::AddCopyBetweenSWKernelsAndNetworkIOBase<AddCopyBetweenSWKernelsAndNetworkIOPass> {
 public:
     explicit AddCopyBetweenSWKernelsAndNetworkIOPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

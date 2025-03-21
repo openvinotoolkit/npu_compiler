@@ -4,13 +4,16 @@
 //
 
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
+#include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/compiler/dialect/const/utils/mem_permute_optimized.hpp"
 #include "vpux/compiler/utils/loop.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Dialect/Quant/QuantTypes.h>
 #include <numeric>
 
 using namespace vpux;
@@ -123,6 +126,47 @@ mlir::LogicalResult prepareReshapeSwap(optimization::TransformAttrPos reshapeAtt
     const auto newShape = getIntArrayAttr(reshapeAttr.getContext(), newSubViewOutput->shape);
     *(reshapeAttrIt + 1) = Const::SubViewAttr::get(newOffset, newShape);
     return mlir::success();
+}
+
+void prepareMemPermuteSwap(optimization::TransformAttrPos memPermuteAttrIt, NDTypeInterface memPermuteInputType) {
+    const auto memPermuteAttr = mlir::cast<Const::MemPermuteAttr>(*memPermuteAttrIt);
+
+    // SubView is applied to logical shape. Since the goal is to move SubView before MemPermute we should infer offsets
+    // and sizes for input logical shape of MemPermute. To do this, we perform the steps from MemPermute's type
+    // inference procedure in reverse order, namely:
+    // - Apply output layout (to get offsets/shapes applying output memory shape)
+    // - Apply reverse of MemPermute (to get offsets/shapes applying input memory shape)
+    // - Apply reverse of input layout (to get offsets/shapes applying input logical shape)
+    // Or in a different representation we go from right to left ( apply reverse permutation if arrow direction is
+    // opposite) input logical shape -> (Apply input layout) -> Input Memory Shape -> (ApplyMemPerm) ->   Output
+    // MemoryLayout <- (ApplyOutputLayout) <- Output Logical Shape
+
+    // Combination of the 3 permutation listed above is applied to get final permutation.
+
+    const auto outputLayoutPermutation = memPermuteAttr.getDstOrder().getValue();
+
+    const auto memPerm = memPermuteAttr.getMemPerm().getValue();
+    const auto reverseMemPermLayout = inversePermutation(memPerm);
+
+    const auto inputLayout = memPermuteInputType.getDimsOrder().toAffineMap(memPermuteInputType.getContext());
+    const auto reverseInputLayout = inversePermutation(inputLayout);
+
+    // Reverse order is required with compose and it is equivalent to result =
+    // reverseInputLayoutTransform(reverseMemPermLayout(reverseMemPermLayout))
+    const auto combinedPermutation = reverseInputLayout.compose(reverseMemPermLayout).compose(outputLayoutPermutation);
+
+    const auto permutationOrder = DimsOrder::fromAffineMap(combinedPermutation);
+    const auto subViewAttr = mlir::cast<Const::SubViewAttr>(*(memPermuteAttrIt + 1));
+    const Shape offset(parseIntArrayAttr<int64_t>(subViewAttr.getOffset()));
+    const Shape shape(parseIntArrayAttr<int64_t>(subViewAttr.getShape()));
+    SmallVector<int64_t> newOffset(offset.size());
+    SmallVector<int64_t> newShape(shape.size());
+    for (size_t idx = 0; idx < newShape.size(); idx++) {
+        newOffset[idx] = offset.raw()[permutationOrder.dimAt(idx).ind()];
+        newShape[idx] = shape.raw()[permutationOrder.dimAt(idx).ind()];
+    }
+    *(memPermuteAttrIt + 1) = Const::SubViewAttr::get(getIntArrayAttr(memPermuteAttr.getContext(), newOffset),
+                                                      getIntArrayAttr(memPermuteAttr.getContext(), newShape));
 }
 
 mlir::LogicalResult prepareChangeShapeSwap(optimization::TransformAttrPos changeShapeAttrIt,
@@ -263,7 +307,7 @@ mlir::LogicalResult prepareRelocateWeightsTableSwap(optimization::TransformAttrP
 
     *relocateAttrIt = Const::RelocateWeightsTableAttr::get(
             newWeightsPtrsAttr, relocateAttr.getSparsityPtr(), newClusterOffsetsAttr, newTableByteSizeAttr,
-            newWeightsElemBitSizeAttr, newWeightsCompressionAttr, newChannelOffsetAttr);
+            newWeightsElemBitSizeAttr, newWeightsCompressionAttr, newChannelOffsetAttr, relocateAttr.getOriginalOC());
 
     return mlir::success();
 }
@@ -376,6 +420,17 @@ mlir::LogicalResult prepareDequantizeSwap(optimization::TransformAttrPos dequant
     return mlir::success();
 }
 
+Const::CastElemTypeAttr tryFusingConsecutiveCasts(Const::CastElemTypeAttr currTransformation) {
+    const bool castToQuantizedType = mlir::isa<mlir::quant::QuantizedType>(currTransformation.getElemType());
+    // E#151161: fusing cast-to-quantized-type is complicated: it requires (at
+    // least) expressed type modification which doesn't always agree with
+    // further transformations (e.g. one could have fused casts, followed by
+    // dequantize which "restores" the previous type that is now changed to
+    // something else). ultimately, this can cause invalid IR. as a workaround,
+    // just ignore this problem altogether by not fusing cast-to-quantized-type.
+    return castToQuantizedType ? nullptr : currTransformation;
+}
+
 }  // namespace
 
 //
@@ -426,9 +481,7 @@ std::pair<optimization::TransformAttrPos, bool> fuseConsecutiveTransformations(
     } else if ((mlir::isa<Const::ReshapeAttr>(prevTransformation) &&
                 mlir::isa<Const::ReshapeAttr>(currTransformation)) ||
                (mlir::isa<Const::ReorderAttr>(prevTransformation) &&
-                mlir::isa<Const::ReorderAttr>(currTransformation)) ||
-               (mlir::isa<Const::CastElemTypeAttr>(prevTransformation) &&
-                mlir::isa<Const::CastElemTypeAttr>(currTransformation))) {
+                mlir::isa<Const::ReorderAttr>(currTransformation))) {
         newTransformation = currTransformation;
     } else if (areRerorderAndMemPermute(prevTransformation, currTransformation) ||
                areRerorderAndMemPermute(currTransformation, prevTransformation)) {
@@ -466,6 +519,9 @@ std::pair<optimization::TransformAttrPos, bool> fuseConsecutiveTransformations(
         }
 
         newTransformation = MemPermuteAttr::get(lastOrder, newMemPermAttr);
+    } else if (auto currT = mlir::dyn_cast<Const::CastElemTypeAttr>(currTransformation);
+               mlir::isa<Const::CastElemTypeAttr>(prevTransformation) && currT != nullptr) {
+        newTransformation = tryFusingConsecutiveCasts(currT);
     }
 
     if (newTransformation != nullptr) {
@@ -507,6 +563,17 @@ std::pair<optimization::TransformAttrPos, bool> foldTransformation(
         if (memPermOutType == currTransformationInType && memPerm.isIdentity()) {
             return {transformations.erase(currPos), true};
         }
+    } else if (auto transposeAttr = mlir::dyn_cast<TransposeAttr>(*currPos)) {
+        auto currTransformationInType = getCurrTransformationInType();
+        auto transposeOutType = transposeAttr.inferOutputType(currTransformationInType);
+        auto memPerm = transposeAttr.getOrder().getValue();
+
+        // Note: identity check is important here since transposing e.g. 2x2
+        // tensor does not modify the type, but still performs the
+        // transposition.
+        if (transposeOutType == currTransformationInType && memPerm.isIdentity()) {
+            return {transformations.erase(currPos), true};
+        }
     }
 
     return {currPos, false};
@@ -528,9 +595,9 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
 
     if (!mlir::isa<Const::SubViewAttr>(currTransformation) ||
         !mlir::isa<Const::AddAttr, Const::RescaleAttr, Const::CastElemTypeAttr, Const::DequantizeAttr,
-                   Const::ReorderAttr, Const::ConvertElemTypeAttr, Const::TransposeAttr, Const::ReshapeAttr,
-                   Const::ChangeShapeAndElemTypeAttr, Const::RelocateWeightsTableAttr, Const::PadWithZeroAttr>(
-                prevTransformation)) {
+                   Const::ReorderAttr, Const::MemPermuteAttr, Const::ConvertElemTypeAttr, Const::TransposeAttr,
+                   Const::ReshapeAttr, Const::ChangeShapeAndElemTypeAttr, Const::RelocateWeightsTableAttr,
+                   Const::PadWithZeroAttr>(prevTransformation)) {
         return {currPos, false};
     }
 
@@ -564,6 +631,10 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
                     })
                     .Case<Const::TransposeAttr>([&](Const::TransposeAttr) {
                         prepareTransposeSwap(currPos - 1);
+                        return swapTransformations(currPos - 1, currPos);
+                    })
+                    .Case<Const::MemPermuteAttr>([&](Const::MemPermuteAttr) {
+                        prepareMemPermuteSwap(currPos - 1, prevTransformationInType);
                         return swapTransformations(currPos - 1, currPos);
                     })
                     .Case<Const::ReshapeAttr>([&](Const::ReshapeAttr) {
@@ -684,7 +755,8 @@ std::pair<optimization::TransformAttrPos, bool> moveReshapeBefore(
     return result;
 }
 
-mlir::FailureOr<Const::FuseAttr> moveSubViewIntoFuse(Const::FuseAttr fuseAttr, Const::SubViewAttr subViewAttr) {
+mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAttr fuseAttr,
+                                                            Const::SubViewAttr subViewAttr) {
     // Can't move subview into sparse fused constant as the content setup logic will
     // move subview before sparsify transformation without any adjustment(sparsify is preferred last).
     if (fuseAttr.getSparsity() != nullptr) {
@@ -820,8 +892,8 @@ mlir::FailureOr<Const::FuseAttr> moveSubViewIntoFuse(Const::FuseAttr fuseAttr, C
         newActivations = getNewConstant(activations, currentOffsetInFusedBuffer);
     }
     auto newFusedType = mlir::cast<mlir::RankedTensorType>(subViewAttr.inferOutputType(fuseAttr.getFusedType()));
-    return Const::FuseAttr::get(fuseAttr.getContext(), newFusedType, std::move(newWeightsTable), std::move(newWeights),
-                                fuseAttr.getSparsity(), std::move(newActivations));
+    return Const::FuseWeightsAttr::get(fuseAttr.getContext(), newFusedType, std::move(newWeightsTable),
+                                       std::move(newWeights), fuseAttr.getSparsity(), std::move(newActivations));
 }
 
 //
@@ -838,11 +910,12 @@ std::pair<optimization::TransformAttrPos, bool> moveTransformationIntoFuse(
     auto prevTransformation = *(currPos - 1);
 
     Const::TransformAttrInterface newFuse = nullptr;
-    if (auto fuseAttr = mlir::dyn_cast<Const::FuseAttr>(prevTransformation)) {
+    if (auto fuseAttr = mlir::dyn_cast<Const::FuseWeightsAttr>(prevTransformation)) {
         if (auto relocateAttr = mlir::dyn_cast<Const::RelocateWeightsTableAttr>(currTransformation)) {
             auto newWT = fuseAttr.getWeightsTable().transform().addTransformation(relocateAttr).get();
-            newFuse = Const::FuseAttr::get(fuseAttr.getContext(), fuseAttr.getFusedType(), std::move(newWT),
-                                           fuseAttr.getWeights(), fuseAttr.getSparsity(), fuseAttr.getActivations());
+            newFuse = Const::FuseWeightsAttr::get(fuseAttr.getContext(), fuseAttr.getFusedType(), std::move(newWT),
+                                                  fuseAttr.getWeights(), fuseAttr.getSparsity(),
+                                                  fuseAttr.getActivations());
         } else if (auto subViewAttr = mlir::dyn_cast<Const::SubViewAttr>(currTransformation)) {
             auto newFuseOrFailure = moveSubViewIntoFuse(fuseAttr, subViewAttr);
             if (mlir::failed(newFuseOrFailure)) {
@@ -895,7 +968,8 @@ Const::Content Const::details::memPermuteTransformation(vpux::Const::Content& in
     VPUX_THROW_UNLESS(inOrder.numDims() == permOrder.numDims(), "Can't reorder from '{0}' to '{1}'", inOrder,
                       permOrder);
 
-    if (input.isSplat() || memPerm.isIdentity()) {
+    auto inMemShape = inOrder.toMemoryOrder(input.getType().getShape());
+    if (input.isSplat() || isTrivialPermute(inMemShape, memPerm)) {
         return Const::Content::moveBuffer(outType, std::move(input));
     } else {
         auto output = Const::Content::allocTempBuffer(outType, input.getStorageElemType(), input.isSplat());

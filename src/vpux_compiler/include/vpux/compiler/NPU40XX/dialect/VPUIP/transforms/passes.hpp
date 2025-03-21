@@ -31,13 +31,19 @@ std::unique_ptr<mlir::Pass> createConstantDpuProfHwpBasePass(Logger log = Logger
 std::unique_ptr<mlir::Pass> createCompressSpillDmaPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDMAOutOfOrderOptimizationPass(Logger log = Logger::global());
 
-std::unique_ptr<mlir::Pass> createUnrollClusterTilingPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollClusterTilingPass(Logger log = Logger::global(),
+                                                          bool enableSegmentedDmaFusion = false);
 std::unique_ptr<mlir::Pass> createOptimizeConvertDMAOpPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddStartBarrierPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDetectDMASplitCandidatePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitDMAToBalanceLoadPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFuseSegmentedDmaPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createLegalizeScheduleForWlmFetchDmasPass(
-        const int virtualBarrierThreshold = VIRTUAL_BARRIER_THRESHOLD_WLM, Logger log = Logger::global());
+        const int virtualBarrierThreshold = VIRTUAL_BARRIER_THRESHOLD_WLM,
+        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,
+        Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollDepthToSpaceDMAPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollSpaceToDepthDMAPass(Logger log = Logger::global());
 
 //
 // Memory allocation pipeline
@@ -60,6 +66,12 @@ void buildMemoryAllocationPipeline(mlir::OpPassManager& pm, const MemoryAllocati
                                    Logger log = Logger::global());
 
 //
+// DMAUnrollingPipeline
+//
+
+void buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
+
+//
 // DefaultHWOptions
 //
 
@@ -73,9 +85,6 @@ struct DefaultHWOptions :
 
     BoolOption enableCompressWeightsBTC{*this, "compress-weights-btc", ::llvm::cl::desc("Enable compress-weights pass"),
                                         ::llvm::cl::init(false)};
-
-    BoolOption enableWeightsSwizzling{*this, "enable-weights-swizzling", ::llvm::cl::desc("Enable weights swizzling"),
-                                      ::llvm::cl::init(true)};
 
     BoolOption enableActivationSwizzling{*this, "enable-activation-swizzling",
                                          ::llvm::cl::desc("Enable activation swizzling"), ::llvm::cl::init(true)};
@@ -99,22 +108,11 @@ struct DefaultHWOptions :
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
-// registerVPUIPPipelines
+// Registration
 //
 
 void registerVPUIPPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch40xx
 }  // namespace VPUIP

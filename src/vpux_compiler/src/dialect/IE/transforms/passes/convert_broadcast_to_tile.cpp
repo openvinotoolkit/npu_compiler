@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
@@ -18,6 +18,12 @@
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTBROADCASTTOTILE
+#define GEN_PASS_DEF_CONVERTBROADCASTTOTILE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -64,8 +70,7 @@ mlir::LogicalResult ConvertBroadcastToTile<ConcreteOp>::matchAndRewrite(Concrete
 
             VPUX_THROW_WHEN(bounds == nullptr, errorMsg);
 
-            const auto boundValues = parseIntArrayAttr<int64_t>(bounds);
-            boundedShape = boundValues;
+            boundedShape = parseIntArrayAttr<int64_t>(bounds);
         }
     };
 
@@ -152,7 +157,7 @@ mlir::LogicalResult ConvertBroadcastToTile<ConcreteOp>::matchAndRewrite(Concrete
 // ConvertBroadcastToTilePass
 //
 
-class ConvertBroadcastToTilePass final : public IE::ConvertBroadcastToTileBase<ConvertBroadcastToTilePass> {
+class ConvertBroadcastToTilePass final : public IE::impl::ConvertBroadcastToTileBase<ConvertBroadcastToTilePass> {
 public:
     explicit ConvertBroadcastToTilePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -188,6 +193,13 @@ void ConvertBroadcastToTilePass::safeRunOnFunc() {
 
     auto func = getOperation();
     if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {
+        signalPassFailure();
+    }
+
+    mlir::RewritePatternSet tilePatterns(&ctx);
+    IE::TileOp::getCanonicalizationPatterns(tilePatterns, &ctx);
+    if (mlir::failed(
+                mlir::applyPatternsAndFoldGreedily(func, std::move(tilePatterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }
 }

@@ -9,6 +9,12 @@
 
 #include "vpux/utils/core/range.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_WRAPINTOASYNCREGIONS
+#define GEN_PASS_DEF_WRAPINTOASYNCREGIONS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -59,7 +65,7 @@ void warpIntoAsyncRegion(VPUIP::AsyncLayerOpInterface op, Logger log) {
 // WrapIntoAsyncRegionsPass
 //
 
-class WrapIntoAsyncRegionsPass final : public VPUIP::WrapIntoAsyncRegionsBase<WrapIntoAsyncRegionsPass> {
+class WrapIntoAsyncRegionsPass final : public VPUIP::impl::WrapIntoAsyncRegionsBase<WrapIntoAsyncRegionsPass> {
 public:
     explicit WrapIntoAsyncRegionsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

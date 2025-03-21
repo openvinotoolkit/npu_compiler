@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-fq-and-mul %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @FuseFakeQuantizeAndMultiplyLhsIsActivation
 // CHECK-SAME: [[INPUT:%.+]]: tensor<1x288x20x20xf32>
 func.func @FuseFakeQuantizeAndMultiplyLhsIsActivation(%arg0: tensor<1x288x20x20xf32>) -> tensor<1x288x20x20xf32> {

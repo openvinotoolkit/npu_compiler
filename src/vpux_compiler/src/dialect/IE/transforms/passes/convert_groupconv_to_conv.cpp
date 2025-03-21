@@ -11,9 +11,16 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTGROUPCONVTOCONV
+#define GEN_PASS_DEF_CONVERTGROUPCONVTOCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -23,7 +30,7 @@ namespace {
 // ConvertGroupConvToConvPass
 //
 
-class ConvertGroupConvToConvPass final : public IE::ConvertGroupConvToConvBase<ConvertGroupConvToConvPass> {
+class ConvertGroupConvToConvPass final : public IE::impl::ConvertGroupConvToConvBase<ConvertGroupConvToConvPass> {
 public:
     explicit ConvertGroupConvToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

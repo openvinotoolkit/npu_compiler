@@ -6,7 +6,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
 
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -39,6 +39,8 @@ void vpux::VPURT::VPURTDialect::registerAttributes() {
 
 VPU::MemoryKind vpux::VPURT::getMemoryKind(BufferSection section) {
     switch (section) {
+    case BufferSection::FunctionInput:
+    case BufferSection::FunctionOutput:
     case BufferSection::NetworkInput:
     case BufferSection::NetworkOutput:
     case BufferSection::ProfilingOutput:

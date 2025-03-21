@@ -26,12 +26,7 @@ mlir::LogicalResult vpux::IE::AndOp::inferReturnTypeComponents(
             IE::broadcastEltwiseShape(in1Type.getShape(), in2Type.getShape(), logicalAnd.getAutoBroadcast(), loc);
 
     if (mlir::succeeded(outShapeRes)) {
-        auto outShapeResVec = outShapeRes.value();
-        if (logicalAnd.getOutputChannels().has_value()) {
-            outShapeResVec[Dims4D::Act::C.ind()] = logicalAnd.getOutputChannels().value();
-        }
-
-        inferredReturnShapes.emplace_back(outShapeResVec, in1Type.getElementType());
+        inferredReturnShapes.emplace_back(outShapeRes.value(), in1Type.getElementType());
     }
 
     return mlir::success();

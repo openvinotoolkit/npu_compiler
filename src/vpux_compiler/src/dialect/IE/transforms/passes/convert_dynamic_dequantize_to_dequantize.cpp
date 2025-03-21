@@ -10,8 +10,16 @@
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTDYNAMICDEQUANTIZETODEQUANTIZE
+#define GEN_PASS_DEF_CONVERTDYNAMICDEQUANTIZETODEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -342,7 +350,7 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
 //
 
 class ConvertDynamicDequantizeToDequantizePass final :
-        public IE::ConvertDynamicDequantizeToDequantizeBase<ConvertDynamicDequantizeToDequantizePass> {
+        public IE::impl::ConvertDynamicDequantizeToDequantizeBase<ConvertDynamicDequantizeToDequantizePass> {
 public:
     explicit ConvertDynamicDequantizeToDequantizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

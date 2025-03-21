@@ -16,6 +16,12 @@
 
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_INTERMEDIATEBUFFEROUTPUT
+#define GEN_PASS_DEF_INTERMEDIATEBUFFEROUTPUT
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
@@ -35,9 +41,9 @@ SmallVector<mlir::Value> getUniqueVals(mlir::Operation* op, Logger log) {
             continue;
         }
 
+        log.nest().trace("Index={0}, buffer {1}", uniqueVals.size(), val);
         inputs.push_back(val);
         uniqueVals.insert(val);
-        log.nest().trace("Index={0}, buffer {1}", uniqueVals.size(), val);
     }
     return inputs;
 }
@@ -78,12 +84,14 @@ std::set<VPURT::ConfigureBarrierOp> getUserBarriers(size_t insertionIndex, size_
             logTaskInfo(opIndex, taskOp, log);
         }
     }
-    // for insertion point also store update barriers
+    // for insertion point also store update barriers - only one, no more needed
+    // as only first will be used as wait barrier for copy out
     auto insertionTaskOp = indexToTaskMap[insertionIndex];
-    for (auto bar : insertionTaskOp.getUpdateBarriers()) {
-        auto barrierOp = bar.getDefiningOp<VPURT::ConfigureBarrierOp>();
+    if (!insertionTaskOp.getUpdateBarriers().empty()) {
+        auto barrierOp = (*insertionTaskOp.getUpdateBarriers().begin()).getDefiningOp<VPURT::ConfigureBarrierOp>();
         usedWaitBarriers.insert(barrierOp);
     }
+
     return usedWaitBarriers;
 }
 
@@ -101,7 +109,20 @@ int64_t findFreePhysicalBarrierId(VPURT::TaskOp insertionTaskOp) {
     VPUX_THROW("Failed to find free physical barrier id");
 }
 
-mlir::Type insertNewCopyOut(mlir::Value targetBuffer, VPURT::TaskOp insertionTaskOp) {
+VPURT::ConfigureBarrierOp insertNewFinalBarrierOp(VPURT::TaskOp insertionTaskOp, mlir::func::FuncOp funcOp) {
+    auto barOps = funcOp.getOps<VPURT::ConfigureBarrierOp>();
+
+    auto lastBarOpIt = barOps.begin();
+    std::advance(lastBarOpIt, std::distance(barOps.begin(), barOps.end()) - 1);
+    auto lastBarOp = *lastBarOpIt;
+
+    mlir::OpBuilder builder(lastBarOp.getOperation());
+    auto idForFinalBarrier = findFreePhysicalBarrierId(insertionTaskOp);
+    return builder.create<VPURT::ConfigureBarrierOp>(lastBarOp.getLoc(), idForFinalBarrier, true);
+}
+
+mlir::Type insertNewCopyOut(mlir::Value targetBuffer, VPURT::TaskOp insertionTaskOp,
+                            VPURT::ConfigureBarrierOp newFinalBarrierOp) {
     mlir::OpBuilder builder(insertionTaskOp.getOperation());
     // create new output buffer
     builder.setInsertionPoint(targetBuffer.getDefiningOp());
@@ -113,14 +134,17 @@ mlir::Type insertNewCopyOut(mlir::Value targetBuffer, VPURT::TaskOp insertionTas
     auto newBuffer = builder.create<VPURT::DeclareBufferOp>(insertionTaskOp.getLoc(), newType,
                                                             VPURT::BufferSection::NetworkOutput, 0);
 
-    // create new final barrier
-    auto idForFinalBarrier = findFreePhysicalBarrierId(insertionTaskOp);
-    auto newFinalBarrier = builder.create<VPURT::ConfigureBarrierOp>(insertionTaskOp.getLoc(), idForFinalBarrier, true);
+    mlir::Value finalDmaWaitBar = nullptr;
+    if (!insertionTaskOp.getUpdateBarriers().empty()) {
+        // Use only 1 barrier to not break expectation that tasks should wait only
+        // on up to 1 wait barrier - see pass SatisfyOneWaitBarrier
+        finalDmaWaitBar = *insertionTaskOp.getUpdateBarriers().begin();
+    }
 
     // create new final DMA after insertion point
     builder.setInsertionPointAfter(insertionTaskOp);
     auto newDMA = VPURT::wrapIntoTaskOp<VPUIP::NNDMAOp>(
-            builder, insertionTaskOp.getUpdateBarriers(), mlir::ValueRange(newFinalBarrier.getBarrier()),
+            builder, mlir::ValueRange(finalDmaWaitBar), mlir::ValueRange(newFinalBarrierOp.getBarrier()),
             insertionTaskOp.getLoc(), targetBuffer, newBuffer, 0, false, false, nullptr, nullptr);
 
     return newDMA.getType();
@@ -133,7 +157,27 @@ void updateOutputType(mlir::Type newOutType, mlir::func::FuncOp funcOp) {
         // remove other return ops
         functionResults[index].erase();
     }
-    functionResults[0].getOperand(0).setType(newOutType);
+
+    // update function result operands
+    const auto numInputs = funcOp.getNumArguments() - funcOp.getNumResults();
+    while (numInputs + 1 < funcOp.getNumArguments()) {
+        funcOp.getArgument(numInputs + 1).dropAllUses();
+        funcOp.eraseArgument(numInputs + 1);
+    }
+
+    mlir::OpBuilder builder(functionResults[0]);
+    SmallVector<mlir::Value> funcOutputs;
+    for (auto operand : functionResults[0].getOperands()) {
+        if (operand != nullptr) {
+            funcOutputs.push_back(operand);
+        }
+    }
+
+    // create new return with new type
+    VPUX_THROW_WHEN(funcOutputs.size() != 1, "Unsupported number of outputs");
+    funcOutputs[funcOutputs.size() - 1].setType(newOutType);
+    builder.create<mlir::func::ReturnOp>(functionResults[0].getLoc(), funcOutputs);
+    functionResults[0].erase();
 
     SmallVector<mlir::Type> newInputsTypes;
     for (auto blockArg : funcOp.getArguments()) {
@@ -223,19 +267,20 @@ void filterUsedTasks(size_t insertionIndex, std::map<size_t, VPURT::TaskOp>& ind
     }
 }
 
-void removeUnusedBarriers(std::set<VPURT::ConfigureBarrierOp>& toRemove, mlir::func::FuncOp funcOp) {
+void removeUnusedBarriers(std::set<VPURT::ConfigureBarrierOp>& toNotRemove, mlir::func::FuncOp funcOp) {
     auto barrierOps = to_small_vector(funcOp.getOps<VPURT::ConfigureBarrierOp>());
     for (auto& barrierOp : barrierOps) {
         // remove barriers with no use
         if (barrierOp.getBarrier().use_empty()) {
             barrierOp->erase();
-        } else if (toRemove.find(barrierOp) == toRemove.end()) {
+        } else if (toNotRemove.find(barrierOp) == toNotRemove.end()) {
             barrierOp->erase();
         }
     }
 }
 
-class IntermediateBufferOutputPass final : public VPURT::IntermediateBufferOutputBase<IntermediateBufferOutputPass> {
+class IntermediateBufferOutputPass final :
+        public VPURT::impl::IntermediateBufferOutputBase<IntermediateBufferOutputPass> {
 public:
     explicit IntermediateBufferOutputPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -327,18 +372,22 @@ void IntermediateBufferOutputPass::safeRunOnFunc() {
     }
 
     // retrieve used barriers by Tasks to insertion point
-    auto usedWaitBarriers = getUserBarriers(insertionIndex, printIndex, indexToTaskMap, _log);
+    auto usedBarriers = getUserBarriers(insertionIndex, printIndex, indexToTaskMap, _log);
+
+    // create new final barrier
+    auto newFinallBarrierOp = insertNewFinalBarrierOp(indexToTaskMap[insertionIndex], funcOp);
+    usedBarriers.insert(newFinallBarrierOp);
 
     // insert new copy out for target buffer
-    auto newOutType = insertNewCopyOut(uniqueVals[bufferIndex], indexToTaskMap[insertionIndex]);
+    auto newOutType = insertNewCopyOut(uniqueVals[bufferIndex], indexToTaskMap[insertionIndex], newFinallBarrierOp);
 
     // update all output types
     updateOutputType(newOutType, funcOp);
 
     // remove tasks and unused barriers after insertion point
-    filterUsedBarriers(usedWaitBarriers, funcOp);
+    filterUsedBarriers(usedBarriers, funcOp);
     filterUsedTasks(insertionIndex, indexToTaskMap);
-    removeUnusedBarriers(usedWaitBarriers, funcOp);
+    removeUnusedBarriers(usedBarriers, funcOp);
 }
 
 }  // namespace

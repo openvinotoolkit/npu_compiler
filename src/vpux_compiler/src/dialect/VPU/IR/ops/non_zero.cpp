@@ -48,8 +48,8 @@ mlir::LogicalResult VPU::NonZeroOp::inferReturnTypes(mlir::MLIRContext* ctx, std
 mlir::LogicalResult vpux::VPU::NonZeroOp::verify() {
     const auto shape = getShape(getInput());
 
-    if (shape.size() > 3) {
-        return errorAt(*this, "NonZero kernel supports only up to 3D shapes, got '{0}'", shape.size());
+    if (shape.size() > 4) {
+        return errorAt(*this, "NonZero kernel supports only up to 4D shapes, got '{0}'", shape.size());
     }
 
     return mlir::success();

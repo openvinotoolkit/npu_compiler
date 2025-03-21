@@ -7,6 +7,13 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
+#include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_FUSECLAMPPASS
+#define GEN_PASS_DEF_FUSECLAMPPASS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -75,7 +82,7 @@ bool isLegalClamp(VPU::ClampOp clampOp) {
 // FuseClampPass
 //
 
-class FuseClampPass final : public VPU::FuseClampPassBase<FuseClampPass> {
+class FuseClampPass final : public VPU::impl::FuseClampPassBase<FuseClampPass> {
 public:
     explicit FuseClampPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

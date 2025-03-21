@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --opt-dynamic-eltwise-shapeof --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @OptDynamicAddWithShapeOf
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1xsi64>
 func.func @OptDynamicAddWithShapeOf(%input: tensor<1xsi64>) -> tensor<3xsi64> {

@@ -1,28 +1,29 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #pragma once
 
 #include "vpux/compiler/core/pipelines_options.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
+#include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 #include "vpux/utils/core/logger.hpp"
 #include "vpux/utils/core/mem_size.hpp"
-#include "vpux/utils/core/optional.hpp"
+#include "vpux/utils/core/string_ref.hpp"
 
 #include <mlir/Dialect/Quant/QuantOps.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/Pass/Pass.h>
 #include <mlir/Pass/PassManager.h>
+#include <mlir/Pass/PassOptions.h>
 
+#include <functional>
 #include <memory>
+#include <optional>
 
 namespace vpux {
 namespace VPU {
@@ -60,6 +61,11 @@ struct WeightsSparsityOptions : mlir::PassPipelineOptions<WeightsSparsityOptions
                                           llvm::cl::desc("Weights sparsity threshold")};
     Int64Option weightsSparsityLargeConstThreshold{*this, "weights-sparsity-large-const-threshold",
                                                    llvm::cl::desc("Weights sparsity large const threshold")};
+    Int64Option weightsSparsityComputeOpThreshold{
+            *this, "weights-sparsity-compute-op-threshold",
+            llvm::cl::desc("Minimum number of compute operations where fragmentation is likely")};
+    BoolOption enableWeightSwizzling{*this, "enable-weights-swizzling", ::llvm::cl::desc("Enable weights swizzling"),
+                                     ::llvm::cl::init(true)};
     WeightsSparsityOptions() = default;
 
     template <class OtherOptions>
@@ -67,6 +73,8 @@ struct WeightsSparsityOptions : mlir::PassPipelineOptions<WeightsSparsityOptions
         weightsSparsityHeuristic = options.weightsSparsityHeuristic;
         weightsSparsityThreshold = options.weightsSparsityThreshold;
         weightsSparsityLargeConstThreshold = options.weightsSparsityLargeConstThreshold;
+        weightsSparsityComputeOpThreshold = options.weightsSparsityComputeOpThreshold;
+        enableWeightSwizzling = options.enableWeightsSwizzling;
     }
 };
 
@@ -155,10 +163,9 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
 struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
     // InitResources pass options
     StrOption arch{*this, "vpu-arch", ::llvm::cl::desc("VPU architecture to compile for")};
-    StrOption compilationMode{
-            *this, "compilation-mode",
-            ::llvm::cl::desc("[Optional] Set compilation mode as `ReferenceSW`, `ReferenceHW` or `DefaultHW`"),
-            ::llvm::cl::init("DefaultHW")};
+    StrOption compilationMode{*this, "compilation-mode",
+                              ::llvm::cl::desc("[Optional] Set compilation mode as `ReferenceSW` or `DefaultHW`"),
+                              ::llvm::cl::init("DefaultHW")};
     IntOption revisionID{*this, "revision-id", ::llvm::cl::desc("[Optional] Revision ID of the platform")};
     IntOption numberOfDPUGroups{*this, "num-of-dpu-groups",
                                 ::llvm::cl::desc("[Optional] Number of available DPU groups")};
@@ -168,9 +175,8 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                                  ::llvm::cl::desc("[Optional] Allows keep predefined values in IR")};
 
     // SetupBarrierVariantConstraints pass options
-    BoolOption enablePartialWorkloadManagement{*this, "enable-partial-workload-management",
-                                               llvm::cl::desc("Enable partial workload management"),
-                                               llvm::cl::init(true)};
+    BoolOption workloadManagementEnable{*this, "workload-management-enable",
+                                        llvm::cl::desc("Enable partial workload management"), llvm::cl::init(true)};
     BoolOption wlmRollback{
             *this, "wlm-rollback",
             llvm::cl::desc("When compilation with WLM fails, automatically switches to WLM-disabled pipeline"),
@@ -200,6 +206,21 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                              "set to 'Auto', the latest PPE version available on the target architecture is picked."),
             ::llvm::cl::init("Auto")};
 
+    BoolOption enableSEPtrsOperations{*this, "enable-se-ptrs-operations",
+                                      llvm::cl::desc("Enable storage element pointer operations"),
+                                      llvm::cl::init(false)};
+
+    BoolOption enableExperimentalSEPtrsOperations{*this, "enable-experimental-se-ptrs-operations",
+                                                  llvm::cl::desc("Enable the experimental operation of SEP"),
+                                                  llvm::cl::init(false)};
+
+    BoolOption enableWeightsDynamicDequantization{*this, "enable-weights-dynamic-dequantization",
+                                                  llvm::cl::desc("Enable weights dequantization for weights as input"),
+                                                  llvm::cl::init(false)};
+
+    BoolOption enableAdaptiveStripping{*this, "enable-adaptive-stripping", llvm::cl::desc("Enable adaptive stripping"),
+                                       llvm::cl::init(false)};
+
     InitCompilerOptions() = default;
 
     template <class OtherOptions>
@@ -207,21 +228,7 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
         arch = std::string(VPU::stringifyEnum(archParam));
         compilationMode = std::string(VPU::stringifyEnum(compilationModeParam));
 
-        const auto setOptionValue = [](auto& option, const auto& otherOption) {
-            if (otherOption.hasValue()) {
-                option = otherOption;
-            }
-        };
-
-        setOptionValue(revisionID, options.revisionID);
-        setOptionValue(numberOfDPUGroups, options.numberOfDPUGroups);
-        setOptionValue(numberOfDMAPorts, options.numberOfDMAPorts);
-        setOptionValue(availableCMXMemory, options.availableCMXMemory);
-        setOptionValue(allowCustomValues, options.allowCustomValues);
-        setOptionValue(wlmRollback, options.wlmRollback);
-        setOptionValue(enableFP16CompressedConvolution, options.enableFP16CompressedConvolution);
-        setOptionValue(enableAutoPaddingIDU, options.enableAutoPaddingIDU);
-        setOptionValue(enableAutoPaddingODU, options.enableAutoPaddingODU);
+        this->matchAndCopyOptionValuesFrom(options);
     }
 
     InitCompilerOptions(ArchKind archParam, CompilationMode compilationModeParam,
@@ -232,7 +239,12 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                         std::optional<Byte> availableCMXMemoryParam = std::nullopt,
                         std::optional<bool> enableFP16CompressedConvolutionParam = std::nullopt,
                         std::optional<bool> enableAutoPaddingIDUParam = std::nullopt,
-                        std::optional<bool> enableAutoPaddingODUParam = std::nullopt) {
+                        std::optional<bool> enableAutoPaddingODUParam = std::nullopt,
+                        std::optional<bool> enableSEPtrsOperationsParam = std::nullopt,
+                        std::optional<bool> enableExperimentalSEPtrsOperationsParam = std::nullopt,
+                        std::optional<bool> enableReduceOperationsParam = std::nullopt,
+                        std::optional<bool> compilerDynamicQuantizationParam = std::nullopt,
+                        std::optional<bool> enableAdaptiveStrippingParam = std::nullopt) {
         arch = std::string(VPU::stringifyEnum(archParam));
         compilationMode = std::string(VPU::stringifyEnum(compilationModeParam));
 
@@ -244,6 +256,11 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
         setAvailableCMXMemory(availableCMXMemoryParam);
         maybeSetValue(enableAutoPaddingIDU, enableAutoPaddingIDUParam);
         maybeSetValue(enableAutoPaddingODU, enableAutoPaddingODUParam);
+        maybeSetValue(enableSEPtrsOperations, enableSEPtrsOperationsParam);
+        maybeSetValue(enableExperimentalSEPtrsOperations, enableExperimentalSEPtrsOperationsParam);
+        maybeSetValue(enableIsReduceSupported, enableReduceOperationsParam);
+        maybeSetValue(enableWeightsDynamicDequantization, compilerDynamicQuantizationParam);
+        maybeSetValue(enableAdaptiveStripping, enableAdaptiveStrippingParam);
     }
 
 public:
@@ -263,7 +280,7 @@ public:
 
 private:
     template <typename OptionType, typename ValType>
-    void maybeSetValue(OptionType& option, std::optional<ValType> value) {
+    static void maybeSetValue(OptionType& option, std::optional<ValType> value) {
         if (value.has_value()) {
             option = value.value();
         }
@@ -291,8 +308,8 @@ std::unique_ptr<mlir::Pass> createWrapDistributedOpsInNCEClusterTiling(Logger lo
 std::unique_ptr<mlir::Pass> createAdjustMemorySpacePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMultiClusterStrategyAssignmentPass(
         bool enablePrefetchTiling = true, bool enableMcSideLoadingDump = false,
-        const int clusteredOpThreshold = CLUSTERED_OP_THRESHOLD_FOR_TILING_CACHE, StringRef modelHash = "",
-        Logger log = Logger::global());
+        const int clusteredOpThreshold = CLUSTERED_OP_THRESHOLD_FOR_TILING_CACHE,
+        StringRef mcOptimizationScope = "subgraph", StringRef modelHash = "", Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass();
 std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass(bool writeStrategyToJSON,
                                                           StringRef writeStrategyFileLocation = "strategy_out.json",
@@ -310,10 +327,12 @@ std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass(bool writeStrategyToJS
 
 std::unique_ptr<mlir::Pass> createDetectionOutputDecompositionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitGRUSequencePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAddSwOpAuxiliaryBufferPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createTileLSTMSequencePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustLSTMCellInputsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeInterpolateCoordinatesPass(bool enableExplicitDistributionInfoAttr = false,
                                                                     Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createRelocateWeightTableForReusePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDetectInPlaceEltwisePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseNCEInterpolateConsumersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddExplicitPaddingBeforeNCEPermutePass(Logger log = Logger::global());
@@ -335,7 +354,8 @@ void buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerO
 std::unique_ptr<mlir::Pass> createSparsifyWeightsPass(
         VPU::WeightsSparsityHeuristic heuristic = VPU::WeightsSparsityHeuristic::RATIO,
         std::optional<double> manualThreshold = std::nullopt,
-        int64_t largeConstThreshold = (200_MB).to<vpux::Byte>().count(), Logger log = Logger::global());
+        int64_t largeConstThreshold = (200_MB).to<vpux::Byte>().count(), int64_t computeOpThreshold = 350,
+        bool enableWeightSwizzling = true, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRecomputeSparsityPtrsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseSparsityOpsPass(std::optional<bool> fuseSparsify = std::nullopt,
                                                       Logger log = Logger::global());
@@ -417,12 +437,12 @@ std::unique_ptr<mlir::Pass> createSetupPipelineOptionsPass(const InitCompilerOpt
                                                            Logger log = Logger::global());
 
 //
-// Barrier Variant Constraints
+// Npu Constraints
 //
 
-std::unique_ptr<mlir::Pass> createSetupPerBarrierVariantConstraintPass();
-std::unique_ptr<mlir::Pass> createSetupPerBarrierVariantConstraintPass(const InitCompilerOptions& initCompilerOptions,
-                                                                       Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSetupNpuConstraintPass();
+std::unique_ptr<mlir::Pass> createSetupNpuConstraintPass(const InitCompilerOptions& initCompilerOptions,
+                                                         Logger log = Logger::global());
 
 //
 // Setup Max Kernel Size
@@ -457,10 +477,26 @@ std::unique_ptr<mlir::Pass> createSetupEnableFP16CompressedConvPass(const InitCo
                                                                     Logger log = Logger::global());
 
 //
+// SEPtrs Operations
+//
+
+std::unique_ptr<mlir::Pass> createSetupEnableSEPtrsOperationsPass();
+std::unique_ptr<mlir::Pass> createSetupEnableSEPtrsOperationsPass(const InitCompilerOptions& initCompilerOptions,
+                                                                  Logger log = Logger::global());
+
+//
 // Weights separation
 //
 
 std::unique_ptr<mlir::Pass> createIntroduceInitFunctionPass(const Logger& log = Logger::global());
+
+//
+// Adaptive Stripping
+//
+
+std::unique_ptr<mlir::Pass> createSetupEnableAdaptiveStrippingPass();
+std::unique_ptr<mlir::Pass> createSetupEnableAdaptiveStrippingPass(const InitCompilerOptions& initCompilerOptions,
+                                                                   Logger log = Logger::global());
 
 //
 // DefaultHWOptions(for all devices)
@@ -485,6 +521,9 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
             llvm::cl::desc(
                     "Sparsify weights using a single thread if the constant's size is larger than this threshold."),
             llvm::cl::init((200_MB).to<vpux::Byte>().count())};
+    IntOption weightsSparsityComputeOpThreshold{
+            *this, "weights-sparsity-compute-op-threshold",
+            llvm::cl::desc("Minimum number of compute operations where fragmentation is likely"), llvm::cl::init(350)};
 
     // TilingOptions
     BoolOption enableVerticalFusion{*this, "vertical-fusion", llvm::cl::desc("Enable vertical fusion feature"),
@@ -508,18 +547,7 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
 //
 
 void registerVPUPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/dialect/VPU/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace VPU
 }  // namespace vpux

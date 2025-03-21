@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
@@ -20,6 +21,12 @@
 #include "vpux/utils/core/enums.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU::arch40xx {
+#define GEN_PASS_DECL_CONVERTM2IOPS
+#define GEN_PASS_DEF_CONVERTM2IOPS
+#include "vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch40xx
 
 using namespace vpux;
 using namespace VPU;
@@ -149,7 +156,7 @@ mlir::LogicalResult ConvertM2iNormToTask::matchAndRewrite(VPU::M2INormOp origOp,
 // ConvertM2IOpsPass
 //
 
-class ConvertM2IOpsPass final : public VPU::arch40xx::ConvertM2IOpsBase<ConvertM2IOpsPass> {
+class ConvertM2IOpsPass final : public VPU::arch40xx::impl::ConvertM2IOpsBase<ConvertM2IOpsPass> {
 public:
     explicit ConvertM2IOpsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

@@ -94,10 +94,23 @@ struct VPU_ALIGNED_STRUCT(8) VpuWorkItem {
     VpuTaskType type;
     uint8_t unit;
     uint8_t sub_unit;
-    uint8_t pad0_[53];
+    uint8_t pad0_[1];
+
+    /**
+     * next_workitem_idx permits a linked list of work items to be marked ready
+     * for enqueue, VpuTaskBarrierMap::work_item_idx points to the head.
+     * The end of the list is denoted by 0.
+     *
+     * This is optional, if the first workitem has next_workitem_idx = 0 (no linked list)
+     * then enqueue_count consecutive workitems from the work_items array
+     * should be marked ready for enqueue.
+     */
+    uint32_t next_workitem_idx;
+    uint8_t pad1_[48];
 };
 
 static_assert(sizeof(VpuWorkItem) == 64, "VpuWorkItem size != 64");
+static_assert(offsetof(VpuWorkItem, next_workitem_idx) % 4 == 0, "Alignment error");
 
 /**
  * VpuTaskInfo contains additional information about the work items which
@@ -271,11 +284,18 @@ struct VPU_ALIGNED_STRUCT(4) VpuTaskBarrierMap {
      */
     uint32_t work_item_idx;
     /**
-     * Starting at work_item_idx, the number of VpuWorkItems to enqueue after programming
-     * this real_id barrier
+     * The number of VpuWorkItems to enqueue (starting at work_item_idx) after programming
+     * this barrier.
+     *
+     * If VpuWorkItem::next_workitem_idx is not 0 then the workitems to be enqueued are in a linked
+     * list.
+     *
+     * If enqueue_count is > 1 and the first workitem has VpuWorkItem::next_workitem_idx = 0
+     * (no linked list) then enqueue_count consecutive workitems from the work_items array
+     * should be enqueued.
      */
     uint32_t enqueue_count;
-    uint32_t reserved; // next_enqueue_id
+    uint32_t reserved;
 };
 
 static_assert(sizeof(VpuTaskBarrierMap) == 24, "VpuTaskBarrierMap size != 24");
@@ -364,7 +384,7 @@ struct VPU_ALIGNED_STRUCT(32) VpuManagedMappedInference {
      * inference.
      */
     VpuTaskReference<VpuNNRTConfig> nnrt_config;
-    /*
+    /**
      * The following fields are set if the inference contains tasks of that type.
      * They are bitfields representing which units(s) the task type runs on, for example:
      * dpu_used 00001111b indicates the inference contains dpu tasks for tiles 1-4.

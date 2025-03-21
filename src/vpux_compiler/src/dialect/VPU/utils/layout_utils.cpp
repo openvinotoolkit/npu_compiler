@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 
 using namespace vpux;
 using namespace VPU;
@@ -257,6 +258,47 @@ void vpux::VPU::inferLayoutInfoSameInOutSpecificDimsOrder(IE::LayerLayoutInfo& i
     info.setOutput(0, supportedOrder);
 }
 
+//
+// SameMultipleInOutSpecificDimsOrder
+//
+
+void vpux::VPU::inferSameMultipleInOutSpecificDimsOrder(IE::LayerLayoutInfo& info,
+                                                        llvm::ArrayRef<vpux::DimsOrder> supportedLayouts) {
+    const auto mainOrder = info.getInput(0);
+
+    // Sets input and output layouts to either the supportedOrder or default order based on rank
+    auto setLayouts = [&](const vpux::DimsOrder& order) {
+        const auto numDims = order.numDims();
+        for (auto i : irange(info.getNumInputs())) {
+            const auto inputNumDims = info.getInput(i).numDims();
+            const auto layoutOrder = (inputNumDims == numDims) ? order : DimsOrder::fromNumDims(inputNumDims);
+            info.setInput(i, layoutOrder);
+        }
+
+        for (auto i : irange(info.getNumOutputs())) {
+            const auto outputNumDims = info.getOutput(i).numDims();
+            const auto layoutOrder = (outputNumDims == numDims) ? order : DimsOrder::fromNumDims(outputNumDims);
+            info.setOutput(i, layoutOrder);
+        }
+    };
+
+    if (llvm::is_contained(supportedLayouts, mainOrder)) {
+        setLayouts(mainOrder);
+        return;
+    }
+
+    const auto supportedOrderIt = llvm::find_if(supportedLayouts, [mainOrder](DimsOrder order) {
+        return order.numDims() == mainOrder.numDims();
+    });
+
+    VPUX_THROW_UNLESS(supportedOrderIt != supportedLayouts.end(),
+                      "Layouts supported by the operation '{0}' do not match the rank '{1}' of the input shape",
+                      supportedLayouts, mainOrder.numDims());
+
+    const auto supportedOrder = *supportedOrderIt;
+    setLayouts(supportedOrder);
+}
+
 mlir::LogicalResult vpux::VPU::verifySameMultipleInOutSpecificDimsOrder(mlir::Operation* op,
                                                                         ArrayRef<DimsOrder> supportedLayouts) {
     if (VPU::verifySameInOutDimsOrder(op).failed()) {
@@ -266,8 +308,18 @@ mlir::LogicalResult vpux::VPU::verifySameMultipleInOutSpecificDimsOrder(mlir::Op
     auto layerOp = mlir::dyn_cast<VPU::LayerOpInterface>(op);
     VPUX_THROW_UNLESS(layerOp != nullptr, "Operation {0} does not implement VPU::LayerOpInterface", op->getName());
 
+    const auto mainInput = layerOp.getInputs()[0];
+    const auto mainOrderNumDims = DimsOrder::fromValue(mainInput).numDims();
+
     for (const auto& val : layerOp->getOpOperands()) {
         const auto inOrder = DimsOrder::fromValue(val.get());
+        const auto inNumDims = inOrder.numDims();
+        const auto defaultDimsOrder = DimsOrder::fromNumDims(inNumDims);
+
+        // Inputs with ranks different than the main input should have the default layout
+        if (inNumDims != mainOrderNumDims && inOrder != defaultDimsOrder) {
+            return errorAt(op->getLoc(), "Operation does not support {0} layout", inOrder);
+        }
 
         const auto isSupported = std::count(supportedLayouts.begin(), supportedLayouts.end(), inOrder);
         if (!isSupported) {
@@ -277,6 +329,12 @@ mlir::LogicalResult vpux::VPU::verifySameMultipleInOutSpecificDimsOrder(mlir::Op
 
     for (const auto& val : layerOp->getResults()) {
         const auto outOrder = DimsOrder::fromValue(val);
+        const auto outNumDims = outOrder.numDims();
+        const auto defaultDimsOrder = DimsOrder::fromNumDims(outNumDims);
+
+        if (outNumDims != mainOrderNumDims && outOrder != defaultDimsOrder) {
+            return errorAt(op->getLoc(), "Operation does not support {0} layout", outOrder);
+        }
 
         const auto isSupported = std::count(supportedLayouts.begin(), supportedLayouts.end(), outOrder);
         if (!isSupported) {
@@ -288,50 +346,6 @@ mlir::LogicalResult vpux::VPU::verifySameMultipleInOutSpecificDimsOrder(mlir::Op
 }
 
 //
-// inferAffineReshapeOutputLayout
-//
-
-mlir::FailureOr<DimsOrder> vpux::VPU::inferAffineReshapeOutputLayout(const DimArr& inPerm, mlir::ArrayAttr dimMapAttr) {
-    VPUX_THROW_UNLESS(dimMapAttr != nullptr, "dimMapAttr is nullptr");
-    const auto dimMapping = parseIntArrayOfArrayAttr<int64_t>(dimMapAttr);
-    SmallVector<vpux::Dim> perm;
-
-    // Iterate over input dims in the given order and push back corresponding output dims as indicated by the op's
-    // dim_mapping. The result is the permutation of output dims.
-    bool layoutInferFail = false;
-    for (auto pIt = inPerm.begin(); pIt != inPerm.end(); ++pIt) {
-        const auto outputDims = dimMapping[pIt->ind()];
-        for (const auto& dim : outputDims) {
-            const auto outDim = vpux::Dim(dim);
-
-            // Ensure input dim order is not switched.
-            // E.g. nchw -> c'h'w', with n = c', c = h', h * w = w'
-            // Layouts 0123 and 0132 would both produce 012 output layout, but
-            // the content of w' would not be the same.
-            if (!perm.empty() && perm.back() == outDim) {
-                layoutInferFail = std::prev(pIt)->ind() > pIt->ind();
-                if (layoutInferFail == true) {
-                    return mlir::failure();
-                }
-
-                continue;
-            }
-            perm.push_back(outDim);
-        }
-    }
-
-    // Check that the resulting output permutation does not have duplicate dims
-    SmallVector<vpux::Dim> temp(perm);
-    llvm::sort(temp.begin(), temp.end(), [](const vpux::Dim& dim0, const vpux::Dim& dim1) {
-        return dim0.ind() < dim1.ind();
-    });
-
-    if (std::adjacent_find(temp.begin(), temp.end()) != temp.end())
-        return mlir::failure();
-    return DimsOrder::fromPermutation(ArrayRef(perm));
-}
-
-//
 // inferAffineReshapeLayoutInfo
 //
 
@@ -340,8 +354,8 @@ void vpux::VPU::inferAffineReshapeLayoutInfo(mlir::Operation* op, IE::LayerLayou
     const auto dimMappingAttr = dimMapping.dyn_cast_or_null<mlir::ArrayAttr>();
     const auto inOrder = info.getInput(0);
     const auto inPermutation = inOrder.toPermutation();
-    const auto outPermutation = inferAffineReshapeOutputLayout(inPermutation, dimMappingAttr);
-    if (mlir::failed(outPermutation)) {
+    const auto outPermutation = Const::inferAffineReshapeOutputLayout(inPermutation, dimMappingAttr);
+    if (!outPermutation.has_value()) {
         IE::fillDefaultLayoutInfo(info);
         return;
     }
@@ -364,9 +378,9 @@ mlir::LogicalResult vpux::VPU::verifyAffineReshapeLayoutInfo(mlir::Operation* op
     const auto dimMappingAttr = dimMapping.dyn_cast_or_null<mlir::ArrayAttr>();
 
     const auto inPermutation = inOrder.toPermutation();
-    const auto outPermutation = inferAffineReshapeOutputLayout(inPermutation, dimMappingAttr);
+    const auto outPermutation = Const::inferAffineReshapeOutputLayout(inPermutation, dimMappingAttr);
 
-    if (mlir::failed(outPermutation)) {
+    if (!outPermutation.has_value()) {
         return verifyDefaultDimsOrder(op);
     }
 

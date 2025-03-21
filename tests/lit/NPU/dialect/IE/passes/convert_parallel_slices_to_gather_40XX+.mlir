@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-parallel-slices-to-gather %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @ConvertParallelSliceBranchesToGather
 // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<8x12288x1x1xf16>
 // CHECK-SAME:      [[INPUT_1:%arg[0-9]]]: tensor<8x12288x1x1xf16>

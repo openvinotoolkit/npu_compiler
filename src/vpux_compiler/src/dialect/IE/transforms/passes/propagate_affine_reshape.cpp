@@ -3,15 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/passes.hpp"
@@ -21,6 +22,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include <optional>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEAFFINERESHAPE
+#define GEN_PASS_DEF_PROPAGATEAFFINERESHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -1301,7 +1308,7 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
 // PropagateAffineReshape
 //
 
-class PropagateAffineReshape final : public IE::PropagateAffineReshapeBase<PropagateAffineReshape> {
+class PropagateAffineReshape final : public IE::impl::PropagateAffineReshapeBase<PropagateAffineReshape> {
 public:
     explicit PropagateAffineReshape(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

@@ -97,7 +97,7 @@ namespace {
 
 bool isSupported(VPU::ArchKind arch, ShapeRef input1Shape, ShapeRef input2Shape, bool transposeA = false,
                  bool transposeB = false) {
-    if (arch != VPU::ArchKind::NPU40XX) {
+    if (arch == VPU::ArchKind::NPU37XX) {  // All platforms except MTL can use this
         return false;
     }
 
@@ -244,6 +244,7 @@ bool vpux::VPU::MatMulOp::supportCycleCostCalculation() {
 //
 
 void vpux::VPU::MatMulOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input1,
-                                ::mlir::Value input2, ::mlir::UnitAttr transpose_a, ::mlir::UnitAttr transpose_b) {
-    build(builder, state, input1, input2, transpose_a, transpose_b, {});
+                                ::mlir::Value input2, ::mlir::UnitAttr transpose_a, ::mlir::UnitAttr transpose_b,
+                                /*optional*/ vpux::IE::PostOpAttr post_op) {
+    build(builder, state, input1, input2, transpose_a, transpose_b, post_op, {});
 }

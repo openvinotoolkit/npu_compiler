@@ -12,6 +12,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPVIEWOPANDCLAMP
+#define GEN_PASS_DEF_SWAPVIEWOPANDCLAMP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -151,7 +157,7 @@ mlir::LogicalResult LayerRewriter::matchAndRewrite(IE::ClampOp origOp, mlir::Pat
 // SwapViewOpAndClampPass
 //
 
-class SwapViewOpAndClampPass final : public IE::SwapViewOpAndClampBase<SwapViewOpAndClampPass> {
+class SwapViewOpAndClampPass final : public IE::impl::SwapViewOpAndClampBase<SwapViewOpAndClampPass> {
 public:
     explicit SwapViewOpAndClampPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

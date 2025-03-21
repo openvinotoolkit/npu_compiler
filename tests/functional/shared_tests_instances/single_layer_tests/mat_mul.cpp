@@ -67,6 +67,11 @@ TEST_P(MatMulLayerTest_HW_NPU4000, HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+TEST_P(MatMulLayerTest_HW_NPU3720_ppe_fp16_clamp, HW) {
+    rel_threshold = 1;
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
 }  // namespace test
 }  // namespace ov
 
@@ -257,7 +262,6 @@ INSTANTIATE_TEST_SUITE_P(MatMul1dNoTrans, MatMulLayerTest_HW_NPU3720, matMul1dNo
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dNoTrans, MatMulLayerTest_HW_NPU4000, matMul1dNoTransParams,
                          MatMulLayerTest_HW_NPU4000::getTestCaseName);
-
 const std::vector<std::vector<ov::Shape>> shape1dFirstTrans = {
         {{32}, {32}},
         {{32}, {32, 16}},
@@ -275,7 +279,6 @@ INSTANTIATE_TEST_SUITE_P(MatMul1dFirstTrans, MatMulLayerTest_HW_NPU3720, matMul1
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dFirstTrans, MatMulLayerTest_HW_NPU4000, matMul1dFirstTransParams,
                          MatMulLayerTest_HW_NPU4000::getTestCaseName);
-
 const std::vector<std::vector<ov::Shape>> shape1dSecondTrans = {
         {{32}, {32}},
         {{32}, {16, 32}},
@@ -293,7 +296,6 @@ INSTANTIATE_TEST_SUITE_P(MatMul1dSecondTrans, MatMulLayerTest_HW_NPU3720, matMul
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dSecondTrans, MatMulLayerTest_HW_NPU4000, matMul1dSecondTransParams,
                          MatMulLayerTest_HW_NPU4000::getTestCaseName);
-
 const std::vector<std::vector<ov::Shape>> shapeWithBatch = {
         {{4, 16, 32}, {32}},
         {{4, 8, 16}, {4, 16, 64}},
@@ -312,7 +314,6 @@ INSTANTIATE_TEST_SUITE_P(MatMulWithBatch, MatMulLayerTest_HW_NPU3720, matMulWith
 
 INSTANTIATE_TEST_SUITE_P(MatMulWithBatch, MatMulLayerTest_HW_NPU4000, matMulWithBatchParams,
                          MatMulLayerTest_HW_NPU4000::getTestCaseName);
-
 const std::vector<std::vector<ov::Shape>> shape1dBothTrans = {
         {{32}, {32}},
         {{32}, {16, 32}},

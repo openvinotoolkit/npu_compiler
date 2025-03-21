@@ -40,8 +40,8 @@ double VPU::computeQuantScaleWithWeightedOps(mlir::Type inputType, mlir::Type ou
 double VPU::computeScale(mlir::Operation* operation) {
     const auto inputElemType = operation->getOperand(0).getType().cast<vpux::NDTypeInterface>().getElementType();
     const auto outputElemType = operation->getResult(0).getType().cast<vpux::NDTypeInterface>().getElementType();
-    if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp, VPU::TransposedConvolutionOp>(
-                operation)) {
+    if (mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::TransposedConvolutionOp, VPU::TransposedConvolutionOp,
+                  IE::MatMulOp>(operation)) {
         const auto weightsElemType = operation->getOperand(1).getType().cast<vpux::NDTypeInterface>().getElementType();
         // In case of per axis quantization it is needed to have the scales in scale table
         if (!mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType) &&

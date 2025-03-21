@@ -259,8 +259,8 @@ public:
 
         operationIdxType op_{};
         EOpType opType_{EOpType::ORIGINAL_OP};
-        size_t cycleBegin_{};
-        size_t cycleEnd_{};
+        int64_t cycleBegin_{};
+        int64_t cycleEnd_{};
         vpux::AddressType freeCmx_{};
         bool isDataOp_{false};
         SmallVector<IntervalInfo> inputResourceInfo_;

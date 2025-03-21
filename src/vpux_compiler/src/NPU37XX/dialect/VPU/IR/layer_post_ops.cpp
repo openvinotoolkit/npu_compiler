@@ -6,8 +6,10 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/IR/ops_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layer_post_ops_utils.hpp"
-#include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -30,7 +32,7 @@ bool isSupportedHWPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const
 
                 return true;
             })
-            // TODO: remove option after E#83187
+            // TODO: remove option after E#-83187
             .Case<IE::ClampOp>([&](IE::ClampOp clampOp) {
                 const auto isQuantized = vpux::VPU::checkForQuantization(mainOp, postOp);
                 const auto minVal = clampOp.getMinAttr().getValueAsDouble();
@@ -40,12 +42,12 @@ bool isSupportedHWPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const
                     return false;
                 }
                 // Disable MaxPool fused with Clamp since it is not fully supported by firmware.
-                // Tracking Number: E#145636
+                // Tracking Number: E#-145636
                 if (mlir::isa<IE::MaxPoolOp>(mainOp)) {
                     const auto maxVal = clampOp.getMaxAttr().getValueAsDouble();
                     const auto maxValueFP16 = checked_cast<double>(std::numeric_limits<vpux::type::float16>::max());
                     // Given upper bound as fp16 max value, keep fusing Clamp into MaxPool to pass CI
-                    // Tracking Number: E#146652
+                    // Tracking Number: E#-146652
                     if ((!isDoubleEqual(maxVal, maxValueFP16))) {
                         logCb(llvm::formatv("{0} at `{1}` cannot be fused into MaxPool due to lack of firmware support",
                                             postOp->getName(), postOp->getLoc()));
@@ -127,6 +129,7 @@ void vpux::VPU::arch37xx::registerLayerWithPostOpModelInterface(mlir::DialectReg
         IE::AvgPoolOp::attachInterface<LayerWithPostOpModel<IE::AvgPoolOp>>(*ctx);
         IE::AddOp::attachInterface<LayerWithPostOpModel<IE::AddOp>>(*ctx);
         IE::SubtractOp::attachInterface<LayerWithPostOpModel<IE::SubtractOp>>(*ctx);
+        IE::MatMulOp::attachInterface<LayerWithPostOpModel<IE::MatMulOp>>(*ctx);
     });
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<VPU::TransposedConvolutionOp>>(*ctx);

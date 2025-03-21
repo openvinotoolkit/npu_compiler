@@ -17,7 +17,12 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <npu_40xx_nnrt.hpp>
-#include <vpux/compiler/NPU40XX/dialect/NPUReg40XX/npu_reg_types.hpp.inc>
+
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUASM2NPUREG40XX
+#define GEN_PASS_DEF_CONVERTVPUASM2NPUREG40XX
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
 
 using namespace vpux;
 using namespace vpux::VPURegMapped;
@@ -655,22 +660,20 @@ mlir::LogicalResult ManagedBarrierRewriter::matchAndRewrite(VPUASM::ManagedBarri
         workItemRegVal = workItemIdx.value().getValue();
     }
 
-    auto regBarrierDescriptorAttr =
-            vpux::VPURegMapped::getRegMappedAttributeWithValues<vpux::NPUReg40XX::RegMapped_vpuTaskBarrierMapType>(
-                    rewriter, {{"tb_next_same_id",
-                                {{"tb_next_same_id", checked_cast_reg<NPUReg40XX::RegField_next_same_id_Type>(
-                                                             static_cast<uint32_t>(origOp.getNextSameId()))}}},
-                               {"tb_producer_count", {{"tb_producer_count", origOp.getProducerCount()}}},
-                               {"tb_consumer_count", {{"tb_consumer_count", origOp.getConsumerCount()}}},
-                               {"tb_real_id", {{"tb_real_id", origOp.getId()}}},
-                               {"tb_work_item_idx",
-                                {{"tb_work_item_idx",
-                                  checked_cast_reg<NPUReg40XX::RegField_tb_work_item_idxType>(workItemRegVal)}}},
-                               {"tb_enqueue_count",
-                                {{"tb_enqueue_count",
-                                  checked_cast_reg<NPUReg40XX::RegField_tb_enqueue_countType>(enqueueCount)}}}});
+    VpuTaskBarrierMap taskBarrierMapDescriptor;
+    taskBarrierMapDescriptor.write<Fields::tb_next_same_id>(
+            checked_cast_reg<NPUReg40XX::RegField_next_same_id_Type>(static_cast<uint32_t>(origOp.getNextSameId())));
+    taskBarrierMapDescriptor.write<Fields::tb_producer_count>(origOp.getProducerCount());
+    taskBarrierMapDescriptor.write<Fields::tb_consumer_count>(origOp.getConsumerCount());
+    taskBarrierMapDescriptor.write<Fields::tb_real_id>(origOp.getId());
+    taskBarrierMapDescriptor.write<Fields::tb_work_item_idx>(workItemRegVal);
+    taskBarrierMapDescriptor.write<Fields::tb_enqueue_count>(enqueueCount);
 
-    rewriter.create<NPUReg40XX::ManagedBarrierOp>(origOp.getLoc(), origOp.getSymNameAttr(), regBarrierDescriptorAttr);
+    auto taskBarrierMapDescriptorAttr =
+            VpuTaskBarrierMapAttr::get(rewriter.getContext(), std::move(taskBarrierMapDescriptor));
+
+    rewriter.create<NPUReg40XX::ManagedBarrierOp>(origOp.getLoc(), origOp.getSymNameAttr(),
+                                                  taskBarrierMapDescriptorAttr);
     rewriter.eraseOp(origOp);
 
     return mlir::success();
@@ -700,18 +703,17 @@ mlir::LogicalResult BarrierRewriter::matchAndRewrite(VPUASM::ConfigureBarrierOp 
     // value of numeric_limits<uint32_t>::max() - 1
     // At this point it is cast to uint32 as required by the NNRuntime with invalid barrier
     // represented by numeric_limits<uint32_t>::max()
-    auto regBarrierDescriptorAttr =
-            vpux::VPURegMapped::getRegMappedAttributeWithValues<vpux::NPUReg40XX::RegMapped_VpuBarrierCountConfigType>(
-                    rewriter, {
-                                      {"next_same_id_",
-                                       {{"next_same_id_", checked_cast_reg<NPUReg40XX::RegField_next_same_id_Type>(
-                                                                  static_cast<uint32_t>(origOp.getNextSameId()))}}},
-                                      {"producer_count_", {{"producer_count_", origOp.getProducerCount()}}},
-                                      {"consumer_count_", {{"consumer_count_", origOp.getConsumerCount()}}},
-                                      {"real_id_", {{"real_id_", origOp.getId()}}},
-                              });
+    VpuBarrierCountConfig barrierConfigDescriptor;
+    barrierConfigDescriptor.write<Fields::next_same_id_>(
+            checked_cast_reg<NPUReg40XX::RegField_next_same_id_Type>(static_cast<uint32_t>(origOp.getNextSameId())));
+    barrierConfigDescriptor.write<Fields::producer_count_>(origOp.getProducerCount());
+    barrierConfigDescriptor.write<Fields::consumer_count_>(origOp.getConsumerCount());
+    barrierConfigDescriptor.write<Fields::real_id_>(origOp.getId());
+
+    auto barrierConfigDescriptorAttr =
+            VpuBarrierCountConfigAttr::get(rewriter.getContext(), std::move(barrierConfigDescriptor));
     rewriter.create<NPUReg40XX::ConfigureBarrierOp>(origOp->getLoc(), origOp.getSymNameAttr(),
-                                                    regBarrierDescriptorAttr);
+                                                    barrierConfigDescriptorAttr);
 
     rewriter.eraseOp(origOp);
 
@@ -811,49 +813,46 @@ mlir::LogicalResult ManagedMappedInferenceRewriter::matchAndRewrite(VPUASM::Mana
                                                                     mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
-    auto dmaCount = parseIntArrayOfArrayAttr<int64_t>(origOp.getDmaCount());
+    VpuManagedMappedInference managedMappedInferenceDescriptor;
+    managedMappedInferenceDescriptor.write<Fields::MMI_final_barrier>(origOp.getFinalBarrierId());
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_work_item>(origOp.getWorkItemsCount());
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_task_configs>(origOp.getBarrierCount());
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_initial_barriers>(
+            origOp.getBootstrapTasksCount());
+    managedMappedInferenceDescriptor.write<Fields::MMI_bootstrap_workitems_count>(origOp.getBootsrapWorkItemsCount());
+    managedMappedInferenceDescriptor.write<Fields::MMI_actshv_used>(origOp.getActshvUsed());
+    managedMappedInferenceDescriptor.write<Fields::MMI_dpu_used>(origOp.getDpuUsed());
+    managedMappedInferenceDescriptor.write<Fields::MMI_media_used>(origOp.getMediaUsed());
+    managedMappedInferenceDescriptor.write<Fields::MMI_dma_from_ddr_used>(origOp.getDmaFromDdrUsed());
+    managedMappedInferenceDescriptor.write<Fields::MMI_dma_from_cmx_used>(origOp.getDmaFromCmxUsed());
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_nnrt_config>(1);
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_barriers_configuration>(
+            origOp.getBarrierConfigurationTasksCount());
+    managedMappedInferenceDescriptor.write<Fields::taskReferenceCount_MMI_num_of_barrier_reprogrammings>(
+            origOp.getBarriersReprogrammingCount());
 
-    mlir::SmallVector<int64_t> dmaCountDDR;
-    mlir::SmallVector<int64_t> dmaCountCMX;
-    dmaCountDDR.reserve(dmaCount.size());
-    dmaCountCMX.reserve(dmaCount.size());
-
-    for (size_t dmaTileIndex = 0; dmaTileIndex < dmaCount.size(); dmaTileIndex++) {
-        VPUX_THROW_UNLESS(dmaCount[dmaTileIndex].size() == 2, "Unsupported number of DMA types - '{0}'",
-                          dmaCount[dmaTileIndex].size());
-
-        dmaCountDDR.push_back(dmaCount[dmaTileIndex][static_cast<size_t>(VPUMI40XX::DmaNnSrcType::DDR)]);
-        dmaCountCMX.push_back(dmaCount[dmaTileIndex][static_cast<size_t>(VPUMI40XX::DmaNnSrcType::CMX_NN)]);
+    if (managedMappedInferenceDescriptor.read<Fields::taskReferenceCount_MMI_barriers_configuration>() > 0) {
+        managedMappedInferenceDescriptor.write<Fields::MMI_barrier_programming_mode>(
+                npu40xx::nn_public::VpuManagedMappedInference::VpuBarrierProgrammingMode::NO_BARRIER_DMAS_SCHEDULED);
     }
 
-    const auto dmaCountDDRAttr = getIntArrayAttr(origOp.getContext(), ArrayRef(dmaCountDDR));
-    const auto dmaCountCMXAttr = getIntArrayAttr(origOp.getContext(), ArrayRef(dmaCountCMX));
+    managedMappedInferenceDescriptor.write<Fields::MMI_barrier_configuration_stride>(
+            origOp.getBarrierConfigurationStride());
 
-    rewriter.create<NPUReg40XX::ManagedMappedInferenceOp>(origOp->getLoc(),                             //
-                                                          origOp.getSymNameAttr(),                      //
-                                                          origOp.getFinalBarrierId(),                   //
-                                                          dmaCountDDRAttr,                              //
-                                                          dmaCountCMXAttr,                              //
-                                                          origOp.getWorkItemsCount(),                   //
-                                                          origOp.getBarrierCount(),                     //
-                                                          origOp.getBootsrapWorkItemsCount(),           //
-                                                          origOp.getBootstrapTasksCount(),              //
-                                                          origOp.getBarrierConfigurationTasksCount(),   //
-                                                          origOp.getBarriersReprogrammingCount(),       //
-                                                          origOp.getBarrierConfigurationStride(),       //
-                                                          origOp.getActshvUsed(),                       //
-                                                          origOp.getDpuUsed(),                          //
-                                                          origOp.getMediaUsed(),                        //
-                                                          origOp.getDmaFromDdrUsed(),                   //
-                                                          origOp.getDmaFromCmxUsed(),                   //
-                                                          origOp.getNnrtConfigAttr(),                   //
-                                                          origOp.getMappedInferenceVersionAttr(),       //
-                                                          origOp.getDmaTasksAttr(),                     //
-                                                          origOp.getWorkItemsAttr(),                    //
-                                                          origOp.getBarrierTasksAttr(),                 //
-                                                          origOp.getBootstrapTasksAttr(),               //
-                                                          origOp.getBarrierConfigurationTasksAttr(),    //
-                                                          origOp.getNumOfBarrierReprogrammingsAttr());  //
+    auto managedMappedInferenceDescriptorAttr =
+            VpuManagedMappedInferenceAttr::get(rewriter.getContext(), std::move(managedMappedInferenceDescriptor));
+
+    rewriter.create<NPUReg40XX::ManagedMappedInferenceOp>(origOp->getLoc(),                            //
+                                                          origOp.getSymNameAttr(),                     //
+                                                          origOp.getNnrtConfigAttr(),                  //
+                                                          origOp.getMappedInferenceVersionAttr(),      //
+                                                          origOp.getDmaTasksAttr(),                    //
+                                                          origOp.getWorkItemsAttr(),                   //
+                                                          origOp.getBarrierTasksAttr(),                //
+                                                          origOp.getBootstrapTasksAttr(),              //
+                                                          origOp.getBarrierConfigurationTasksAttr(),   //
+                                                          origOp.getNumOfBarrierReprogrammingsAttr(),  //
+                                                          managedMappedInferenceDescriptorAttr);       //
     rewriter.eraseOp(origOp);
 
     return mlir::success();
@@ -909,6 +908,13 @@ mlir::LogicalResult WorkItemRewriter::matchAndRewrite(VPUASM::WorkItemOp origOp,
     enum TaskType : uint8_t { DPU = 0, DMA, KERNEL, SYSTEM_MANAGEMENT, UNKNOWN = 255 };
 
     auto realTaskIndex = origOp.getRealTaskIndex();
+    auto nextWorkItemIdx = origOp.getNextWorkitemIdx();
+
+    uint32_t nextWorkItemIdxValue = 0;
+
+    if (nextWorkItemIdx.has_value()) {
+        nextWorkItemIdxValue = nextWorkItemIdx.value().getValue();
+    }
 
     uint64_t descPtrOffset = 0;
     TaskType workItemType;
@@ -927,21 +933,18 @@ mlir::LogicalResult WorkItemRewriter::matchAndRewrite(VPUASM::WorkItemOp origOp,
         break;
     default:
         return origOp.emitOpError("Invalid workItem task type");
-        ;
     }
 
-    auto regWorkItemDescriptorAttr =
-            vpux::VPURegMapped::getRegMappedAttributeWithValues<vpux::NPUReg40XX::RegMapped_WorkItemType>(
-                    rewriter, {
-                                      {"desc_ptr", {{"desc_ptr", descPtrOffset}}},
-                                      {"wi_type", {{"wi_type", workItemType}}},
-                                      {"wi_unit", {{"wi_unit", realTaskIndex.getTileIdx()}}},
-                                      {"wi_sub_unit", {{"wi_sub_unit", realTaskIndex.getListIdx()}}},
+    WorkItem workItemDescriptor;
+    workItemDescriptor.write<Fields::desc_ptr>(descPtrOffset);
+    workItemDescriptor.write<Fields::wi_type>(workItemType);
+    workItemDescriptor.write<Fields::wi_unit>(realTaskIndex.getTileIdx());
+    workItemDescriptor.write<Fields::wi_sub_unit>(realTaskIndex.getListIdx());
+    workItemDescriptor.write<Fields::next_workitem_idx>(nextWorkItemIdxValue);
 
-                              });
-
-    rewriter.create<NPUReg40XX::WorkItemOp>(origOp.getLoc(), origOp.getSymNameAttr(), regWorkItemDescriptorAttr,
-                                            origOp.getTaskTypeAttr(), origOp.getFirstTaskAttr());
+    auto workItemDescriptorAttr = WorkItemAttr::get(rewriter.getContext(), std::move(workItemDescriptor));
+    rewriter.create<NPUReg40XX::WorkItemOp>(origOp.getLoc(), origOp.getSymNameAttr(), origOp.getTaskTypeAttr(),
+                                            origOp.getFirstTaskAttr(), workItemDescriptorAttr);
     rewriter.eraseOp(origOp);
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
     return mlir::success();
@@ -951,7 +954,7 @@ mlir::LogicalResult WorkItemRewriter::matchAndRewrite(VPUASM::WorkItemOp origOp,
 // ConvertVPUASM2NPUReg40XXPass
 //
 
-class ConvertVPUASM2NPUReg40XXPass final : public ConvertVPUASM2NPUReg40XXBase<ConvertVPUASM2NPUReg40XXPass> {
+class ConvertVPUASM2NPUReg40XXPass final : public impl::ConvertVPUASM2NPUReg40XXBase<ConvertVPUASM2NPUReg40XXPass> {
 public:
     ConvertVPUASM2NPUReg40XXPass(Logger log, bool enableWLM) {
         Base::initLogger(log, Base::getArgumentName());

@@ -12,6 +12,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_OPERATIONSTUBBING
+#define GEN_PASS_DEF_OPERATIONSTUBBING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -60,7 +66,7 @@ mlir::LogicalResult StubConversion::matchAndRewrite(mlir::Operation* origOp, Arr
 // OperationStubbing
 //
 
-class OperationStubbing final : public VPUIP::OperationStubbingBase<OperationStubbing> {
+class OperationStubbing final : public VPUIP::impl::OperationStubbingBase<OperationStubbing> {
 public:
     explicit OperationStubbing(std::function<bool(mlir::Operation*)> condition, Logger log)
             : _condition(std::move(condition)) {

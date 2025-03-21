@@ -19,6 +19,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_OPTIMIZESUBVIEWCOPIES
+#define GEN_PASS_DEF_OPTIMIZESUBVIEWCOPIES
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -27,7 +33,7 @@ namespace {
 // OptimizeSubviewCopiesPass
 //
 
-class OptimizeSubviewCopiesPass final : public VPUIP::OptimizeSubviewCopiesBase<OptimizeSubviewCopiesPass> {
+class OptimizeSubviewCopiesPass final : public VPUIP::impl::OptimizeSubviewCopiesBase<OptimizeSubviewCopiesPass> {
 public:
     struct SubviewSubgraphInfo {
         Byte maxRequiredCMX;
@@ -96,7 +102,7 @@ bool OptimizeSubviewCopiesPass::isOptimizableSubview(VPUIP::SubViewOp subview, c
         return false;
     }
 
-    // TODO: Can be removed when RMS clustering is supported E#142502
+    // TODO: Can be removed when RMS clustering is supported E#-142502
     auto parentCopy = subview->getOperand(0).getDefiningOp<VPUIP::CopyOp>();
     if (parentCopy != nullptr) {
         auto potentialSWOp = parentCopy->getOperand(0).getDefiningOp();

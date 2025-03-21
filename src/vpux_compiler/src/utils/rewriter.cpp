@@ -6,17 +6,18 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/profiling/location.hpp"
 
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 
 #include <llvm/ADT/SmallPtrSet.h>
@@ -396,8 +397,9 @@ mlir::bufferization::OneShotBufferizationOptions vpux::getOneShotBufferizationOp
                                         const mlir::bufferization::BufferizationOptions& /*options*/) {
         return getMemRefTypeForUnknownTensorType(value.getType(), memorySpace);
     };
-    options.opFilter.allowDialect<mlir::bufferization::BufferizationDialect, mlir::memref::MemRefDialect,
-                                  mlir::func::FuncDialect, VPU::VPUDialect, Const::ConstDialect>();
+    options.opFilter
+            .allowDialect<mlir::bufferization::BufferizationDialect, mlir::memref::MemRefDialect,
+                          mlir::func::FuncDialect, VPU::VPUDialect, Const::ConstDialect, mlir::linalg::LinalgDialect>();
 
     return options;
 }

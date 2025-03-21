@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUMI40XX-to-VPUASM %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @Test attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
   IE.ExecutorResource 1 of @DMA_NN
   IE.TileResource 1 of @NCE at 6.000000e+02 MHz
@@ -53,4 +52,4 @@ module @Test attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
 }
 
 // CHECK: ELF.CreateLogicalSection @buffer.DDR.0 aligned(64) secType(SHT_NOBITS) secFlags("SHF_WRITE|SHF_ALLOC")
-// CHECK: ELF.CreateSection @shave.data aligned(1024) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")
+// CHECK: ELF.CreateSection @shave.data aligned(64) secType(SHT_PROGBITS) secFlags("SHF_WRITE|SHF_ALLOC")

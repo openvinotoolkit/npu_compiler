@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --merge-vertical-fusion-subgraphs %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !qElemType = !quant.uniform<u8:f16, 0.013744638480392157:128>
@@ -753,4 +752,32 @@ func.func @DoNotMergeOverlappedSW(%arg0: tensor<1x256x48x14xf16, {order = #NHWC}
     //CHECK:  [[VF_1:%.+]] = VPU.VerticalFusion ([[VF_0]]
 
     //CHECK: return [[VF_1]]  : tensor<1x256x48x14xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @BuildSubtractMultiplySubgraph
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x4x160x160xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x4x160x160xf16, {order = #NHWC}>)
+func.func @BuildSubtractMultiplySubgraph(%arg0: tensor<1x4x160x160xf16, {order = #NHWC}>, %arg1: tensor<1x4x160x160xf16, {order = #NHWC}>) -> tensor<1x4x160x160xf16, {order = #NHWC}> {
+    %0 = VPU.VerticalFusion (%arg0 as %arg2: tensor<1x4x160x160xf16, {order = #NHWC}>, %arg1 as %arg3: tensor<1x4x160x160xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x4x160x160xf16, {order = #NHWC}> {
+      %3 = VPU.Multiply(%arg2, %arg3)
+         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x160x160xf16, {order = #NHWC}>, tensor<1x4x160x160xf16, {order = #NHWC}> -> tensor<1x4x160x160xf16, {order = #NHWC}>
+      VPU.Yield %3
+    }
+    %1 = VPU.VerticalFusion (%0 as %arg2: tensor<1x4x160x160xf16, {order = #NHWC}>, %arg1 as %arg3: tensor<1x4x160x160xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 4, 1]} -> tensor<1x4x160x160xf16, {order = #NHWC}> {
+      %3 = VPU.Subtract(%arg2, %arg3)
+         {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x160x160xf16, {order = #NHWC}>, tensor<1x4x160x160xf16, {order = #NHWC}> -> tensor<1x4x160x160xf16, {order = #NHWC}>
+      VPU.Yield %3
+    }
+
+    return %1: tensor<1x4x160x160xf16, {order = #NHWC}>
+
+    //CHECK: [[VERTICAL_FUSION:%.+]] = VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:%.+]]: tensor<1x4x160x160xf16, {order = #NHWC}>, [[INPUT1]] as [[INNER_ARG1:%.+]]: tensor<1x4x160x160xf16, {order = #NHWC}>) attributes {scenario = #VPU.vf_scenario<FULL_PREFETCHING>, tilingStrategy = [1, 1, 4, 1]} -> tensor<1x4x160x160xf16, {order = #NHWC}> {
+    //CHECK: [[MUL:%.+]] = VPU.Multiply([[INNER_ARG0]], [[INNER_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x160x160xf16, {order = #NHWC}>, tensor<1x4x160x160xf16, {order = #NHWC}> -> tensor<1x4x160x160xf16, {order = #NHWC}>
+    //CHECK: [[SUB:%.+]] = VPU.Subtract([[MUL]], [[INNER_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x160x160xf16, {order = #NHWC}>, tensor<1x4x160x160xf16, {order = #NHWC}> -> tensor<1x4x160x160xf16, {order = #NHWC}>
+    //CHECK:  VPU.Yield [[SUB]]
+
+    //CHECK: return [[VERTICAL_FUSION]] : tensor<1x4x160x160xf16, {order = #NHWC}>
 }

@@ -21,6 +21,12 @@
 #include <mlir/Support/LogicalResult.h>
 #include <mlir/Transforms/RegionUtils.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_DUPLICATEFQACROSSFUNCTIONCALLS
+#define GEN_PASS_DEF_DUPLICATEFQACROSSFUNCTIONCALLS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -69,7 +75,7 @@ IE::FakeQuantizeOp getFakeQuantizeUser(mlir::Operation* op) {
 namespace {
 
 class DuplicateFQAcrossFunctionCallsPass final :
-        public IE::DuplicateFQAcrossFunctionCallsBase<DuplicateFQAcrossFunctionCallsPass> {
+        public IE::impl::DuplicateFQAcrossFunctionCallsBase<DuplicateFQAcrossFunctionCallsPass> {
 private:
     using FunctionCalls = DenseMap<mlir::func::FuncOp, SmallVector<mlir::func::CallOp>>;
     using CallFunction = DenseMap<mlir::func::CallOp, mlir::func::FuncOp>;

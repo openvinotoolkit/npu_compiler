@@ -10,8 +10,8 @@
 namespace vpux {
 namespace IE {
 
-// This function will/must be removed when tiling support for NCE.Matmul is implemented (E125519)
-bool doesIEMatMulFitIntoCMX(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape);
+// E#154850: This function will/must be removed when regressions are addressed with tiling specific subgraphs
+bool isGroupedMatMulBeneficial(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape);
 
 bool isMatmulWithRHSTransposition(IE::MatMulOp matmulOp);
 

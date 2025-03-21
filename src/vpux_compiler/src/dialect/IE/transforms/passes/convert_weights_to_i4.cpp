@@ -13,6 +13,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTWEIGHTSTOI4
+#define GEN_PASS_DEF_CONVERTWEIGHTSTOI4
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -179,7 +185,7 @@ mlir::quant::QuantizedType changeStorageTypeToI4(mlir::quant::QuantizedType orig
 // ConvertWeightsToI4Pass
 //
 
-class ConvertWeightsToI4Pass final : public IE::ConvertWeightsToI4Base<ConvertWeightsToI4Pass> {
+class ConvertWeightsToI4Pass final : public IE::impl::ConvertWeightsToI4Base<ConvertWeightsToI4Pass> {
 public:
     explicit ConvertWeightsToI4Pass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -197,13 +203,20 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
     typeConverter.addConversion([](vpux::NDTypeInterface tensor) {
         // Handle U4 only storage type with zero point of 8
         const auto elementType = tensor.getElementType();
-        if (const auto uniformType = elementType.dyn_cast_or_null<mlir::quant::UniformQuantizedType>()) {
+        if (mlir::isa_and_nonnull<mlir::quant::QuantileQuantizedType, mlir::quant::QuantileQuantizedPerAxisType>(
+                    elementType)) {
+            // in QuantileQuantizedType the u4 storage type remains unchanged while it's the type in the lut
+            // (quantileType) that should be updated, but u4 is not actually supported as a palletization table type, so
+            // nothing to be done
+            return tensor;
+        } else if (const auto uniformType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(elementType)) {
             const uint64_t zeroPoint = uniformType.getZeroPoint();
             if (!uniformType.isSigned() && uniformType.getStorageTypeIntegralWidth() == 4 && zeroPoint == 8) {
                 const auto newElemType = changeStorageTypeToI4(uniformType);
                 return tensor.changeElemType(newElemType);
             }
-        } else if (const auto perAxisType = elementType.dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>()) {
+        } else if (const auto perAxisType =
+                           mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(elementType)) {
             const auto zeroPoints = perAxisType.getZeroPoints();
             bool isAllEight = std::all_of(zeroPoints.begin(), zeroPoints.end(), [](int n) {
                 return n == 8;
@@ -224,12 +237,19 @@ void ConvertWeightsToI4Pass::safeRunOnFunc() {
         // only handle U4 type with zero point of 8
         const auto constTensor = constOp.getResult();
         const auto elementType = constTensor.getType().cast<vpux::NDTypeInterface>().getElementType();
-        if (const auto uniformType = elementType.dyn_cast_or_null<mlir::quant::UniformQuantizedType>()) {
+        if (mlir::isa_and_nonnull<mlir::quant::QuantileQuantizedType, mlir::quant::QuantileQuantizedPerAxisType>(
+                    elementType)) {
+            // in QuantileQuantizedType the u4 storage type remains unchanged while it's the type in the lut
+            // (quantileType) that should be updated, but u4 is not actually supported as a palletization table type, so
+            // nothing to be done (declare as legal)
+            return true;
+        } else if (const auto uniformType = mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(elementType)) {
             const uint64_t zeroPoint = uniformType.getZeroPoint();
             if (!uniformType.isSigned() && uniformType.getStorageTypeIntegralWidth() == 4 && zeroPoint == 8) {
                 return false;
             }
-        } else if (const auto perAxisType = elementType.dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>()) {
+        } else if (const auto perAxisType =
+                           mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(elementType)) {
             const auto zeroPoints = perAxisType.getZeroPoints();
             bool isAllEight = std::all_of(zeroPoints.begin(), zeroPoints.end(), [](int n) {
                 return n == 8;

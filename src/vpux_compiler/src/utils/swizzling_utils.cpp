@@ -17,9 +17,10 @@ int64_t vpux::getSizeAlignmentForSwizzling(VPU::ArchKind arch) {
         return SWIZZLING_SIZE_ALIGNMENT_VPUX37XX;
     case VPU::ArchKind::NPU40XX:
         return SWIZZLING_SIZE_ALIGNMENT_VPUX40XX;
-    default:
-        VPUX_THROW("Architecture {0} does not support swizzling", arch);
+    default: {
     }
+    }
+    VPUX_THROW("Architecture {0} does not support swizzling", arch);
 }
 
 VPUIP::SwizzlingSchemeAttr vpux::createSwizzlingSchemeAttr(mlir::MLIRContext* ctx, VPU::ArchKind archKind,
@@ -48,7 +49,7 @@ int64_t vpux::getAddressAlignmentForSwizzling(int64_t swizzlingKey, VPU::ArchKin
                                                                  {3, 4096},
                                                                  {4, 8192},
                                                                  {5, 16384}};
-    int64_t archMultiplier = (archKind == VPU::ArchKind::NPU40XX) ? 2 : 1;
+    int64_t archMultiplier = archKind >= VPU::ArchKind::NPU40XX ? 2 : 1;
     return swizzlingAddressAlignment.at(swizzlingKey) * archMultiplier;
 }
 

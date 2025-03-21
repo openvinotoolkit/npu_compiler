@@ -209,3 +209,14 @@ Const::Content Const::SparsifyAttr::transform(Const::Content& input) const {
 Const::details::PositionRequirement Const::SparsifyAttr::getPositionRequirement() const {
     return Const::details::PositionRequirement::PREFERRED_LAST;
 }
+
+//
+// SparsifyAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::SparsifyAttr::getStableHashValue() const {
+    const bool returnCompressed = getCompressOutputType().getValue();
+    const auto numElems = getNumActualElements().getValues<int64_t>();
+    return llvm::hash_combine(getMnemonic(), returnCompressed,
+                              llvm::hash_combine_range(numElems.begin(), numElems.end()));
+}

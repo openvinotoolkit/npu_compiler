@@ -3,9 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_CONVERTCONSTARGSTOMULTICONSTANTS
+#define GEN_PASS_DEF_CONVERTCONSTARGSTOMULTICONSTANTS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 namespace {
 
@@ -42,7 +51,7 @@ using namespace vpux;
 // 4. Replaces usages of operands 3 and 4 in f's body with 'const.MultiDeclare' using the newly created bundles
 //
 class ConvertConstArgsToMultiConstants final :
-        public VPU::ConvertConstArgsToMultiConstantsBase<ConvertConstArgsToMultiConstants> {
+        public VPU::impl::ConvertConstArgsToMultiConstantsBase<ConvertConstArgsToMultiConstants> {
 public:
     using Base = ConvertConstArgsToMultiConstantsBase;
 

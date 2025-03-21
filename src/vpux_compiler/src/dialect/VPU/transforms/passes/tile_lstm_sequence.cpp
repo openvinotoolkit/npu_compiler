@@ -4,15 +4,16 @@
 //
 
 #include <vpux/utils/core/error.hpp>
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
@@ -25,6 +26,12 @@
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <utility>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_TILELSTMSEQUENCE
+#define GEN_PASS_DEF_TILELSTMSEQUENCE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -364,7 +371,7 @@ mlir::LogicalResult TileLSTMSequence::matchAndRewrite(VPU::LSTMSequenceOp op, ml
     return mlir::success();
 };
 
-class TileLSTMSequencePass final : public VPU::TileLSTMSequenceBase<TileLSTMSequencePass> {
+class TileLSTMSequencePass final : public VPU::impl::TileLSTMSequenceBase<TileLSTMSequencePass> {
 public:
     explicit TileLSTMSequencePass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());

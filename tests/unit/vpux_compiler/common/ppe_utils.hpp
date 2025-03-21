@@ -48,6 +48,7 @@ public:
             IE::AddOp::attachInterface<LayerWithPostOpModel<IE::AddOp>>(*ctx);
             IE::SubtractOp::attachInterface<LayerWithPostOpModel<IE::SubtractOp>>(*ctx);
             IE::MultiplyOp::attachInterface<LayerWithPostOpModel<IE::MultiplyOp>>(*ctx);
+            IE::MatMulOp::attachInterface<LayerWithPostOpModel<IE::MatMulOp>>(*ctx);
         });
     }
 
@@ -70,28 +71,32 @@ protected:
     VPU::PpeIfcPtr _ppeIfc;
 
 protected:
+    mlir::Type getF32Type() {
+        return mlir::Float32Type::get(&_ctx);
+    }
+
     mlir::Type getF16Type() {
-        const auto f16Type = mlir::Float16Type::get(&_ctx);
-        return f16Type;
+        return mlir::Float16Type::get(&_ctx);
     }
 
     mlir::Type getU8Type() {
-        const auto u8Type = mlir::quant::UniformQuantizedType::getChecked(
-                _loc, 0, getInt8Type(&_ctx), mlir::Float16Type::get(&_ctx), 0.002, 128, 0, 255);
-        return u8Type;
+        return mlir::quant::UniformQuantizedType::getChecked(_loc, 0, getInt8Type(&_ctx), mlir::Float16Type::get(&_ctx),
+                                                             0.002, 128, 0, 255);
     }
 
     mlir::Type getU8PerAxisType() {
-        const auto u8PerAxisType = mlir::quant::UniformQuantizedPerAxisType::getChecked(
+        return mlir::quant::UniformQuantizedPerAxisType::getChecked(
                 _loc, 0, getInt8Type(&_ctx), mlir::Float16Type::get(&_ctx), SmallVector<double>({0.002, 0.004}),
                 SmallVector<int64_t>({128, 128}), 1, 0, 255);
-        return u8PerAxisType;
     }
 
     mlir::Type getF8Type() {
-        const auto f8Type = mlir::quant::UniformQuantizedType::getChecked(
-                _loc, 0, mlir::Float8E4M3FNType::get(&_ctx), mlir::Float16Type::get(&_ctx), 0.002, 0, -448, 448);
-        return f8Type;
+        return mlir::quant::UniformQuantizedType::getChecked(_loc, 0, mlir::Float8E4M3FNType::get(&_ctx),
+                                                             mlir::Float16Type::get(&_ctx), 0.002, 0, -448, 448);
+    }
+
+    VPU::PPEStubAttr getStubPPEAttr() {
+        return VPU::PPEStubAttr::get(&_ctx);
     }
 
     IE::PostOpAttr createRelu() {
@@ -131,6 +136,12 @@ protected:
 
     IE::PostOpAttr createTanh() {
         const auto operationName = IE::TanhOp::getOperationName();
+        return IE::PostOpAttr::get(&_ctx, mlir::StringAttr::get(&_ctx, operationName),
+                                   mlir::DictionaryAttr::get(&_ctx));
+    }
+
+    IE::PostOpAttr createSigmoid() {
+        const auto operationName = IE::SigmoidOp::getOperationName();
         return IE::PostOpAttr::get(&_ctx, mlir::StringAttr::get(&_ctx, operationName),
                                    mlir::DictionaryAttr::get(&_ctx));
     }
@@ -250,7 +261,8 @@ protected:
                                                             ArrayRef<int64_t>{1, 16, 32, 32}, in2ElemType);
         const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
 
-        return builder.create<IE::MatMulOp>(_loc, outType, input1.getResult(), input2.getResult(), nullptr, nullptr);
+        return builder.create<IE::MatMulOp>(_loc, outType, input1.getResult(), input2.getResult(), nullptr, nullptr,
+                                            nullptr);
     }
 
     IE::ReduceMeanOp createReduceMean(mlir::Type inElemType, mlir::Type outElemType) {
@@ -260,5 +272,24 @@ protected:
         const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
 
         return builder.create<IE::ReduceMeanOp>(_loc, outType, input.getResult(), nullptr, nullptr, nullptr);
+    }
+
+    VPU::NCEInterpolateOp createNCEInterpolate(mlir::Type inElemType, mlir::Type weightsElemType,
+                                               mlir::Type outElemType, VPU::PPEAttr oldPpeAttr) {
+        mlir::OpBuilder builder(&_ctx);
+        auto input = builder.create<mlir::tensor::EmptyOp>(mlir::UnknownLoc::get(&_ctx),
+                                                           ArrayRef<int64_t>{1, 16, 32, 32}, inElemType);
+        auto weights = builder.create<mlir::tensor::EmptyOp>(mlir::UnknownLoc::get(&_ctx),
+                                                             ArrayRef<int64_t>{1, 16, 32, 32}, weightsElemType);
+        auto weightsTable = builder.create<mlir::tensor::EmptyOp>(mlir::UnknownLoc::get(&_ctx),
+                                                                  ArrayRef<int64_t>{16, 1, 1, 4}, weightsElemType);
+        const auto outType = mlir::RankedTensorType::get(ArrayRef<int64_t>{1, 16, 32, 32}, outElemType);
+
+        const auto strides = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
+        const auto rawFilterShape = getIntArrayAttr(&_ctx, mlir::cast<NDTypeInterface>(weights.getType()).getShape());
+
+        return builder.create<VPU::NCEInterpolateOp>(_loc, outType, input, weights, weightsTable, strides, oldPpeAttr,
+                                                     rawFilterShape, /*multiClusterStrategy=*/nullptr,
+                                                     /*mode=*/nullptr);
     }
 };

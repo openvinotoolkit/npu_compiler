@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/utils/options.hpp"
+#include "vpux/utils/core/logger.hpp"
 
 namespace vpux {
 namespace IE {
@@ -55,22 +56,11 @@ void buildDefaultHWPipeline(mlir::OpPassManager& pm, const IE::arch40xx::Default
                             Logger log = Logger::global());
 
 //
-// registerIEPipelines
+// Registration
 //
 
 void registerIEPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU40XX/dialect/IE/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU40XX/dialect/IE/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch40xx
 }  // namespace IE

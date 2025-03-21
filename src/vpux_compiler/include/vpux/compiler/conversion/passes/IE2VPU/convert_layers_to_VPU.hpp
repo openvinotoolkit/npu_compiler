@@ -248,6 +248,53 @@ private:
 };
 
 //
+// EmbeddingSegmentsSum
+//
+
+class EmbeddingSegmentsSumRewriter : public mlir::OpRewritePattern<IE::EmbeddingSegmentsSumOp> {
+public:
+    EmbeddingSegmentsSumRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::EmbeddingSegmentsSumOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::EmbeddingSegmentsSumOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// EmbeddingBagOffsetsSum
+//
+
+class EmbeddingBagOffsetsSumRewriter final : public mlir::OpRewritePattern<IE::EmbeddingBagOffsetsSumOp> {
+public:
+    EmbeddingBagOffsetsSumRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::EmbeddingBagOffsetsSumOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::EmbeddingBagOffsetsSumOp origOp,
+                                        mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+class AccumulateRewrite final : public mlir::OpRewritePattern<IE::AccumulateOp> {
+public:
+    AccumulateRewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::AccumulateOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::AccumulateOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
 // RewriteGRUCell
 //
 
@@ -258,6 +305,25 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(IE::GRUCellOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// RewriteExperimentalDetectronROIFeatureExtractor
+//
+
+class ExperimentalDetectronROIFeatureExtractorRewrite final :
+        public mlir::OpRewritePattern<IE::ExperimentalDetectronROIFeatureExtractorOp> {
+public:
+    ExperimentalDetectronROIFeatureExtractorRewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ExperimentalDetectronROIFeatureExtractorOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExperimentalDetectronROIFeatureExtractorOp origOp,
+                                        mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

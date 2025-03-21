@@ -10,11 +10,18 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTAVGPOOLTODWCONV
+#define GEN_PASS_DEF_CONVERTAVGPOOLTODWCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -58,7 +65,7 @@ namespace {
 // ConvertAvgPoolToDWConvPass
 //
 
-class ConvertAvgPoolToDWConvPass final : public IE::ConvertAvgPoolToDWConvBase<ConvertAvgPoolToDWConvPass> {
+class ConvertAvgPoolToDWConvPass final : public IE::impl::ConvertAvgPoolToDWConvBase<ConvertAvgPoolToDWConvPass> {
 public:
     explicit ConvertAvgPoolToDWConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

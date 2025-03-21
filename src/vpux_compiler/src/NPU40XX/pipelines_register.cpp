@@ -38,15 +38,6 @@ void PipelineRegistry40XX::registerPipelines() {
                 buildReferenceSWModePipeline(pm, options);
             });
 
-    mlir::PassPipelineRegistration<ReferenceHWOptions40XX>(
-            "reference-hw-mode", "Compile IE Network in Reference Hardware mode (HW and SW execution) for NPU40XX",
-            [](mlir::OpPassManager& pm, const ReferenceHWOptions40XX& options) {
-                VPU::buildInitCompilerPipeline(pm,
-                                               {VPU::ArchKind::NPU40XX, VPU::CompilationMode::ReferenceHW, options});
-
-                buildReferenceHWModePipeline(pm, options);
-            });
-
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "default-hw-mode", "Compile IE Network in Default Hardware mode (HW and SW execution) for NPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {

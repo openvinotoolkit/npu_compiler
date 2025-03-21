@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-reorders %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -432,4 +431,38 @@ func.func @FusePermuteToTransposedConv(%arg0: tensor<1x2x256x144xf16, {order = #
     // CHECK-SAME: tensor<2x2x4x4xf16, {order = #NHWC}> -> tensor<1x2x512x288xf16>
 
     // CHECK:   return [[TransposedConv]] : tensor<1x2x512x288xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotFusePermuteToAddWithHigherPrecision
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x3x1024x1024xf32, {order = #NHWC}>
+func.func @NotFusePermuteToAddWithHigherPrecision(%arg0: tensor<1x3x1024x1024xf32, {order = #NHWC}>) -> tensor<1x3x1024x1024xf32> {
+    %cst = const.Declare tensor<1x3x1024x1024xf32, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x3x1024x1024xf32>, [#const.Reorder<#NHWC>]
+
+    %ADD = IE.Add(%arg0, %cst) {
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>
+    } : tensor<1x3x1024x1024xf32, {order = #NHWC}>, tensor<1x3x1024x1024xf32, {order = #NHWC}> -> tensor<1x3x1024x1024xf32, {order = #NHWC}>
+
+    %REORDER = IE.Reorder(%ADD) {
+        dstOrder = #NCHW
+    } : tensor<1x3x1024x1024xf32, {order = #NHWC}> -> tensor<1x3x1024x1024xf32>
+
+    return %REORDER : tensor<1x3x1024x1024xf32>
+
+    // CHECK-DAG:   [[CST:%.+]] = const.Declare tensor<1x3x1024x1024xf32, {order = #NHWC}> =
+    // CHECK-SAME:      dense<1.000000e+00> : tensor<1x3x1024x1024xf32>, [#const.Reorder<#NHWC>]
+
+    // CHECK:       [[ADD:%.+]] = IE.Add([[INPUT]], [[CST]]) {
+    // CHECK-SAME:      auto_broadcast = #IE.auto_broadcast_type<NUMPY>
+    // CHECK-SAME:  } : tensor<1x3x1024x1024xf32, {order = #NHWC}>, tensor<1x3x1024x1024xf32, {order = #NHWC}> -> tensor<1x3x1024x1024xf32, {order = #NHWC}>
+
+    // CHECK:       [[REORDER:%.+]] = IE.Reorder([[ADD]]) {
+    // CHECK-SAME:      dstOrder = #NCHW
+    // CHECK-SAME:  } : tensor<1x3x1024x1024xf32, {order = #NHWC}> -> tensor<1x3x1024x1024xf32>
+
+    // CHECK:       return [[REORDER]] : tensor<1x3x1024x1024xf32>
 }

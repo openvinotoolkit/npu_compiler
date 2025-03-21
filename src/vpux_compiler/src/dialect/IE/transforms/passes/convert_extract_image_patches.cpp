@@ -9,6 +9,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTEXTRACTIMAGEPATCHES
+#define GEN_PASS_DEF_CONVERTEXTRACTIMAGEPATCHES
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -332,7 +338,8 @@ mlir::LogicalResult ConvertToSliceConcatRewriter::matchAndRewrite(IE::ExtractIma
 // ConvertExtractImagePatchesPass
 //
 
-class ConvertExtractImagePatchesPass final : public IE::ConvertExtractImagePatchesBase<ConvertExtractImagePatchesPass> {
+class ConvertExtractImagePatchesPass final :
+        public IE::impl::ConvertExtractImagePatchesBase<ConvertExtractImagePatchesPass> {
 public:
     explicit ConvertExtractImagePatchesPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

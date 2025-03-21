@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPURT/utils/color_bin_barrier_assignment.hpp"
 
 #include <llvm/ADT/SetOperations.h>
+#include <limits>
 
 using namespace vpux;
 
@@ -88,6 +89,9 @@ bool VPURT::BarrierColorBin::calculateBinSize(BarrierGraphInfo& BarrierGraphInfo
         totalWeight += weight;
     }
 
+    if (totalWeight < std::numeric_limits<float>::epsilon()) {
+        return false;
+    }
     totalWeight = _numBarriers / totalWeight;
     for (auto& [_, weight] : binWeights) {
         weight = weight * totalWeight;

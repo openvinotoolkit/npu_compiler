@@ -50,15 +50,14 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::ConvolutionOp 
     }
 
     if (inputType.getDimsOrder() == DimsOrder::NHWC) {
-        const auto arch = VPU::getArch(origOp->getParentOfType<mlir::ModuleOp>());
         const auto IC = filterShape[Dims4D::Filter::IC];
-        if (arch == VPU::ArchKind::NPU37XX || arch == VPU::ArchKind::NPU40XX) {
-            if (auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation())) {
-                if (IC % iface.getInputChannelAlignment() == 0) {
-                    return mlir::success();
-                }
+
+        if (auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp.getOperation())) {
+            if (IC % iface.getInputChannelAlignment() == 0) {
+                return mlir::success();
             }
         }
+
         if (IC % channelsInfo.getInputChannelAlignment() != 0) {
             log.trace("[{0}] ZMajor Convolution input channels are not aligned", loc);
             return mlir::failure();
@@ -126,10 +125,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEAveragePoo
 // verifyReduceChannels
 //
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyReduceChannels(IE::ReduceMeanOp origOp,
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyReduceChannels(mlir::Operation* origOp,
                                                                     vpux::NDTypeInterface inputType, Logger log) {
     log.setName("NCEInvariant");
-    const auto loc = origOp.getLoc();
+    const auto loc = origOp->getLoc();
     if (inputType.getRank() != 4) {
         log.trace("[{0}] Reduce input shape does not have 4 dimensions. Not supported.", loc);
         return mlir::failure();
@@ -138,10 +137,11 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyReduceChannels(IE::ReduceMe
     const auto inputShape = inputType.getShape();
     const auto IC = inputShape[Dims4D::Act::C];
 
-    auto channelIface = mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
-    if (IC % channelIface.getInputChannelAlignment() != 0) {
-        log.trace("[{0}] Reduce input channels are not aligned", loc);
-        return mlir::failure();
+    if (auto channelIface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(origOp)) {
+        if (IC % channelIface.getInputChannelAlignment() != 0) {
+            log.trace("[{0}] Reduce input channels are not aligned", loc);
+            return mlir::failure();
+        }
     }
 
     return mlir::success();
@@ -209,10 +209,9 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::ReduceMeanOp o
     return verifyReduceChannels(origOp, inputType, log);
 }
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::AndOp origOp, Logger log) {
-    auto input1Type = origOp.getInput1().getType().cast<vpux::NDTypeInterface>();
-    auto input2Type = origOp.getInput2().getType().cast<vpux::NDTypeInterface>();
-    return verifyEltwiseChannels(origOp.getOperation(), input1Type, input2Type, log);
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::ReduceSumOp origOp, Logger log) {
+    auto inputType = origOp.getInput().getType().cast<vpux::NDTypeInterface>();
+    return verifyReduceChannels(origOp, inputType, log);
 }
 
 mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEEltwiseOp, Logger) {
@@ -220,15 +219,12 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEEltwiseOp,
     return mlir::success();
 }
 
-//
-// verifyGroupConvChannels
-//
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::GroupConvolutionOp origOp, Logger log) {
+    auto loc = origOp->getLoc();
+    auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    auto filterType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
+    auto channelIface = mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyGroupConvChannels(mlir::Location loc,
-                                                                       vpux::NDTypeInterface inputType,
-                                                                       vpux::NDTypeInterface filterType,
-                                                                       IE::AlignedChannelsOpInterface channelsIface,
-                                                                       Logger log) {
     log.setName("NCEInvariant");
 
     if (inputType.getRank() != 4) {
@@ -251,28 +247,24 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyGroupConvChannels(mlir::Loc
     const auto inputShape = inputType.getShape();
     const auto inputChan = inputShape[Dims4D::Act::C];
     const auto OC = filterShape[Dims4D::Filter::OC];
-    if (OC != inputChan) {
-        log.trace("[{0}] Group Convolution has {1} groups, expected {2}", loc, OC, inputChan);
-        return mlir::failure();
-    }
-
-    if (inputChan % channelsIface.getInputChannelAlignment() != 0) {
+    if (inputChan % channelIface.getInputChannelAlignment() != 0) {
         log.trace("[{0}] Group Convolution input channels are not aligned", loc);
         return mlir::failure();
     }
 
-    if (OC % channelsIface.getOutputChannelAlignment() != 0) {
+    if (OC % channelIface.getOutputChannelAlignment() != 0) {
         log.trace("[{0}] Group Convolution output channels are not aligned", loc);
         return mlir::failure();
     }
 
-    return mlir::success();
-}
+    const auto padOC =
+            VPU::canAutopadOutput(origOp.getOperation()) ? vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT : OC;
+    if (padOC != inputChan) {
+        log.trace("[{0}] Group Convolution has {1} groups, expected {2}", loc, padOC, inputChan);
+        return mlir::failure();
+    }
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::GroupConvolutionOp origOp, Logger log) {
-    return verifyGroupConvChannels(origOp->getLoc(), origOp.getInput().getType().cast<vpux::NDTypeInterface>(),
-                                   origOp.getFilter().getType().cast<vpux::NDTypeInterface>(),
-                                   mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation()), log);
+    return mlir::success();
 }
 
 mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEDepthConvolutionOp, Logger) {
@@ -405,6 +397,11 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::MatMulOp origO
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEMatMulOp, Logger) {
+    // VPU.NCE operations guarantees that invariants
+    return mlir::success();
+}
+
 Byte getCMXSizeForTiling(mlir::ModuleOp module) {
     return vpux::VPU::getTotalCMXSize(module);
 }
@@ -412,12 +409,17 @@ Byte getCMXSizeForTiling(mlir::ModuleOp module) {
 // verifyPipeliningCMX
 
 bool isNestedTiling(const OutputTiling& tiling) {
+    if (tiling.size() == 5) {
+        return tiling[0].axis[DimsGroups5D::Act::G] > 1 &&
+               (tiling[0].axis[DimsGroups5D::Act::C] > 1 || tiling[0].axis[DimsGroups5D::Act::H] > 1);
+    }
     return tiling[0].axis[Dims4D::Act::C] > 1 && tiling[0].axis[Dims4D::Act::H] > 1;
 }
 
-vpux::NDTypeInterface getAlignedFilterType(const SmallVector<vpux::NDTypeInterface>& tileTypes) {
-    const auto outputTileType = tileTypes[2];
-    const auto filterTileType = tileTypes[1];
+std::pair<NDTypeInterface, VPU::TensorDistributionMap> getAlignedFilterType(
+        const std::vector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>>& tileTypes) {
+    const auto outputTileType = tileTypes[2].first;
+    const auto filterTileType = tileTypes[1].first;
     const auto filterTileShape = filterTileType.getShape();
     const auto OC = filterTileShape[Dims4D::Filter::OC];
     const auto IC = filterTileShape[Dims4D::Filter::IC];
@@ -432,22 +434,22 @@ vpux::NDTypeInterface getAlignedFilterType(const SmallVector<vpux::NDTypeInterfa
 
     const auto alignedWeightShape = SmallVector<int64_t>{OC, 1, 1, IC * KY * KX + padding};
     const auto alignedFilterType = mlir::RankedTensorType::get(alignedWeightShape, filterTileType.getElementType());
-    return alignedFilterType;
+    return std::make_pair(alignedFilterType, tileTypes[1].second);
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::ConvolutionOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::ConvolutionOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
     bool isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
-    const auto& curTileTypes = getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = getTileTypes(origOp, nextTile);
+    const auto& curTileTypes = getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = getTileDistributions(origOp, nextTile);
 
-    SmallVector<vpux::NDTypeInterface> requiredOperands{curTileTypes[0], getAlignedFilterType(curTileTypes),
-                                                        curTileTypes[2]};
+    SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> requiredOperands{
+            curTileTypes[0], getAlignedFilterType(curTileTypes), curTileTypes[2]};
     if (isWeightPrefetch) {
         requiredOperands.push_back(getAlignedFilterType(nextTileTypes));
     } else {
@@ -457,15 +459,15 @@ SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::Convolu
 }
 
 template <class ConcreteOp>
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipeliningConvBased(ConcreteOp origOp,
-                                                                             const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipeliningConvBased(
+        ConcreteOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
 
     const auto isOutputPipeliningEnabled = [](ConcreteOp origOp) {
         if (!origOp->hasAttr(outputPipelining)) {
@@ -485,29 +487,40 @@ SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipeliningConvBased(Con
                 nextTileTypes[0], nextTileTypes[1], nextTileTypes[2]};
     }
 
-    bool isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
+    const auto groupTiling = curTile.axis.size() == DimsGroups5D::Act::numDims;
+    if (groupTiling && curTile.axis[DimsGroups5D::Act::G] > 1) {
+        return {curTileTypes[0], curTileTypes[1], curTileTypes[2], nextTileTypes[0], nextTileTypes[1]};
+    }
+
+    // TODO : Logic should be improved to handle tiling on 2 dimensions.
+    const auto isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
     return {curTileTypes[0], curTileTypes[1], curTileTypes[2], isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0]};
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCEConvolutionOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEConvolutionOp origOp, const OutputTiling& tiling) {
     return getRequiredOperandsForPipeliningConvBased(origOp, tiling);
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCEInterpolateOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEInterpolateOp origOp, const OutputTiling& tiling) {
     return getRequiredOperandsForPipeliningConvBased(origOp, tiling);
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCECompressConvolutionOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCECompressConvolutionOp origOp, const OutputTiling& tiling) {
+    return getRequiredOperandsForPipeliningConvBased(origOp, tiling);
+}
+
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEMatMulOp origOp, const OutputTiling& tiling) {
     return getRequiredOperandsForPipeliningConvBased(origOp, tiling);
 }
 
 template <class ConcreteOp>
 int64_t getRequiredChannelSizeForPipeliningConvBased(ConcreteOp origOp, const OutputTiling& tiling) {
-    auto curFilterShape = getTileTypes(origOp, tiling[0])[1].getShape();
-    auto nextFilterShape = getTileTypes(origOp, tiling[1])[1].getShape();
+    auto curFilterShape = getTileDistributions(origOp, tiling[0])[1].first.getShape();
+    auto nextFilterShape = getTileDistributions(origOp, tiling[1])[1].first.getShape();
     return curFilterShape[Dims4D::Filter::OC] + nextFilterShape[Dims4D::Filter::OC];
 }
 
@@ -524,6 +537,10 @@ int64_t getRequiredChannelSizeForPipelining(VPU::NCEInterpolateOp origOp, const 
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::NCECompressConvolutionOp origOp, const OutputTiling& tiling) {
+    return getRequiredChannelSizeForPipeliningConvBased(origOp, tiling);
+}
+
+int64_t getRequiredChannelSizeForPipelining(VPU::NCEMatMulOp origOp, const OutputTiling& tiling) {
     return getRequiredChannelSizeForPipeliningConvBased(origOp, tiling);
 }
 
@@ -597,57 +614,64 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCECompr
     return verifyPipeliningCMXConvBased(origOp, tiling, log);
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::MaxPoolOp origOp, const OutputTiling& tiling) {
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEMatMulOp origOp, const OutputTiling& tiling,
+                                                                   Logger log) {
+    return verifyPipeliningCMXConvBased(origOp, tiling, log);
+}
+
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::MaxPoolOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
-    SmallVector<vpux::NDTypeInterface> requiredOperands{curTileTypes[0], curTileTypes[1], nextTileTypes[0]};
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
+    SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> requiredOperands{
+            curTileTypes[0], curTileTypes[1], nextTileTypes[0]};
     return requiredOperands;
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCEMaxPoolOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEMaxPoolOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
     return {curTileTypes[0], curTileTypes[1], nextTileTypes[0]};
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCEAveragePoolOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEAveragePoolOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
     return {curTileTypes[0], curTileTypes[1], nextTileTypes[0]};
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::MaxPoolOp origOp, const OutputTiling& tiling) {
-    auto curInputShape = VPU::getTileTypes(origOp, tiling[0])[0].getShape();
-    auto nextInputShape = VPU::getTileTypes(origOp, tiling[1])[0].getShape();
+    auto curInputShape = getTileDistributions(origOp, tiling[0])[0].first.getShape();
+    auto nextInputShape = getTileDistributions(origOp, tiling[1])[0].first.getShape();
     return curInputShape[Dims4D::Act::C] + nextInputShape[Dims4D::Act::C];
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::NCEMaxPoolOp origOp, const OutputTiling& tiling) {
-    auto curInputShape = VPU::getTileTypes(origOp, tiling[0])[0].getShape();
-    auto nextInputShape = VPU::getTileTypes(origOp, tiling[1])[0].getShape();
+    auto curInputShape = getTileDistributions(origOp, tiling[0])[0].first.getShape();
+    auto nextInputShape = getTileDistributions(origOp, tiling[1])[0].first.getShape();
     return curInputShape[Dims4D::Act::C] + nextInputShape[Dims4D::Act::C];
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::NCEAveragePoolOp origOp, const OutputTiling& tiling) {
-    auto curInputShape = VPU::getTileTypes(origOp, tiling[0])[0].getShape();
-    auto nextInputShape = VPU::getTileTypes(origOp, tiling[1])[0].getShape();
+    auto curInputShape = getTileDistributions(origOp, tiling[0])[0].first.getShape();
+    auto nextInputShape = getTileDistributions(origOp, tiling[1])[0].first.getShape();
     return curInputShape[Dims4D::Act::C] + nextInputShape[Dims4D::Act::C];
 }
 
@@ -733,18 +757,18 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEAvera
     return mlir::success();
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::GroupConvolutionOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::GroupConvolutionOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
     bool isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
-    SmallVector<vpux::NDTypeInterface> requiredOperands{curTileTypes[0], getAlignedFilterType(curTileTypes),
-                                                        curTileTypes[2]};
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
+    SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> requiredOperands{
+            curTileTypes[0], getAlignedFilterType(curTileTypes), curTileTypes[2]};
     if (isWeightPrefetch) {
         requiredOperands.push_back(getAlignedFilterType(nextTileTypes));
     } else {
@@ -753,29 +777,29 @@ SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::GroupCo
     return requiredOperands;
 }
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(VPU::NCEDepthConvolutionOp origOp,
-                                                                    const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        VPU::NCEDepthConvolutionOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
     bool isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
-    const auto& curTileTypes = VPU::getTileTypes(origOp, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(origOp, nextTile);
+    const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
 
     return {curTileTypes[0], curTileTypes[1], curTileTypes[2], isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0]};
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::GroupConvolutionOp origOp, const OutputTiling& tiling) {
-    auto curFilterShape = VPU::getTileTypes(origOp, tiling[0])[1].getShape();
-    auto nextFilterShape = VPU::getTileTypes(origOp, tiling[1])[1].getShape();
+    auto curFilterShape = getTileDistributions(origOp, tiling[0])[1].first.getShape();
+    auto nextFilterShape = getTileDistributions(origOp, tiling[1])[1].first.getShape();
     return curFilterShape[Dims4D::Filter::OC] + nextFilterShape[Dims4D::Filter::OC];
 }
 
 int64_t getRequiredChannelSizeForPipelining(VPU::NCEDepthConvolutionOp origOp, const OutputTiling& tiling) {
-    auto curFilterShape = VPU::getTileTypes(origOp, tiling[0])[1].getShape();
-    auto nextFilterShape = VPU::getTileTypes(origOp, tiling[1])[1].getShape();
+    auto curFilterShape = getTileDistributions(origOp, tiling[0])[1].first.getShape();
+    auto nextFilterShape = getTileDistributions(origOp, tiling[1])[1].first.getShape();
     return curFilterShape[Dims4D::Filter::OC] + nextFilterShape[Dims4D::Filter::OC];
 }
 
@@ -838,17 +862,18 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEDepth
 // verifyEltwisePipeliningCMX
 //
 
-SmallVector<vpux::NDTypeInterface> getRequiredOperandsForPipelining(mlir::Operation* op, const OutputTiling& tiling) {
+SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipelining(
+        mlir::Operation* op, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
     // So just check the first two tiles are enough to make sure prefetchable
     auto curTile = tiling[0];
     auto nextTile = tiling[1];
 
-    const auto& curTileTypes = VPU::getTileTypes(op, curTile);
-    const auto& nextTileTypes = VPU::getTileTypes(op, nextTile);
+    const auto& curTileTypes = VPU::getTileDistributions(op, curTile);
+    const auto& nextTileTypes = VPU::getTileDistributions(op, nextTile);
 
-    return SmallVector<vpux::NDTypeInterface>{curTileTypes[0], curTileTypes[1], curTileTypes[2], nextTileTypes[0],
-                                              nextTileTypes[1]};
+    return SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>>{
+            curTileTypes[0], curTileTypes[1], curTileTypes[2], nextTileTypes[0], nextTileTypes[1]};
 }
 
 mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyEltwisePipeliningCMX(mlir::Operation* op,
@@ -891,14 +916,24 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::Subtract
     return verifyEltwisePipeliningCMX(origOp.getOperation(), tiling, log);
 }
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::AndOp origOp, const OutputTiling& tiling,
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEEltwiseOp origOp, const OutputTiling& tiling,
                                                                    Logger log) {
     return verifyEltwisePipeliningCMX(origOp.getOperation(), tiling, log);
 }
 
-mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEEltwiseOp origOp, const OutputTiling& tiling,
-                                                                   Logger log) {
-    return verifyEltwisePipeliningCMX(origOp.getOperation(), tiling, log);
+Byte vpux::VPUIP::NCEInvariant::getRequiredCMXSizeForLastTile(mlir::Operation* op, Logger log) {
+    const auto outShape = getShape(op->getResult(0));
+    vpux::OutputTiling outputTiling = {TileInfo(outShape)};
+    if (op->hasAttr(tilingStrategy)) {
+        const auto strategy = Shape(parseIntArrayAttr<int64_t>(op->getAttr(tilingStrategy).cast<mlir::ArrayAttr>()));
+        auto tilingResult = fillDividedTiles(op, strategy, outShape);
+        if (mlir::succeeded(tilingResult)) {
+            outputTiling = tilingResult.value();
+        }
+    }
+    // Calculate the CMX memory required by the last tile of parent Op
+    auto lastTile = outputTiling.back();
+    return VPU::getRequiredCMX(op, lastTile, log);
 }
 
 //

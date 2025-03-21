@@ -13,6 +13,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_COMPUTETASKSTRIPPING
+#define GEN_PASS_DEF_COMPUTETASKSTRIPPING
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 using namespace VPUIP;
 
@@ -22,7 +28,8 @@ namespace {
 // Compute Task Stripping
 //
 
-class ComputeTaskStrippingPass final : public VPUIP::arch40xx::ComputeTaskStrippingBase<ComputeTaskStrippingPass> {
+class ComputeTaskStrippingPass final :
+        public VPUIP::arch40xx::impl::ComputeTaskStrippingBase<ComputeTaskStrippingPass> {
 public:
     explicit ComputeTaskStrippingPass(Logger log, VPU::DPUDryRunMode dpuDryRun, bool shaveDryRun)
             : _log(log), _dpuDryRun(dpuDryRun), _shaveDryRun(shaveDryRun) {

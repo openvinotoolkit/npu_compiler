@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --segment-halos %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -2122,5 +2121,158 @@ func.func @main(%arg0:  memref<1x128x14x56xf16>, %arg1:  memref<1x128x14x56xf16>
 //CHECK:      parent_output([[OUT_CMX3]]
 //CHECK:      output_ITI_buff([[OUT_CMX0]], [[OUT_CMX1]], [[OUT_CMX2]]
 //CHECK:      outputs([[OUT_CMX3]]
+
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!Input0 = memref<
+    1x16x2x121xf16, #NHWC, [@CMX_NN, 0]
+>
+
+!Input1 = memref<
+    1x16x2x121xf16, #NHWC, [@CMX_NN, 1]
+>
+
+!OutputITI0 = !VPUIP.ITIBuffer<
+    1x16x4x121xf16, #NHWC, [@CMX_NN, 0],
+    inwardHaloRegions = [
+          #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 2, 0], cluster_id = 0 : i64>
+    ],
+    outwardHaloRegions = [
+          #VPUIP.OutwardHaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 0, 0], cluster_id = 0 : i64, inwardHaloRegions = [
+              #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 0, 0], cluster_id = 1 : i64>
+         ]>
+    ]>
+
+
+!OutputITI1 = !VPUIP.ITIBuffer<
+    1x16x4x121xf16, #NHWC, [@CMX_NN, 1],
+    inwardHaloRegions = [
+          #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 0, 0], cluster_id = 1 : i64>
+    ],
+    outwardHaloRegions = [
+          #VPUIP.OutwardHaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 2, 0], cluster_id = 1 : i64, inwardHaloRegions = [
+              #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 2, 0], cluster_id = 0 : i64>
+          ]>
+    ]>
+
+// CHECK-LABEL: @TwoEltWiseNCEClusterTasksSOH
+module @TwoEltWiseNCEClusterTasksSOH {
+
+IE.CNNNetwork
+    entryPoint : @main
+    inputsInfo : {
+        DataInfo "input0" : tensor<1x16x2x121xf16>
+        DataInfo "input1" : tensor<1x16x2x121xf16>
+    }
+    outputsInfo : {
+        DataInfo "output0" : tensor<1x16x4x121xf16>
+        DataInfo "output1" : tensor<1x16x4x121xf16>
+    }
+
+func.func @main(%arg0:  memref<1x16x2x121xf16, #NHWC, [@CMX_NN, 0]>, %arg1:  memref<1x16x2x121xf16, #NHWC, [@CMX_NN, 1]>,
+                %arg2:  memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 0]>, %arg3: memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 1]>)
+-> (memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 1]>) {
+    %input0 = VPURT.DeclareBuffer <CMX_NN> [0] <15488> -> !Input0
+    %weights0 = VPURT.DeclareBuffer <CMX_NN> [0] <15488> -> !Input0
+    %output0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !OutputITI0
+
+    %input1 = VPURT.DeclareBuffer <CMX_NN> [1] <15488> -> !Input1
+    %weights1 = VPURT.DeclareBuffer <CMX_NN> [1] <15488> -> !Input1
+    %output1 = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !OutputITI1
+
+    VPURT.Task {
+        VPUIP.NCEClusterTask {
+                eltwise_type = #VPU.eltwise_type<ADD>,
+                task_type = #VPUIP.nce_task_type<ELTWISE>
+            }
+            input(%input0: !Input0)
+            weights(%weights0 : !Input0)
+            parent_input(%input0: !Input0)
+            parent_output(%output0: !OutputITI0)
+            output_ITI_buff(%output1 : !OutputITI1)
+            outputs(%output0: !OutputITI0)
+            -> !OutputITI0
+            variants : { // Workloads split over H
+                DPUTask {
+                    cluster_id = 0 : i64,
+                    inEnd = [120, 1, 15], inStart = [0, 0, 0],
+                    mpe_mode = #VPU.mpe_mode<CUBOID_8x16>,
+                    outEnd = [120, 1, 15], outStart = [0, 0, 0],
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+                }
+            } PPE : {
+            }
+    }
+
+    VPURT.Task {
+        VPUIP.NCEClusterTask {
+                eltwise_type = #VPU.eltwise_type<ADD>,
+                task_type = #VPUIP.nce_task_type<ELTWISE>
+            }
+            input(%input1: !Input1)
+            weights(%weights1 : !Input1)
+            parent_input(%input1: !Input1)
+            parent_output(%output1: !OutputITI1)
+            output_ITI_buff(%output0 : !OutputITI0)
+            outputs(%output1: !OutputITI1)
+            -> !OutputITI1
+            variants : { // Workloads split over H
+                DPUTask {
+                    cluster_id = 1 : i64,
+                    inEnd = [120, 1, 15], inStart = [0, 0, 0],
+                    mpe_mode = #VPU.mpe_mode<CUBOID_8x16>,
+                    outEnd = [120, 3, 15], outStart = [0, 2, 0],
+                    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>
+                }
+            } PPE : {
+            }
+    }
+
+    return %arg2, %arg3: memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 0]>, memref<1x16x4x121xf16, #NHWC, [@CMX_NN, 1]>
+
+// CHECK:       [[OUT_CMX0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !VPUIP.ITIBuffer<
+// CHECK:           1x16x4x121xf16, #NHWC, [@CMX_NN, 0],
+// CHECK-NEXT:      inwardHaloRegions = [
+// CHECK-NEXT:          #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 2, 0], cluster_id = 0 : i64>
+// CHECK:           ],
+// CHECK-NEXT:      outwardHaloRegions = [
+// CHECK:               #VPUIP.OutwardHaloRegionAttr<
+// CHECK-SAME:              shape = [1, 16, 2, 121],
+// CHECK-SAME:              offset = [0, 0, 0, 0],
+// CHECK-SAME:              cluster_id = 0 : i64,
+// CHECK-SAME:              inwardHaloRegions = [
+// CHECK-NEXT:                  #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 0, 0], cluster_id = 1 : i64>
+// CHECK-NEXT:              ]>
+// CHECK:           ]>
+
+// CHECK:       [[OUT_CMX1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> !VPUIP.ITIBuffer<
+// CHECK:           1x16x4x121xf16, #NHWC, [@CMX_NN, 1]
+// CHECK-NEXT:      inwardHaloRegions = [
+// CHECK:               #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 0, 0], cluster_id = 1 : i64>
+// CHECK:           ],
+// CHECK-NEXT:      outwardHaloRegions = [
+// CHECK:              #VPUIP.OutwardHaloRegionAttr<
+// CHECK-SAME:           shape = [1, 16, 2, 121],
+// CHECK-SAME:           offset = [0, 0, 2, 0],
+// CHECK-SAME:           cluster_id = 1 : i64,
+// CHECK-SAME:           inwardHaloRegions = [
+// CHECK-NEXT:              #VPUIP.HaloRegionAttr<shape = [1, 16, 2, 121], offset = [0, 0, 2, 0], cluster_id = 0 : i64>
+// CHECK-NEXT:          ]>
+
+// CHECK:        VPUIP.NCEClusterTask {
+// CHECK-SAME:         eltwise_type = #VPU.eltwise_type<ADD>, task_type = #VPUIP.nce_task_type<ELTWISE>
+// CHECK:          output_ITI_buff([[OUT_CMX1]]
+// CHECK:          outputs([[OUT_CMX0]]
+
+// CHECK:         VPUIP.NCEClusterTask {
+// CHECK-SAME:         eltwise_type = #VPU.eltwise_type<ADD>, task_type = #VPUIP.nce_task_type<ELTWISE>
+// CHECK:           output_ITI_buff([[OUT_CMX0]]
+// CHECK:           outputs([[OUT_CMX1]]
+
+}
 
 }

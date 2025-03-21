@@ -49,10 +49,14 @@ vcl_result_t VCLMultipleCompilerTest::singleCompilation(const std::string& optio
     std::string threadName = ss.str();
     vcl_result_t ret = VCL_RESULT_SUCCESS;
 
-    /// Default device is 3720, can be updated by test config
-    vcl_compiler_desc_t compilerDesc = {VCL_PLATFORM_VPU3720, VCL_LOG_ERROR};
+    /// Default device is 4000, can be updated by test config
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = nullptr;
-    ret = vclCompilerCreate(compilerDesc, &compiler, nullptr);
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
     if (ret) {
         std::cerr << "Failed to create compiler! Result:0x" << std::hex << uint64_t(ret) << std::dec << std::endl;
         return ret;
@@ -116,7 +120,7 @@ vcl_result_t VCLMultipleCompilerTest::singleCompilation(const std::string& optio
 #endif  // BLOB_DUMP
             std::string output(reinterpret_cast<char*>(blob), blobSize);
             lock.lock();
-            outputs.push_back(output);
+            outputs.push_back(std::move(output));
             lock.unlock();
         }
         free(blob);

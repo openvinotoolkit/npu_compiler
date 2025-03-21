@@ -6,6 +6,77 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-last-copy %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 1.000000e+00>
+
+func.func @NotFuseLastCopyWithQuantizeCastOpWithMultipleUsers(%arg0: memref<1x16x56x56x!qElemType, #NHWC, @CMX_NN>,
+                                                          %arg1: memref<1x32x56x56xui8, #NHWC>, %arg2: memref<1x16x56x56xui8, #NHWC>)
+                                                          -> (memref<1x32x56x56xui8, #NHWC>, memref<1x16x56x56xui8, #NHWC>) {
+    %ddr_buf = memref.alloc() : memref<1x32x56x56x!qElemType, #NHWC, @DDR>
+
+    %0 = VPUIP.SubView %ddr_buf [0, 0, 0, 0] [1, 16, 56, 56] :
+        memref<1x32x56x56x!qElemType, #NHWC, @DDR> to
+        memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    %1 = VPUIP.Copy
+        inputs(%arg0 : memref<1x16x56x56x!qElemType, #NHWC, @CMX_NN>)
+        outputs(%0 : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+        -> memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+
+    %2 = VPUIP.SubView %ddr_buf [0, 16, 0, 0] [1, 16, 56, 56] :
+        memref<1x32x56x56x!qElemType, #NHWC, @DDR> to
+        memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    %3 = VPUIP.Copy
+        inputs(%arg0 : memref<1x16x56x56x!qElemType, #NHWC, @CMX_NN>)
+        outputs(%2 : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+        -> memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    %4 = VPUIP.ConcatView
+        inputs(%1, %3 : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>, memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+        outputs(%ddr_buf : memref<1x32x56x56x!qElemType, #NHWC, @DDR>) -> memref<1x32x56x56x!qElemType, #NHWC, @DDR>
+    %5 = VPUIP.QuantizeCast
+        inputs(%4 : memref<1x32x56x56x!qElemType, #NHWC, @DDR>)
+        -> memref<1x32x56x56xui8, #NHWC, @DDR>
+
+    %6 = VPUIP.SubView %5 [0, 0, 0, 0] [1, 16, 56, 56] :
+        memref<1x32x56x56xui8, #NHWC, @DDR> to
+        memref<1x16x56x56xui8, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    %7 = memref.alloc(): memref<1x16x56x56xui8, #NHWC, @CMX_NN>
+    %8 = VPUIP.Copy
+        inputs(%6 : memref<1x16x56x56xui8, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+        outputs(%7 : memref<1x16x56x56xui8, #NHWC, @CMX_NN>)  ->  memref<1x16x56x56xui8, #NHWC, @CMX_NN>
+
+    %9 = VPUIP.Copy
+        inputs(%5 : memref<1x32x56x56xui8, #NHWC, @DDR>)
+        outputs(%arg1 : memref<1x32x56x56xui8, #NHWC>)
+        -> memref<1x32x56x56xui8, #NHWC>
+    %10 = VPUIP.Copy
+        inputs(%8 : memref<1x16x56x56xui8, #NHWC, @CMX_NN>)
+        outputs(%arg2 : memref<1x16x56x56xui8, #NHWC>)
+        -> memref<1x16x56x56xui8, #NHWC>
+    return %9, %10 : memref<1x32x56x56xui8, #NHWC>, memref<1x16x56x56xui8, #NHWC>
+
+    // CHECK:       [[BUFFER0:%.+]] = memref.alloc() : memref<1x32x56x56x!qElemType, #NHWC, @DDR>
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView [[BUFFER0]] [0, 0, 0, 0] [1, 16, 56, 56] : memref<1x32x56x56x!qElemType, #NHWC, @DDR> to memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    // CHECK:       [[COPY0:%.+]] = VPUIP.Copy inputs(%arg0 : memref<1x16x56x56x!qElemType, #NHWC, @CMX_NN>) outputs([[SUBVIEW]] : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+    // CHECK-SAME:      -> memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    // CHECK:       [[SUBVIEW1:%.+]] = VPUIP.SubView [[BUFFER0]] [0, 16, 0, 0] [1, 16, 56, 56] : memref<1x32x56x56x!qElemType, #NHWC, @DDR> to memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    // CHECK:       [[COPY1:%.+]] = VPUIP.Copy inputs(%arg0 : memref<1x16x56x56x!qElemType, #NHWC, @CMX_NN>) outputs([[SUBVIEW1]] : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+    // CHECK-SAME:      -> memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    // CHECK:       [[VAL5:%.+]] = VPUIP.ConcatView
+    // CHECK-SAME:     inputs([[COPY0]], [[COPY1]] : memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>, memref<1x16x56x56x!qElemType, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+    // CHECK-SAME:     outputs([[BUFFER0]] : memref<1x32x56x56x!qElemType, #NHWC, @DDR>) -> memref<1x32x56x56x!qElemType, #NHWC, @DDR>
+    // CHECK:       [[QUANTIZECAST0:%.+]] = VPUIP.QuantizeCast inputs([[VAL5]] : memref<1x32x56x56x!qElemType, #NHWC, @DDR>) -> memref<1x32x56x56xui8, #NHWC, @DDR>
+    // CHECK:       [[SUBVIEW2:%.+]] = VPUIP.SubView [[QUANTIZECAST0]] [0, 0, 0, 0] [1, 16, 56, 56] : memref<1x32x56x56xui8, #NHWC, @DDR> to memref<1x16x56x56xui8, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>
+    // CHECK:       [[BUFFER1:%.+]] = memref.alloc() : memref<1x16x56x56xui8, #NHWC, @CMX_NN>
+    // CHECK:       [[COPY2:%.+]] = VPUIP.Copy
+    // CHECK-SAME:     inputs([[SUBVIEW2]] : memref<1x16x56x56xui8, {order = #NHWC, strides = [100352, 1, 1792, 32]}, @DDR>)
+    // CHECK-SAME:     outputs([[BUFFER1]] : memref<1x16x56x56xui8, #NHWC, @CMX_NN>)  ->  memref<1x16x56x56xui8, #NHWC, @CMX_NN>
+    // CHECK:       [[COPY3:%.+]] = VPUIP.Copy inputs([[QUANTIZECAST0]] : memref<1x32x56x56xui8, #NHWC, @DDR>) outputs(%arg1 : memref<1x32x56x56xui8, #NHWC>) -> memref<1x32x56x56xui8, #NHWC>
+    // CHECK:       [[COPY4:%.+]] = VPUIP.Copy inputs([[COPY2]] : memref<1x16x56x56xui8, #NHWC, @CMX_NN>) outputs(%arg2 : memref<1x16x56x56xui8, #NHWC>) -> memref<1x16x56x56xui8, #NHWC>
+    // CHECK:       return [[COPY3]], [[COPY4]] : memref<1x32x56x56xui8, #NHWC>, memref<1x16x56x56xui8, #NHWC>
+}
+
+// -----
+
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: func.func @FuseLastCopyWithMultiConcatView

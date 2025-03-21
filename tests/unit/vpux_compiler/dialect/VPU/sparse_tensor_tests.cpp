@@ -894,7 +894,8 @@ TEST_F(MLIR_NDTypeInterface, SparseTensorType_Extract_DenseTile) {
                                                                        numElemsAttr, getIntAttr(&ctx, alignment));
     const auto sparseTensorType = VPU::SparseTensorType::get(data, sparsityMap, seTable, nullptr, sparsityCompression);
 
-    const auto effectiveSparseOutputType = VPU::getEffectiveSparseOutputType(sparseTensorType);
+    const auto effectiveSparseOutputType =
+            mlir::cast<NDTypeInterface>(VPU::getEffectiveSparseOutputType(sparseTensorType));
 
     const Shape tileOffset{0, 0, 16, 16};
     const Shape tileShape{1, 16, 16, 16};

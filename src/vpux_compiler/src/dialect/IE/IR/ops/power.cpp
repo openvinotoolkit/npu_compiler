@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
 
@@ -36,23 +38,8 @@ mlir::LogicalResult vpux::IE::PowerOp::inferReturnTypeComponents(
 // fold
 //
 
-std::optional<float> getExponentSplatVal(mlir::Value input) {
-    auto exponentCstOp = mlir::dyn_cast_or_null<Const::DeclareOp>(input.getDefiningOp());
-    if (exponentCstOp == nullptr) {
-        return std::nullopt;
-    }
-
-    // Exponent must be a scalar or tensor with all elements equal
-    const auto& constAttr = exponentCstOp.getContentAttr();
-    if (!constAttr.isSplat()) {
-        return std::nullopt;
-    }
-
-    return constAttr.fold().getSplatValue<float>();
-}
-
 mlir::OpFoldResult vpux::IE::PowerOp::fold(FoldAdaptor /*adaptor*/) {
-    auto exponent = getExponentSplatVal(getInput2());
+    auto exponent = IE::getExponentSplatVal(*this);
     if (!exponent.has_value() || !isFloatEqual(exponent.value(), 1.0)) {
         return nullptr;
     }
@@ -75,7 +62,7 @@ public:
 };
 
 mlir::LogicalResult FuseSqrtAndPower::matchAndRewrite(IE::PowerOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto exponent = getExponentSplatVal(origOp.getInput2());
+    auto exponent = getExponentSplatVal(origOp);
     if (!exponent.has_value() || !isFloatEqual(exponent.value(), 2.0)) {
         return mlir::failure();
     }

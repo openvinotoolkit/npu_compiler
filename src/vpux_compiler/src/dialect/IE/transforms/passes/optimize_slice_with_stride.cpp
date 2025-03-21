@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -18,6 +19,12 @@
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZESLICEWITHSTRIDE
+#define GEN_PASS_DEF_OPTIMIZESLICEWITHSTRIDE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -386,6 +393,12 @@ bool doesSliceConcatMeetRequirement(IE::SliceOp sliceOp, IE::ConcatOp concatOp) 
         return false;
     }
 
+    auto inputTypeSlice = mlir::cast<mlir::ShapedType>(sliceOp.getSource().getType());
+    auto inElemType = inputTypeSlice.getElementType();
+    if (mlir::isa_and_nonnull<mlir::quant::QuantizedType>(inElemType)) {
+        return false;
+    }
+
     auto inConvOp = sliceOp.getSource().getDefiningOp<IE::ConvolutionOp>();
     constexpr int64_t MAX_CHANNEL_TO_INSERT = 512;
     if (inConvOp == nullptr && sliceInShape[Dims4D::Act::C] > MAX_CHANNEL_TO_INSERT) {
@@ -408,7 +421,7 @@ bool doesSliceConcatMeetRequirement(IE::SliceOp sliceOp, IE::ConcatOp concatOp) 
 
     // If slice's input or concat's output is not aligned, not convert slice-concat pattern due to it may introduce
     // extra DMA for alignment.
-    auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(sliceOp.getSource().getDefiningOp());
+    auto iface = mlir::dyn_cast_or_null<IE::AlignedChannelsOpInterface>(sliceOp.getSource().getDefiningOp());
     if (iface == nullptr) {
         return false;
     }
@@ -611,7 +624,7 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
 // OptimizeSliceWithStridePass
 //
 
-class OptimizeSliceWithStridePass final : public IE::OptimizeSliceWithStrideBase<OptimizeSliceWithStridePass> {
+class OptimizeSliceWithStridePass final : public IE::impl::OptimizeSliceWithStrideBase<OptimizeSliceWithStridePass> {
 public:
     explicit OptimizeSliceWithStridePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

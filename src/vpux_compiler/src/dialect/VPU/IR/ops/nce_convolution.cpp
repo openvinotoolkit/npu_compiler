@@ -210,11 +210,32 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
         inputTiling.tiles.pop_back();
     }
 
+    // For conv with strides > 1, the input tile should be the same as the original input shape on the not tiled axis
+    const auto windowStrides = parseIntArrayAttr<int64_t>(getStrides());
+    const auto hasNonOneStrides = llvm::any_of(windowStrides, [](auto stride) {
+        return stride > 1;
+    });
+    const auto& tilingAxis = inputTiling.tiles.front().axis;
+    const auto hasAxisConfigured = llvm::any_of(tilingAxis, [](auto axis) {
+        return axis > 1;
+    });
+    if (hasNonOneStrides && hasAxisConfigured) {
+        for (auto item : tilingAxis | indexed) {
+            const auto dim = Dim(item.index());
+            const auto axis = item.value();
+            auto& tiledInShape = inputTiling.tiles.front().shape;
+            if (axis == 1 && origInputShape[dim] != tiledInShape[dim]) {
+                tiledInShape[dim] = origInputShape[dim];
+            }
+        }
+    }
+
     // Adjust filter tile for the aligned filter
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    inputTiling.tiles.push_back(VPU::getWeightsTableTile(this, outputTile));
+    inputTiling.tiles.push_back(
+            VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
 
     return inputTiling;
 }
@@ -364,10 +385,6 @@ bool VPU::NCEConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
 }
 
-bool vpux::VPU::NCEConvolutionOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 DimArr vpux::VPU::NCEConvolutionOp::restrictedFusionAxes() {
     return {Dims4D::Act::C};
 }
@@ -430,10 +447,9 @@ vpux::NDTypeInterface vpux::VPU::NCEConvolutionOp::getDistributedTypeForOpOperan
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEConvolutionOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }

@@ -13,6 +13,7 @@
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include "vpux/utils/core/format.hpp"
 
@@ -138,7 +139,7 @@ mlir::LogicalResult vpux::VPUIP::inferLayerReturnTypes(mlir::ValueRange operands
     const auto inNum = getLastMemRefPosition(operands);
 
     VPUX_THROW_UNLESS(numResults <= checked_cast<size_t>(inNum),
-                      "Call inferLayerReturnTypes for non RT Layer Operation");
+                      "Call inferLayerReturnTypes for non RT Layer Operation: {0} {1}", numResults, inNum);
 
     inferredReturnTypes.reserve(numResults);
     for (const auto val : operands.slice(inNum - numResults, numResults)) {
@@ -246,7 +247,7 @@ mlir::LogicalResult vpux::VPUIP::verifySameShape(mlir::Operation* op) {
         const auto shape = getShape(val.get());
 
         if (shape != mainShape) {
-            return errorAt(op, "Operation's input/output shapes mismatch");
+            return errorAt(op, "Operation's input/output shapes mismatch: {0} != {1}", mainShape, shape);
         }
     }
 
@@ -385,11 +386,8 @@ mlir::LogicalResult vpux::VPUIP::verifySameOperandsAndResultElementType(mlir::Op
 
 std::optional<VPUIP::DmaChannelType> vpux::VPUIP::getChannelType(mlir::Operation* op) {
     // Configure DMA channel only for NPU40XX for now
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-
-    if (compatibleTargets.count(VPU::getArch(op)) <= 0) {
+    const auto arch = VPU::getArch(op);
+    if (arch < VPU::ArchKind::NPU40XX) {
         return std::nullopt;
     }
 

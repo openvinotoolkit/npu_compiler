@@ -23,8 +23,8 @@ namespace vpux {
 
 class AliasesInfoBase {
 public:
-    using ValuesSet = llvm::SmallPtrSet<mlir::Value, 16>;
-    using ValuesMap = DenseMap<mlir::Value, ValuesSet>;
+    using ValuesVector = llvm::SmallVector<mlir::Value, 1>;
+    using ValuesVectorMap = DenseMap<mlir::Value, ValuesVector>;
 
 public:
     explicit AliasesInfoBase(Logger log): _log(log) {
@@ -36,7 +36,7 @@ public:
 
     // Returns the sources of a value.
     // Will return an empty set if `val` is a root value.
-    const ValuesSet& getSources(mlir::Value val) const;
+    const ValuesVector& getSources(mlir::Value val) const;
 
     // Returns the source of a value. The value is expected to have only one source, otherwise will throw an error.
     // Will return NULL if `val` is a root value.
@@ -44,7 +44,11 @@ public:
 
     // Returns the roots of a value.
     // The set will contain `val` if it is a root value.
-    const ValuesSet& getRoots(mlir::Value val) const;
+    const ValuesVector& getRoots(mlir::Value val) const;
+
+    // Returns the root of a value. The value is expected to have only one root, otherwise will throw an error.
+    // Will return itself if `val` is a root value.
+    mlir::Value getRoot(mlir::Value val) const;
 
     virtual ~AliasesInfoBase() = default;
 
@@ -52,10 +56,11 @@ protected:
     void visitOp(mlir::Operation* op, bool ignoreInnerRegions /* = false */);
     virtual void addAlias(mlir::Value source, mlir::Value alias) = 0;
     void addFuncArgAlias(mlir::Value alias);
+    void uniqueAppend(ValuesVectorMap& map, mlir::Value key, mlir::Value value);
 
 protected:
-    ValuesMap _sources;  // closest source of the alias
-    ValuesMap _roots;    // top-root of the alias
+    ValuesVectorMap _sources;  // closest source of the alias
+    ValuesVectorMap _roots;    // top-root of the alias
 
     Logger _log;
     std::optional<VPU::MemoryKind> _memKind;
@@ -81,6 +86,9 @@ private:
 
 class AliasesInfo : public AliasesInfoBase {
 public:
+    using ValuesSet = llvm::SmallPtrSet<mlir::Value, 16>;
+    using ValuesSetMap = DenseMap<mlir::Value, ValuesSet>;
+
     explicit AliasesInfo(mlir::func::FuncOp func);
     explicit AliasesInfo(mlir::func::FuncOp func, VPU::MemoryKind memKind);
 
@@ -95,7 +103,7 @@ public:
 private:
     void init(mlir::func::FuncOp func);
 
-    ValuesMap _allAliases;  // all aliases, direct and indirect
+    ValuesSetMap _allAliases;  // all aliases, direct and indirect
 };
 
 //

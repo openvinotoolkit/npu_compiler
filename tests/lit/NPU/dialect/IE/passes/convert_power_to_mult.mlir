@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-power-to-mult %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertPowerWithExponent2ToMult
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16xf16>
 func.func @ConvertPowerWithExponent2ToMult(%arg0: tensor<1x16xf16>) -> tensor<1x16xf16> {

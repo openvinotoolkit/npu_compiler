@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --outline-entire-main-content %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @SkipWhenMainHasNoCallOps
 module @SkipWhenMainHasNoCallOps {
     IE.CNNNetwork entryPoint : @main
@@ -98,6 +97,82 @@ module @MixedCallAndNonCallOps {
     // CHECK:      [[CALL3:%.+]] = call @main_outline2([[CALL2]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
     // CHECK:      [[CALL4:%.+]] = call @fn2([[CALL3]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
     // CHECK:      [[CALL5:%.+]] = call @main_outline3([[CALL4]]) : (tensor<1x48x32x32xf16>) -> tensor<1x96x32x32xf16>
+    // CHECK:      return [[CALL5]]
+    // CHECK:  }
+}
+
+// -----
+
+// CHECK-LABEL: @MixedCallAndNonCallOpsMultipleUsers
+module @MixedCallAndNonCallOpsMultipleUsers {
+    IE.CNNNetwork entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x48x32x32xf16>
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x144x32x32xf16>
+    }
+
+    func.func private @fn1(%arg0: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+        %softmax = VPU.SoftMax(%arg0) {axisInd = 1 : i64} : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %relu = VPU.ReLU(%softmax) : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        return %relu : tensor<1x48x32x32xf16>
+    }
+    func.func private @fn2(%arg0: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+        %relu = VPU.ReLU(%arg0) : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %softmax = VPU.SoftMax(%relu) {axisInd = 1 : i64} : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        return %softmax : tensor<1x48x32x32xf16>
+    }
+    func.func @main(%input: tensor<1x48x32x32xf16>) -> tensor<1x144x32x32xf16> {
+        %input_softmax = VPU.SoftMax(%input) {axisInd = 1 : i64} : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+
+        %call1 = call @fn1(%input_softmax) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+
+        %middle_relu = VPU.ReLU(%call1) : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+
+        %call2 = call @fn2(%middle_relu) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+
+        %output_softmax1 = VPU.SoftMax(%call2) {axisInd = 1 : i64} : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %output_relu1 = VPU.ReLU(%output_softmax1) : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %output_softmax2 = VPU.SoftMax(%call2) {axisInd = 1 : i64} : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %output_relu2 = VPU.ReLU(%output_softmax2) : tensor<1x48x32x32xf16> -> tensor<1x48x32x32xf16>
+        %output_concat = VPU.Concat(%input_softmax, %output_relu1, %output_relu2) {static_offsets = [[0, 0, 0, 0], [0, 48, 0, 0], [0, 96, 0, 0]]}
+            : tensor<1x48x32x32xf16>, tensor<1x48x32x32xf16>, tensor<1x48x32x32xf16> -> tensor<1x144x32x32xf16>
+
+        return %output_concat : tensor<1x144x32x32xf16>
+    }
+
+    // CHECK:  func.func private @fn1([[ARG0:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+    // CHECK:      [[FN1_SOFTMAX:%.+]] = VPU.SoftMax([[ARG0]])
+    // CHECK:      [[FN1_RELU:%.+]] = VPU.ReLU([[FN1_SOFTMAX]])
+    // CHECK:      return [[FN1_RELU]]
+    // CHECK:  }
+    // CHECK:  func.func private @fn2([[ARG0:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+    // CHECK:      [[FN2_RELU:%.+]] = VPU.ReLU([[ARG0]])
+    // CHECK:      [[FN2_SOFTMAX:%.+]] = VPU.SoftMax([[FN2_RELU]])
+    // CHECK:      return [[FN2_SOFTMAX]]
+    // CHECK:  }
+    // CHECK:  func.func private @main_outline1([[ARG0:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+    // CHECK:      [[OUTLINE1_SOFTMAX:%.+]] = VPU.SoftMax([[ARG0]])
+    // CHECK:      return [[OUTLINE1_SOFTMAX]]
+    // CHECK:  }
+    // CHECK:  func.func private @main_outline2([[ARG0:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16> {
+    // CHECK:      [[OUTLINE2_RELU:%.+]] = VPU.ReLU([[ARG0]])
+    // CHECK:      return [[OUTLINE2_RELU]]
+    // CHECK:  }
+    // CHECK:  func.func private @main_outline3([[ARG0:%.+]]: tensor<1x48x32x32xf16>, [[ARG1:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x144x32x32xf16> {
+    // CHECK:      [[OUTLINE3_SOFTMAX1:%.+]] = VPU.SoftMax([[ARG0]])
+    // CHECK:      [[OUTLINE3_RELU1:%.+]] = VPU.ReLU([[OUTLINE3_SOFTMAX1]])
+    // CHECK:      [[OUTLINE3_SOFTMAX2:%.+]] = VPU.SoftMax([[ARG0]])
+    // CHECK:      [[OUTLINE3_RELU2:%.+]] = VPU.ReLU([[OUTLINE3_SOFTMAX2]])
+    // CHECK:      [[OUTLINE3_CONCAT:%.+]] = VPU.Concat([[ARG1]], [[OUTLINE3_RELU1]], [[OUTLINE3_RELU2]])
+    // CHECK:      return [[OUTLINE3_CONCAT]]
+    // CHECK:  }
+    // CHECK:  func.func @main([[INPUT:%.+]]: tensor<1x48x32x32xf16>) -> tensor<1x144x32x32xf16> {
+    // CHECK:      [[CALL1:%.+]] = call @main_outline1([[INPUT]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+    // CHECK:      [[CALL2:%.+]] = call @fn1([[CALL1]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+    // CHECK:      [[CALL3:%.+]] = call @main_outline2([[CALL2]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+    // CHECK:      [[CALL4:%.+]] = call @fn2([[CALL3]]) : (tensor<1x48x32x32xf16>) -> tensor<1x48x32x32xf16>
+    // CHECK:      [[CALL5:%.+]] = call @main_outline3([[CALL4]], [[CALL1]]) : (tensor<1x48x32x32xf16>, tensor<1x48x32x32xf16>) -> tensor<1x144x32x32xf16>
     // CHECK:      return [[CALL5]]
     // CHECK:  }
 }
@@ -247,24 +322,17 @@ module @OutlineDistributedTypes {
     }
 
     func.func @main(%input: !TensorTypeDDR) -> (!TensorTypeDDR, !TensorTypeDDR) {
-        %input_copy = VPU.NCE.ClusterTiling (%input as %arg0: !TensorTypeDDR) -> !TensorTypeCMX {
-            %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !TensorTypeDDR -> !TensorTypeCMX
-            VPU.Yield %0
-        }
+        %input_copy = VPU.Copy(%input) {out_mem_space = @CMX_NN} : !TensorTypeDDR -> !TensorTypeCMX
+
         %maxpool_wt = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-        %maxpool = VPU.NCE.ClusterTiling (%input_copy as %arg0: !TensorTypeCMX, %maxpool_wt as %arg1 : tensor<48x1x1x4xsi32>) -> !DistributedType {
-            %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+        %maxpool = VPU.NCE.MaxPool(%input_copy, %maxpool_wt) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], kernel_size = [1, 1]
-                } -> !TensorTypeCMX
-            VPU.Yield %0
-        }
+                } -> !DistributedType
 
         %call = call @fn(%input) : (!TensorTypeDDR) -> !TensorTypeDDR
 
-        %output_copy = VPU.NCE.ClusterTiling (%maxpool as %arg0: !TensorTypeCMX) -> !TensorTypeDDR {
-            %0 = VPU.Copy(%arg0) {out_mem_space = @DDR} : !TensorTypeCMX -> !TensorTypeDDR
-            VPU.Yield %0
-        }
+        %output_copy = VPU.Copy(%maxpool) {out_mem_space = @DDR} : !DistributedType -> !TensorTypeDDR
+
         return %call, %output_copy : !TensorTypeDDR, !TensorTypeDDR
     }
 
@@ -274,32 +342,22 @@ module @OutlineDistributedTypes {
     // CHECK:       }
 
     // CHECK:       func.func private @main_outline1([[ARG0:%.+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>) -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:           [[INPUT_COPY:%.+]] = VPU.NCE.ClusterTiling ([[ARG0]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>)
-    // CHECK-SAME:         -> tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @CMX_NN}
-    // CHECK:           }
+    // CHECK:           [[INPUT_COPY:%.+]] = VPU.Copy([[ARG0]])
+    // CHECK-SAME:         -> tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
     // CHECK:           [[MAXPOOL_WT:%.+]] = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-    // CHECK:           [[MAXPOOL:%.+]] = VPU.NCE.ClusterTiling ([[INPUT_COPY]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-    // CHECK-SAME:                                               [[MAXPOOL_WT]] as [[INNER_ARG1:[^:]+]]: tensor<48x1x1x4xsi32>)
-    // CHECK-SAME:          -> !VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}> {
-    // CHECK:               VPU.NCE.MaxPool([[INNER_ARG0]], [[INNER_ARG1]] )
-    // CHECK:           }
-    // CHECK:           [[COPY_TO_DDR:%.+]] = VPU.NCE.ClusterTiling ([[MAXPOOL]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>)
-    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @DDR}
-    // CHECK:           }
+    // CHECK:           [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[INPUT_COPY]], [[MAXPOOL_WT]] )
+    // CHECK-SAME:          -> !VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>
+    // CHECK:           [[COPY_TO_DDR:%.+]] = VPU.Copy([[MAXPOOL]])
+    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>
     // CHECK:           return [[COPY_TO_DDR]]
     // CHECK:       }
 
     // CHECK:       func.func private @main_outline2([[ARG0:%.+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>) -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:           [[COPY_TO_CMX:%.+]] = VPU.NCE.ClusterTiling ([[ARG0]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>)
-    // CHECK-SAME:         -> !VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @CMX_NN}
-    // CHECK:           }
-    // CHECK:           [[OUTPUT_COPY:%.+]] = VPU.NCE.ClusterTiling ([[COPY_TO_CMX]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>)
-    // CHECK-SAME:         -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @DDR}
-    // CHECK:           }
+    // CHECK:           [[COPY_TO_CMX:%.+]] = VPU.Copy([[ARG0]])
+    // CHECK-SAME:         -> !VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>
+    // CHECK:           [[OUTPUT_COPY:%.+]] = VPU.Copy([[COPY_TO_CMX]])
+    // CHECK-SAME:         -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>
     // CHECK:           return [[OUTPUT_COPY]]
     // CHECK:       }
 
@@ -335,21 +393,16 @@ module @OutlineSparseTypes {
 
     func.func @main(%input: !TensorType) -> (!TensorType, !TensorType) {
         %maxpool_wt = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-        %maxpool1 = VPU.NCE.ClusterTiling (%input as %arg0: !TensorType, %maxpool_wt as %arg1 : tensor<48x1x1x4xsi32>) -> !SparseType {
-            %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+        %maxpool1 = VPU.NCE.MaxPool(%input, %maxpool_wt) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], kernel_size = [1, 1]
-                } -> !TensorType
-            VPU.Yield %0
-        }
+                } -> !SparseType
 
         %call = call @fn(%input) : (!TensorType) -> !TensorType
 
-        %maxpool2 = VPU.NCE.ClusterTiling (%maxpool1 as %arg0: !SparseType, %maxpool_wt as %arg1 : tensor<48x1x1x4xsi32>) -> !TensorType {
-            %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+        %maxpool2 = VPU.NCE.MaxPool(%maxpool1, %maxpool_wt) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], kernel_size = [1, 1]
                 } -> !TensorType
-            VPU.Yield %0
-        }
+
         return %call, %maxpool2 : !TensorType, !TensorType
     }
 
@@ -359,11 +412,9 @@ module @OutlineSparseTypes {
     // CHECK:       }
     // CHECK:       func.func private @main_outline1([[ARG0:%.+]]: tensor<1x48x32x32xf16, {order = #NHWC}>) -> (tensor<1x48x32x32xf16, {order = #NHWC}>, tensor<1x48x32x32xi1, {order = #NHWC}>) {
     // CHECK:           [[OUTLINE1_MAXPOOL_WT:%.+]] = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-    // CHECK:           [[OUTLINE1_MAXPOOL:%.+]] = VPU.NCE.ClusterTiling ([[ARG0]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {order = #NHWC}>,
-    // CHECK-SAME:                                                        [[OUTLINE1_MAXPOOL_WT]] as [[INNER_ARG1:[^:]+]]: tensor<48x1x1x4xsi32>)
-    // CHECK-SAME:     -> !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {order = #NHWC}>, sparsity_map=tensor<1x48x32x32xi1, {order = #NHWC}>> {
-    // CHECK:               VPU.NCE.MaxPool([[INNER_ARG0]], [[INNER_ARG1]] )
-    // CHECK:           }
+    // CHECK:           [[OUTLINE1_MAXPOOL:%.+]] = VPU.NCE.MaxPool([[ARG0]], [[OUTLINE1_MAXPOOL_WT]] )
+    // CHECK-SAME:     -> !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {order = #NHWC}>, sparsity_map=tensor<1x48x32x32xi1, {order = #NHWC}>>
+
     // CHECK:           [[OUTLINE1_DATA:%.+]], [[OUTLINE1_SM:%.+]] = VPU.UngroupSparseTensor([[OUTLINE1_MAXPOOL]]) {resultSegmentSizes = array<i32: 1, 1, 0>}
     // CHECK:           return [[OUTLINE1_DATA]], [[OUTLINE1_SM]]
     // CHECK:       }
@@ -371,12 +422,8 @@ module @OutlineSparseTypes {
     // CHECK:           [[OUTLINE2_GROUP:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[ARG1]])
     // CHECK-SAME:          -> !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {order = #NHWC}>, sparsity_map=tensor<1x48x32x32xi1, {order = #NHWC}>>
     // CHECK:           [[OUTLINE2_MAXPOOL_WT:%.+]] = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-    // CHECK:           [[OUTLINE2_MAXPOOL:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE2_GROUP]] as [[INNER_ARG0:[^:]+]]: !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {order = #NHWC}>,
-    // CHECK-SAME:                                                                                                                      sparsity_map=tensor<1x48x32x32xi1, {order = #NHWC}>>,
-    // CHECK-SAME:                                                        [[OUTLINE2_MAXPOOL_WT]] as [[INNER_ARG1:[^:]+]]: tensor<48x1x1x4xsi32>)
-    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {order = #NHWC}> {
-    // CHECK:               VPU.NCE.MaxPool([[INNER_ARG0]], [[INNER_ARG1]] )
-    // CHECK:           }
+    // CHECK:           [[OUTLINE2_MAXPOOL:%.+]] = VPU.NCE.MaxPool([[OUTLINE2_GROUP]], [[OUTLINE2_MAXPOOL_WT]] )
+    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {order = #NHWC}>
     // CHECK:           return [[OUTLINE2_MAXPOOL]]
     // CHECK:       }
     // CHECK:       func.func @main([[INPUT:%.+]]: tensor<1x48x32x32xf16, {order = #NHWC}>) -> (tensor<1x48x32x32xf16, {order = #NHWC}>, tensor<1x48x32x32xf16, {order = #NHWC}>) {
@@ -414,21 +461,15 @@ module @OutlineSparseTypesCMX {
 
     func.func @main(%input: !TensorTypeDDR) -> (!TensorTypeDDR, !TensorTypeDDR) {
         %maxpool_wt = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-        %maxpool1 = VPU.NCE.ClusterTiling (%input as %arg0: !TensorTypeDDR, %maxpool_wt as %arg1 : tensor<48x1x1x4xsi32>) -> !SparseDistributedType {
-            %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+        %maxpool1 = VPU.NCE.MaxPool(%input, %maxpool_wt) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], kernel_size = [1, 1]
-                } -> !SparseType
-            VPU.Yield %0
-        }
+                } -> !SparseDistributedType
 
         %call = call @fn(%input) : (!TensorTypeDDR) -> !TensorTypeDDR
 
-        %maxpool2 = VPU.NCE.ClusterTiling (%maxpool1 as %arg0: !SparseType, %maxpool_wt as %arg1 : tensor<48x1x1x4xsi32>) -> !TensorTypeDDR {
-            %0 = VPU.NCE.MaxPool(%arg0, %arg1) {
+        %maxpool2 = VPU.NCE.MaxPool(%maxpool1, %maxpool_wt) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, strides = [1, 1], kernel_size = [1, 1]
                 } -> !TensorTypeDDR
-            VPU.Yield %0
-        }
         return %call, %maxpool2 : !TensorTypeDDR, !TensorTypeDDR
     }
 
@@ -439,37 +480,25 @@ module @OutlineSparseTypesCMX {
     // CHECK:       func.func private @main_outline1([[ARG0:%.+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>)
     // CHECK-SAME:      -> (tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>, tensor<1x48x32x32xi1, {mem_space = @DDR, order = #NHWC}>) {
     // CHECK:           [[OUTLINE1_MAXPOOL_WT:%.+]] = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-    // CHECK:           [[OUTLINE1_MAXPOOL:%.+]] = VPU.NCE.ClusterTiling ([[ARG0]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>,
-    // CHECK-SAME:                                                        [[OUTLINE1_MAXPOOL_WT]] as [[INNER_ARG1:[^:]+]]: tensor<48x1x1x4xsi32>)
+    // CHECK:           [[OUTLINE1_MAXPOOL:%.+]] = VPU.NCE.MaxPool([[ARG0]], [[OUTLINE1_MAXPOOL_WT]] )
     // CHECK-SAME:     -> !VPU.SparseTensor<data=!VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>,
-    // CHECK-SAME:                          sparsity_map=!VPU.DistributedTensor<1x48x32x32xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>> {
-    // CHECK:               VPU.NCE.MaxPool([[INNER_ARG0]], [[INNER_ARG1]] )
-    // CHECK:           }
+    // CHECK-SAME:                          sparsity_map=!VPU.DistributedTensor<1x48x32x32xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>>
     // CHECK:           [[OUTLINE1_DATA:%.+]], [[OUTLINE1_SM:%.+]] = VPU.UngroupSparseTensor([[OUTLINE1_MAXPOOL]]) {resultSegmentSizes = array<i32: 1, 1, 0>}
-    // CHECK:           [[OUTLINE1_DATA_COPY:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE1_DATA]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>)
-    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @DDR}
-    // CHECK:           }
-    // CHECK:           [[OUTLINE1_SM_COPY:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE1_SM]] as [[INNER_ARG0:[^:]+]]: tensor<1x48x32x32xi1, {mem_space = @CMX_NN, order = #NHWC}>) -> tensor<1x48x32x32xi1, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @DDR}
-    // CHECK:           }
+    // CHECK:           [[OUTLINE1_DATA_COPY:%.+]] = VPU.Copy([[OUTLINE1_DATA]])
+    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>
+    // CHECK:           [[OUTLINE1_SM_COPY:%.+]] = VPU.Copy([[OUTLINE1_SM]])
+    // CHECK:               -> tensor<1x48x32x32xi1, {mem_space = @DDR, order = #NHWC}>
     // CHECK:           return [[OUTLINE1_DATA_COPY]], [[OUTLINE1_SM_COPY]]
     // CHECK:       }
     // CHECK:       func.func private @main_outline2([[ARG0:%.+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>, [[ARG1:%.+]]: tensor<1x48x32x32xi1, {mem_space = @DDR, order = #NHWC}>) -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
     // CHECK:           [[OUTLINE2_GROUP:%.+]] = VPU.GroupSparseTensor([[ARG0]], [[ARG1]])
     // CHECK-SAME:          -> !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>, sparsity_map=tensor<1x48x32x32xi1, {mem_space = @DDR, order = #NHWC}>>
-    // CHECK:           [[OUTLINE2_GROUP_COPY:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE2_GROUP]] as [[INNER_ARG0:[^:]+]]
+    // CHECK:           [[OUTLINE2_GROUP_COPY:%.+]] = VPU.Copy([[OUTLINE2_GROUP]])
     // CHECK-SAME:          -> !VPU.SparseTensor<data=!VPU.DistributedTensor<1x48x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>,
-    // CHECK-SAME:                               sparsity_map=!VPU.DistributedTensor<1x48x32x32xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>> {
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @CMX_NN}
-    // CHECK:           }
+    // CHECK-SAME:                               sparsity_map=!VPU.DistributedTensor<1x48x32x32xi1, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>>
     // CHECK:           [[OUTLINE2_MAXPOOL_WT:%.+]] = const.Declare tensor<48x1x1x4xsi32> = dense<1> : tensor<48x1x1x4xsi32>
-    // CHECK:           [[OUTLINE2_MAXPOOL:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE2_GROUP_COPY]] as [[INNER_ARG0:[^:]+]]: !VPU.SparseTensor<data=tensor<1x48x32x32xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-    // CHECK-SAME:                                                                                                                           sparsity_map=tensor<1x48x32x32xi1, {mem_space = @CMX_NN, order = #NHWC}>>,
-    // CHECK-SAME:                                                        [[OUTLINE2_MAXPOOL_WT]] as [[INNER_ARG1:[^:]+]]: tensor<48x1x1x4xsi32>)
-    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}> {
-    // CHECK:               VPU.NCE.MaxPool([[INNER_ARG0]], [[INNER_ARG1]] )
-    // CHECK:           }
+    // CHECK:           [[OUTLINE2_MAXPOOL:%.+]] = VPU.NCE.MaxPool([[OUTLINE2_GROUP_COPY]], [[OUTLINE2_MAXPOOL_WT]] )
+    // CHECK-SAME:          -> tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>
     // CHECK:           return [[OUTLINE2_MAXPOOL]]
     // CHECK:       }
     // CHECK:       func.func @main([[INPUT:%.+]]: tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>) -> (tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>, tensor<1x48x32x32xf16, {mem_space = @DDR, order = #NHWC}>) {
@@ -524,23 +553,13 @@ module @OutlineSparseWeights {
 
         %call = call @fn(%input) : (!TensorType) -> !TensorType
 
-        %sparse_weights_cmx = VPU.NCE.ClusterTiling (%sparse_weights as %arg0: !SparseTypeDDR) -> !SparseDistributedType {
-            %0 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : !SparseTypeDDR -> !SparseTypeCMX
-            VPU.Yield %0
-        }
+        %sparse_weights_cmx = VPU.Copy(%sparse_weights) {out_mem_space = @CMX_NN} : !SparseTypeDDR -> !SparseDistributedType
         %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
-        %conv = VPU.NCE.ClusterTiling (
-                %call as %arg0: !TensorType,
-                %sparse_weights_cmx as %arg1: !SparseTypeCMX,
-                %weights_table as %arg2: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-            ) -> !TensorType {
-            %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+        %conv = VPU.NCE.Convolution(%call, %sparse_weights_cmx, %weights_table) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 1, 1], strides = [1, 1]
                 } -> !TensorType {
                     VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 1, 480] outOffsets [0, 0, 0, 0] outSizes [1, 16, 1, 480] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
             }
-            VPU.Yield %0
-        }
 
         return %call, %conv : !TensorType, !TensorType
     }
@@ -556,21 +575,14 @@ module @OutlineSparseWeights {
     // CHECK:               is_weights, sparsity_compression = #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<[48, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : tensor<16xi64>, alignment = 16 : i64>
     // CHECK:           } -> !VPU.SparseTensor<data=tensor<16x16x1x1xf16, {order = #NHWC}>, sparsity_map=tensor<16x1x1x128xi1>, is_weights,
     // CHECK-SAME:                             #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<[48, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : tensor<16xi64>, alignment = 16 : i64>>
-    // CHECK:           [[OUTLINE1_SPARSE_WEIGHTS_CMX:%.+]] = VPU.NCE.ClusterTiling ([[OUTLINE1_SPARSE_WEIGHTS]] as [[INNER_ARG0:[^:]+]]
+    // CHECK:           [[OUTLINE1_SPARSE_WEIGHTS_CMX:%.+]] = VPU.Copy([[OUTLINE1_SPARSE_WEIGHTS]])
     // CHECK-SAME:          -> !VPU.SparseTensor<data=!VPU.DistributedTensor<16x16x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64, alignment = [16, 1, 1, 1]}>,
     // CHECK-SAME:                               sparsity_map=!VPU.DistributedTensor<16x1x1x128xi1, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64, alignment = [16, 1, 1, 1]}>,
     // CHECK-SAME:                               is_weights,
     // CHECK-SAME:                               #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<[48, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : tensor<16xi64>, alignment = 16 : i64>>
-    // CHECK:               VPU.Copy([[INNER_ARG0]]) {out_mem_space = @CMX_NN}
-    // CHECK:           }
     // CHECK:           [[OUTLINE1_WEIGHTS_TABLE:%.+]] = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
-    // CHECK:           [[CONV:%.+]] = VPU.NCE.ClusterTiling (
-    // CHECK:                   [[ARG0]] as [[INNER_ARG0:[^:]+]]
-    // CHECK:                   [[OUTLINE1_SPARSE_WEIGHTS_CMX]] as [[INNER_ARG1:[^:]+]]
-    // CHECK:                   [[OUTLINE1_WEIGHTS_TABLE]] as [[INNER_ARG2:[^:]+]]
-    // CHECK:               ) -> tensor<1x16x1x480xf16, {order = #NHWC}> {
-    // CHECK:               VPU.NCE.Convolution([[INNER_ARG0]], [[INNER_ARG1]], [[INNER_ARG2]])
-    // CHECK:           }
+    // CHECK:           [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[OUTLINE1_SPARSE_WEIGHTS_CMX]], [[OUTLINE1_WEIGHTS_TABLE]])
+    // CHECK:                -> tensor<1x16x1x480xf16, {order = #NHWC}>
     // CHECK:           return [[CONV]]
     // CHECK:       func.func @main([[INPUT:%.+]]: tensor<1x16x1x480xf16, {order = #NHWC}>) -> (tensor<1x16x1x480xf16, {order = #NHWC}>, tensor<1x16x1x480xf16, {order = #NHWC}>) {
     // CHECK:           [[CALL1:%.+]] = call @fn([[INPUT]]) : (tensor<1x16x1x480xf16, {order = #NHWC}>) -> tensor<1x16x1x480xf16, {order = #NHWC}>

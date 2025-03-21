@@ -2624,23 +2624,31 @@ func.func @EltwiseAddToNCEClusterTilingSOHDuplicatedIn(%arg0: tensor<1x3x52x104x
 
 // CHECK-LABEL: @TopKSWTilingSOH
 func.func @TopKSWTilingSOH(%arg0: tensor<1x31x103x513xf16, {order = #NHWC}>) -> tensor<1x1x103x513xsi32, {order = #NHWC}> {
-    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x31x103x513xf16, {order = #NHWC}> -> tensor<1x1x103x513xf16, {order = #NHWC}>, tensor<1x1x103x513xsi32, {order = #NHWC}>
+    %cst = const.Declare tensor<1x1x1x16xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
+    %output_values, %target_shape = VPU.TopK(%arg0, %cst) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x31x103x513xf16, {order = #NHWC}>, tensor<1x1x1x16xui8, {order = #NHWC}> -> tensor<1x1x103x513xf16, {order = #NHWC}>, tensor<1x1x103x513xsi32, {order = #NHWC}>
 
     return %target_shape : tensor<1x1x103x513xsi32, {order = #NHWC}>
 
+    //CHECK:        [[CST:%.*]] = const.Declare tensor<1x1x1x16xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x16xui8>, [#const.Reorder<#NHWC>]
     //CHECK:        [[INPUT:%.*]] = VPU.NCE.ClusterTiling (%arg0 as %arg1: tensor<1x31x103x513xf16, {order = #NHWC}>)
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x31x103x513xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> {
     //CHECK:            [[INNER_COPY:%.*]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x31x103x513xf16, {order = #NHWC}> -> tensor<1x31x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>
     //CHECK:            VPU.Yield [[INNER_COPY]]
     //CHECK:        }
 
-    //CHECK:        [[OUTPUTS:%.*]]:2 = VPU.NCE.ClusterTiling ([[INPUT]] as %arg1: tensor<1x31x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+    //CHECK:        [[AUX_BUFFER:%.*]] = VPU.NCE.ClusterTiling ([[CST]] as %arg1: tensor<1x1x1x16xui8, {order = #NHWC}>)
+    //CHECK:         -> !VPU.DistributedTensor<1x1x1x16xui8, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> {
+    //CHECK:            [[AUX_BUFFER_INNER_COPY:%.*]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x1x1x16xui8, {order = #NHWC}> -> tensor<1x1x1x16xui8, {mem_space = @CMX_NN, order = #NHWC}>
+    //CHECK:            VPU.Yield [[AUX_BUFFER_INNER_COPY]]
+    //CHECK:        }
+
+    //CHECK:        [[OUTPUTS:%.*]]:2 = VPU.NCE.ClusterTiling ([[INPUT]] as %arg1: tensor<1x31x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>, [[AUX_BUFFER]] as %arg2: tensor<1x1x1x16xui8, {mem_space = @CMX_NN, order = #NHWC}>)
     //CHECK-SAME:   -> (!VPU.DistributedTensor<1x1x103x513xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>,
     //CHECK-SMAE:   !VPU.DistributedTensor<1x1x103x513xsi32, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) {
-    //CHECK:            [[OUTPUT:%.*]], [[TARGET:%.*]] = VPU.TopK(%arg1) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    //CHECK-SMAE:       : tensor<1x31x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x1x103x513xsi32, {mem_space = @CMX_NN, order = #NHWC}>
+    //CHECK:            [[OUTPUT:%.*]], [[TARGET:%.*]] = VPU.TopK(%arg1, %arg2) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SMAE:       : tensor<1x31x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x1x1x16xui8, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1x103x513xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x1x103x513xsi32, {mem_space = @CMX_NN, order = #NHWC}>
     //CHECK:            VPU.Yield [[OUTPUT]], [[TARGET]]
     //CHECK:        }
 
@@ -2663,23 +2671,31 @@ func.func @TopKSWTilingSOH(%arg0: tensor<1x31x103x513xf16, {order = #NHWC}>) -> 
 
 // CHECK-LABEL: @TopKSWTilingSOK
 func.func @TopKSWTilingSOK(%arg0: tensor<1x103x513x31xf16, {order = #NHWC}>) -> tensor<1x103x513x1xsi32, {order = #NHWC}> {
-    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sort = #IE.topk_sort_type<SORT_INDICES>}
-            : tensor<1x103x513x31xf16, {order = #NHWC}> -> tensor<1x103x513x1xf16, {order = #NHWC}>, tensor<1x103x513x1xsi32, {order = #NHWC}>
+    %cst = const.Declare tensor<1x1x1x496xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x496xui8>, [#const.Reorder<#NHWC>]
+    %output_values, %target_shape = VPU.TopK(%arg0, %cst) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
+            : tensor<1x103x513x31xf16, {order = #NHWC}>, tensor<1x1x1x496xui8, {order = #NHWC}> -> tensor<1x103x513x1xf16, {order = #NHWC}>, tensor<1x103x513x1xsi32, {order = #NHWC}>
 
     return %target_shape : tensor<1x103x513x1xsi32, {order = #NHWC}>
 
+    //CHECK:        [[CST:%.*]] = const.Declare tensor<1x1x1x496xui8, {order = #NHWC}> = dense<0> : tensor<1x1x1x496xui8>, [#const.Reorder<#NHWC>]
     //CHECK:        [[INPUT:%.*]] = VPU.NCE.ClusterTiling (%arg0 as %arg1: tensor<1x103x513x31xf16, {order = #NHWC}>)
     //CHECK-SAME:   -> !VPU.DistributedTensor<1x103x513x31xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}> {
     //CHECK:            [[INNER_COPY:%.*]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x103x513x31xf16, {order = #NHWC}> -> tensor<1x103x513x31xf16, {mem_space = @CMX_NN, order = #NHWC}>
     //CHECK:            VPU.Yield [[INNER_COPY]]
     //CHECK:        }
 
-    //CHECK:        [[OUTPUTS:%.*]]:2 = VPU.NCE.ClusterTiling ([[INPUT]] as %arg1: tensor<1x103x513x31xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+    //CHECK:        [[AUX_BUFFER:%.*]] = VPU.NCE.ClusterTiling ([[CST]] as %arg1: tensor<1x1x1x496xui8, {order = #NHWC}>)
+    //CHECK:         -> !VPU.DistributedTensor<1x1x1x496xui8, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> {
+    //CHECK:            [[AUX_BUFFER_INNER_COPY:%.*]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x1x1x496xui8, {order = #NHWC}> -> tensor<1x1x1x496xui8, {mem_space = @CMX_NN, order = #NHWC}>
+    //CHECK:            VPU.Yield [[AUX_BUFFER_INNER_COPY]]
+    //CHECK:        }
+
+    //CHECK:        [[OUTPUTS:%.*]]:2 = VPU.NCE.ClusterTiling ([[INPUT]] as %arg1: tensor<1x103x513x31xf16, {mem_space = @CMX_NN, order = #NHWC}>, [[AUX_BUFFER]] as %arg2: tensor<1x1x1x496xui8, {mem_space = @CMX_NN, order = #NHWC}>)
     //CHECK-SAME:   -> (!VPU.DistributedTensor<1x103x513x1xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>,
     //CHECK-SMAE:   !VPU.DistributedTensor<1x103x513x1xsi32, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>) {
-    //CHECK:            [[OUTPUT:%.*]], [[TARGET:%.*]] = VPU.TopK(%arg1) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
-    //CHECK-SMAE:       : tensor<1x103x513x31xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x103x513x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x103x513x1xsi32, {mem_space = @CMX_NN, order = #NHWC}>
+    //CHECK:            [[OUTPUT:%.*]], [[TARGET:%.*]] = VPU.TopK(%arg1, %arg2) {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 1>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SMAE:       : tensor<1x103x513x31xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x1x1x496xui8, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x103x513x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x103x513x1xsi32, {mem_space = @CMX_NN, order = #NHWC}>
     //CHECK:            VPU.Yield [[OUTPUT]], [[TARGET]]
     //CHECK:        }
 

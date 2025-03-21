@@ -471,8 +471,7 @@ NTHW_NTK_4_16 |         16           |         4        |
 def VPUIPDPU_IDUSEDenseOp :
         VPUIPDPU_Op<"IDUSEDense",
             [
-                HasParent<"vpux::VPUIPDPU::DPUVariantOp">,
-                DeclareOpInterfaceMethods<VPUIPDPU_LowerToNPURegInterface>
+                HasParent<"vpux::VPUIPDPU::DPUVariantOp">
             ]
         > {
     let summary = "IDU set Storage Element table in dense mode";
@@ -489,8 +488,7 @@ def VPUIPDPU_IDUSEDenseOp :
 def VPUIPDPU_IDUConvContinueOp :
         VPUIPDPU_Op<"IDUConvContinue",
             [
-                HasParent<"vpux::VPUIPDPU::DPUVariantOp">,
-                DeclareOpInterfaceMethods<VPUIPDPU_LowerToNPURegInterface>
+                HasParent<"vpux::VPUIPDPU::DPUVariantOp">
             ]
         > {
     let summary = "IDU set convolution continue mode";
@@ -516,8 +514,7 @@ For partial convolutions, where all required activations/weights won't fit in CM
 def VPUIPDPU_IDUBinaryConfigOp :
         VPUIPDPU_Op<"IDUBinaryConfig",
             [
-                HasParent<"vpux::VPUIPDPU::DPUVariantOp">,
-                DeclareOpInterfaceMethods<VPUIPDPU_LowerToNPURegInterface>
+                HasParent<"vpux::VPUIPDPU::DPUVariantOp">
             ]
         > {
     let summary = "IDU set Binary config";
@@ -610,8 +607,7 @@ def VPUIPDPU_IDUSPSegmentOp :
 def VPUIPDPU_MPEDenormalOperandsFTZOp :
         VPUIPDPU_Op<"MPEDenormalOperandsFTZ",
             [
-                HasParent<"vpux::VPUIPDPU::MPECfgOp">,
-                DeclareOpInterfaceMethods<VPUIPDPU_LowerToNPURegInterface>
+                HasParent<"vpux::VPUIPDPU::MPECfgOp">
             ]
         > {
     let summary = "MPE force denormal operands to zero op";
@@ -1196,10 +1192,10 @@ def VPUIPDPU_ODUOutActivationsOp :
 
     let description = [{
 Data type specification:
-| attr name  | value range                                |   vpu arch  |
-|:-----------|:-------------------------------------------|:------------|
-| data_type  | fp16, u8f, g8, i8, i32, i4, i2, log, bin   | NPU37XX     |
-| data_width | 1-bit, 2-bit, 4-bit, 8-bit, 16-bit, 32-bit | NPU40XX     |
+| attr name  | value range                                | vpu arch |
+|:-----------|:-------------------------------------------|:---------|
+| data_type  | fp16, u8f, g8, i8, i32, i4, i2, log, bin   | NPU37XX  |
+| data_width | 1-bit, 2-bit, 4-bit, 8-bit, 16-bit, 32-bit | NPU40XX  |
 If data_type/data_width is not specified then ODU output data type should be inferred from %out_activations.
         }];
 

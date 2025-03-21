@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-transfer-ops-to-DMAs %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @CopyToDMA
 func.func @CopyToDMA(%arg0: memref<1x2x2x2xf16>) -> memref<1x2x2x2xf16> {
     %0 = const.Declare memref<1x2x2x2xf16> = dense<1.0> : tensor<1x2x2x2xf16>

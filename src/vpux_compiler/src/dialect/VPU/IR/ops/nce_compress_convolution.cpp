@@ -96,7 +96,6 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::verify() {
 
     const auto inputOrder = DimsOrder::fromValue(getInput());
     const auto filterOrder = DimsOrder::fromValue(getFilter());
-    const auto outputOrder = DimsOrder::fromValue(getOutput());
 
     const auto filterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
     VPUX_THROW_UNLESS(filterShape[Dims4D::Filter::IC] <= vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM,
@@ -107,13 +106,6 @@ mlir::LogicalResult vpux::VPU::NCECompressConvolutionOp::verify() {
                       inputOrder);
     if (filterOrder != DimsOrder::OYXI) {
         return errorAt(op, "Unsupported 'filter' layout '{0}', expected OYXI", filterOrder);
-    }
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0 && outputOrder != DimsOrder::NHWC) {
-        return errorAt(op, "Unsupported 'output' layout '{0}', expected NHWC", outputOrder);
     }
 
     return mlir::success();
@@ -208,7 +200,8 @@ vpux::InputTiling vpux::VPU::NCECompressConvolutionOp::backInferTileInfo(const v
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    inputTiling.tiles.push_back(VPU::getWeightsTableTile(this, outputTile));
+    inputTiling.tiles.push_back(
+            VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
 
     return inputTiling;
 }
@@ -347,10 +340,6 @@ bool VPU::NCECompressConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
     return fitIntoCMX(distributedInputType, distributedFilterType, newDistributedTensorType);
 }
 
-bool vpux::VPU::NCECompressConvolutionOp::isVFSupported() {
-    return vpux::VPU::isVFNCESupported(mlir::cast<NCEOpInterface>(getOperation()));
-}
-
 vpux::NDTypeInterface vpux::VPU::NCECompressConvolutionOp::getDistributedTypeForOpOperand(
         mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
@@ -407,19 +396,11 @@ vpux::NDTypeInterface vpux::VPU::NCECompressConvolutionOp::getDistributedTypeFor
 
 vpux::VPU::SparsitySupport vpux::VPU::NCECompressConvolutionOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }
-
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    return VPU::SparsitySupport::SPARSE_OUTPUTS & excludeMode;
 }

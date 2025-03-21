@@ -17,6 +17,12 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEPRECISIONACROSSFUNCTIONCALLS
+#define GEN_PASS_DEF_OPTIMIZEPRECISIONACROSSFUNCTIONCALLS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -76,7 +82,7 @@ public:
 };
 
 class OptimizePrecisionAcrossFunctionCallsPass final :
-        public IE::OptimizePrecisionAcrossFunctionCallsBase<OptimizePrecisionAcrossFunctionCallsPass> {
+        public IE::impl::OptimizePrecisionAcrossFunctionCallsBase<OptimizePrecisionAcrossFunctionCallsPass> {
 private:
     using FunctionCalls = DenseMap<mlir::func::FuncOp, SmallVector<mlir::func::CallOp>>;
     using CallFunction = DenseMap<mlir::func::CallOp, mlir::func::FuncOp>;
@@ -367,7 +373,9 @@ private:
         for (const auto& [resNum, producerOp] : resOperations) {
             const auto origResType = returnOp->getOperand(resNum).getType();
             returnOp->setOperand(resNum, producerOp->getOperand(0));
-            producerOp->erase();
+            if (producerOp->use_empty()) {
+                producerOp->erase();
+            }
 
             SmallVector<mlir::Type> resultTypes(funcOp.getResultTypes());
             resultTypes[resNum] = returnOp->getOperand(resNum).getType();

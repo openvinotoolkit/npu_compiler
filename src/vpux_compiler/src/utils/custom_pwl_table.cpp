@@ -12,6 +12,7 @@
 //
 
 #include "vpux/compiler/utils/custom_pwl_table.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/attributes_properties_conversion.hpp"
 #include "vpux/compiler/utils/prelu_pwl_table.hpp"
 #include "vpux/utils/core/numeric.hpp"

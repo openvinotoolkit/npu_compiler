@@ -3,16 +3,24 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include <llvm/ADT/ArrayRef.h>
-#include <llvm/ADT/SetVector.h>
-#include <mlir/IR/Value.h>
-#include <mlir/IR/ValueRange.h>
-
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+#include <llvm/ADT/ArrayRef.h>
+#include <llvm/ADT/SetVector.h>
+#include <mlir/IR/Value.h>
+#include <mlir/IR/ValueRange.h>
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_BARRIERTOPOLOGICALMAPPING
+#define GEN_PASS_DEF_BARRIERTOPOLOGICALMAPPING
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -47,7 +55,8 @@ size_t reindexBarrList(mlir::func::FuncOp netFunc) {
     return currIdx;
 }
 
-class BarrierTopologicalMappingPass : public VPUMI40XX::BarrierTopologicalMappingBase<BarrierTopologicalMappingPass> {
+class BarrierTopologicalMappingPass :
+        public VPUMI40XX::impl::BarrierTopologicalMappingBase<BarrierTopologicalMappingPass> {
 public:
     explicit BarrierTopologicalMappingPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());
@@ -132,85 +141,32 @@ void BarrierTopologicalMappingPass::safeRunOnFunc() {
         }
     }
 
-    // Make barrier order in IR to follow barrier consumption order in the schedule
-    //
-    // Update the order of barrierOp bottom to top
-    // starting from final barrier.
-    // Use per barrier dependency data to find next barriers
-    // to place
-    auto insertionPoint = finalBarrierOp.getOperation();
-
-    // For next barriers set from which next barrier to insert is picked
-    // use SetVector to guarantee compilations gives same blob as nextBarOpsSet
-    // is used to define order of barriers in IR
-    llvm::SetVector<VPUMI40XX::ConfigureBarrierOp> nextBarOpsSet;
-    llvm::DenseSet<mlir::Value> visited;
-    llvm::DenseSet<VPUMI40XX::ConfigureBarrierOp> inserted;
-
-    // start the process from bottom - from final barrier
-    for (auto depBar : finalBarrierOp.getDependencies()) {
-        auto depBarOp = VPUMI40XX::getBarrierOp(depBar.getDefiningOp());
-        nextBarOpsSet.insert(depBarOp);
-        visited.insert(depBar);
+    VPUMI40XX::ConfigureBarrierOp startBarrierOp = nullptr;
+    for (auto barOp : barriers) {
+        if (barOp.getIsStartBarrier()) {
+            startBarrierOp = barOp;
+            break;
+        }
     }
 
-    inserted.insert(finalBarrierOp);
-    visited.insert(finalBarrierOp.getBarrier());
-
-    // For next barriers pick next barrier to insert. Barrier is ready
-    // if all of its users - barrier which dependent have already been
-    // processed and placed in the IR before
-    auto getNextReadyBarOp = [&]() {
-        VPUMI40XX::ConfigureBarrierOp readyBarOp = nullptr;
-
-        for (auto barOp : nextBarOpsSet) {
-            auto barOpReady = true;
-            for (auto user : barOp.getBarrier().getUsers()) {
-                auto userBarOp = mlir::dyn_cast<VPUMI40XX::ConfigureBarrierOp>(user);
-                if (!userBarOp) {
-                    continue;
-                }
-                if (!inserted.contains(userBarOp)) {
-                    barOpReady = false;
-                    break;
-                }
-            }
-
-            if (barOpReady) {
-                readyBarOp = barOp;
-                nextBarOpsSet.remove(barOp);
-                break;
-            }
-        }
-
-        return readyBarOp;
-    };
-
-    _log.trace("Update barrier order in IR");
-
-    // Until there are barriers to process perform
-    // barrier insertion in the IR using BFS approach from bottom to top.
-    // Get next ready barrier and place it above last inserted barrier. In the first iteration that
-    // would be final barrier.
-    // For each barrier get barriers that this barrier depends on. They will be
-    // processed in next iteration.
-    while (!nextBarOpsSet.empty()) {
-        auto barOp = getNextReadyBarOp();
-        VPUX_THROW_WHEN(barOp == nullptr, "No ready barrier found");
-
-        barOp->moveBefore(insertionPoint);
-        insertionPoint = barOp.getOperation();
-        inserted.insert(barOp);
-
-        auto depBars = barOp.getDependencies();
-        for (auto depBar : depBars) {
-            if (visited.contains(depBar)) {
-                continue;
-            }
-
-            auto depBarOp = VPUMI40XX::getBarrierOp(depBar.getDefiningOp());
-            nextBarOpsSet.insert(depBarOp);
-            visited.insert(depBar);
+    // Move start barrier as close to top of IR as possible as this barrier is important for
+    // enqueue and WorkItem ordering. It marks the earliest point at which DPU/SHV tasks can be enqueued.
+    // If other barrier is placed earlier which depends on DPU/SHV task consumption then schedule can hang
+    if (startBarrierOp != nullptr) {
+        auto startBarDeps = startBarrierOp.getDependencies();
+        if (startBarDeps.empty()) {
+            // If start barrier has no deps then move it to top of IR
+            auto topBarrierOp = *netFunc.getOps<VPUMI40XX::ConfigureBarrierOp>().begin();
+            startBarrierOp->moveBefore(topBarrierOp);
+        } else {
+            // Find latest dep
+            auto latestBarIt = vpux::max_element(startBarDeps, [](mlir::Value bar1, mlir::Value bar2) {
+                auto barOp1 = bar1.getDefiningOp();
+                auto barOp2 = bar2.getDefiningOp();
+                return barOp1->isBeforeInBlock(barOp2);
+            });
+            auto latestBar = *latestBarIt;
+            startBarrierOp->moveAfter(latestBar.getDefiningOp());
         }
     }
 

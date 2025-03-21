@@ -7,7 +7,6 @@
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 
-
 // CHECK-LABEL: @UnrollMultiAxisReduceMinAndBigTensor
 func.func @UnrollMultiAxisReduceMinAndBigTensor(%arg0: tensor<1x1x256x512xf16>) -> tensor<1xf16> {
   %0 = IE.ReduceMin(%arg0) {axes_value = [0, 1, 2, 3]} : tensor<1x1x256x512xf16> -> tensor<1xf16>

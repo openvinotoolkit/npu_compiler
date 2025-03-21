@@ -21,7 +21,7 @@ class QuantileFloatType : public mlir::Type {
 public:
     using Type::Type;
 
-    /// Return the bitwidth of this float type.
+    /// Return the bitwidth of the storage type.
     unsigned getWidth() const;
 
     // Get NF4 instance.

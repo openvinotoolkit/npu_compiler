@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/format.hpp"

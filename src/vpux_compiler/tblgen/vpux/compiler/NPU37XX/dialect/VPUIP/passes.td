@@ -52,4 +52,37 @@ def AddSwKernelCacheHandlingOps : PassBase<"add-sw-kernel-cache-handling-ops", "
     let constructor = "vpux::VPUIP::arch37xx::createAddSwKernelCacheHandlingOpsPass()";
 }
 
+//
+// UnrollDepthToSpaceDMA
+//
+
+def UnrollDepthToSpaceDMA : PassBase<"unroll-depth-to-space-dma", "vpux::FunctionPass"> {
+    let summary = "Split DepthToSpaceDMA task with several NN DMA tasks";
+
+    let description = [{
+        This pass spilt DepthToSpaceDMA tasks with several NN DMA tasks, which are functionally equivalent.
+        Each sub DepthToSpaceDMA will be converted to a NNDMA.
+        1. if input/output layout is NHWC with model block_first, number of sub DepthToSpaceDMA is same as block_size.
+        2. if input/output layout is NHWC with model depth_first, number of sub DepthToSpaceDMA is OH * OW / block_size.
+        block_size is the size of the spatial block. It is an attribution of DepthToSpace.
+    }];
+
+    let constructor = "vpux::VPUIP::arch37xx::createUnrollDepthToSpaceDMAPass()";
+}
+
+//
+// UnrollSpaceToDepthDMA
+//
+
+def UnrollSpaceToDepthDMA : PassBase<"unroll-space-to-depth-dma", "vpux::FunctionPass"> {
+    let summary = "Split SpaceToDepthDMA task with several NN DMA tasks";
+
+    let description = [{
+        This pass splits SpaceToDepthDMA tasks into several NN DMA tasks, which are functionally equivalent.
+        Each sub SpaceToDepthDMA will be converted to a NNDMA.
+    }];
+
+    let constructor = "vpux::VPUIP::arch37xx::createUnrollSpaceToDepthDMAPass()";
+}
+
 #endif

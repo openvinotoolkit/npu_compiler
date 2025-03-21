@@ -13,17 +13,12 @@ std::unique_ptr<StrategyGetterBase> vpux::VPU::createMCStrategyGetter(ArchKind a
     if (numClusters == 1) {
         return std::make_unique<StrategyGetterBase>();
     }
-
     switch (arch) {
     case VPU::ArchKind::NPU37XX: {
         return std::make_unique<arch37xx::StrategyGetter>();
     }
-    case VPU::ArchKind::NPU40XX: {
-        return std::make_unique<arch40xx::StrategyGetter>(numClusters);
-    }
-    case ArchKind::UNKNOWN:
     default: {
-        return std::make_unique<StrategyGetterBase>();
+        return std::make_unique<arch40xx::StrategyGetter>(numClusters);
     }
     }
 }

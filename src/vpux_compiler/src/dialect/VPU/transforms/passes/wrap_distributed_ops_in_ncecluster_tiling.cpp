@@ -4,11 +4,19 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_WRAPDISTRIBUTEDOPSINNCECLUSTERTILING
+#define GEN_PASS_DEF_WRAPDISTRIBUTEDOPSINNCECLUSTERTILING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -20,7 +28,7 @@ namespace {
 //
 
 class WrapDistributedOpsInNCEClusterTiling final :
-        public WrapDistributedOpsInNCEClusterTilingBase<WrapDistributedOpsInNCEClusterTiling> {
+        public VPU::impl::WrapDistributedOpsInNCEClusterTilingBase<WrapDistributedOpsInNCEClusterTiling> {
 public:
     explicit WrapDistributedOpsInNCEClusterTiling(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -14,6 +14,12 @@
 
 #include "vpux/compiler/utils/attributes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTVIEWOPSTODECLARATIONS
+#define GEN_PASS_DEF_CONVERTVIEWOPSTODECLARATIONS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -74,9 +80,7 @@ mlir::LogicalResult ViewLikeRewrite::matchAndRewrite(mlir::ViewLikeOpInterface o
     const auto origVal = mlir::isa<VPUIP::NonDistributedCastOp>(origOp) ? origOp->getOperand(0) : origOp->getResult(0);
     const Byte offset = calculateOffset(origVal);
 
-    const auto roots = _aliasInfo->getRoots(origVal);
-    VPUX_THROW_UNLESS(roots.size() == 1, "Value '{0}' expected to have only one root. Got {1}", origVal, roots.size());
-    const auto rootVal = *roots.begin();
+    const auto rootVal = _aliasInfo->getRoot(origVal);
 
     auto declareOp = rootVal.getDefiningOp<VPURT::DeclareBufferOp>();
     VPUX_THROW_WHEN(declareOp == nullptr, "Unsupported source owner: '{0}'", rootVal);
@@ -104,7 +108,6 @@ mlir::LogicalResult ViewLikeRewrite::matchAndRewrite(mlir::ViewLikeOpInterface o
     mlir::ArrayAttr sectionIndexAttr = sectionIndex.has_value() ? sectionIndex.value() : nullptr;
     rewriter.replaceOpWithNewOp<VPURT::DeclareBufferOp>(origOp, outType, section, sectionIndexAttr, offset.count(),
                                                         swizzlingKey);
-
     return mlir::success();
 }
 
@@ -113,7 +116,7 @@ mlir::LogicalResult ViewLikeRewrite::matchAndRewrite(mlir::ViewLikeOpInterface o
 //
 
 class ConvertViewOpsToDeclarationsPass final :
-        public VPUIP::ConvertViewOpsToDeclarationsBase<ConvertViewOpsToDeclarationsPass> {
+        public VPUIP::impl::ConvertViewOpsToDeclarationsBase<ConvertViewOpsToDeclarationsPass> {
 public:
     explicit ConvertViewOpsToDeclarationsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

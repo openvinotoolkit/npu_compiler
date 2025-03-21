@@ -4,13 +4,21 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
+#include "vpux/compiler/dialect/VPUASM/dialect.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUASM {
+#define GEN_PASS_DECL_ADDPROFILINGSECTION
+#define GEN_PASS_DEF_ADDPROFILINGSECTION
+#include "vpux/compiler/dialect/VPUASM/passes.hpp.inc"
+}  // namespace vpux::VPUASM
 
 using namespace vpux;
 
 namespace {
-class AddProfilingSection : public VPUASM::AddProfilingSectionBase<AddProfilingSection> {
+class AddProfilingSection : public VPUASM::impl::AddProfilingSectionBase<AddProfilingSection> {
 public:
     explicit AddProfilingSection(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

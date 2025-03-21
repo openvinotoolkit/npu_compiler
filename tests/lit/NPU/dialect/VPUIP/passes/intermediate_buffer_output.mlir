@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --vpu-arch=%arch% --intermediate-buffer-output="op-index=5 insertion-index=5 buffer-index=4" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00>
 !qElemType2 = !quant.uniform<u8:f16, 0.01269696927538105>
@@ -100,7 +99,7 @@ func.func @TestBufferOutput(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<
       PPETask {ppe = #VPU.PPEStub<>}
     }
   }
-  VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {
+  VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1, %2 : !VPURT.Barrier, !VPURT.Barrier) {
     %58 = VPUIP.NCEClusterTask {is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>} input(%43 : memref<1x224x3x115xf16, #NHWC, [@CMX_NN, 1]>) weights(%41 : memref<1x224x3x115xf16, #NHWC, [@CMX_NN, 1]>) parent_input(%39 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%13 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType1, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%15 : memref<1x224x4x115x!qElemType1, #NWCH, [@CMX_NN, 1]>) -> memref<1x224x4x115x!qElemType1, #NWCH, [@CMX_NN, 1]> variants : {
       DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [114, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
@@ -176,6 +175,7 @@ func.func @TestBufferOutput(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<
 
   // CHECK:       [[BAR0:%.*]] = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
   // CHECK:       [[BAR1:%.*]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
+  // CHECK:       [[BAR2:%.*]] = VPURT.ConfigureBarrier<0> {isFinalBarrier} -> !VPURT.Barrier
   // CHECK-NOT:                  VPURT.ConfigureBarrier
 
   // CHECK-DAG:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x224x4x115x!qElemType, #NWCH, @DDR>
@@ -186,7 +186,7 @@ func.func @TestBufferOutput(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<
   // CHECK-NEXT:     outputs([[TARGET_BUFFER]] : memref<1x224x4x115x!qElemType, #NWCH, [@CMX_NN, 1]>)
 
   // Target insertion point and DMA out
-  // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier)
+  // CHECK:       VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]] : !VPURT.Barrier)
   // CHECK:          VPUIP.NNDMA
   // CHECK-SAME:        inputs([[TARGET_BUFFER]] : memref<1x224x4x115x!qElemType, #NWCH, [@CMX_NN, 1]>
   // CHECK-SAME:        outputs([[OUTPUT]] :  memref<1x224x4x115x!qElemType, #NWCH, @DDR>

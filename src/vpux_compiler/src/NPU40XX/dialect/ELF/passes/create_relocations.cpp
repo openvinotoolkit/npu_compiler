@@ -6,11 +6,17 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/reloc_manager.hpp"
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_ADDELFRELOCATIONS
+#define GEN_PASS_DEF_ADDELFRELOCATIONS
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
 
-class AddELFRelocationsPass : public ELF::AddELFRelocationsBase<AddELFRelocationsPass> {
+class AddELFRelocationsPass : public ELF::arch40xx::impl::AddELFRelocationsBase<AddELFRelocationsPass> {
 public:
     explicit AddELFRelocationsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

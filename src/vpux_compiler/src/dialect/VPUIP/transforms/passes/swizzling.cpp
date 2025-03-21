@@ -14,6 +14,7 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
 #include "vpux/compiler/utils/logging.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -25,6 +26,12 @@
 
 #include <algorithm>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_SWIZZLING
+#define GEN_PASS_DEF_SWIZZLING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -33,7 +40,7 @@ namespace {
 // Swizzling
 //
 
-class Swizzling final : public VPUIP::SwizzlingBase<Swizzling> {
+class Swizzling final : public VPUIP::impl::SwizzlingBase<Swizzling> {
 public:
     using ValuesSet = mlir::DenseSet<mlir::Value>;
 

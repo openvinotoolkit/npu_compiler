@@ -3,12 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/range.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNROLLTENSORITERATOR
+#define GEN_PASS_DEF_UNROLLTENSORITERATOR
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -308,7 +315,7 @@ mlir::LogicalResult LoopRewriter::matchAndRewrite(IE::LoopOp origOp, mlir::Patte
 // UnrollTensorIterator
 //
 
-class UnrollTensorIterator final : public IE::UnrollTensorIteratorBase<UnrollTensorIterator> {
+class UnrollTensorIterator final : public IE::impl::UnrollTensorIteratorBase<UnrollTensorIterator> {
 public:
     explicit UnrollTensorIterator(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -582,7 +589,7 @@ void processAfterUnrollingParamExecConds(SmallVector<IE::ConcatOutputPortMapAttr
                                          mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::MLIRContext* ctx,
                                          int64_t numIterations) {
     // Concat cases for ParamExecConds are not supported yet. Low priority because there is no model with such usage now
-    // Tracking number: E#124554
+    // Tracking number: E#-124554
     createLoopSelectOpForInvariantOutput(invariantOutputDescAttrVector, invariantOutputValueMap, invariantOutputListMap,
                                          initCond, execCondList, numIterations, rewriter, loc, ctx);
 }

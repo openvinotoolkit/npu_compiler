@@ -1,8 +1,10 @@
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -12,7 +14,7 @@
 namespace vpux {
 namespace IE {
 
-int64_t getExpandedCMXUsage(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape) {
+int64_t getExpandedCMXUsagePerGroup(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape) {
     VPUX_THROW_UNLESS(input1Shape.size() == 3 && input2Shape.size() == 3,
                       "Matmul Dimensions for batched Matmul must be 3d");
     const auto transposeA = matmulOp.getTransposeA();
@@ -39,25 +41,33 @@ int64_t getExpandedCMXUsage(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRe
     constexpr auto int32Size = sizeof(int32_t);
     const auto sizeOfICE = alignValUp(sizeofIC, inputChannelAlignment);
     const auto sizeOfOCE = alignValUp(sizeofOC, outputChannelAlignment);
-    const auto input1Size = vpux::details::calcTotalShapeSize(input1Shape) * float16Size * sizeOfICE / sizeofIC;
+    const auto input1Size = vpux::details::calcTotalShapeSize(input1Shape) * float16Size * sizeOfICE / sizeofIC /
+                            input1Shape[Dims3D::Act::B];
     // To cover transpose case without conditional we multiply all then remove expanded dimension
-    const auto input2Size = input2Shape[Dims3D::Filter::B] * sizeOfICE * sizeOfOCE * float16Size;
+    const auto input2Size = sizeOfICE * sizeOfOCE * float16Size;
 
     const auto sizeH = transposeA ? input1Shape[Dim(2)] : input1Shape[Dim(1)];
-    const auto outputSize = input1Shape[Dims3D::Act::B] * sizeH * sizeOfOCE * float16Size;
+    const auto outputSize = sizeH * sizeOfOCE * float16Size;
 
-    const auto weightTableSize =
-            input1Shape[Dims3D::Act::B] * sizeOfOCE * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * int32Size;
+    const auto weightTableSize = sizeOfOCE * VPUIP::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * int32Size;
 
+    // Calculation is not totally accurate, we are not considering if input2 is being duplicated instead of being tiled
+    return input1Size + input2Size + outputSize + weightTableSize;
+}
+
+bool isGroupBiggerThanTileCount(IE::MatMulOp matmulOp, ShapeRef inputShape) {
     const auto module = getModuleOp(matmulOp);
     auto tileOp = IE::getTileExecutor(module);
     const auto numOfTiles = tileOp.getCount();
-    const auto numOfGroups = input1Shape[Dims3D::Act::B];
-    // Calculation is not totally accurate, we are not considering if input2 is being duplicated instead of being tiled
-    return (input1Size + input2Size + outputSize) * divUp(numOfGroups, numOfTiles) / numOfGroups + weightTableSize;
+    auto batchSize = inputShape.size() == 3 ? inputShape[Dims3D::Act::B]
+                                            : inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N];
+    // E-153097:
+    // If the batch size is equal to the number of tiles we can at least fit it into CMX
+    return numOfTiles == 3 ? batchSize > numOfTiles : batchSize >= numOfTiles;
 }
 
-bool doesIEMatMulFitIntoCMX(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape) {
+// Does single group (2D MatMul) fit into CMX
+bool isGroupedMatMulBeneficial(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRef input2Shape) {
     const auto availableCMXBytes = vpux::VPU::getTotalCMXSize(matmulOp);
     Shape input1Shape3d =
             input1Shape.size() > 3 ? Shape(input1Shape.begin() + 1, input1Shape.end()) : input1Shape.toValues();
@@ -70,11 +80,26 @@ bool doesIEMatMulFitIntoCMX(IE::MatMulOp matmulOp, ShapeRef input1Shape, ShapeRe
         input2Shape3d[Dims3D::Act::B] *= *input2Shape.begin();
     }
 
-    const auto expandedCMXUsage = IE::getExpandedCMXUsage(matmulOp, input1Shape3d, input2Shape3d);
-    // Data must fit into CMX for compilation to succeed, to ensure that, we use safety factor of 0.9
-    // CMX requirement will be removed after tiling is implemented (E125519)
+    // Get CMX usage for full operation
+    auto expandedCMXUsagePerGroup = IE::getExpandedCMXUsagePerGroup(matmulOp, input1Shape3d, input2Shape3d);
+
+    // Currently NCE.Matmul multicluster strategy is not compatible with other layers so spill will happen, we do not
+    // prefer grouped matmul execution when spill is more expensive than grouped matmul execution benefits, expensive
+    // spills are normally avoided via VF, so we avoid grouped Matmul when output tensors are large. With support
+    // of SOG for more layers and VF support we can disable these limitations. (#E154850)
+    const auto outputType = mlir::cast<NDTypeInterface>(matmulOp.getOutput().getType());
+    constexpr int64_t float16Size = sizeof(type::float16);
+    const auto outputSize = vpux::details::calcTotalShapeSize(outputType.getShape()) * float16Size;
+    constexpr int64_t perGroupOutputSizeLimit = 200'000;
+    const auto smallOutputSize = (outputSize / input1Shape3d[Dims3D::Act::B]) < perGroupOutputSizeLimit;
+
     const double safetyFactor = 0.9;
-    return input1Shape3d[Dims3D::Act::B] == 1 || expandedCMXUsage < availableCMXBytes.count() * safetyFactor;
+    const auto fitIntoCMX =
+            input1Shape3d[Dims3D::Act::B] == 1 || expandedCMXUsagePerGroup < availableCMXBytes.count() * safetyFactor;
+
+    const auto groupBiggerThanTiles = isGroupBiggerThanTileCount(matmulOp, input1Shape);
+
+    return fitIntoCMX && smallOutputSize && groupBiggerThanTiles;
 }
 
 bool isMatmulWithRHSTransposition(IE::MatMulOp matmulOp) {

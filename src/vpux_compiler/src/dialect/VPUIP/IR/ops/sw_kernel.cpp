@@ -1,12 +1,14 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -20,6 +22,8 @@
 #define MAX_AXES_DIMS 4               // max axes size for reduce ops
 #define SPACETOBATCH_MAX_INPUT_DIM 5  // max input size for spacetobatch op
 #define BATCHTOSPACE_MAX_INPUT_DIM 5  // max input size for batchtospace op
+#define T_HF8 1
+#define T_BF8 2
 
 using namespace vpux;
 using namespace mlir;
@@ -162,7 +166,7 @@ void getQuantParamsAttr(mlir::MLIRContext* ctx, mlir::Type qType, mlir::Type pTy
     paramsAttr = getIntArrayAttr(ctx, std::move(params));
 }
 
-// Build a bit-mask to indicate present intputs/outputs
+// Build a bit-mask to indicate present inputs/outputs
 // (for SW kernels with optional IOs)
 mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
     int32_t mask = 0;
@@ -527,9 +531,13 @@ mlir::LogicalResult SwKernelOp::verify() {
         return mlir::success();
     }
 
+    auto swKernelRuns = getBody().getOps<VPUIP::SwKernelRun>();
+    auto swKernelRunNum = std::distance(swKernelRuns.begin(), swKernelRuns.end());
+    VPUX_THROW_UNLESS(swKernelRunNum > 0, "Got wrong number of VPUIP::SwKernelRun {0}", swKernelRunNum);
+
     auto hasBoundedBuffers = [](mlir::Operation::operand_range operandRange) {
         return llvm::any_of(operandRange, [](Value val) {
-            return val.getType().isa<VPUIP::BoundedBufferType>();
+            return isBoundedBufferType(val);
         });
     };
     if (hasBoundedBuffers(getInputs())) {
@@ -539,7 +547,9 @@ mlir::LogicalResult SwKernelOp::verify() {
         }
     } else {
         if (getDynamicInputShapesMap().has_value()) {
-            if (getDynamicInputShapesMap().value().size() != getInputs().size()) {
+            // When tiling is applied to an operation, we do not duplicate the values of
+            // the getDynamicInputShapesMap; instead, we retain them as they are.
+            if (getInputs().size() != getDynamicInputShapesMap().value().size() * swKernelRunNum) {
                 return errorAt(
                         op,
                         "SW Kernel has inconsistent inputs and dynamicInputShapesMap. Inputs size [{0}] does not "
@@ -572,7 +582,9 @@ mlir::LogicalResult SwKernelOp::verify() {
         }
     } else {
         if (getDynamicOutputShapesMap().has_value()) {
-            if (getDynamicOutputShapesMap().value().size() != getOutputBuffs().size()) {
+            // When tiling is applied to an operation, we do not duplicate the values of
+            // the getDynamicOutputShapesMap; instead, we retain them as they are.
+            if (getOutputBuffs().size() != getDynamicOutputShapesMap().value().size() * swKernelRunNum) {
                 return errorAt(
                         op,
                         "SW Kernel has inconsistent outputs and dynamicOutputShapesMap. Outputs size [{0}] does not "
@@ -648,6 +660,11 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
     mlir::MLIRContext* ctx = origOp->getContext();
 
     return llvm::TypeSwitch<mlir::Operation*, VPUIP::KernelInfo>(origOp)
+            .Case<VPU::GenericSwLayerOp>([&](VPU::GenericSwLayerOp genericSwLayerOp) {
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
+                                         {genericSwLayerOp.getCallee().getLeafReference().getValue()},
+                                         {"jit_generated"}};
+            })
             .Case<VPU::ExpOp>([&](VPU::ExpOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_exp"}};
             })
@@ -1155,10 +1172,25 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 const auto oType = op.getOutput().getType().cast<vpux::NDTypeInterface>();
                 VPUX_THROW_UNLESS(iType.getElementType().isF16() && oType.getElementType().isF16(),
                                   "Only supports FP16 in/out");
-                // TODO E#106805: Extend Shave FakeQuantize operator to support FP8 quantization
-                VPUX_THROW_UNLESS(op.getLevels().has_value(), "Levels attribute has no value.");
-                const auto levelsAttr = getIntAttr(ctx, op.getLevels().value());
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{levelsAttr}, {"fake_quantize"}};
+
+                VPUX_THROW_UNLESS(op.getLowFpType().has_value() || op.getLevels().has_value(),
+                                  "LowFpType or levels attribute should has value.");
+
+                const auto levelsAttr =
+                        op.getLevels().has_value() ? getIntAttr(ctx, op.getLevels().value()) : getIntAttr(ctx, -1);
+
+                int64_t defaultLowFpTypeValue = -1;
+                auto lowFpType = op.getLowFpType();
+                if (lowFpType.has_value()) {
+                    if (mlir::isa<mlir::Float8E4M3FNType>(*lowFpType)) {  // HF8
+                        defaultLowFpTypeValue = T_HF8;
+                    }
+                    if (mlir::isa<mlir::Float8E5M2Type>(*lowFpType)) {  // BF8
+                        defaultLowFpTypeValue = T_BF8;
+                    }
+                }
+                auto LowFpTypeAttr = getIntAttr(ctx, defaultLowFpTypeValue);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{levelsAttr, LowFpTypeAttr}, {"fake_quantize"}};
             })
             .Case<VPU::QuantizeOp>([&](VPU::QuantizeOp op) {
                 const auto iType = op.getInput().getType().cast<vpux::NDTypeInterface>();
@@ -1572,6 +1604,26 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::AtanhOp>([&](VPU::AtanhOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_atanh"}};
             })
+            .Case<VPU::ExperimentalDetectronROIFeatureExtractorOp>(
+                    [&](VPU::ExperimentalDetectronROIFeatureExtractorOp exp) {
+                        // INT64_MAX added as a delimiter to find where MemRefData fields are ended in case of variadic
+                        // number of inputs
+                        const auto delimiterAttr = getIntAttr(ctx, INT64_MAX);
+                        const auto outputSize = exp.getAttr().getOutputSize().getInt();
+                        const auto samplingRatio = exp.getAttr().getSamplingRatio().getInt();
+                        const auto pyramidScales = parseIntArrayAttr<int64_t>(exp.getAttr().getPyramidScales());
+                        const auto aligned = static_cast<int64_t>(exp.getAttr().getAligned().getValue());
+
+                        const auto alignedAttr = getIntAttr(ctx, aligned);
+                        const auto outputSizeAttr = getIntAttr(ctx, outputSize);
+                        const auto samplingRatioAttr = getIntAttr(ctx, samplingRatio);
+                        const auto pyramidScalesAttr = getIntArrayAttr(ctx, pyramidScales);
+
+                        return VPUIP::KernelInfo{
+                                SmallVector<mlir::Attribute>{delimiterAttr, outputSizeAttr, samplingRatioAttr,
+                                                             alignedAttr, pyramidScalesAttr},
+                                {"experimental_detectron_roi_feature_extractor"}};
+                    })
             .Case<VPU::DetectionOutputNormalizeOp>([&](VPU::DetectionOutputNormalizeOp op) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{op.getInputWidthAttr(), op.getInputHeightAttr()},
                                          {"detection_output_normalize"}};
@@ -1599,12 +1651,9 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                          {"detection_output_decode_boxes"}};
             })
             .Case<VPU::DetectionOutputSortOp>([&](VPU::DetectionOutputSortOp op) {
-                const auto platform = getArch(op);
-                const auto kernelName = (platform == VPU::ArchKind::NPU37XX) ? "detection_output_sort"
-                                                                             : "detection_output_sort_top_k_legacy";
                 return VPUIP::KernelInfo{
                         SmallVector<mlir::Attribute>{op.getConfidenceThresholdAttr(), op.getTopKAttr()},
-                        {kernelName}};
+                        {"detection_output_sort"}};
             })
             .Case<VPU::DetectionOutputNmsCaffeOp>([&](VPU::DetectionOutputNmsCaffeOp op) {
                 return VPUIP::KernelInfo{
@@ -1998,6 +2047,11 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{offPop.getBaseAttr(), offPop.getStepAttr()},
                                          {"populate_weight_table"},
                                          {"populate_weight_table.cpp"}};
+            })
+            .Case<VPU::RoPEOp>([&](VPU::RoPEOp op) {
+                const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
+                VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"rope"}, {"rope.cpp"}};
             })
             .Default([](mlir::Operation* unknownOp) -> VPUIP::KernelInfo {
                 VPUX_THROW("Operation '{0}' is not supported by the act-shaves", unknownOp->getName());

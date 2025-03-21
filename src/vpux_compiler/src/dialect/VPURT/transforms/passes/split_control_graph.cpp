@@ -8,11 +8,17 @@
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_SPLITCONTROLGRAPH
+#define GEN_PASS_DEF_SPLITCONTROLGRAPH
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
 
-class SplitControlGraphPass final : public VPURT::SplitControlGraphBase<SplitControlGraphPass> {
+class SplitControlGraphPass final : public VPURT::impl::SplitControlGraphBase<SplitControlGraphPass> {
 public:
     explicit SplitControlGraphPass(const int controlGraphSplitBlockSize, Logger log)
             : _controlGraphSplitBlockSize(static_cast<size_t>(controlGraphSplitBlockSize)) {
@@ -47,7 +53,7 @@ void SplitControlGraphPass::safeRunOnFunc() {
 
     barrierInfo.splitControlGraphToBlocks(_controlGraphSplitBlockSize);
 
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
 
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
 

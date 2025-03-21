@@ -14,9 +14,8 @@ std::vector<LayerInfo> getLayerInfo(const std::vector<TaskInfo>& taskInfo) {
     std::vector<LayerInfo> layerInfo;
     for (const auto& task : taskInfo) {
         LayerInfo* layer;
-        if (!getVariantFromName(task.name).empty()) {
-            // Skipping high verbose tasks with variant info
-            continue;
+        if (task.isSubtask) {
+            continue;  // Skip variant info
         }
 
         std::string layerName = getLayerName(task.name);
@@ -51,7 +50,7 @@ std::vector<LayerInfo> getLayerInfo(const std::vector<TaskInfo>& taskInfo) {
             layer->dpu_ns += task.duration_ns;
         } else if (task.exec_type == TaskInfo::ExecType::SW) {
             layer->sw_ns += task.duration_ns;
-        } else if (task.exec_type == TaskInfo::ExecType::DMA) {
+        } else {
             layer->dma_ns += task.duration_ns;
         }
     }

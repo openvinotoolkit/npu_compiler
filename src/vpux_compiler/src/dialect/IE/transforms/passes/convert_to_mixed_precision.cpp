@@ -1,25 +1,19 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_to_mixed_precision.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/Value.h>
 
 using namespace vpux;
 using namespace IE;
-
-bool isAvgPoolOrAddPerChannel(mlir::Operation* op, bool isOutputPerAxisQuant) {
-    // IE.MaxPool does not support fp16 input and quantized output
-    if (mlir::isa<IE::MaxPoolOp>(op)) {
-        return false;
-    }
-    return (mlir::isa<IE::AddOp, IE::AvgPoolOp>(op) && isOutputPerAxisQuant);
-}
 
 mlir::LogicalResult FloatOutConvRewriter::matchAndRewrite(IE::ConvolutionOp convolutionOp,
                                                           mlir::PatternRewriter& rewriter) const {
@@ -118,6 +112,34 @@ mlir::LogicalResult FloatOutTransposedConvRewriter::matchAndRewrite(IE::Transpos
     return mlir::success();
 }
 
+mlir::LogicalResult FloatOutMatMulRewriter::matchAndRewrite(IE::MatMulOp matmulOp,
+                                                            mlir::PatternRewriter& rewriter) const {
+    if (IE::areAnyUserQuantizeOps(matmulOp) || !_isMixPrecisionSupported(matmulOp, false, _log)) {
+        return mlir::failure();
+    }
+
+    auto dequantizeInput = IE::findQuantizedInput(matmulOp.getInput1(), false);
+    auto filterDequantizeInput = IE::findQuantizedInput(matmulOp.getInput2(), true);
+
+    if (dequantizeInput == nullptr || filterDequantizeInput == nullptr) {
+        return mlir::failure();
+    }
+
+    auto newMatmulOp = rewriter.create<IE::MatMulOp>(matmulOp->getLoc(), matmulOp.getType(), dequantizeInput,
+                                                     filterDequantizeInput, matmulOp.getTransposeA(),
+                                                     matmulOp.getTransposeB(), matmulOp.getPostOpAttr());
+    // E#157376: Following check is always true for IE::Matmuls, but should be updated to do similar checks with
+    // Convolutions
+    if (!IE::checkRescaledQuantApproximationForConvBasedOp(newMatmulOp)) {
+        rewriter.eraseOp(newMatmulOp);
+        return mlir::failure();
+    }
+
+    rewriter.replaceOp(matmulOp, newMatmulOp.getOutput());
+
+    return mlir::success();
+}
+
 mlir::LogicalResult FloatOutAvgPoolRewriter::matchAndRewrite(IE::AvgPoolOp avgPoolOp,
                                                              mlir::PatternRewriter& rewriter) const {
     if (IE::areAnyUserQuantizeOps(avgPoolOp) || !IE::arch37xx::isMixPrecisionSupported(avgPoolOp, false, _log)) {
@@ -179,8 +201,12 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
     if (!maybeNCETask->getResult(0).hasOneUse()) {
         return matchFailed(rewriter, origOp, "NCE task has more than one consumer");
     }
-
-    if (!_isPerAxesSupported && isAvgPoolOrAddPerChannel(maybeNCETask, isOutputPerAxisQuant)) {
+    if (mlir::isa<IE::MaxPoolOp>(maybeNCETask)) {
+        return matchFailed(rewriter, origOp,
+                           "{0} is a quantization-agnostic operation, mixed precision is not supported",
+                           maybeNCETask->getName());
+    }
+    if (!_isPerAxesSupported && isOutputPerAxisQuant && mlir::isa<IE::AddOp, IE::AvgPoolOp>(maybeNCETask)) {
         return matchFailed(rewriter, origOp, "IE.AvgPool and IE.Add do not support per-channel quantized output");
     }
 

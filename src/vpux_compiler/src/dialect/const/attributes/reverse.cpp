@@ -6,6 +6,7 @@
 #include <mlir/IR/DialectImplementation.h>
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <numeric>
@@ -114,4 +115,13 @@ Const::Content vpux::Const::ReverseAttr::transform(vpux::Const::Content& input) 
         return reverseImpl<float>(input, outputType, axis);
     }
     VPUX_THROW("Unexpected data type: {0}", inputElementType);
+}
+
+//
+// ReverseAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ReverseAttr::getStableHashValue() const {
+    const auto axis = getAxis().getValue();
+    return llvm::hash_combine(getMnemonic(), axis);
 }

@@ -1,5 +1,5 @@
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 using namespace vpux;
 

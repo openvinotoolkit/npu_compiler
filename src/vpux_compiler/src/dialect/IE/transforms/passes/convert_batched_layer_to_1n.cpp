@@ -19,6 +19,12 @@
 
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTBATCHEDLAYERTO1N
+#define GEN_PASS_DEF_CONVERTBATCHEDLAYERTO1N
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 using namespace IE;
 
@@ -540,7 +546,7 @@ mlir::LogicalResult SigmoidConverter::matchAndRewrite(IE::SigmoidOp origOp, mlir
 // ConvertBatchedLayerTo1NPass
 //
 
-class ConvertBatchedLayerTo1NPass final : public IE::ConvertBatchedLayerTo1NBase<ConvertBatchedLayerTo1NPass> {
+class ConvertBatchedLayerTo1NPass final : public IE::impl::ConvertBatchedLayerTo1NBase<ConvertBatchedLayerTo1NPass> {
 public:
     explicit ConvertBatchedLayerTo1NPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -564,7 +570,7 @@ void ConvertBatchedLayerTo1NPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::AvgPoolOp>(isLegalPoolOp<IE::AvgPoolOp>);
     target.addDynamicallyLegalOp<IE::AddOp>(isLegalEltwiseOp<IE::AddOp>);
     target.addDynamicallyLegalOp<IE::MultiplyOp>(isLegalEltwiseOp<IE::MultiplyOp>);
-
+    target.addDynamicallyLegalOp<IE::SubtractOp>(isLegalEltwiseOp<IE::SubtractOp>);
     target.addDynamicallyLegalOp<IE::SigmoidOp>([&](IE::SigmoidOp op) -> bool {
         auto hasPerAxisQuantization = isPerAxisQuant(op.getInput()) || isPerAxisQuant(op.getOutput());
         if (!isShapeRankEq4(op.getInput()) || isEqualToOne(op.getInput(), Dims4D::Act::N) || hasPerAxisQuantization) {
@@ -586,6 +592,7 @@ void ConvertBatchedLayerTo1NPass::safeRunOnFunc() {
     patterns.add<PoolLayerConverter<IE::AvgPoolOp>>(&ctx, _log);
     patterns.add<EltwiseLayerConverter<IE::AddOp>>(&ctx, _log);
     patterns.add<EltwiseLayerConverter<IE::MultiplyOp>>(&ctx, _log);
+    patterns.add<EltwiseLayerConverter<IE::SubtractOp>>(&ctx, _log);
     patterns.add<SigmoidConverter>(&ctx, _log);
 
     auto func = getOperation();

@@ -109,12 +109,6 @@ public:
 
 mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::EmbeddingSegmentsSumOp embeddingSegmentsSumOp,
                                                         mlir::PatternRewriter& rewriter) const {
-    const auto module = embeddingSegmentsSumOp->getParentOfType<mlir::ModuleOp>();
-    const auto arch = VPU::getArch(module);
-    const std::set<VPU::ArchKind> compatibleTargets = {VPU::ArchKind::NPU37XX, VPU::ArchKind::NPU40XX};
-    if (compatibleTargets.count(arch) <= 0) {
-        return mlir::failure();
-    }
     auto numSegmentsAttr = vpux::IE::getIntAttrValue(embeddingSegmentsSumOp.getNumSegments(), rewriter);
     auto defaultIndexAttr = vpux::IE::getIntAttrValue(embeddingSegmentsSumOp.getDefaultIndex(), rewriter);
 

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-op-slice %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @NoChangesAcrossInputsAtHeight
 func.func @NoChangesAcrossInputsAtHeight(%arg0: tensor<1x16x4x4xf16>, %arg1 : tensor<1x16x3x4xf16>) -> tensor<1x16x3x4xf16> {
     %0 = IE.Concat(%arg0, %arg1) {static_offsets = [[0, 0, 0, 0], [0, 0, 4, 0]]} : tensor<1x16x4x4xf16>, tensor<1x16x3x4xf16> -> tensor<1x16x7x4xf16>

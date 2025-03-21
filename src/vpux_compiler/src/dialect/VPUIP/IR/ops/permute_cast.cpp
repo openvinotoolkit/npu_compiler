@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
@@ -18,15 +19,31 @@ mlir::Value VPUIP::PermuteCastOp::getViewSource() {
 //
 
 mlir::OpFoldResult vpux::VPUIP::PermuteCastOp::fold(FoldAdaptor adaptor) {
-    auto operands = adaptor.getOperands();
-    VPUX_THROW_UNLESS(!operands.empty(), "Wrong number of operands : {0}", operands.size());
+    if (getSource().getType() == getResult().getType() && getMemPerm().isIdentity()) {
+        return getSource();
+    }
 
-    if (auto attr = operands[0].dyn_cast_or_null<Const::ContentAttr>()) {
-        auto restored = static_cast<Const::ContentAttr>(attr);
-        if (restored.getType().getShape() != getShape(getResult())) {
-            restored = restored.transform().reshape(getShape(getResult())).get();
+    if (auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(adaptor.getSource())) {
+        // This is a fallback solution. In some cases we get VPUIP::PermuteCastOps that should not
+        // be allowed. However, the verifier doesn't check this.
+        // TODO: #-141102 Remove this fallback solution as soon as the correct verifier is implemented.
+        mlir::SmallVector<mlir::Type> inferredReturnTypes;
+        VPU::inferPermuteReturnTypes(getSource(), getMemPerm(), getDstOrder(), inferredReturnTypes);
+        if (inferredReturnTypes.front() != getResult().getType()) {
+            auto restored = static_cast<Const::ContentAttr>(attr);
+            if (restored.getType().getShape() != getShape(getResult())) {
+                restored = restored.transform().reshape(getShape(getResult())).get();
+            }
+            return restored.transform().reorder(DimsOrder::fromAffineMap(getDstOrder())).get();
         }
-        return restored.transform().reorder(DimsOrder::fromAffineMap(getDstOrder())).get();
+
+        // PermuteCastOp ensures that it is always a trivial permutation. That's why we can just add MemPermuteAttr
+        // which will not perform any data movements.
+        auto result =
+                attr.transform()
+                        .memPermute(DimsOrder::fromAffineMap(getDstOrder()), DimsOrder::fromAffineMap(getMemPerm()))
+                        .get();
+        return result;
     }
 
     return nullptr;
@@ -60,6 +77,16 @@ mlir::LogicalResult vpux::VPUIP::PermuteCastOp::verify() {
 
     if (inType.getNumElements() != outType.getNumElements()) {
         return errorAt(op, "PermuteCast input and output must have the same number of elements");
+    }
+
+    const auto inRank = inType.getRank();
+    if (inRank != getDstOrder().getNumDims()) {
+        return errorAt(op, "PermuteCast input rank {0} does not match 'dst_order' {1}", inRank,
+                       getDstOrder().getNumDims());
+    }
+    if (inRank != getMemPerm().getNumDims()) {
+        return errorAt(op, "PermuteCast input rank {0} does not match 'dst_order' {1}", inRank,
+                       getMemPerm().getNumDims());
     }
 
     return mlir::success();

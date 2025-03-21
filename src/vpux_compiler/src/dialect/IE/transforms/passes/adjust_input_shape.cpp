@@ -4,21 +4,31 @@
 //
 
 #include <llvm/ADT/STLExtras.h>
+#include <mlir/IR/Operation.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTINPUTSHAPE
+#define GEN_PASS_DEF_ADJUSTINPUTSHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 using namespace IE;
+
 namespace {
 
 const uint32_t levelCount = 2;
@@ -42,7 +52,7 @@ bool checkValidPermuteQuantizePads(IE::PermuteQuantizeOp op) {
 //
 // AdjustInputShapePass
 //
-class AdjustInputShapePass final : public AdjustInputShapeBase<AdjustInputShapePass> {
+class AdjustInputShapePass final : public IE::impl::AdjustInputShapeBase<AdjustInputShapePass> {
 public:
     explicit AdjustInputShapePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -114,14 +124,14 @@ private:
     Shape _newExpandedShape;
     Logger _log;
 
-    void checkAndCorrectGroupConv();
+    void checkAndCorrectGroupConv(mlir::PatternRewriter& rewriter);
 
 public:
     bool opCostReduced();
-    mlir::LogicalResult rewrite();
+    mlir::LogicalResult rewrite(mlir::PatternRewriter& rewriter);
 };
 
-void ExpandEltwisePattern::checkAndCorrectGroupConv() {
+void ExpandEltwisePattern::checkAndCorrectGroupConv(mlir::PatternRewriter& rewriter) {
     auto groupConvOp = mlir::dyn_cast<IE::GroupConvolutionOp>(_eltwiseOp);
     if (groupConvOp == nullptr) {
         return;
@@ -130,10 +140,10 @@ void ExpandEltwisePattern::checkAndCorrectGroupConv() {
     if (groupSize == _newExpandedShape[Dims4D::Act::C]) {
         return;
     }
-    mlir::OpBuilder builder(_eltwiseOp);
-    auto ctx = builder.getContext();
+
+    auto ctx = rewriter.getContext();
     auto newGroupAttr = getIntAttr(ctx, _newExpandedShape[Dims4D::Act::C]);
-    auto newGroupConvOp = builder.create<IE::GroupConvolutionOp>(
+    auto newGroupConvOp = rewriter.create<IE::GroupConvolutionOp>(
             groupConvOp->getLoc(), groupConvOp.getInput(), groupConvOp.getFilter(), groupConvOp.getBias(),
             groupConvOp.getStridesAttr(), groupConvOp.getPadsBeginAttr(), groupConvOp.getPadsEnd(),
             groupConvOp.getDilationsAttr(), newGroupAttr, groupConvOp.getPostOpAttr(), groupConvOp.getClampAttr(),
@@ -185,6 +195,7 @@ bool ExpandEltwisePattern::init() {
             _expandInputs.insert(expand);
         } else if (auto quantCast = operand.getDefiningOp<IE::QuantizeCastOp>()) {
             auto prevExpand = quantCast.getInput().getDefiningOp<IE::ExpandOp>();
+
             if (prevExpand) {
                 _expandInputs.insert(prevExpand);
             } else {
@@ -402,9 +413,8 @@ bool ExpandEltwisePattern::opCostReduced() {
             |                                     |
       Slice (optional)                      Slice (optional)
  */
-mlir::LogicalResult ExpandEltwisePattern::rewrite() {
-    mlir::OpBuilder builder(_eltwiseOp);
-    auto ctx = builder.getContext();
+mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewriter) {
+    auto ctx = rewriter.getContext();
 
     _log.trace("Converting unexpanded shape {0} to new aligned shape {1}", _unExpandedShape, _newExpandedShape);
 
@@ -412,6 +422,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite() {
         auto ownerOp = opOperand.getOwner();
         while (auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(ownerOp)) {
             auto quantizeUsers = quantizeCastOp.getOutput().getUsers();
+
             if (quantizeUsers.empty()) {
                 return ownerOp;
             }
@@ -428,12 +439,12 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite() {
             return mlir::failure();
         }
 
-        builder.setInsertionPointAfter(nonExpand);
-        auto inputSliceOp = builder.create<IE::SliceOp>(_eltwiseOp->getLoc(), nonExpand->getResult(0),
-                                                        getIntArrayAttr(ctx, sliceOffset),
-                                                        getIntArrayAttr(ctx, expandInputType.getShape().raw()));
-        auto inputShapeCastOp = builder.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), inputSliceOp.getResult(),
-                                                                getIntArrayAttr(ctx, _newExpandedShape.raw()));
+        rewriter.setInsertionPointAfter(nonExpand);
+        auto inputSliceOp = rewriter.create<IE::SliceOp>(_eltwiseOp->getLoc(), nonExpand->getResult(0),
+                                                         getIntArrayAttr(ctx, sliceOffset),
+                                                         getIntArrayAttr(ctx, expandInputType.getShape().raw()));
+        auto inputShapeCastOp = rewriter.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), inputSliceOp.getResult(),
+                                                                 getIntArrayAttr(ctx, _newExpandedShape.raw()));
         nonExpand->getResult(0).replaceUsesWithIf(inputShapeCastOp.getResult(), [&](mlir::OpOperand& opOperand) {
             return getOwnerIgnoreQuantizeCast(opOperand) == _eltwiseOp;
         });
@@ -443,10 +454,10 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite() {
     for (auto expand : _expandInputs) {
         auto inputValue = expand.getInput();
         auto inputType = inputValue.getType().cast<vpux::NDTypeInterface>();
-        builder.setInsertionPointAfter(expand);
+        rewriter.setInsertionPointAfter(expand);
         auto inputShapeCastOp =
-                builder.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), inputType.changeShape(_newExpandedShape),
-                                                inputValue, getIntArrayAttr(ctx, _newExpandedShape.raw()));
+                rewriter.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), inputType.changeShape(_newExpandedShape),
+                                                 inputValue, getIntArrayAttr(ctx, _newExpandedShape.raw()));
 
         expand.getOutput().replaceUsesWithIf(inputShapeCastOp.getResult(), [&](mlir::OpOperand& opOperand) {
             // replace only current user uses
@@ -457,6 +468,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite() {
         while (innerOp != _eltwiseOp) {
             auto innerOpResult = innerOp->getResult(0);
             auto innerOutputType = innerOpResult.getType().cast<vpux::NDTypeInterface>();
+
             innerOp->getResult(0).setType(innerOutputType.changeShape(_newExpandedShape));
             if (innerOp->getResult(0).getUsers().empty()) {
                 break;
@@ -537,29 +549,46 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite() {
                     baseContent, newContentAttrSetup.broadcast(broadcastDim, _newExpandedShape[Dims4D::Act::C])
                                          .reshape(newConstantShape));
         }
-        builder.setInsertionPoint(_eltwiseOp);
+        rewriter.setInsertionPoint(_eltwiseOp);
         auto newConstDeclare =
-                builder.create<Const::DeclareOp>(constDeclare.getLoc(), newConstOutputType, std::move(newContentAttr));
+                rewriter.create<Const::DeclareOp>(constDeclare.getLoc(), newConstOutputType, std::move(newContentAttr));
         constDeclare.getOutput().replaceUsesWithIf(newConstDeclare.getOutput(), [&](mlir::OpOperand& opOperand) {
             return opOperand.getOwner() == _eltwiseOp;
         });
     }
 
     // Replace the eltwise GroupConv with correct attributes
-    checkAndCorrectGroupConv();
+    checkAndCorrectGroupConv(rewriter);
 
     // Insert ShapeCasts and Expands after eltwise ops
     auto outputType = _eltwiseOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
+
+    if (VPU::canAutopadOutput(_eltwiseOp, outputType) && _eltwiseOp->hasAttr(VPU::outChanAttrName)) {
+        // Reset the shape infer logic by removing
+        // the attr because this op's shape will
+        // be adjusted after expand-act-channels pass
+        rewriter.modifyOpInPlace(_eltwiseOp, [&] {
+            _eltwiseOp->removeAttr(VPU::outChanAttrName);
+        });
+    }
+
     _eltwiseOp->getResult(0).setType(outputType.changeShape(_newExpandedShape));
-    builder.setInsertionPointAfter(_eltwiseOp);
+    rewriter.setInsertionPointAfter(_eltwiseOp);
     auto outputShapeCastOp =
-            builder.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), outputType.changeShape(_unExpandedShape),
-                                            _eltwiseOp->getResult(0), getIntArrayAttr(ctx, _unExpandedShape.raw()));
-    auto inputExpandOp = *_expandInputs.begin();
-    auto newOutputExpandOp =
-            builder.create<IE::ExpandOp>(_eltwiseOp->getLoc(), outputShapeCastOp.getResult(),
-                                         inputExpandOp.getPadsBeginAttr(), inputExpandOp.getPadsEndAttr());
-    _eltwiseOp->getResult(0).replaceAllUsesExcept(newOutputExpandOp.getOutput(), outputShapeCastOp);
+            rewriter.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), outputType.changeShape(_unExpandedShape),
+                                             _eltwiseOp->getResult(0), getIntArrayAttr(ctx, _unExpandedShape.raw()));
+
+    if (VPU::canAutopadOutput(_eltwiseOp, outputType)) {
+        // Current pass logic expects a slice
+        // which doesn't happen with autopad
+        _eltwiseOp->getResult(0).replaceAllUsesExcept(outputShapeCastOp.getResult(), outputShapeCastOp);
+    } else {
+        auto inputExpandOp = *_expandInputs.begin();
+        auto newOutputExpandOp =
+                rewriter.create<IE::ExpandOp>(_eltwiseOp->getLoc(), outputShapeCastOp.getResult(),
+                                              inputExpandOp.getPadsBeginAttr(), inputExpandOp.getPadsEndAttr());
+        _eltwiseOp->getResult(0).replaceAllUsesExcept(newOutputExpandOp.getOutput(), outputShapeCastOp);
+    }
     return mlir::success();
 }
 
@@ -583,14 +612,14 @@ private:
 
 template <class EltwiseOp>
 mlir::LogicalResult ExpandEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp layerOp,
-                                                                      mlir::PatternRewriter& /*rewriter*/) const {
+                                                                      mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), layerOp->getName(), layerOp->getLoc());
     auto pattern = ExpandEltwisePattern(layerOp.getOperation(), _log);
     if (!pattern.init()) {
         return mlir::failure();
     }
     if (pattern.opCostReduced()) {
-        return pattern.rewrite();
+        return pattern.rewrite(rewriter);
     }
     return mlir::failure();
 }
@@ -614,7 +643,7 @@ private:
 };
 
 mlir::LogicalResult ExpandGroupConvRewriter::matchAndRewrite(IE::GroupConvolutionOp layerOp,
-                                                             mlir::PatternRewriter&) const {
+                                                             mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), layerOp->getName(), layerOp->getLoc());
     // Only support GroupConvolution with constant filter
     // if the GroupConvolution has bias, the bias has to be constant as well
@@ -631,7 +660,7 @@ mlir::LogicalResult ExpandGroupConvRewriter::matchAndRewrite(IE::GroupConvolutio
         return mlir::failure();
     }
     if (pattern.opCostReduced()) {
-        return pattern.rewrite();
+        return pattern.rewrite(rewriter);
     }
     return mlir::failure();
 }
@@ -761,7 +790,7 @@ mlir::LogicalResult ExpandPoolingRewriter<PoolingOp>::matchAndRewrite(PoolingOp 
     }
     if (pattern.opCostReduced()) {
         nestedLog.debug("Pattern rewrite is beneficial. Applying it.");
-        return pattern.rewrite();
+        return pattern.rewrite(rewriter);
     }
 
     return matchFailed(nestedLog, rewriter, layerOp,
@@ -774,7 +803,7 @@ public:
     }
 
     bool init();
-    mlir::LogicalResult rewrite();
+    mlir::LogicalResult rewrite(mlir::PatternRewriter& rewriter);
 };
 
 template <class PoolingOp>
@@ -879,22 +908,21 @@ bool ExpandSingleChannelPoolingPattern::init() {
    to move W elements per cycle, total N*H cycles.
 */
 
-mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite() {
+mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite(mlir::PatternRewriter& rewriter) {
     auto log = getLogger().nest();
 
     auto expand = *getExpandInputs().begin();
     auto op = getEltwiseOperation();
     log.trace("Adjust input shape for pooling op at {0}", op->getLoc());
 
-    mlir::OpBuilder builder(op);
-    auto ctx = builder.getContext();
+    auto ctx = rewriter.getContext();
 
     auto inShape = getShape(expand.getInput());
     auto newInShape = SmallVector<int64_t>{inShape[Dims4D::Act::N], inShape[Dims4D::Act::W], inShape[Dims4D::Act::H],
                                            inShape[Dims4D::Act::C]};
 
     auto inShapeCast =
-            builder.create<IE::ShapeCastOp>(expand->getLoc(), expand.getInput(), getIntArrayAttr(ctx, newInShape));
+            rewriter.create<IE::ShapeCastOp>(expand->getLoc(), expand.getInput(), getIntArrayAttr(ctx, newInShape));
 
     // input for the new pooling op
     mlir::Value input;
@@ -907,8 +935,8 @@ mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite() {
         auto padEnd = mlir::SmallVector<int64_t>(newInShape.size(), 0);
         padEnd[vpux::Dims4D::Act::C.ind()] = alignedInputC - newInShape[Dims4D::Act::C.ind()];
         auto newExpand =
-                builder.create<IE::ExpandOp>(expand->getLoc(), inShapeCast, getIntArrayAttr(ctx, ArrayRef(padBegin)),
-                                             getIntArrayAttr(ctx, ArrayRef(padEnd)));
+                rewriter.create<IE::ExpandOp>(expand->getLoc(), inShapeCast, getIntArrayAttr(ctx, ArrayRef(padBegin)),
+                                              getIntArrayAttr(ctx, ArrayRef(padEnd)));
         expand->replaceAllUsesWith(newExpand);
         input = newExpand.getResult();
     } else {
@@ -918,7 +946,7 @@ mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite() {
 
     mlir::IRMapping mapper;
     mapper.map(op->getOperand(0), input);
-    auto newPoolOp = builder.clone(*op, mapper);
+    auto newPoolOp = rewriter.clone(*op, mapper);
     vpux::inferReturnTypes(newPoolOp, vpux::InferShapedTypeMode::SHAPE);
 
     // create ShapeCast for the output of the pooling op
@@ -927,19 +955,26 @@ mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite() {
     auto newOutShape = SmallVector<int64_t>{outShape[Dims4D::Act::N], outShape[Dims4D::Act::W],
                                             outShape[Dims4D::Act::H], outShape[Dims4D::Act::C]};
     auto outShapeCast =
-            builder.create<IE::ShapeCastOp>(poolOutput.getLoc(), poolOutput, getIntArrayAttr(ctx, newOutShape));
+            rewriter.create<IE::ShapeCastOp>(poolOutput.getLoc(), poolOutput, getIntArrayAttr(ctx, newOutShape));
 
     mlir::Value newOutput = outShapeCast.getResult();
     if (needInsertExpandForNewInputShape) {
         // The original W has been expanded, need to slice for the new output
         SmallVector<int64_t> sliceOffset(outShape.size(), 0);
         newOutShape[Dims4D::Act::W.ind()] = inShape[Dims4D::Act::W];
-        newOutput = builder.create<IE::SliceOp>(outShapeCast->getLoc(), outShapeCast, getIntArrayAttr(ctx, sliceOffset),
-                                                getIntArrayAttr(ctx, newOutShape));
+        newOutput = rewriter.create<IE::SliceOp>(outShapeCast->getLoc(), outShapeCast,
+                                                 getIntArrayAttr(ctx, sliceOffset), getIntArrayAttr(ctx, newOutShape));
     }
 
-    auto newOutExpand = builder.create<IE::ExpandOp>(expand->getLoc(), newOutput, expand.getPadsBeginAttr(),
-                                                     expand.getPadsEndAttr());
+    auto outputType = op->getResult(0).getType().cast<vpux::NDTypeInterface>();
+    if (VPU::canAutopadOutput(newPoolOp, outputType) && newPoolOp->hasAttr(VPU::outChanAttrName)) {
+        rewriter.modifyOpInPlace(newPoolOp, [&] {
+            newPoolOp->removeAttr(VPU::outChanAttrName);
+        });
+    }
+
+    auto newOutExpand = rewriter.create<IE::ExpandOp>(expand->getLoc(), newOutput, expand.getPadsBeginAttr(),
+                                                      expand.getPadsEndAttr());
 
     op->replaceAllUsesWith(newOutExpand->getResults());
     return mlir::success();
@@ -965,8 +1000,8 @@ private:
 };
 
 template <class PoolingOp>
-mlir::LogicalResult ExpandSingleChannelPoolingRewriter<PoolingOp>::matchAndRewrite(PoolingOp layerOp,
-                                                                                   mlir::PatternRewriter&) const {
+mlir::LogicalResult ExpandSingleChannelPoolingRewriter<PoolingOp>::matchAndRewrite(
+        PoolingOp layerOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), layerOp->getName(), layerOp->getLoc());
     auto pattern = ExpandSingleChannelPoolingPattern(layerOp.getOperation(), _log);
     if (!pattern.init()) {
@@ -999,7 +1034,7 @@ mlir::LogicalResult ExpandSingleChannelPoolingRewriter<PoolingOp>::matchAndRewri
     }
 
     if (pattern.opCostReduced()) {
-        return pattern.rewrite();
+        return pattern.rewrite(rewriter);
     }
     return mlir::failure();
 }
@@ -1166,7 +1201,7 @@ private:
 };
 
 mlir::LogicalResult ExpandPermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantizeOp layerOp,
-                                                                   mlir::PatternRewriter&) const {
+                                                                   mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), layerOp->getName(), layerOp->getLoc());
 
     auto pattern = ExpandPermuteQuantizePattern(layerOp.getOperation(), _log);
@@ -1174,7 +1209,7 @@ mlir::LogicalResult ExpandPermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQu
         return mlir::failure();
     }
     if (pattern.opCostReduced()) {
-        return pattern.rewrite();
+        return pattern.rewrite(rewriter);
     }
     return mlir::failure();
 }
@@ -1376,8 +1411,8 @@ mlir::LogicalResult EltwiseShapeRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp l
         // Update EltwiseOp
         auto newEltwise = rewriter.template create<EltwiseOp>(
                 layerOp->getLoc(), newEltwiseOutputType, origShapeOp->getOperand(0), origShapeOp->getOperand(0),
-                layerOp.getAutoBroadcast(), layerOp.getPostOpAttr(), layerOp.getClampAttr(),
-                layerOp.getOutputChannelsAttr(), layerOp.getInputChannelsAttr());
+                layerOp.getAutoBroadcast(), layerOp.getPostOpAttr(), layerOp.getClampAttr(), nullptr,
+                layerOp.getInputChannelsAttr());
         mlir::Value origOutput = layerOp->getResult(0);
         mlir::Value newOutput = newEltwise->getResult(0);
         // Update QuantizeCastOp
@@ -1392,6 +1427,7 @@ mlir::LogicalResult EltwiseShapeRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp l
         mlir::IRMapping mapper;
         mapper.map(origShapeOp->getOperand(0), newOutput);
         auto newShapeOp = rewriter.clone(*origShapeOp, mapper);
+
         vpux::inferReturnTypes(newShapeOp, vpux::InferShapedTypeMode::ALL);
         origOutput.replaceAllUsesWith(newShapeOp->getResult(0));
     }

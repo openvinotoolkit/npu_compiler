@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger 8192 --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --map-bilinear-interpolate-on-dpu %s | FileCheck %s
 // REQUIRES: arch-NPU37XX
 
-
 // CHECK-LABEL: @MapBilinearPytorchHalfPixelInterpolateOnDPU
 func.func @MapBilinearPytorchHalfPixelInterpolateOnDPU(%arg0: tensor<1x128x72x72xf16>) -> tensor<1x128x140x140xf16> {
     %0 = IE.Interpolate(%arg0) {attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,

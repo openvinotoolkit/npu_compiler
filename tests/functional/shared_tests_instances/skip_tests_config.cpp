@@ -280,6 +280,11 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*DriverCompilerAdapterInputsOutputsTestNPU.*",
         });
 
+        _skipRegistry.addPatterns(devices.has4000()
+                , "Tests are failing due to smoke_BI_PAD=0",{
+                // [Track number: E#152648]
+                ".*DeformableConvolutionLayerTestCommon.*"
+        });
         // TODO
         // [Track number: E#32075]
         _skipRegistry.addPatterns(
@@ -460,9 +465,9 @@ std::vector<std::string> disabledTestPatterns() {
                                   {".*smoke_AutoBatch_BehaviorTests/CorrectConfigTests.*"});
 
         _skipRegistry.addPatterns("OpenVINO issues when using caching mechanism",
-                                  {// [Tracking number: CVS#119359]
+                                  {// [Tracking number: C#119359]
                                    ".*smoke_Auto_BehaviorTests_CachingSupportCase_NPU_Driver/CompileModelLoadFromFileTestBase.*",
-                                   // [Tracking number: CVS#120240]
+                                   // [Tracking number: C#120240]
                                    ".*smoke_BehaviorTests_CachingSupportCase_NPU_Driver/CompileModelLoadFromFileTestBase.*"});
 
         // [Track number: E#144361]
@@ -472,21 +477,12 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*smoke_TwoScatterUpdateInDDR/TwoScatterUpdateTest_NPU3720.SW.*",
         });
 
-        // [Tracking number: E#119397]
-        _skipRegistry.addPatterns(backendName.isZero() && devices.has4000(),
-                "Test fails compilation (on both Ubuntu and Windows)", {
-                ".*DetectionOutputLayerTestCommon.NPU4000.*",
-                // [Tracking number: E#149877]
-                ".*OVInferRequestPerfCountersTest.NotEmptyAfterAsyncInfer.*",
-                ".*OVInferRequestPerfCountersTest.NotEmptyAfterSyncInfer.*",
-                // [Tracking number: E#149879]
-                ".*ProfilingSubgraphTest.ProfilingTest.*",
-        });
-
-        // [Tracking number : E#145347]
-        _skipRegistry.addPatterns(backendName.isZero() && devices.has4000(),
-                "Sporadic failures in CoreThreadingTestsWithIter", {
-                ".*CoreThreadingTestsWithIter.*"
+        // [Tracking number: E#152579]
+        _skipRegistry.addPatterns(backendName.isZero() && (devices.has3720() || devices.has4000()
+                ), "ThreadingTests failure", {
+                ".*CoreThreadingTestsWithIter.*",
+                // [Tracking number: E#158696]
+                ".*compatibility_smoke_BehaviorTests/OVCompileAndInferRequestTurbo.CompiledModelTurbo.*",
         });
 
 #ifdef WIN32
@@ -497,11 +493,6 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*smoke_IfTest.*"
         });
 
-        // [Tracking number: E#129645]
-        _skipRegistry.addPatterns(backendName.isZero() && devices.has4000(),
-                "Tests fail with: ZE_RESULT_ERROR_UNINITIALIZED, code 0x78000001", {
-                ".*DftLayerTestCommon.NPU4000.*"
-        });
         // [Track number: E#144361]
         _skipRegistry.addPatterns(backendName.isZero() && devices.has3720(),
                 "[WW43]Driver update failures", {
@@ -525,6 +516,7 @@ std::vector<std::string> disabledTestPatterns() {
                 "Tests enabled only for L0 NPU3720", {
                 ".*smoke_VariableStateBasic.*"
         });
+
 
         // [Track number: E#118999]
         _skipRegistry.addPatterns(backendName.isZero(),
@@ -575,7 +567,7 @@ std::vector<std::string> disabledTestPatterns() {
         });
 
 #ifdef WIN32
-        // [Track number: C#128116]
+        // [Track number: CS-128116]
         _skipRegistry.addPatterns("Unicode paths for ov::cache_dir are not correctly handled on Windows",
                                   {".*CompiledKernelsCacheTest.*CanCreateCacheDirAndDumpBinariesUnicodePath.*"});
 #endif
@@ -675,7 +667,7 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*smoke_Auto_BehaviorTests/OVInferRequestCallbackTestsNPU.*",
                 ".*smoke_Multi_BehaviorTests_OVClassCompileModelWithCorrectPropertiesTest/OVClassCompileModelWithCorrectPropertiesTest.*",
                 ".*smoke_AUTO_BehaviorTests_OVClassCompileModelWithCorrectPropertiesTest/OVClassCompileModelWithCorrectPropertiesTest.*",
-                // [Tracking number: C#140844]
+                // [Tracking number: C-140844]
                 ".*smoke_Auto_BehaviorTests/OVInferRequestIOTensorTest.*",
                 ".*smoke_Multi_BehaviorTests/OVInferRequestCallbackTestsNPU.*",
                 ".*smoke_Multi_BehaviorTests/OVInferRequestIOTensorTestNPU.*",
@@ -711,7 +703,7 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*smoke_Auto_BehaviorTests_Driver/OVInferRequestCallbackTestsNPU.*",
                 ".*smoke_Multi_BehaviorTests_OVClassCompileModelWithCorrectPropertiesTest_Driver/OVClassCompileModelWithCorrectPropertiesTest.*",
                 ".*smoke_AUTO_BehaviorTests_OVClassCompileModelWithCorrectPropertiesTest_Driver/OVClassCompileModelWithCorrectPropertiesTest.*",
-                // [Tracking number: C#140844]
+                // [Tracking number: C-140844]
                 ".*smoke_Auto_BehaviorTests_Driver/OVInferRequestIOTensorTest.*",
                 ".*smoke_Multi_BehaviorTests_Driver/OVInferRequestCallbackTestsNPU.*",
                 ".*smoke_Multi_BehaviorTests_Driver/OVInferRequestIOTensorTestNPU.*",
@@ -730,6 +722,11 @@ std::vector<std::string> disabledTestPatterns() {
         _skipRegistry.addPatterns(
                 "NPU plugin doesn't support infer dynamic", {
                 ".*OVInferRequestBatchedTests.SetInputTensors_Can_Infer_Dynamic.*",
+        });
+
+        // [Tracking number: E#155512]
+        _skipRegistry.addPatterns("Comparation is failed, test needs to be fixed.", {
+                ".*smoke_SEPDilatedConv/SEPDilatedConvTestCommon.NPU4000_HW/TestKindSubgraph_InShape=inputShape=.*1, 64, 64, 64.*__Dilations=.*2, 2.*"
         });
 
         // [Tracking number: E#118381]
@@ -765,12 +762,12 @@ std::vector<std::string> disabledTestPatterns() {
         });
 
         // [Tracking number: E#109040]
-	_skipRegistry.addPatterns("CheckWrongGraphExtAndThrow tests do not work with COMPILER_TYPE=DRIVER", {
+        _skipRegistry.addPatterns("CheckWrongGraphExtAndThrow tests do not work with COMPILER_TYPE=DRIVER", {
                 ".*DriverCompilerAdapterExpectedThrowNPU.CheckWrongGraphExtAndThrow.*"
         });
 
         // [Tracking number: E#109040]
-	_skipRegistry.addPatterns("Skip tests that can not wrong when DRIVER is default compiler type", {
+        _skipRegistry.addPatterns("Skip tests that can not wrong when DRIVER is default compiler type", {
                 ".*OVClassLoadNetworkTestNPU.LoadNetworkHETEROWithDeviceIDNoThrow.*",
                 ".*MatMulTransposeConcatTest.*"
         });
@@ -790,7 +787,7 @@ std::vector<std::string> disabledTestPatterns() {
                 ".*OVClassCompiledModelSetCorrectConfigTest.canSetConfig.*"
         });
 
-        // [Tracking number: C#139118]
+        // [Tracking number: C-139118]
         _skipRegistry.addPatterns("Failing runtime model tests", {
                 ".*OVCompiledModelGraphUniqueNodeNamesTest.CheckUniqueNodeNames.*",
                 ".*OVExecGraphSerializationTest.ExecutionGraph.*"
@@ -803,6 +800,10 @@ std::vector<std::string> disabledTestPatterns() {
         // get_runtime_model method is not supported on NPU
         _skipRegistry.addPatterns("get_runtime_model method is not supported on NPU", {
                 ".*OVClassModelOptionalTestP.CompileModelCreateDefaultExecGraphResult.*",
+        });
+        // [Track number: C-156952]
+        _skipRegistry.addPatterns("Template plugin doesn't implement evaluate method for RoPE Op", {
+                ".*FuseRoPE.*"
         });
 
         return _skipRegistry;

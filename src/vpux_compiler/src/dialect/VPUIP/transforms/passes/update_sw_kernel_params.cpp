@@ -1,18 +1,25 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/core/feasible_memory_scheduler_spilling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
 #include <functional>
 #include <map>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UPDATESWKERNELPARAMS
+#define GEN_PASS_DEF_UPDATESWKERNELPARAMS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -76,11 +83,12 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     outStrides.resize(MAX_NUM_DIMS, 0);
 
     // excluding dim == 1 from dims
-    for (int i = ndims - 1; i >= 0; i--) {
-        if (ndims <= 1)
+    for (int64_t i = ndims - 1; i >= 0; i--) {
+        if (ndims <= 1) {
             break;
+        }
         if ((inDims[i] == 1) && (axis != i)) {
-            for (int j = i; j < ndims - 1; j++) {
+            for (int64_t j = i; j < ndims - 1; j++) {
                 inDims[j] = inDims[j + 1];
                 inStrides[j] = inStrides[j + 1];
                 outStrides[j] = outStrides[j + 1];
@@ -91,10 +99,10 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     }
 
     // fuse dims if stride allow
-    for (int i = ndims - 2; i > (axis); i--) {
+    for (int64_t i = ndims - 2; i > axis && i >= 0; i--) {
         if ((inStrides[i + 1] == (inStrides[i] * inDims[i])) && (outStrides[i + 1] == (outStrides[i] * inDims[i]))) {
             inDims[i] = inDims[i + 1] * inDims[i];  // fuse dims
-            for (int j = i + 1; j < ndims - 1; j++) {
+            for (int64_t j = i + 1; j < ndims - 1; j++) {
                 inDims[j] = inDims[j + 1];
                 inStrides[j] = inStrides[j + 1];
                 outStrides[j] = outStrides[j + 1];
@@ -106,7 +114,7 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     //    Inner 1 dimension added to make the algorithm work in 'calculateSoftMaxOuter' way
     //    in the case when inner stride  more than size of one tensor element
     if (axis == 0 && ((inStrides[0]) > 1 || (outStrides[0] > 1))) {
-        for (int i = ndims; i >= 1; i--) {
+        for (int64_t i = ndims; i >= 1; i--) {
             inDims[i] = inDims[i - 1];
             inStrides[i] = inStrides[i - 1];
             outStrides[i] = outStrides[i - 1];
@@ -117,7 +125,7 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     }
     // works only with ndims >= 3 to simplicity and for speed increase if stride requested
     if (ndims < 3) {
-        for (int i = ndims; i < 3; i++) {
+        for (int64_t i = ndims; i < 3 && i >= 0; i++) {
             inStrides[i] = inStrides[ndims - 1] * inDims[ndims - 1];
             outStrides[i] = outStrides[ndims - 1] * inDims[ndims - 1];
             inDims[i] = 1;
@@ -139,7 +147,7 @@ static SmallVector<uint64_t> generateVpuipSoftmaxAttr(mlir::Value input, mlir::V
     storage.push_back(packAsI32intoU64(axis, padSize));
     storage.push_back(packAsI32intoU64(mode, ndims));
 
-    for (int i = 0; i < ndims; i++) {
+    for (int64_t i = 0; i < ndims; i++) {
         storage.push_back(packAsI32intoU64(inDims[i], inDims[i]));
         storage.push_back(packAsI32intoU64(inStrides[i], outStrides[i]));
     }
@@ -165,18 +173,19 @@ private:
 
 mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKernelOp swKernelOp,
                                                                   mlir::PatternRewriter& /*rewriter*/) const {
+    _log.trace("Identified SwKernel operation '{0}' at location '{1}'", swKernelOp, swKernelOp->getLoc());
     auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
     auto kernelFunc = module.lookupSymbol<mlir::func::FuncOp>(swKernelOp.getKernelFunctionAttr());
     if (kernelFunc == nullptr) {
         return mlir::failure();
     }
-    const auto kernelEntryPoint = kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry");
-    if (kernelEntryPoint == nullptr) {
+
+    if (kernelFunc->getAttrOfType<mlir::StringAttr>("VPU.kernel_entry") == nullptr) {
         return mlir::failure();
     }
-    kernelEntryPoint.getValue();
-    auto kernelEntryName = kernelEntryPoint.getValue();
-    _log.trace("Found SwKernel '{0}' at '{1}'", kernelEntryName, swKernelOp->getLoc());
+
+    auto kernelEntryName = getSwKernelEntryName(swKernelOp);
+
     // just softmax need parameters adjustment
     if (kernelEntryName != "softmax") {
         return mlir::failure();
@@ -197,7 +206,7 @@ mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKerne
 
         const auto axis = mlir::dyn_cast<mlir::IntegerAttr>(attrs[0]).getInt();
         const auto padSize = mlir::dyn_cast<mlir::IntegerAttr>(attrs[1]).getInt();
-        const auto hasDynamicShape = VPUIP::hasDynamicShape(swKernelOp);
+        const auto hasDynamicShape = VPUIP::hasBoundedBuffers(swKernelOp);
 
         const auto params = generateVpuipSoftmaxAttr(kernelRun.getOperand(0), swKernelOp.getResult(0), axis, padSize,
                                                      hasDynamicShape);
@@ -215,7 +224,7 @@ mlir::LogicalResult UpdateSwKernelParamsRewriter::matchAndRewrite(VPUIP::SwKerne
 // UpdateSwKernelParamsPass
 //
 
-class UpdateSwKernelParamsPass final : public VPUIP::UpdateSwKernelParamsBase<UpdateSwKernelParamsPass> {
+class UpdateSwKernelParamsPass final : public VPUIP::impl::UpdateSwKernelParamsBase<UpdateSwKernelParamsPass> {
 public:
     explicit UpdateSwKernelParamsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

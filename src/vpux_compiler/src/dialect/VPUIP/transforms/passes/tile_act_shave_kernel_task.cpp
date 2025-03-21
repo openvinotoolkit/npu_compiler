@@ -1,10 +1,12 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -15,10 +17,17 @@
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/utils/allocate_buffers.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_TILEACTSHAVEKERNELTASK
+#define GEN_PASS_DEF_TILEACTSHAVEKERNELTASK
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 using namespace VPUIP;
@@ -125,6 +134,17 @@ std::optional<Dim> getHighestTileableDimOfMvn6(VPUIP::SwKernelOp swKernelOp) {
     return std::nullopt;
 }
 
+std::optional<Dim> getHighestTileableDimOfMvn1sum(ShapeRef shape, const DimsOrder& dimOrder) {
+    for (auto idx : irange(dimOrder.numDims())) {
+        auto curDim = dimOrder.dimAt(idx);
+        if (shape[curDim] != 1 && curDim != Dims4D::Act::W) {
+            return curDim;
+        }
+    }
+
+    return std::nullopt;
+}
+
 bool hasNon4DOutputShape(VPUIP::SwKernelOp swKernelOp) {
     // Checking for non 4d output, in such cases tiling is not possible except for GatherOp
     if (std::any_of(swKernelOp.getOutputs().begin(), swKernelOp.getOutputs().end(), [](const auto& output) {
@@ -179,7 +199,7 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
         return Dims4D::Act::C;
     } else if (kernelEntryName == "mvn1_sum") {
         auto outType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
-        return getHighestNonTrivialDim(outType.getShape(), outType.getDimsOrder()).value_or(Dim(0));
+        return getHighestTileableDimOfMvn1sum(outType.getShape(), outType.getDimsOrder()).value_or(Dim(0));
     } else if (kernelEntryName == "mvn6") {
         // MVN6 only supports tiling on non-normalization axes
         auto dim = getHighestTileableDimOfMvn6(swKernelOp);
@@ -312,9 +332,10 @@ bool canGatherElementsOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
     return axisVal != inHighestDimVal;
 }
 
-bool isRMSOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
+bool isOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    VPUX_THROW_UNLESS(kernelEntryName == "rms_norm", "This function was designed for RMSNorm operator");
+    VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope",
+                      "This function was designed for RMSNorm or RoPE operator");
 
     const auto outTileDimVal = getSwKernelTileDim(swKernelOp);
     if (outTileDimVal == Dims4D::Act::W) {
@@ -323,15 +344,26 @@ bool isRMSOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     return false;
 }
 
+bool isDynamicTilingSupported(StringRef kernelEntryName) {
+    // List of kernel names that support dynamic tiling
+    static const std::unordered_set<std::string> supportedKernels = {
+            "lstm_sequence",
+            // Add more kernel names as they become supported
+    };
+
+    return supportedKernels.find(kernelEntryName.str()) != supportedKernels.end();
+}
+
 bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
 
-    if (hasDynamicShape(swKernelOp)) {
-        return false;
+    if (VPUIP::hasBoundedBuffers(swKernelOp)) {
+        return isDynamicTilingSupported(kernelEntryName);
     }
 
+    const auto arch = VPU::getArch(swKernelOp);
     // this is a workaround to force tiling of an operation with multiple outputs
-    if (kernelEntryName == "detection_output_sort") {
+    if ((kernelEntryName == "detection_output_sort") && (arch == VPU::ArchKind::NPU37XX)) {
         auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
         auto tileOp = vpux::IE::getTileExecutor(module);
         VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query SHAVE_ACT executor.");
@@ -369,15 +401,15 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         const auto acrossChannels = taskArgs[0].dyn_cast<mlir::BoolAttr>();
         return !acrossChannels.getValue();
     } else if (kernelEntryName == "mvn1_sum") {
-        auto inType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
-        auto inHighestDim = getHighestNonTrivialDim(inType.getShape(), inType.getDimsOrder()).value_or(Dim(0));
-
+        auto outType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        auto outHighestDim =
+                getHighestTileableDimOfMvn1sum(outType.getShape(), outType.getDimsOrder()).value_or(Dim(0));
         if (auto clusterTilingOp = mlir::dyn_cast<VPUIP::NCEClusterTilingOp>(swKernelOp->getParentOp())) {
             if (auto dimIdx = VPUIP::getTilingDimIndex(clusterTilingOp.getOperand(0).getType())) {
-                return Dim(dimIdx.value()) == inHighestDim;
+                return Dim(dimIdx.value()) == outHighestDim;
             }
         }
-        return inHighestDim == Dims4D::Act::N || inHighestDim == Dims4D::Act::C || inHighestDim == Dims4D::Act::H;
+        return true;
     } else if (kernelEntryName == "mvn6") {
         auto dim = getHighestTileableDimOfMvn6(swKernelOp);
         return dim.has_value();
@@ -465,9 +497,16 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
                       outputSize);
             return false;
         }
-    } else if (kernelEntryName == "rms_norm") {
+    } else if (kernelEntryName == "rms_norm" || kernelEntryName == "rope") {
         // RMSNorm is not supporting over width tiling
-        if (isRMSOpTileOverWidthDim(swKernelOp)) {
+        if (isOpTileOverWidthDim(swKernelOp)) {
+            return false;
+        }
+    } else if (kernelEntryName == "dynamic_dequantize") {
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
+        // Tile on W dim may lead to use slow C algo
+        if (highestDim == Dims4D::Act::W) {
             return false;
         }
     }
@@ -1125,6 +1164,7 @@ VPUIP::SwKernelOp SwKernelRewriter::createNewSwKernelOp(VPUIP::SwKernelOp swKern
             swKernelOp->getLoc(), newInputs, newOutBufs, swKernelOp.getKernelFunction(), swKernelOp.getTileIndexAttr());
     auto swKernelRun = *swKernelOp.getBody().getOps<VPUIP::SwKernelRun>().begin();
     VPUIP::initSwKernel(newSwKernelTask, swKernelRun, _log);
+
     _log.trace("create new swKernel op {0}", newSwKernelTask);
     return newSwKernelTask;
 }
@@ -1159,39 +1199,52 @@ void SwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, VPUIP::
 
     for (auto resultIndx : irange(origNumberResults)) {
         auto output = origOp->getResult(resultIndx);
-        auto origOutBufOp = mlir::dyn_cast<mlir::memref::AllocOp>(origOp.getOutputBuffs()[resultIndx].getDefiningOp());
-        if (insertSubview) {
-            SmallVector<mlir::Value> subResults;
-            for (auto index : irange(numberActShaveTiles)) {
-                subResults.push_back(newSwKernelOp->getResult(origNumberResults * index + resultIndx));
+
+        auto handleOutputReplacement = [&](auto origOutBufOp) {
+            if (insertSubview) {
+                SmallVector<mlir::Value> subResults;
+                subResults.reserve(numberActShaveTiles);
+                for (auto index : irange(numberActShaveTiles)) {
+                    subResults.push_back(newSwKernelOp->getResult(origNumberResults * index + resultIndx));
+                }
+                auto concatOp = rewriter.create<VPUIP::ConcatViewOp>(origOp->getLoc(), subResults, origOutBufOp);
+                output.replaceAllUsesWith(concatOp.getOutput());
+            } else {
+                auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
+                rewriter.setInsertionPointAfterValue(output);
+                auto outBufOp =
+                        rewriter.create<mlir::memref::AllocOp>(output.getLoc(), outputType.cast<mlir::MemRefType>());
+
+                SmallVector<mlir::Value> results;
+                results.reserve(outTiles.size());
+                for (const auto& item : outTiles | indexed) {
+                    const auto& outTile = item.value();
+                    const auto& index = item.index();
+                    auto outShape = to_small_vector(outTile.shape);
+                    auto outOffset = to_small_vector(outTile.offsets);
+                    auto outSubview =
+                            rewriter.create<VPUIP::SubViewOp>(newSwKernelOp->getLoc(), outBufOp, outOffset, outShape);
+                    auto copyOp = rewriter.create<VPUIP::CopyOp>(
+                            newSwKernelOp->getLoc(), newSwKernelOp.getResult(origNumberResults * index + resultIndx),
+                            outSubview);
+                    results.push_back(copyOp);
+                }
+
+                auto concatOp = rewriter.create<VPUIP::ConcatViewOp>(origOp->getLoc(), results, outBufOp);
+                output.replaceAllUsesWith(concatOp.getOutput());
+                if (origOutBufOp->use_empty()) {
+                    rewriter.eraseOp(origOutBufOp);
+                }
             }
-            auto concatOp = rewriter.create<VPUIP::ConcatViewOp>(origOp->getLoc(), subResults, origOutBufOp);
-            output.replaceAllUsesWith(concatOp.getOutput());
+        };
+
+        auto origOutBufOp = origOp.getOutputBuffs()[resultIndx].getDefiningOp();
+        if (VPUIP::hasBoundedBuffers(origOutBufOp)) {
+            auto origOutBufOpCast = mlir::dyn_cast<VPUIP::GroupBoundedBufferOp>(origOutBufOp);
+            handleOutputReplacement(origOutBufOpCast);
         } else {
-            auto outputType = output.getType().dyn_cast<vpux::NDTypeInterface>();
-            rewriter.setInsertionPointAfterValue(output);
-            auto outBufOp =
-                    rewriter.create<mlir::memref::AllocOp>(output.getLoc(), outputType.cast<mlir::MemRefType>());
-
-            SmallVector<mlir::Value> results;
-            for (const auto& item : outTiles | indexed) {
-                const auto& outTile = item.value();
-                const auto& index = item.index();
-                auto outShape = to_small_vector(outTile.shape);
-                auto outOffset = to_small_vector(outTile.offsets);
-                auto outSubview =
-                        rewriter.create<VPUIP::SubViewOp>(newSwKernelOp->getLoc(), outBufOp, outOffset, outShape);
-                auto copyOp = rewriter.create<VPUIP::CopyOp>(
-                        newSwKernelOp->getLoc(), newSwKernelOp.getResult(origNumberResults * index + resultIndx),
-                        outSubview);
-                results.push_back(copyOp);
-            }
-
-            auto concatOp = rewriter.create<VPUIP::ConcatViewOp>(origOp->getLoc(), results, outBufOp);
-            output.replaceAllUsesWith(concatOp.getOutput());
-            if (origOutBufOp->use_empty()) {
-                rewriter.eraseOp(origOutBufOp);
-            }
+            auto origOutBufOpCast = mlir::dyn_cast<mlir::memref::AllocOp>(origOutBufOp);
+            handleOutputReplacement(origOutBufOpCast);
         }
     }
     rewriter.eraseOp(origOp);
@@ -2610,7 +2663,7 @@ mlir::ArrayAttr ClusterSwKernelRewriter::getStrideOnEachCluster(VPUIP::SwKernelO
 // TileActShaveKernelTaskPass
 //
 
-class TileActShaveKernelTaskPass final : public VPUIP::TileActShaveKernelTaskBase<TileActShaveKernelTaskPass> {
+class TileActShaveKernelTaskPass final : public VPUIP::impl::TileActShaveKernelTaskBase<TileActShaveKernelTaskPass> {
 public:
     explicit TileActShaveKernelTaskPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

@@ -12,6 +12,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/MLIRContext.h>
 
+namespace vpux::VPUIPDPU {
+#define GEN_PASS_DECL_EXPANDDPUCONFIG
+#define GEN_PASS_DEF_EXPANDDPUCONFIG
+#include "vpux/compiler/dialect/VPUIPDPU/passes.hpp.inc"
+}  // namespace vpux::VPUIPDPU
+
 using namespace vpux;
 using namespace VPUIPDPU;
 
@@ -21,12 +27,11 @@ namespace {
 // ExpandDPUConfigPass
 //
 
-class ExpandDPUConfigPass final : public VPUIPDPU::ExpandDPUConfigBase<ExpandDPUConfigPass> {
+class ExpandDPUConfigPass final : public VPUIPDPU::impl::ExpandDPUConfigBase<ExpandDPUConfigPass> {
 public:
     ExpandDPUConfigPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
-
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) override;
 
 private:
@@ -37,7 +42,6 @@ mlir::LogicalResult ExpandDPUConfigPass::initialize(mlir::MLIRContext* ctx) {
     if (mlir::failed(Base::initialize(ctx))) {
         return mlir::failure();
     }
-
     return mlir::success();
 }
 
@@ -78,7 +82,6 @@ void ExpandDPUConfigPass::safeRunOnFunc() {
 //
 // createExpandDPUConfigPass
 //
-
 std::unique_ptr<mlir::Pass> vpux::VPUIPDPU::createExpandDPUConfigPass(Logger log) {
     return std::make_unique<ExpandDPUConfigPass>(log);
 }

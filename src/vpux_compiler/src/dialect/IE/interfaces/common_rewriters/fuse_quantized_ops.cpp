@@ -365,7 +365,7 @@ mlir::LogicalResult FuseWithMatMul::matchAndRewrite(IE::QuantizeOp quantizeOp, m
 
     rewriter.replaceOpWithNewOp<IE::MatMulOp>(quantizeOp, quantizeOp.getType(), input1DequantizeOp.getInput(),
                                               input2DequantizeOp.getInput(), matMulOp.getTransposeA(),
-                                              matMulOp.getTransposeB())
+                                              matMulOp.getTransposeB(), matMulOp.getPostOpAttr())
             ->setLoc(matMulOp->getLoc());
     return mlir::success();
 }

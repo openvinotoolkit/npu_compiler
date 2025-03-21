@@ -22,6 +22,7 @@ public:
     TaskList& append(const TaskList&);
     TaskList selectClusterLevelTasks() const;
     TaskList selectTasksFromCluster(unsigned clusterId) const;
+    TaskList selectSubtasks() const;
     TaskList selectDMAtasks() const;
     TaskList selectDPUtasks() const;
     TaskList selectSWtasks() const;

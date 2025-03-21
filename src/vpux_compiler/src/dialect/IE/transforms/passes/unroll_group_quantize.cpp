@@ -8,6 +8,12 @@
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_UNROLLGROUPQUANTIZE
+#define GEN_PASS_DEF_UNROLLGROUPQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -237,7 +243,7 @@ bool UnrollDynamicDequantize::isBeneficialForUnroll(IE::DynamicDequantizeOp orig
     return outShape.size() == 2 && outShape[Dim(0)] == 1;
 }
 
-class UnrollGroupQuantizePass final : public IE::UnrollGroupQuantizeBase<UnrollGroupQuantizePass> {
+class UnrollGroupQuantizePass final : public IE::impl::UnrollGroupQuantizeBase<UnrollGroupQuantizePass> {
 public:
     explicit UnrollGroupQuantizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

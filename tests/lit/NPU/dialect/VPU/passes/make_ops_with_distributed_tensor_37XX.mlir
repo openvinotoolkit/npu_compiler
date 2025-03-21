@@ -322,3 +322,20 @@ func.func @RMSNormSOK(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16> {
     // CHECK:    [[OUT:%.+]] = VPU.UnrolledType([[RMS]] : !VPU.DistributedTensor<1x32x1x6xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>) -> tensor<1x32x1x6xf16>
     // CHECK:    return [[OUT]] : tensor<1x32x1x6xf16>
 }
+
+// -----
+
+// CHECK-LABEL: func.func @RMSNormClustering
+// CHECK-SAME:    [[ARG0:%.+]]: tensor<1x1x32x6xf16>
+func.func @RMSNormClustering(%arg0: tensor<1x1x32x6xf16>) -> tensor<1x1x32x6xf16> {
+  %cst = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00>: tensor<1x1x1x6xf16>
+  %0 = VPU.RMS(%arg0, %cst) {epsilon = 9.9999997473787516E-6 : f64, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x1x32x6xf16>, tensor<1x1x1x6xf16> -> tensor<1x1x32x6xf16>
+  return %0 : tensor<1x1x32x6xf16>
+
+    // CHECK:    [[CST:%.+]] = const.Declare tensor<1x1x1x6xf16> = dense<1.000000e+00> : tensor<1x1x1x6xf16>
+    // CHECK:    [[DATA:%.+]] = VPU.UnrolledType([[ARG0]] : tensor<1x1x32x6xf16>) -> !VPU.DistributedTensor<1x1x32x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK:    [[GAMMA:%.+]] = VPU.UnrolledType([[CST]] : tensor<1x1x1x6xf16>) -> !VPU.DistributedTensor<1x1x1x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK:    [[RMS:%.+]] = VPU.RMS([[DATA]], [[GAMMA]]) {epsilon = 9.9999997473787516E-6 : f64} : !VPU.DistributedTensor<1x1x32x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x1x1x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}> -> !VPU.DistributedTensor<1x1x32x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+    // CHECK:    [[OUT:%.+]] = VPU.UnrolledType([[RMS]] : !VPU.DistributedTensor<1x1x32x6xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>) -> tensor<1x1x32x6xf16>
+    // CHECK:    return [[OUT]] : tensor<1x1x32x6xf16>
+}

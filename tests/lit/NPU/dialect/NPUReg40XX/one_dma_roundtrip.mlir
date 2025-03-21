@@ -26,7 +26,7 @@ module @OneDMAWithoutAttributes {
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
       }
       ELF.CreateSection @text.nndma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-        "NPUReg40XX.NNDMA"() <{dma_descriptor = #NPUReg40XX.DMARegister<
+        "NPUReg40XX.NNDMA"() <{descriptor = #NPUReg40XX.DMARegister<
           DMARegister {
             dma_watermark {
               UINT dma_watermark = 0
@@ -160,7 +160,7 @@ module @OneDMAWithoutAttributes {
             dma_pad_24_0 = UINT 0,
             dma_pad_24_1 = UINT 0,
             dma_pad_24_2 = UINT 0
-          }
+          } requires 11:4:10
         >, input = @DeclareBuffer0, output_buffs = [@DeclareBuffer1], sym_name = "NNDMA_0_0_0"}> : () -> ()
       }
     }
@@ -168,7 +168,7 @@ module @OneDMAWithoutAttributes {
   }
 }
 
-// CHECK: dma_descriptor = #NPUReg40XX.DMARegister<
+// CHECK: descriptor = #NPUReg40XX.DMARegister<
 // CHECK: DMARegister {
 // CHECK:   dma_watermark {
 // CHECK:     UINT dma_watermark = 0
@@ -302,7 +302,7 @@ module @OneDMAWithoutAttributes {
 // CHECK:   dma_pad_24_0 = UINT 0,
 // CHECK:   dma_pad_24_1 = UINT 0,
 // CHECK:   dma_pad_24_2 = UINT 0
-// CHECK: }
+// CHECK: } requires 11:4:10
 // CHECK: >
 
 // -----
@@ -327,10 +327,10 @@ module @OneDMAWithCustomVersions {
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
       }
       ELF.CreateSection @text.nndma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) {
-        "NPUReg40XX.NNDMA"() <{dma_descriptor = #NPUReg40XX.DMARegister<
+        "NPUReg40XX.NNDMA"() <{descriptor = #NPUReg40XX.DMARegister<
           DMARegister {
             dma_watermark {
-              UINT dma_watermark = 0 requires 1:1:1
+              UINT dma_watermark = 0
             },
             dma_link_address {
               UINT dma_link_address = 0
@@ -342,7 +342,7 @@ module @OneDMAWithCustomVersions {
             dma_src_aub = UINT 0,
             dma_dst_aub = UINT 0,
             dma_cfg_fields {
-              UINT dma_cfg_fields_num_dim = 0 requires 1:2:3,
+              UINT dma_cfg_fields_num_dim = 0,
               UINT dma_cfg_fields_int_en = 0,
               UINT dma_cfg_fields_int_id = 0,
               UINT dma_cfg_fields_src_burst_length = 0xF,
@@ -461,7 +461,7 @@ module @OneDMAWithCustomVersions {
             dma_pad_24_0 = UINT 0,
             dma_pad_24_1 = UINT 0,
             dma_pad_24_2 = UINT 0
-          }
+          } requires 11:4:10
         >, input = @DeclareBuffer0, output_buffs = [@DeclareBuffer1], sym_name = "NNDMA_0_0_0"}> : () -> ()
       }
     }
@@ -469,10 +469,10 @@ module @OneDMAWithCustomVersions {
   }
 }
 
-// CHECK: dma_descriptor = #NPUReg40XX.DMARegister<
+// CHECK: descriptor = #NPUReg40XX.DMARegister<
 // CHECK: DMARegister {
 // CHECK:   dma_watermark {
-// CHECK:     UINT dma_watermark = 0 requires 1:1:1
+// CHECK:     UINT dma_watermark = 0
 // CHECK:   },
 // CHECK:   dma_link_address {
 // CHECK:     UINT dma_link_address = 0
@@ -484,7 +484,7 @@ module @OneDMAWithCustomVersions {
 // CHECK:   dma_src_aub = UINT 0,
 // CHECK:   dma_dst_aub = UINT 0,
 // CHECK:   dma_cfg_fields {
-// CHECK:     UINT dma_cfg_fields_num_dim = 0 requires 1:2:3,
+// CHECK:     UINT dma_cfg_fields_num_dim = 0,
 // CHECK:     UINT dma_cfg_fields_int_en = 0,
 // CHECK:     UINT dma_cfg_fields_int_id = 0,
 // CHECK:     UINT dma_cfg_fields_src_burst_length = 0xF,
@@ -603,5 +603,5 @@ module @OneDMAWithCustomVersions {
 // CHECK:   dma_pad_24_0 = UINT 0,
 // CHECK:   dma_pad_24_1 = UINT 0,
 // CHECK:   dma_pad_24_2 = UINT 0
-// CHECK: }
+// CHECK: } requires 11:4:10
 // CHECK: >

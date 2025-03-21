@@ -11,6 +11,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTGATHERTOSLICE
+#define GEN_PASS_DEF_CONVERTGATHERTOSLICE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -19,7 +25,7 @@ namespace {
 // ConvertGatherToSlicePass
 //
 
-class ConvertGatherToSlicePass final : public IE::ConvertGatherToSliceBase<ConvertGatherToSlicePass> {
+class ConvertGatherToSlicePass final : public IE::impl::ConvertGatherToSliceBase<ConvertGatherToSlicePass> {
 public:
     explicit ConvertGatherToSlicePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

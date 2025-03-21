@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-fq-through-concat --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @PropagateFqThroughConcat(%arg0: tensor<1x2x1x512xf16>) -> tensor<1x64x1x512xf16> {
     %IN_LO = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf16>
     %IN_HI = const.Declare tensor<1x1x1x1xf16> = dense<6.142580e-01> : tensor<1x1x1x1xf16>

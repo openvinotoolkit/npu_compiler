@@ -4,9 +4,7 @@
 //
 
 #include "vpux/compiler/utils/dma.hpp"
-
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-
 #include "vpux/utils/core/error.hpp"
 
 using namespace vpux;
@@ -24,10 +22,7 @@ int64_t vpux::getDMAPortValue(mlir::Operation* wrappedTaskOp) {
 }
 
 SmallVector<VPUIP::DmaChannelType> vpux::getDMAChannelsWithIndependentLinkAgents(VPU::ArchKind arch) {
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch <= VPU::ArchKind::NPU37XX) {
         return {VPUIP::DmaChannelType::NOT_SPECIFIED};
     }
 
@@ -46,10 +41,7 @@ int64_t vpux::getDMAQueueIdEncoding(std::optional<vpux::VPUIP::DmaChannelType> c
 }
 
 int64_t vpux::getDMAQueueIdEncoding(VPU::MemoryKind srcMemKind, VPU::ArchKind arch) {
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch <= VPU::ArchKind::NPU37XX) {
         return getDMAQueueIdEncoding(std::nullopt);
     }
 
@@ -60,10 +52,7 @@ int64_t vpux::getDMAQueueIdEncoding(VPU::MemoryKind srcMemKind, VPU::ArchKind ar
 }
 
 VPUIP::DmaChannelType vpux::getDMAQueueTypeFromEncodedId(int64_t dmaQueueIdEncoding, VPU::ArchKind arch) {
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch <= VPU::ArchKind::NPU37XX) {
         return VPUIP::DmaChannelType::NOT_SPECIFIED;
     }
 
@@ -71,10 +60,7 @@ VPUIP::DmaChannelType vpux::getDMAQueueTypeFromEncodedId(int64_t dmaQueueIdEncod
 }
 
 std::string vpux::getDMAChannelTypeAsString(VPUIP::DmaChannelType channelType, VPU::ArchKind arch) {
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch <= VPU::ArchKind::NPU37XX) {
         return "";
     }
 
@@ -82,10 +68,7 @@ std::string vpux::getDMAChannelTypeAsString(VPUIP::DmaChannelType channelType, V
 }
 
 std::string vpux::getDMAChannelTypeAsString(int64_t dmaQueueIdEncoding, VPU::ArchKind arch) {
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch <= VPU::ArchKind::NPU37XX) {
         return "";
     }
 

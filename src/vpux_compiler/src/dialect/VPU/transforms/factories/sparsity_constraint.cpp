@@ -16,12 +16,8 @@ VPU::SparsityConstraint VPU::getSparsityConstraint(VPU::ArchKind arch) {
     case VPU::ArchKind::NPU37XX: {
         return VPU::arch37xx::SparsityConstraint{};
     }
-    case VPU::ArchKind::NPU40XX: {
-        return VPU::arch40xx::SparsityConstraint{};
-    }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
+        return VPU::arch40xx::SparsityConstraint{};
     }
     }
 }

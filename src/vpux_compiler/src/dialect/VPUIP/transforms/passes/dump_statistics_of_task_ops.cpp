@@ -4,14 +4,20 @@
 //
 
 #include "vpux/compiler/core/feasible_memory_scheduler_spilling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
 #include <functional>
 #include <map>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_DUMPSTATISTICSOFTASKOPSPASS
+#define GEN_PASS_DEF_DUMPSTATISTICSOFTASKOPSPASS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -642,7 +648,8 @@ uint64_t getDDRHeapSize(mlir::func::FuncOp funcOp) {
 // DumpStatisticsOfTaskOpsPass
 //
 
-class DumpStatisticsOfTaskOpsPass final : public VPUIP::DumpStatisticsOfTaskOpsPassBase<DumpStatisticsOfTaskOpsPass> {
+class DumpStatisticsOfTaskOpsPass final :
+        public VPUIP::impl::DumpStatisticsOfTaskOpsPassBase<DumpStatisticsOfTaskOpsPass> {
 public:
     explicit DumpStatisticsOfTaskOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

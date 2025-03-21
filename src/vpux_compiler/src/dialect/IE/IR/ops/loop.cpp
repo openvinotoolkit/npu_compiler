@@ -23,7 +23,7 @@ mlir::LogicalResult vpux::IE::LoopOp::verify() {
 
     if (getNumIterations() == -1 && getConcatOutputDescsAttr().size() != 0) {
         // concat output will need numIterations to infer output shape, which is not supported yet
-        // Tracking number: E#124554
+        // Tracking number: E#-124554
         return errorAt(*this, "Concat output expected an explicit numIterations, actually got -1!");
     }
 
@@ -274,7 +274,7 @@ mlir::LogicalResult InferNumIterations::matchAndRewrite(IE::LoopOp origOp, mlir:
     logger.trace("Got -1 on numIterations: inferring.");
 
     // Checking trip_count, which is stored in input[0]
-    // Non-const tripCountParam cases are unsupported for now, tracking number: E#124558
+    // Non-const tripCountParam cases are unsupported for now, tracking number: E#-124558
     auto tripCountConst = origOp.getInputs()[0].getDefiningOp<Const::DeclareOp>();
     VPUX_THROW_WHEN(tripCountConst == nullptr, "Non-const trip_count is unsupported for now!");
     checkConstSplat(tripCountConst);

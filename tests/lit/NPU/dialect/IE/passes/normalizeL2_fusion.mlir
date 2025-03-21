@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --normalizeL2-fusion --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 func.func @main(%arg0: tensor<1x192xf32>) -> tensor<1x192xf32> {
     %cst = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
     %0 = IE.ReduceL2(%arg0, %cst) {keep_dims} : tensor<1x192xf32>, tensor<1xsi64> -> tensor<1x1xf32>

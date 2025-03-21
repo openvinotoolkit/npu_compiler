@@ -311,8 +311,8 @@ void saveMCSideLoadStrategyToFile(mlir::func::FuncOp func, StringRef strategyJso
 
         llvm::json::Object layerAttributes{};
         layerAttributes[vpux::multiClusterStrategy.str()] = std::move(strategyValue);
-        const auto layerHashStr = std::to_string(opToHash.at(op.getOperation()));
-        opsToStrategies[layerHashStr] = llvm::json::Value(std::move(layerAttributes));
+        auto layerHashStr = std::to_string(opToHash.at(op.getOperation()));
+        opsToStrategies[std::move(layerHashStr)] = llvm::json::Value(std::move(layerAttributes));
     });
     model[OP_HASH_KEY.str()] = std::move(opsToStrategies);
     auto json = llvm::json::Value(std::move(model));

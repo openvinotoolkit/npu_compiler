@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/utils/allocate_buffers.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -350,17 +351,26 @@ SmallVector<mlir::Value> rewriteWithOffsets(const Logger& log, VPU::ConcatOp ori
 
     const auto allOffsets = origOp.getStaticOffsetsAttr().getAsRange<mlir::ArrayAttr>();
 
-    for (const auto p : zip(newArgs.getInputs(), allOffsets)) {
+    const auto inRank = origOp.getInputs().front().getType().cast<vpux::NDTypeInterface>().getRank();
+    const auto dummyStridesAttr = getIntArrayAttr(origOp->getContext(), SmallVector<int64_t>(inRank, 1));
+    SmallVector<mlir::ArrayAttr> allStrides(newArgs.getInputs().size(), dummyStridesAttr);
+
+    if (origOp.getStrides().has_value()) {
+        allStrides = parseCustomAttrArray<mlir::ArrayAttr>(origOp.getStridesAttr());
+    }
+
+    for (const auto p : zip(newArgs.getInputs(), allOffsets, allStrides)) {
         const auto newInput = std::get<0>(p);
 
         const auto curShape = newInput.getType().cast<vpux::NDTypeInterface>().getShape().raw();
         const auto curOffsets = std::get<1>(p);
+        const auto curStrides = origOp.getStrides().has_value() ? std::get<2>(p) : nullptr;
 
         log.trace("Create SubView");
 
         auto subviewVal =
                 createSubviewOp(newInput.getType().cast<NDTypeInterface>(), allocatedBufs[0], origOp->getLoc(),
-                                rewriter, curOffsets, getIntArrayAttr(origOp->getContext(), curShape));
+                                rewriter, curOffsets, getIntArrayAttr(origOp->getContext(), curShape), curStrides);
 
         log.trace("Copy new operand to SubView");
 

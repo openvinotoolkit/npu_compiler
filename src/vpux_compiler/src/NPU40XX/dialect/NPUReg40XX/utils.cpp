@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
 #include <mlir/IR/BuiltinAttributes.h>
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 
 uint32_t vpux::NPUReg40XX::getTileSelectMaskForBuffer(VPUASM::DeclareBufferOp buffer) {

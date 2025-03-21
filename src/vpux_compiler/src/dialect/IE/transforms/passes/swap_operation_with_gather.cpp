@@ -4,11 +4,18 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPOPERATIONWITHGATHER
+#define GEN_PASS_DEF_SWAPOPERATIONWITHGATHER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -100,13 +107,15 @@ mlir::LogicalResult MoveEltwiseAfterGather<ConcreteOp>::matchAndRewrite(IE::Gath
     }
     auto eltwiseOp = getEltwiseOp.value();
 
-    auto newGather1 = rewriter.create<IE::GatherOp>(gatherOp->getLoc(), eltwiseOp.getInput1(), gatherOp.getIndices(),
-                                                    gatherOp.getAxis(), gatherOp.getAxisValueAttr(),
-                                                    gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
+    auto gatherLoc = gatherOp->getLoc();
 
-    auto newGather2 = rewriter.create<IE::GatherOp>(gatherOp->getLoc(), eltwiseOp.getInput2(), gatherOp.getIndices(),
-                                                    gatherOp.getAxis(), gatherOp.getAxisValueAttr(),
-                                                    gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
+    auto newGather1 = rewriter.create<IE::GatherOp>(
+            appendLoc(gatherLoc, "gather_1"), eltwiseOp.getInput1(), gatherOp.getIndices(), gatherOp.getAxis(),
+            gatherOp.getAxisValueAttr(), gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
+
+    auto newGather2 = rewriter.create<IE::GatherOp>(
+            appendLoc(gatherLoc, "gather_2"), eltwiseOp.getInput2(), gatherOp.getIndices(), gatherOp.getAxis(),
+            gatherOp.getAxisValueAttr(), gatherOp.getBatchDims(), gatherOp.getIndicesRankAttr());
 
     mlir::IRMapping eltwiseMapper;
     eltwiseMapper.map(eltwiseOp->getOperand(0), newGather1.getOutput());
@@ -117,7 +126,7 @@ mlir::LogicalResult MoveEltwiseAfterGather<ConcreteOp>::matchAndRewrite(IE::Gath
 
     rewriter.replaceOp(gatherOp, newEltwiseOp->getResult(0));
 
-    _log.trace("Successfully replaced '{0}' at '{1}'", gatherOp->getName(), gatherOp->getLoc());
+    _log.trace("Successfully replaced '{0}' at '{1}'", gatherOp->getName(), gatherLoc);
 
     return mlir::success();
 }
@@ -187,7 +196,7 @@ mlir::LogicalResult MoveConvertAfterGather::matchAndRewrite(IE::GatherOp gatherO
 // SwapOperationWithGatherPass
 //
 
-class SwapOperationWithGatherPass final : public IE::SwapOperationWithGatherBase<SwapOperationWithGatherPass> {
+class SwapOperationWithGatherPass final : public IE::impl::SwapOperationWithGatherBase<SwapOperationWithGatherPass> {
 public:
     explicit SwapOperationWithGatherPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

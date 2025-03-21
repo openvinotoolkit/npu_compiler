@@ -7,7 +7,6 @@
 #include <vpux_elf/types/vpu_extensions.hpp>
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
-#include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -43,11 +42,8 @@ size_t vpux::NPUReg40XX::MappedInferenceVersionOp::getAlignmentRequirements(VPU:
     return alignof(MIVersionNote);
 }
 
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::MappedInferenceVersionOp::getSectionSignature() {
-    return ELF::SectionSignature(vpux::ELF::generateSignature("note", "MappedInferenceVersion"),
-                                 ELF::SectionFlagsAttr::SHF_NONE, ELF::SectionTypeAttr::SHT_NOTE);
-}
-
-bool vpux::NPUReg40XX::MappedInferenceVersionOp::hasMemoryFootprint() {
-    return true;
+void NPUReg40XX::MappedInferenceVersionOp::setVersion(const elf::Version& version) {
+    setMajor(version.getMajor());
+    setMinor(version.getMinor());
+    setPatch(version.getPatch());
 }

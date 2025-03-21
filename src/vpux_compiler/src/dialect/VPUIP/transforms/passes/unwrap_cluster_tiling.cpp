@@ -8,6 +8,12 @@
 
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNWRAPCLUSTERTILING
+#define GEN_PASS_DEF_UNWRAPCLUSTERTILING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -16,7 +22,7 @@ namespace {
 // UnwrapClusterTilingPass
 //
 
-class UnwrapClusterTilingPass final : public VPUIP::UnwrapClusterTilingBase<UnwrapClusterTilingPass> {
+class UnwrapClusterTilingPass final : public VPUIP::impl::UnwrapClusterTilingBase<UnwrapClusterTilingPass> {
 public:
     explicit UnwrapClusterTilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

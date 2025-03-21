@@ -3,11 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEOPSLICE
+#define GEN_PASS_DEF_OPTIMIZEOPSLICE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -41,7 +49,7 @@ mlir::LogicalResult TileSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir:
     if (tileOp == nullptr) {
         return mlir::failure();
     }
-    const auto repeatsValue = parseIntArrayAttr<int64_t>(tileOp.getRepeatsValuesAttr());
+    auto repeatsValue = parseIntArrayAttr<int64_t>(tileOp.getRepeatsValuesAttr());
     const auto nonOneRepeatsValueNum = llvm::count_if(repeatsValue, [](auto repeat) {
         return repeat != 1;
     });
@@ -102,7 +110,7 @@ mlir::LogicalResult TileSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mlir:
         }
     }
 
-    auto repeatsOnNewShape = repeatsValue;
+    auto repeatsOnNewShape = std::move(repeatsValue);
     repeatsOnNewShape[tileAxis.value().ind()] = newRepeatValue;
     const auto outputType = tileOp.getOutput().getType().cast<vpux::NDTypeInterface>();
     auto tileOpInputShape = getShape(tileOp.getInput());
@@ -405,7 +413,7 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
 // OptimizeOpSlicePass
 //
 
-class OptimizeOpSlicePass final : public IE::OptimizeOpSliceBase<OptimizeOpSlicePass> {
+class OptimizeOpSlicePass final : public IE::impl::OptimizeOpSliceBase<OptimizeOpSlicePass> {
 public:
     explicit OptimizeOpSlicePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

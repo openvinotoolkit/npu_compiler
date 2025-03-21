@@ -28,7 +28,7 @@ const std::vector<ov::op::RecurrentSequenceDirection> directions = {ov::op::Recu
 
 const std::vector<ov::test::utils::TensorIteratorBody> tiBodyTypes = {ov::test::utils::TensorIteratorBody::GRU};
 
-// RNN Op is not supported. Tracked By Issue: [E#117139]
+// RNN Op is not supported. Tracked By Issue: [E#-117139]
 const std::vector<ov::test::utils::TensorIteratorBody> tiBodyTypes_RNN = {ov::test::utils::TensorIteratorBody::RNN};
 
 const auto tensorIteratorPrecommitParams_RNN =

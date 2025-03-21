@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-bilinear-to-strided-concat-and-conv --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertBilinearToStridedConcatAndConv_V1
 func.func @ConvertBilinearToStridedConcatAndConv_V1(%arg0: tensor<1x20x96x176xf16>) -> tensor<1x20x192x352xf16> {
     %0 = IE.Interpolate(%arg0)

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --handle-large-pads %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // -----
 
 // CHECK-LABEL: @HandleLargePadsAvgPool

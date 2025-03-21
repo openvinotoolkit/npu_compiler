@@ -6,10 +6,10 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS
 #define VPUX_COMPILER_DIALECT_VPU_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
-include "vpux/compiler/core/types.td"
-include "vpux/compiler/core/constraints.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/types.td"
+include "vpux/compiler/dialect/core/constraints.td"
 include "vpux/compiler/dialect/const/attributes.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/IE/ops_interfaces.td"
@@ -23,6 +23,8 @@ include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/Interfaces/CastInterfaces.td"
+include "mlir/Interfaces/CallInterfaces.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 //
 // Base classes
@@ -205,8 +207,6 @@ def VPU_NCEConvolutionOp :
 
         vpux::Shape inferAlignedFilterShape(vpux::NDTypeInterface input, vpux::NDTypeInterface output, vpux::NDTypeInterface filter);
 
-        bool isVFSupported();
-
         DimArr restrictedFusionAxes();
 
         static mlir::LogicalResult verifyKernel(IE::ConvolutionOp origOp, Logger log = Logger::global());
@@ -342,6 +342,8 @@ def VPU_NCEMatMulOp :
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output);
+
+        static mlir::LogicalResult verifyKernel(IE::MatMulOp origOp);
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [
@@ -423,8 +425,6 @@ def VPU_NCEDepthConvolutionOp :
                                 bool checkChannelAlignment = false);
 
         vpux::Shape inferAlignedFilterShape(vpux::NDTypeInterface output, vpux::NDTypeInterface filter);
-
-        bool isVFSupported();
 
         static mlir::LogicalResult verifyKernel(IE::GroupConvolutionOp origOp, Logger log = Logger::global());
 
@@ -509,8 +509,6 @@ def VPU_NCECompressConvolutionOp :
 
         static bool isSupported(vpux::IE::ConvolutionOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
-
-        bool isVFSupported();
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT,
@@ -584,8 +582,6 @@ def VPU_NCEMaxPoolOp :
         static bool isSupported(vpux::IE::MaxPoolOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
 
-        bool isVFSupported();
-
         static mlir::LogicalResult verifyKernel(IE::MaxPoolOp origOp, Logger log = Logger::global());
     }] # baseExtraClassDeclaration;
 
@@ -655,8 +651,6 @@ def VPU_NCEAveragePoolOp :
 
         static bool isSupported(vpux::IE::AvgPoolOp origOp, vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
-
-        bool isVFSupported();
 
         static mlir::LogicalResult verifyKernel(IE::AvgPoolOp origOp, Logger log = Logger::global());
     }] # baseExtraClassDeclaration;
@@ -730,12 +724,10 @@ def VPU_NCEEltwiseOp :
         static bool isSupported(mlir::Operation* op, bool allowDifferentScales, bool allowDifferentZp,
                                 vpux::LogCb logCb, bool checkLayout = false,
                                 bool checkChannelAlignment = false);
-        bool isVFSupported();
 
         static mlir::LogicalResult verifyKernel(IE::AddOp origOp, Logger log = Logger::global());
         static mlir::LogicalResult verifyKernel(IE::MultiplyOp origOp, Logger log = Logger::global());
         static mlir::LogicalResult verifyKernel(IE::SubtractOp origOp, Logger log = Logger::global());
-        static mlir::LogicalResult verifyKernel(IE::AndOp origOp, Logger log = Logger::global());
 
         static mlir::LogicalResult verifyEltwiseCMX(mlir::Location loc, mlir::ModuleOp module, bool isInplace,
                                                 vpux::NDTypeInterface firstInputType,
@@ -1033,8 +1025,6 @@ def VPU_VerticalFusionOp :
         void print(::mlir::OpAsmPrinter& p);
         static ::mlir::ParseResult parse(::mlir::OpAsmParser& parser, ::mlir::OperationState& result);
     }];
-
-    let hasCanonicalizer = 1;
 }
 
 //
@@ -1321,6 +1311,7 @@ def VPU_ConcatOp :
 
         OptionalAttr<IE_ConcatAttr>:$per_axis,
         OptionalAttr<I64ArrayOfArraysAttr>:$static_offsets,
+        OptionalAttr<I64ArrayOfArraysAttr>:$strides,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -1362,6 +1353,9 @@ def VPU_ConcatOp :
         OpBuilder<
             (ins "mlir::Type":$outType, "mlir::ValueRange":$inputs, "vpux::ArrayRef<vpux::ShapeRef>":$static_offsets)
         >,
+        OpBuilder<
+            (ins "mlir::Type":$outType, "mlir::ValueRange":$inputs, "mlir::ArrayAttr":$static_offsets, "mlir::ArrayAttr":$strides)
+        >
     ];
 
     let hasVerifier = 1;
@@ -3283,14 +3277,21 @@ def VPU_TopKOp :
             [
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                AttrSizedOperandSegments
             ]
         > {
     let summary = "TopK VPU layer";
 
+    let description = [{
+        * lineBuffer - it is an auxiliary buffer, which has the role of storing
+        some intermediate results in the software kernel of the operation.
+    }];
+
     let arguments = (ins
         AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$input,
         Optional<RankedTensorOf<[AnyInteger]>>:$k,
+        Optional<AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>>:$lineBuffer,
         OptionalAttr<IntAttr>:$k_value,
 
         IntAttr:$axis,
@@ -3986,6 +3987,35 @@ def VPU_ROIAlignOp :
 }
 
 //
+// ExperimentalDetectronROIFeatureExtractor
+//
+
+def VPU_ExperimentalDetectronROIFeatureExtractorOp :
+        VPU_LayerOp<
+            "ExperimentalDetectronROIFeatureExtractor", [
+               AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "ExperimentalDetectronROIFeatureExtractor VPU layer";
+
+    let arguments = (ins
+        Variadic<AnyRankedTensor>:$inputs,
+        Optional<1DTensorOf<[F16, F32]>>:$reorderedRois,
+        Optional<1DTensorOf<[UI32]>>:$originalRoiMap,
+        Optional<1DTensorOf<[F16, F32]>>:$outputRoisFeaturesTemp,
+        Optional<1DTensorOf<[UI32]>>:$levels,
+
+        IE_ExperimentalDetectronROIFeatureExtractorAttr:$attr
+
+   );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32]>:$output,
+        RankedTensorOf<[F16, F32]>:$outputROIs
+    );
+}
+
+//
 // StridedSlice
 //
 
@@ -4297,6 +4327,7 @@ def VPU_MatMulOp:
 
         UnitAttr:$transpose_a,
         UnitAttr:$transpose_b,
+        OptionalAttr<IE_PostOpAttr>:$post_op,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -4316,7 +4347,8 @@ def VPU_MatMulOp:
             "::mlir::Value":$input1,
             "::mlir::Value":$input2,
             "::mlir::UnitAttr":$transpose_a,
-            "::mlir::UnitAttr":$transpose_b
+            "::mlir::UnitAttr":$transpose_b,
+            "vpux::IE::PostOpAttr":$post_op
         )>
     ];
 
@@ -5630,7 +5662,6 @@ def VPU_AndOp :
         AnyTypeOf<[RankedTensorOf<[I8, F16, F32, SI32]>, VPU_DistributedTensor]>:$input2,
 
         IE_AutoBroadcastTypeAttr:$auto_broadcast,
-        OptionalAttr<IE_PostOpAttr>:$post_op,
 
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
@@ -5643,8 +5674,7 @@ def VPU_AndOp :
         OpBuilder<(ins
             "::mlir::Value":$input1,
             "::mlir::Value":$input2,
-            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast,
-            "vpux::IE::PostOpAttr":$post_op
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast
         )>
     ];
 
@@ -6793,6 +6823,7 @@ def VPU_SubtractOp :
                 VPU_TilingBuilderOpInterface,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 VPU_EltwiseOp
             ]
         > {
@@ -6893,6 +6924,7 @@ def VPU_PermuteCastOp :
     let checkInferredDimsOrder = 1;
     let checkInferredMemSpace = 1;
     let hasCanonicalizer = 1;
+    let hasFolder = 1;
 }
 
 //
@@ -7996,6 +8028,87 @@ def VPU_DynamicExpandOp :
     let results = (outs
         AnyRankedTensor:$output
     );
+}
+
+//
+// GenericSwLayerOp
+//
+
+def VPU_GenericSwLayerOp :
+        VPU_Op<
+            "GenericSwLayer",
+            [
+                Pure,
+                DeclareOpInterfaceMethods<CallOpInterface>,
+                DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_LayerOpInterface>
+            ]
+        > {
+    let summary = "VPU Op that describes a generic SW Layer";
+
+    let arguments = (ins
+        SymbolRefAttr:$callee, // Generated sw layer function
+
+        Variadic<AnyType>:$inputs
+    );
+
+    let results = (outs
+        Variadic<AnyShaped>:$outputs
+    );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }];
+
+    let assemblyFormat = [{
+        `(` operands `)` attr-dict `:` type(operands) `->` type(results)
+    }];
+}
+
+//
+// RoPE
+//
+
+def VPU_RoPEOp :
+        VPU_LayerOp<
+            "RoPE",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+            ]
+        > {
+    let summary = "RoPE VPU layer";
+
+    let arguments = (ins
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input_cos,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input_sin,
+
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
+    );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::Value":$input_cos,
+            "::mlir::Value":$input_sin
+        )>
+    ];
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 #endif

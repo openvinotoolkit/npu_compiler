@@ -5,6 +5,12 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_INVALIDATEUNROLLDMAANALYSIS
+#define GEN_PASS_DEF_INVALIDATEUNROLLDMAANALYSIS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -14,7 +20,7 @@ namespace {
 //
 
 class InvalidateUnrollDMAAnalysisPass final :
-        public VPUIP::InvalidateUnrollDMAAnalysisBase<InvalidateUnrollDMAAnalysisPass> {
+        public VPUIP::impl::InvalidateUnrollDMAAnalysisBase<InvalidateUnrollDMAAnalysisPass> {
 public:
     InvalidateUnrollDMAAnalysisPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

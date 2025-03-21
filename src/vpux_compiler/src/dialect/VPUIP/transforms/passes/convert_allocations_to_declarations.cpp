@@ -8,6 +8,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTALLOCATIONSTODECLARATIONS
+#define GEN_PASS_DEF_CONVERTALLOCATIONSTODECLARATIONS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 //
 
 class ConvertAllocationsToDeclarationsPass final :
-        public VPUIP::ConvertAllocationsToDeclarationsBase<ConvertAllocationsToDeclarationsPass> {
+        public VPUIP::impl::ConvertAllocationsToDeclarationsBase<ConvertAllocationsToDeclarationsPass> {
 public:
     explicit ConvertAllocationsToDeclarationsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

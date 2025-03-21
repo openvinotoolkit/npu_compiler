@@ -38,6 +38,12 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/symbolization.hpp"
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUMI40XX2VPUASM
+#define GEN_PASS_DEF_CONVERTVPUMI40XX2VPUASM
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 using namespace vpumi40xx2vpuasm;
 
@@ -47,7 +53,7 @@ namespace {
 // ConvertVPUMI40XX2VPUASMPass
 //
 
-class ConvertVPUMI40XX2VPUASMPass final : public ConvertVPUMI40XX2VPUASMBase<ConvertVPUMI40XX2VPUASMPass> {
+class ConvertVPUMI40XX2VPUASMPass final : public impl::ConvertVPUMI40XX2VPUASMBase<ConvertVPUMI40XX2VPUASMPass> {
 public:
     explicit ConvertVPUMI40XX2VPUASMPass(Logger log, bool enablePWLM): _enablePWLM(enablePWLM) {
         Base::initLogger(log, Base::getArgumentName());

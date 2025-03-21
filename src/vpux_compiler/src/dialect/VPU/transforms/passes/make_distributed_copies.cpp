@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/overlap_distribution_utils.hpp"
@@ -12,6 +14,12 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_MAKEDISTRIBUTEDCOPIES
+#define GEN_PASS_DEF_MAKEDISTRIBUTEDCOPIES
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -58,7 +66,7 @@ mlir::LogicalResult UnrolledTypeToCopyConversion::matchAndRewrite(VPU::UnrolledT
 // MakeDistributedCopiesPass
 //
 
-class MakeDistributedCopiesPass final : public MakeDistributedCopiesBase<MakeDistributedCopiesPass> {
+class MakeDistributedCopiesPass final : public VPU::impl::MakeDistributedCopiesBase<MakeDistributedCopiesPass> {
 public:
     MakeDistributedCopiesPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

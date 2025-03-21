@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2023 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -21,6 +21,14 @@
 
 #include <algorithm>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_ACTSHAVEPROFILING
+#define GEN_PASS_DEF_ACTSHAVEPROFILING
+#define GEN_PASS_DECL_GROUPPROFILINGBUFFERS
+#define GEN_PASS_DEF_GROUPPROFILINGBUFFERS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -29,7 +37,7 @@ namespace {
 // ActShaveProfilingPass
 //
 
-class ActShaveProfilingPass final : public VPUIP::ActShaveProfilingBase<ActShaveProfilingPass> {
+class ActShaveProfilingPass final : public VPUIP::impl::ActShaveProfilingBase<ActShaveProfilingPass> {
 public:
     explicit ActShaveProfilingPass(VPUIP::MemKindCreateFunc memKindCb, Logger log): _memKindCb(std::move(memKindCb)) {
         VPUX_THROW_UNLESS(_memKindCb != nullptr, "Missing memKindCb");
@@ -132,7 +140,7 @@ void ActShaveProfilingPass::safeRunOnModule() {
 // GroupProfilingBuffersPass
 //
 
-class GroupProfilingBuffersPass final : public VPUIP::GroupProfilingBuffersBase<GroupProfilingBuffersPass> {
+class GroupProfilingBuffersPass final : public VPUIP::impl::GroupProfilingBuffersBase<GroupProfilingBuffersPass> {
 public:
     explicit GroupProfilingBuffersPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

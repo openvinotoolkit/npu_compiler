@@ -6,9 +6,9 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUMI40XX_OPS
 #define VPUX_COMPILER_DIALECT_VPUMI40XX_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
-include "vpux/compiler/core/types.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPUMI40XX/dialect.td"
 include "vpux/compiler/dialect/VPUMI40XX/attributes.td"
 include "vpux/compiler/dialect/VPUMI40XX/ops_interfaces.td"
@@ -73,7 +73,8 @@ def VPUMI40XX_ConfigureBarrierOp :
         Optional<VPURegMapped_IndexType>:$previousSameId,
         OptionalAttr<UI8Attr>:$producer_count,
         OptionalAttr<UI8Attr>:$consumer_count,
-        UnitAttr:$isFinalBarrier
+        UnitAttr:$isFinalBarrier,
+        UnitAttr:$isStartBarrier
     );
 
 
@@ -92,6 +93,15 @@ def VPUMI40XX_ConfigureBarrierOp :
                     "mlir::IntegerAttr":$producer_count,
                     "mlir::IntegerAttr":$consumer_count,
                     "bool":$isFinalBarrier)
+        >,
+        OpBuilder<
+            (ins "VPURegMapped::IndexType":$index,
+                    "int64_t":$id,
+                    "int64_t":$next_same_id,
+                    "mlir::IntegerAttr":$producer_count,
+                    "mlir::IntegerAttr":$consumer_count,
+                    "bool":$isFinalBarrier,
+                    "bool":$isStartBarrier)
         >
     ];
 
@@ -636,7 +646,8 @@ def VPUMI40XX_DPUVariantOp :
         DefaultValuedAttr<UI64Attr, "0">:$cluster_id,
         OptionalAttr<DPUHaloRegionArrayAttr>: $haloRegions,
         OptionalAttr<IntAttr>:$workload_id,
-        UnitAttr:$lut_read,
+        UnitAttr:$spr_lut_read,
+        UnitAttr:$pallet_lut_read,
         UnitAttr:$force_inv_read
     );
 
@@ -700,6 +711,7 @@ def VPUMI40XX_DPUInvariantOp :
         Optional<MemRefOf<[I8, I4]>>:$weight_zero_points,
 
         Optional<MemRefOf<[UI16]>>:$spr_lookup_table,
+        Optional<MemRefOf<[UI16]>>:$pallet_lookup_table,
 
         Variadic<MemRefOf<[F16, F32, BF16, quant_QuantizedType]>>:$output_buffs,
         Variadic<MemRefOf<[I1]>>:$output_sparsity_map_buffs,
@@ -775,6 +787,7 @@ def VPUMI40XX_DPUInvariantOp :
         (`weight_table_bias` `(` $weight_table_bias^ `:` type($weight_table_bias) `)`)?
         (`weight_zero_points` `(` $weight_zero_points^ `:` type($weight_zero_points) `)`)?
         (`spr_lookup_table` `(` $spr_lookup_table^ `:` type($spr_lookup_table) `)`)?
+        (`pallet_lookup_table` `(` $pallet_lookup_table^ `:` type($pallet_lookup_table) `)`)?
         (`outputs` `(` $output_buffs^ `:` type($output_buffs) `)`)?
         (`output_sparsity_maps` `(` $output_sparsity_map_buffs^ `:` type($output_sparsity_map_buffs) `)`)?
         (`profiling_data` `(` $profiling_data^ `:` type($profiling_data) `)`)?

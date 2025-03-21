@@ -55,7 +55,8 @@ const auto gruCellParams = testing::Combine(
         ::testing::ValuesIn(WRBLayerTypes), ::testing::ValuesIn(WRBLayerTypes), ::testing::ValuesIn(modelTypes),
         ::testing::Values(DEVICE_NPU));
 
-INSTANTIATE_TEST_SUITE_P(smoke_GRUCell, GRUCellLayerTest_NPU3720, gruCellParams, GRUCellTest::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTest_NPU3720, gruCellParams,
+                         GRUCellTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTest_NPU4000, gruCellParams,
                          GRUCellTest::getTestCaseName);

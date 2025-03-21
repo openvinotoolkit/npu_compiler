@@ -14,6 +14,12 @@
 #include <llvm/ADT/SetOperations.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_ASSIGNPHYSICALBARRIERS
+#define GEN_PASS_DEF_ASSIGNPHYSICALBARRIERS
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
@@ -89,18 +95,18 @@ mlir::LogicalResult BarrierColorBinVirtualBarrierRewrite::matchAndRewrite(VPURT:
 // AssignPhysicalBarriersPass
 //
 
-class AssignPhysicalBarriersPass final : public VPURT::AssignPhysicalBarriersBase<AssignPhysicalBarriersPass> {
+class AssignPhysicalBarriersPass final : public VPURT::impl::AssignPhysicalBarriersBase<AssignPhysicalBarriersPass> {
 public:
     explicit AssignPhysicalBarriersPass(const bool barrierColorBinFlag,
-                                        std::optional<int> virtualBarrierThresholdforWlm, Logger log)
-            : _barrierColorBinFlag(barrierColorBinFlag), _virtualBarrierThresholdforWlm(virtualBarrierThresholdforWlm) {
+                                        std::optional<int> virtualBarrierThresholdForWlm, Logger log)
+            : _barrierColorBinFlag(barrierColorBinFlag), _virtualBarrierThresholdForWlm(virtualBarrierThresholdForWlm) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
     bool _barrierColorBinFlag;
-    std::optional<int> _virtualBarrierThresholdforWlm = std::nullopt;
+    std::optional<int> _virtualBarrierThresholdForWlm = std::nullopt;
 };
 
 void AssignPhysicalBarriersPass::safeRunOnFunc() {
@@ -121,12 +127,13 @@ void AssignPhysicalBarriersPass::safeRunOnFunc() {
     auto barriers = func.getOps<VPURT::DeclareVirtualBarrierOp>();
     auto numVirtualBarriers = static_cast<int64_t>(std::distance(barriers.begin(), barriers.end()));
 
-    auto virtualBarThresholdforWlm = virtualBarrierThresholdforWlmOpt.hasValue() ? virtualBarrierThresholdforWlmOpt
-                                                                                 : _virtualBarrierThresholdforWlm;
+    auto virtualBarrierThresholdForWlm = virtualBarrierThresholdForWlmOpt.hasValue() ? virtualBarrierThresholdForWlmOpt
+                                                                                     : _virtualBarrierThresholdForWlm;
 
-    if (wlmFlag && virtualBarThresholdforWlm.has_value() && numVirtualBarriers > virtualBarThresholdforWlm.value()) {
+    if (wlmFlag && virtualBarrierThresholdForWlm.has_value() &&
+        numVirtualBarriers > virtualBarrierThresholdForWlm.value()) {
         _log.trace("WLM flag turned off because number of barrier is above threshold {0} > {1}", numVirtualBarriers,
-                   virtualBarThresholdforWlm.value());
+                   virtualBarrierThresholdForWlm.value());
         wlmFlag = false;
         vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
     }
@@ -205,6 +212,6 @@ void AssignPhysicalBarriersPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPURT::createAssignPhysicalBarriersPass(
-        const bool barrierColorBinFlag, std::optional<int> virtualBarrierThresholdforWlm, Logger log) {
-    return std::make_unique<AssignPhysicalBarriersPass>(barrierColorBinFlag, virtualBarrierThresholdforWlm, log);
+        const bool barrierColorBinFlag, std::optional<int> virtualBarrierThresholdForWlm, Logger log) {
+    return std::make_unique<AssignPhysicalBarriersPass>(barrierColorBinFlag, virtualBarrierThresholdForWlm, log);
 }

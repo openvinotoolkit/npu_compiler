@@ -20,6 +20,8 @@ namespace arch37xx {
 
 std::unique_ptr<mlir::Pass> createAddSwKernelCacheHandlingOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollClusterTilingPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollDepthToSpaceDMAPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollSpaceToDepthDMAPass(Logger log = Logger::global());
 
 //
 // Optimize copies pipeline
@@ -52,6 +54,12 @@ void buildMemoryAllocationPipeline(mlir::OpPassManager& pm, const MemoryAllocati
                                    Logger log = Logger::global());
 
 //
+// DMAUnrollingPipeline
+//
+
+void buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
+
+//
 // DefaultHWOptions
 //
 
@@ -63,9 +71,6 @@ struct DefaultHWOptions :
 
     BoolOption enableCompressWeightsBTC{*this, "compress-weights-btc", ::llvm::cl::desc("Enable compress-weights pass"),
                                         ::llvm::cl::init(false)};
-
-    BoolOption enableWeightsSwizzling{*this, "enable-weights-swizzling", ::llvm::cl::desc("Enable weights swizzling"),
-                                      ::llvm::cl::init(true)};
 
     BoolOption enableActivationSwizzling{*this, "enable-activation-swizzling",
                                          ::llvm::cl::desc("Enable activation swizzling"), ::llvm::cl::init(true)};
@@ -79,22 +84,11 @@ struct DefaultHWOptions :
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
-// registerVPUIPPipelines
+// Registration
 //
 
 void registerVPUIPPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/dialect/VPUIP/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/dialect/VPUIP/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace VPUIP

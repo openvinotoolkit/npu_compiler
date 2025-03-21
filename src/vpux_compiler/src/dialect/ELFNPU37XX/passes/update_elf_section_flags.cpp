@@ -3,13 +3,22 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
+#include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::ELFNPU37XX {
+#define GEN_PASS_DECL_UPDATEELFSECTIONFLAGS
+#define GEN_PASS_DEF_UPDATEELFSECTIONFLAGS
+#include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp.inc"
+}  // namespace vpux::ELFNPU37XX
 
 using namespace vpux;
 
 namespace {
 
-class UpdateELFSectionFlagsPass final : public ELFNPU37XX::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
+class UpdateELFSectionFlagsPass final : public ELFNPU37XX::impl::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
 public:
     explicit UpdateELFSectionFlagsPass(Logger log): _log(log) {
         Base::initLogger(log, Base::getArgumentName());

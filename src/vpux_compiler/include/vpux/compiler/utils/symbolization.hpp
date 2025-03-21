@@ -20,7 +20,7 @@ namespace vpux {
 
 struct SymbolizationResult {
     mlir::Operation* newOp = nullptr;
-    const mlir::SmallVector<mlir::StringAttr> refsToUpdate;
+    mlir::SmallVector<mlir::StringAttr> refsToUpdate;
 
     // default SymbolizationResult is used in rewriters for cases where no movement of op into section is needed
     // e.g. original op is simply removed
@@ -29,7 +29,7 @@ struct SymbolizationResult {
     SymbolizationResult(mlir::Operation* op): newOp(op) {
     }
 
-    SymbolizationResult(mlir::Operation* op, mlir::SmallVector<mlir::StringAttr>& attributes)
+    SymbolizationResult(mlir::Operation* op, mlir::SmallVector<mlir::StringAttr> attributes)
             : newOp(op), refsToUpdate(std::move(attributes)) {
     }
 };

@@ -8,8 +8,8 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPURT/transforms/passes.hpp"
+#include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/core/passes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
@@ -23,6 +23,7 @@
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/interfaces_registry.hpp"
 #include "vpux/compiler/passes_register.hpp"
@@ -32,6 +33,7 @@
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Dialect/Func/Transforms/Passes.h>
+#include <mlir/Dialect/Linalg/Passes.h>
 #include <mlir/Dialect/MemRef/Transforms/Passes.h>
 #include <mlir/Tools/mlir-opt/MlirOptMain.h>
 #include <mlir/Transforms/Passes.h>
@@ -44,7 +46,7 @@ int main(int argc, char* argv[]) {
         // TODO: need to rework this unconditional replacement for dummy ops
         // there is an option for vpux-translate we can do it in the same way
         // Ticket: E#50937
-        auto registry = vpux::createDialectRegistry(vpux::DummyOpMode::ENABLED);
+        auto registry = vpux::createDialectRegistry(vpux::DummyOpMode::ENABLED, /*enableExtraShapeBoundOps=*/true);
 
         const auto hwSpecificRegistration = [&](vpux::StringRef helpHeader) {
             const auto archKind = vpux::parseArchKind(argc, argv, helpHeader);
@@ -59,28 +61,37 @@ int main(int argc, char* argv[]) {
             interfacesRegistry->registerInterfaces(registry);
         };
 
-        vpux::registerCorePasses();
-        vpux::Const::registerConstPasses();
-        vpux::IE::registerIEPasses();
+        vpux::Core::registerPasses();
+        vpux::Const::registerPasses();
+        vpux::IE::registerPasses();
         vpux::IE::registerIEPipelines();
-        vpux::VPU::registerVPUPasses();
+        vpux::VPU::registerPasses();
         vpux::VPU::registerVPUPipelines();
-        vpux::VPUIP::registerVPUIPPasses();
+        vpux::VPUIP::registerPasses();
         vpux::VPUIP::registerVPUIPPipelines();
         vpux::VPURT::registerVPURTPipelines();
-        vpux::VPURT::registerVPURTPasses();
-        vpux::ELFNPU37XX::registerELFNPU37XXPasses();
-        vpux::ELF::registerELFPasses();
-        vpux::VPUMI37XX::registerVPUMI37XXPasses();
-        vpux::VPUMI40XX::registerVPUMI40XXPasses();
-        vpux::VPUASM::registerVPUASMPasses();
-        vpux::VPUIPDPU::registerVPUIPDPUPasses();
+        vpux::VPURT::registerPasses();
+        vpux::ELFNPU37XX::registerPasses();
+        vpux::ELF::registerPasses();
+        vpux::VPUMI37XX::registerPasses();
+        vpux::VPUMI40XX::registerPasses();
+        vpux::VPUASM::registerPasses();
+        vpux::VPUIPDPU::registerPasses();
+        vpux::ShaveCodeGen::registerPasses();
         vpux::registerConversionPasses();
         vpux::registerConversionPipelines();
 
         mlir::registerTransformsPasses();
         mlir::func::registerFuncPasses();
         mlir::memref::registerResolveShapedTypeResultDims();
+        mlir::registerConvertElementwiseToLinalg();
+        mlir::registerLinalgBufferize();
+        mlir::registerLinalgGeneralization();
+        mlir::registerLinalgNamedOpConversion();
+        mlir::registerLinalgInlineScalarOperands();
+        mlir::registerLinalgLowerToLoops();
+        mlir::registerLinalgLowerToParallelLoops();
+        mlir::registerLinalgLowerToAffineLoops();
 
         return mlir::asMainReturnCode(
                 mlir::MlirOptMain(argc, argv, "NPU Optimizer Testing Tool", registry, hwSpecificRegistration));

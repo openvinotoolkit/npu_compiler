@@ -3,19 +3,22 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/NPU40XX/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/convert_op_to_dma_for_performant_execution_getter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-
-#include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
 #include <cstdint>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_CONVERTOPTODMAFORPERFORMANTEXECUTION
+#define GEN_PASS_DEF_CONVERTOPTODMAFORPERFORMANTEXECUTION
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -26,7 +29,7 @@ namespace {
 //
 
 class ConvertOpToDMAForPerformantExecutionPass final :
-        public VPU::ConvertOpToDMAForPerformantExecutionBase<ConvertOpToDMAForPerformantExecutionPass> {
+        public VPU::impl::ConvertOpToDMAForPerformantExecutionBase<ConvertOpToDMAForPerformantExecutionPass> {
 public:
     explicit ConvertOpToDMAForPerformantExecutionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

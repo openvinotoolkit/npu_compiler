@@ -18,7 +18,7 @@ namespace IE {
 
 mlir::LogicalResult generalRewrite(mlir::Operation* origOp, mlir::PatternRewriter& rewriter,
                                    FuncRef<mlir::Operation*(mlir::Value, int64_t)> opCreator,
-                                   FuncRef<SmallVector<int64_t>(mlir::Operation*, Shape)> calcOutputSliceOffset,
+                                   FuncRef<SmallVector<int64_t>(mlir::Operation*, ShapeRef)> calcOutputSliceOffset,
                                    FuncRef<void()> autopadAttributeModifier, Logger log);
 
 //
@@ -101,7 +101,7 @@ mlir::LogicalResult EltwiseRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
         mlir::Value expandedInput2;
         if (origOp.getInput1() == origOp.getInput2()) {
             expandedInput2 = expandedInput1;
-        } else if (outChanPadEnd == 0 && !VPU::canAutopadOutput(origOp)) {
+        } else if (outChanPadEnd == 0 && !(VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp))) {
             expandedInput2 = origOp.getInput2();
         } else {
             _log.trace("Expand second input tensor");
@@ -125,7 +125,7 @@ mlir::LogicalResult EltwiseRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
         const auto ndType = origOp.getType().template cast<vpux::NDTypeInterface>();
 
         auto outChanBeforeAttr = origOp.getOutputChannelsAttr();
-        if (VPU::canAutopadOutput(origOp)) {
+        if (VPU::hasOnlyDirectSWConsumers(origOp) && VPU::canAutopadOutput(origOp)) {
             outChanBeforeAttr = vpux::getIntAttr(origOp.getContext(), ndType.getShape()[Dims4D::Act::C]);
         }
 

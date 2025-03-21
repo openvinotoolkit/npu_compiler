@@ -15,6 +15,12 @@
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTIETOVPUM2I
+#define GEN_PASS_DEF_CONVERTIETOVPUM2I
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -131,7 +137,7 @@ mlir::LogicalResult BatchNormToM2I::matchAndRewrite(IE::BatchNormInferenceOp ori
 // ConvertIEToVPUM2IPass
 //
 
-class ConvertIEToVPUM2IPass final : public ConvertIEToVPUM2IBase<ConvertIEToVPUM2IPass> {
+class ConvertIEToVPUM2IPass final : public impl::ConvertIEToVPUM2IBase<ConvertIEToVPUM2IPass> {
 public:
     explicit ConvertIEToVPUM2IPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -149,10 +155,7 @@ void ConvertIEToVPUM2IPass::safeRunOnFunc() {
 
     auto module = getOperation();
     const auto arch = VPU::getArch(module);
-    const std::set<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU40XX,
-    };
-    if (compatibleTargets.count(arch) <= 0) {
+    if (arch < VPU::ArchKind::NPU40XX) {
         _log.trace("Convert to VPU-M2I Pass enabled only for NPU40XX devices. Got: {0}", arch);
         return;
     }

@@ -3,12 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPTRANSPOSECONCAT
+#define GEN_PASS_DEF_SWAPTRANSPOSECONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -18,7 +25,7 @@ namespace {
 // SwapTransposeConcat
 //
 
-class SwapTransposeConcat final : public IE::SwapTransposeConcatBase<SwapTransposeConcat> {
+class SwapTransposeConcat final : public IE::impl::SwapTransposeConcatBase<SwapTransposeConcat> {
 public:
     explicit SwapTransposeConcat(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

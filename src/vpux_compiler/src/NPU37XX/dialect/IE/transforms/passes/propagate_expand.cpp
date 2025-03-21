@@ -11,6 +11,7 @@
 #include <openvino/core/strides.hpp>
 #include <openvino/op/convolution.hpp>
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
@@ -25,6 +26,12 @@
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Pass/PassManager.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_PROPAGATEEXPAND
+#define GEN_PASS_DEF_PROPAGATEEXPAND
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -636,7 +643,7 @@ mlir::LogicalResult SpaceToDepthSliceRewriter::matchAndRewrite(IE::ConvolutionOp
 // PropagateExpandPass
 //
 
-class PropagateExpandPass final : public IE::arch37xx::PropagateExpandBase<PropagateExpandPass> {
+class PropagateExpandPass final : public IE::arch37xx::impl::PropagateExpandBase<PropagateExpandPass> {
 public:
     explicit PropagateExpandPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/expand_with_layer_rewriter.hpp"
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
@@ -16,6 +17,12 @@
 #include "vpux/utils/core/range.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEREORDERS
+#define GEN_PASS_DEF_OPTIMIZEREORDERS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -1416,10 +1423,6 @@ mlir::LogicalResult ReorderWithLayer::matchAndRewrite(IE::LayoutInfoOpInterface 
         if (curOrder != supportedOrder) {
             insertReorderForInput(layerOp, input, supportedOrder, rewriter, _log.nest());
         }
-
-        if (curOrder != propagatingOrder && mlir::isa<IE::PowerOp, IE::MVN6Op>(layerOp.getOperation())) {
-            insertReorderForInput(layerOp, input, propagatingOrder, rewriter, _log.nest());
-        }
     }
 
     const auto outputs = layerOp->getOpResults();
@@ -1732,7 +1735,7 @@ mlir::LogicalResult ReorderWithEltwise<ConcreteOp>::matchAndRewrite(ConcreteOp o
 // OptimizeReordersPass
 //
 
-class OptimizeReordersPass final : public IE::OptimizeReordersBase<OptimizeReordersPass> {
+class OptimizeReordersPass final : public IE::impl::OptimizeReordersBase<OptimizeReordersPass> {
 public:
     explicit OptimizeReordersPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _seOpsEnabled(seOpsEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled) {

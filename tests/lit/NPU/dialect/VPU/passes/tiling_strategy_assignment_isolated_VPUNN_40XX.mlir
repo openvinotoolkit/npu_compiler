@@ -200,9 +200,9 @@ func.func @SplitSparseQuantNCEConvOverH(%arg0: tensor<1x32x80x80x!qElemType, {or
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @NotSplitNCEConvAtOneDim
+// CHECK-LABEL: @SplitNCEConvAtOneDim
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x256x512x512xf16, {order = #NHWC}>
-func.func @NotSplitNCEConvAtOneDim(%arg0: tensor<1x256x512x512xf16, {order = #NHWC}>) -> tensor<1x256x512x512xf16, {order = #NHWC}> {
+func.func @SplitNCEConvAtOneDim(%arg0: tensor<1x256x512x512xf16, {order = #NHWC}>) -> tensor<1x256x512x512xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<256x256x3x3xf16, {order = #NHWC}> = dense<0.1> : tensor<256x256x3x3xf16, {order = #NHWC}>
     %cst_0 = const.Declare tensor<256x1x1x4xsi32> = dense<1> : tensor<256x1x1x4xsi32>
     %0 = VPU.NCE.Convolution(%arg0, %cst, %cst_0) {
@@ -218,7 +218,7 @@ func.func @NotSplitNCEConvAtOneDim(%arg0: tensor<1x256x512x512xf16, {order = #NH
     // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]]) {
     // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
-    // CHECK-SAME:          rawFilterShape = [256, 256, 3, 3], strides = [1, 1], tilingStrategy = [1, 6, 47, 1]
+    // CHECK-SAME:          rawFilterShape = [256, 256, 3, 3], strides = [1, 1], tilingStrategy = [1, 1, 1, 512]
     // CHECK-SAME:      } -> tensor<1x256x512x512xf16, {order = #NHWC}>
 
     // CHECK:       return [[CONV]]

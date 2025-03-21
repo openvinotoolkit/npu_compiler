@@ -5,11 +5,19 @@
 
 #include <cstddef>
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/max_kernel_size_constant.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SETUPMAXKERNELSIZE
+#define GEN_PASS_DEF_SETUPMAXKERNELSIZE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +26,7 @@ namespace {
 // SetupMaxKernelSizePass
 //
 
-class SetupMaxKernelSizePass final : public VPU::SetupMaxKernelSizeBase<SetupMaxKernelSizePass> {
+class SetupMaxKernelSizePass final : public VPU::impl::SetupMaxKernelSizeBase<SetupMaxKernelSizePass> {
 public:
     SetupMaxKernelSizePass() = default;
     SetupMaxKernelSizePass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log) {

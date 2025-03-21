@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-reorders-across-function-calls %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
@@ -261,6 +260,48 @@ module @MultipleReorderUsers {
     // CHECK-SAME:        -> (tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x30x30xf16, {order = #NHWC}>)
     // CHECK:           return [[CALL_PART2]]#0, [[CALL_PART2]]#1, [[CALL_PART2]]#2 : tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x30x30xf16, {order = #NHWC}>
     // CHECK:       }
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+module @MultipleReorderUsersMixed {
+    func.func private @main_part1(%arg0: tensor<1x3x62x62xf16, {order = #NHWC}>) -> tensor<1x48x60x60xf16> {
+        %cst = const.Declare tensor<48x3x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<48x3x3x3xf16, {order = #NHWC}>
+        %conv = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x3x62x62xf16, {order = #NHWC}>, tensor<48x3x3x3xf16, {order = #NHWC}> -> tensor<1x48x60x60xf16, {order = #NHWC}>
+        %reorder = IE.Reorder(%conv) {dstOrder = #NCHW} : tensor<1x48x60x60xf16, {order = #NHWC}> -> tensor<1x48x60x60xf16>
+        return %reorder : tensor<1x48x60x60xf16>
+    }
+    func.func private @main_part2(%arg0: tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16, {order = #NHWC}> {
+        %reorder = IE.Reorder(%arg0) {dstOrder = #NHWC} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16, {order = #NHWC}>
+        %softmax = IE.SoftMax(%reorder) {axisInd = 1 : i64} : tensor<1x48x60x60xf16, {order = #NHWC}> -> tensor<1x48x60x60xf16, {order = #NHWC}>
+        return %softmax : tensor<1x48x60x60xf16, {order = #NHWC}>
+    }
+    func.func @main(%arg0: tensor<1x3x62x62xf16, {order = #NHWC}>) -> (tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x60x60xf16, {order = #NHWC}>) {
+        %call_part1 = call @main_part1(%arg0) : (tensor<1x3x62x62xf16, {order = #NHWC}>) -> tensor<1x48x60x60xf16>
+        %call_part2 = call @main_part2(%call_part1) : (tensor<1x48x60x60xf16>) -> tensor<1x48x60x60xf16, {order = #NHWC}>
+        %reorder = IE.Reorder(%call_part1) {dstOrder = #NHWC} : tensor<1x48x60x60xf16> -> tensor<1x48x60x60xf16, {order = #NHWC}>
+        return %call_part2, %reorder : tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x60x60xf16, {order = #NHWC}>
+    }
+
+    // CHECK:  func.func private @main_part1([[PART1_ARG0:%.+]]: tensor<1x3x62x62xf16, {order = #NHWC}>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16, {order = #NHWC}>) {
+    // CHECK:      [[CST:%.+]] = const.Declare
+    // CHECK:      [[CONV:%.+]] = IE.Convolution([[PART1_ARG0]], [[CST]])
+    // CHECK:      [[REORDER1:%.+]] = IE.Reorder([[CONV]])
+    // CHECK:      return [[REORDER1]], [[CONV]]
+    // CHECK:  }
+    // CHECK:  func.func private @main_part2([[PART2_ARG0:%.+]]: tensor<1x48x60x60xf16, {order = #NHWC}>) -> tensor<1x48x60x60xf16, {order = #NHWC}> {
+    // CHECK:      [[SOFTMAX:%.+]] = IE.SoftMax([[PART2_ARG0]])
+    // CHECK:      return [[SOFTMAX]]
+    // CHECK:  }
+    // CHECK:  func.func @main([[ARG0:%.+]]: tensor<1x3x62x62xf16, {order = #NHWC}>) -> (tensor<1x48x60x60xf16, {order = #NHWC}>, tensor<1x48x60x60xf16, {order = #NHWC}>) {
+    // CHECK:      [[CALL_PART1:%.+]]:2 = call @main_part1([[ARG0]]) : (tensor<1x3x62x62xf16, {order = #NHWC}>) -> (tensor<1x48x60x60xf16>, tensor<1x48x60x60xf16, {order = #NHWC}>)
+    // CHECK:      [[CALL_PART2:%.+]] = call @main_part2([[CALL_PART1]]#1) : (tensor<1x48x60x60xf16, {order = #NHWC}>) -> tensor<1x48x60x60xf16, {order = #NHWC}>
+    // CHECK:      [[REORDER2:%.+]] = IE.Reorder([[CALL_PART1]]#0)
+    // CHECK:      return [[CALL_PART2]], [[REORDER2]]
+    // CHECK:  }
 }
 
 // -----

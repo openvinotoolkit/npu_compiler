@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -17,7 +17,8 @@ class D2SToTransposedConvVerifierBase {
 public:
     virtual ~D2SToTransposedConvVerifierBase() = default;
 
-    virtual bool isBeneficialConversion(IE::DepthToSpaceOp d2s) const;
+    virtual mlir::LogicalResult isBeneficialConversion(Logger log, mlir::PatternRewriter& rewriter,
+                                                       IE::DepthToSpaceOp d2sOp) const;
 };
 
 /*

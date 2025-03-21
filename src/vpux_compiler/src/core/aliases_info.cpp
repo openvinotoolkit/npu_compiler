@@ -5,9 +5,9 @@
 
 #include "vpux/compiler/core/aliases_info.hpp"
 
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/types.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/format.hpp"
@@ -61,7 +61,7 @@ void logAddAlias(const Logger& log, mlir::Value source, mlir::Value alias) {
 // AliasesInfoBase
 //
 
-const AliasesInfoBase::ValuesSet& AliasesInfoBase::getSources(mlir::Value val) const {
+const AliasesInfoBase::ValuesVector& AliasesInfoBase::getSources(mlir::Value val) const {
     const auto it = _sources.find(val);
     VPUX_THROW_UNLESS(it != _sources.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;
@@ -75,13 +75,30 @@ mlir::Value AliasesInfoBase::getSource(mlir::Value val) const {
     return *it->second.begin();
 }
 
-const AliasesInfoBase::ValuesSet& AliasesInfoBase::getRoots(mlir::Value val) const {
+const AliasesInfoBase::ValuesVector& AliasesInfoBase::getRoots(mlir::Value val) const {
     const auto it = _roots.find(val);
     VPUX_THROW_UNLESS(it != _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;
 }
 
+mlir::Value AliasesInfoBase::getRoot(mlir::Value val) const {
+    const auto it = _roots.find(val);
+    VPUX_THROW_UNLESS(it != _roots.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
+    VPUX_THROW_UNLESS(it->second.size() == 1, "Value '{0}' expected to have only one root. Got {1}",
+                      getValueForLog(val), it->second.size());
+    return *it->second.begin();
+}
+
+void AliasesInfoBase::uniqueAppend(ValuesVectorMap& map, mlir::Value key, mlir::Value value) {
+    auto& values = map[key];
+    if (std::find(values.begin(), values.end(), value) != values.end()) {
+        return;
+    }
+    values.push_back(value);
+}
+
 void AliasesInfoBase::visitOp(mlir::Operation* op, bool ignoreInnerRegions = false) {
+    VPUX_THROW_WHEN(op == nullptr, "NULL operation provided");
     std::function<bool(mlir::Type)> isBufferizedType = [&](mlir::Type type) -> bool {
         if (const auto asyncType = type.dyn_cast<mlir::async::ValueType>()) {
             return isBufferizedType(asyncType.getValueType());
@@ -288,7 +305,7 @@ ValueSourceInfo::ValueSourceInfo(mlir::Value val): AliasesInfoBase(Logger::globa
             }
         }
 
-        if (mlir::isa<mlir::func::FuncOp>(currOp)) {
+        if (mlir::isa_and_nonnull<mlir::func::FuncOp>(currOp)) {
             addFuncArgAlias(currVal);
             continue;
         }
@@ -309,9 +326,9 @@ ValueSourceInfo::ValueSourceInfo(mlir::Value val): AliasesInfoBase(Logger::globa
 void ValueSourceInfo::addAlias(mlir::Value source, mlir::Value alias) {
     logAddAlias(_log, source, alias);
     if (source == alias) {
-        _sources[alias].insert(nullptr);
+        uniqueAppend(_sources, alias, nullptr);
     } else {
-        _sources[alias].insert(source);
+        uniqueAppend(_sources, alias, source);
     }
 }
 
@@ -323,7 +340,7 @@ void ValueSourceInfo::updateRoots(mlir::Value val) {
         s.pop();
         const auto sources = getSources(key);
         if (sources.size() == 1 && *sources.begin() == nullptr) {
-            _roots[val].insert(key);
+            uniqueAppend(_roots, val, key);
         }
         for (const auto& source : sources) {
             if (source == nullptr) {
@@ -395,17 +412,16 @@ void AliasesInfo::addAlias(mlir::Value source, mlir::Value alias) {
 
     logAddAlias(_log, source, alias);
 
-    const auto roots = source == alias ? ValuesSet{alias} : getRoots(source);
+    const auto roots = source == alias ? ValuesVector{alias} : getRoots(source);
 
-    if (roots.find(alias) != roots.end()) {
-        _sources[alias].insert(nullptr);
+    if (std::find(roots.begin(), roots.end(), alias) != roots.end()) {
+        uniqueAppend(_sources, alias, nullptr);
     } else {
-        _sources[alias].insert(source);
+        uniqueAppend(_sources, alias, source);
     }
-
-    _roots[alias].insert(roots.begin(), roots.end());
     for (const auto& root : roots) {
         _allAliases[root].insert(alias);
+        uniqueAppend(_roots, alias, root);
     }
 }
 
@@ -444,7 +460,7 @@ void AliasesInfo::remove(mlir::Value val) {
     _sources.erase(val);
 }
 
-const AliasesInfoBase::ValuesSet& AliasesInfo::getAllAliases(mlir::Value val) const {
+const AliasesInfo::ValuesSet& AliasesInfo::getAllAliases(mlir::Value val) const {
     const auto it = _allAliases.find(val);
     VPUX_THROW_UNLESS(it != _allAliases.end(), "Value '{0}' is not covered by aliases analysis", getValueForLog(val));
     return it->second;

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/mc_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -20,13 +21,19 @@
 #include <llvm/ADT/TypeSwitch.h>
 
 namespace vpux::VPU {
+#define GEN_PASS_DECL_STRATEGYMANAGERIMPL
+#define GEN_PASS_DEF_STRATEGYMANAGERIMPL
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
+namespace vpux::VPU {
 namespace {
 
 //
 // StrategyManagerImplPass
 //
 
-class StrategyManagerImplPass final : public StrategyManagerImplBase<StrategyManagerImplPass> {
+class StrategyManagerImplPass final : public VPU::impl::StrategyManagerImplBase<StrategyManagerImplPass> {
 public:
     explicit StrategyManagerImplPass(bool enablePrefetchTiling, Logger log)
             : _enablePrefetchTiling(enablePrefetchTiling) {

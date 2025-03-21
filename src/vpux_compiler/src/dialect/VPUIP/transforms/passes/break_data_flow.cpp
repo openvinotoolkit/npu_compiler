@@ -5,6 +5,12 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_BREAKDATAFLOW
+#define GEN_PASS_DEF_BREAKDATAFLOW
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -13,7 +19,7 @@ namespace {
 // BreakDataFlowPass
 //
 
-class BreakDataFlowPass final : public VPUIP::BreakDataFlowBase<BreakDataFlowPass> {
+class BreakDataFlowPass final : public VPUIP::impl::BreakDataFlowBase<BreakDataFlowPass> {
 public:
     explicit BreakDataFlowPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

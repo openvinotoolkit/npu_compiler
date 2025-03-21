@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" --dma-task-profiling-hw-ddr="dma-profiling=static" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 !dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
 
 module @DMAGraph {

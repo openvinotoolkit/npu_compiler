@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --find-wlm-enqueue-barrier %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @EnqueueTargetAssign() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {

@@ -3,15 +3,23 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_LINKENQUEUETARGETS
+#define GEN_PASS_DEF_LINKENQUEUETARGETS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
 namespace {
 
-class LinkEnqueueTargetsPass : public VPUMI40XX::LinkEnqueueTargetsBase<LinkEnqueueTargetsPass> {
+class LinkEnqueueTargetsPass : public VPUMI40XX::impl::LinkEnqueueTargetsBase<LinkEnqueueTargetsPass> {
 public:
     explicit LinkEnqueueTargetsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

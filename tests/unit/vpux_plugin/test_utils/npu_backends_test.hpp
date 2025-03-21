@@ -10,6 +10,7 @@
 #include "intel_npu/config/common.hpp"
 #include "intel_npu/npu_private_properties.hpp"
 #include "npu/utils/logger/logger.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 
 #include "no_devices_test_backend.hpp"
 #include "npu3720_test_backend.hpp"

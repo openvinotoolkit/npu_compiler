@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -21,7 +21,7 @@ namespace vpux {
 namespace NPUReg40XX {
 
 void DPUInvariantOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    auto invariantDesc = getDpuInvariantDescriptor().getRegMapped();
+    auto invariantDesc = getDescriptor().getRegMapped();
 
     VPUX_THROW_UNLESS(sizeof(nn_public::VpuDPUInvariant) == invariantDesc.size(),
                       "HW VpuDPUInvariant size {0} != regMapped representation size {1}.",
@@ -118,7 +118,7 @@ std::vector<ELF::RelocationInfo> DPUInvariantOp::getRelocationInfo(ELF::SymbolRe
         auto newInput = getInput();
         auto weights = getWeights().value_or(nullptr);
 
-        if (getIsZeroOffsetWeightsTableAttr() != nullptr && weights) {
+        if (weights && (getIsZeroOffsetWeightsTableAttr() != nullptr)) {
             newInput = weights;
             addend = ELF::getOffsetOfSymRef(symRefMap, weights);
         }
@@ -128,12 +128,6 @@ std::vector<ELF::RelocationInfo> DPUInvariantOp::getRelocationInfo(ELF::SymbolRe
                 ELF::RelocationType::R_VPU_LO_21, addend,
                 "Weights (wt_offset) in DPU invariant reloc");  // Using input as source just as a placeholder
     }
-
-    //
-    // Tensor2 Relocs
-    //
-    // reserved1 needs to be set for dual elops (ELTWISE with 2 input tensors) in case of per output channel
-    // scaling, i.e. when weightTable is provided
     if (getWeightTable().has_value() && opType == VPUIP::NCETaskType::ELTWISE) {
         if (auto weights = getWeights().value_or(nullptr)) {
             auto addend = ELF::getOffsetOfSymRef(symRefMap, weights);
@@ -201,17 +195,8 @@ size_t DPUInvariantOp::getAlignmentRequirements(VPU::ArchKind) {
     return alignof(nn_public::VpuDPUInvariant);
 }
 
-std::optional<ELF::SectionSignature> DPUInvariantOp::getSectionSignature() {
-    return ELF::SectionSignature(vpux::ELF::generateSignature("task", "dpu", "invariant", getTaskIndex()),
-                                 ELF::SectionFlagsAttr::SHF_ALLOC);
-}
-
-bool DPUInvariantOp::hasMemoryFootprint() {
-    return true;
-}
-
 void DPUVariantOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    auto variantDesc = getDpuVariantDescriptor().getRegMapped();
+    auto variantDesc = getDescriptor().getRegMapped();
 
     VPUX_THROW_UNLESS(sizeof(nn_public::VpuDPUVariant) == variantDesc.size(),
                       "HW VpuDPUVariant size {0} != regMapped representation size {1}.",
@@ -286,15 +271,6 @@ std::vector<ELF::RelocationInfo> DPUVariantOp::getRelocationInfo(ELF::SymbolRefe
 
 size_t DPUVariantOp::getAlignmentRequirements(VPU::ArchKind) {
     return alignof(nn_public::VpuDPUVariant);
-}
-
-std::optional<ELF::SectionSignature> DPUVariantOp::getSectionSignature() {
-    return ELF::SectionSignature(vpux::ELF::generateSignature("task", "dpu", "variant", getTaskIndex()),
-                                 ELF::SectionFlagsAttr::SHF_ALLOC);
-}
-
-bool DPUVariantOp::hasMemoryFootprint() {
-    return true;
 }
 
 }  // namespace NPUReg40XX

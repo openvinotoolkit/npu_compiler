@@ -10,6 +10,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTOMEMPERMUTE
+#define GEN_PASS_DEF_CONVERTTOMEMPERMUTE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 // ConvertToMemPermutePass
 //
 
-class ConvertToMemPermutePass final : public IE::ConvertToMemPermuteBase<ConvertToMemPermutePass> {
+class ConvertToMemPermutePass final : public IE::impl::ConvertToMemPermuteBase<ConvertToMemPermutePass> {
 public:
     explicit ConvertToMemPermutePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

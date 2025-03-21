@@ -12,6 +12,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_DMATASKPROFILINGHWDDR
+#define GEN_PASS_DEF_DMATASKPROFILINGHWDDR
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -67,7 +73,8 @@ private:
 //  DMATaskProfilingHwDdrPass
 //
 
-class DMATaskProfilingHwDdrPass final : public VPUIP::arch40xx::DMATaskProfilingHwDdrBase<DMATaskProfilingHwDdrPass> {
+class DMATaskProfilingHwDdrPass final :
+        public VPUIP::arch40xx::impl::DMATaskProfilingHwDdrBase<DMATaskProfilingHwDdrPass> {
 public:
     explicit DMATaskProfilingHwDdrPass(DMAProfilingMode dmaProfilingMode, Logger log)
             : _dmaProfilingMode(dmaProfilingMode) {

@@ -162,7 +162,7 @@ func.func @SplitSwAddOverC(
 func.func @SplitAddSameInputOverC(
         %input: tensor<1x2048x14x14xf16>)
             -> tensor<1x2048x14x14xf16> {
-    %1 = VPU.And(%input, %input) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x2048x14x14xf16>, tensor<1x2048x14x14xf16> -> tensor<1x2048x14x14xf16>
+    %1 = VPU.Add(%input, %input) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x2048x14x14xf16>, tensor<1x2048x14x14xf16> -> tensor<1x2048x14x14xf16>
     return %1 : tensor<1x2048x14x14xf16>
 
     // Tile 0
@@ -170,7 +170,7 @@ func.func @SplitAddSameInputOverC(
     // CHECK:       [[INPUT_TILE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 1024, 14, 14]
     // CHECK-SAME:       : tensor<1x2048x14x14xf16> to tensor<1x1024x14x14xf16>
 
-    // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.And([[INPUT_TILE0]], [[INPUT_TILE0]])
+    // CHECK:       [[OUTPUT_TILE0:%.+]] = VPU.Add([[INPUT_TILE0]], [[INPUT_TILE0]])
     // CHECK-SAME:      -> tensor<1x1024x14x14xf16>
 
     // Tile 1
@@ -178,7 +178,7 @@ func.func @SplitAddSameInputOverC(
     // CHECK:       [[INPUT_TILE1:%.+]] = VPU.Slice [[INPUT]] [0, 1024, 0, 0] [1, 1024, 14, 14]
     // CHECK-SAME:      : tensor<1x2048x14x14xf16> to tensor<1x1024x14x14xf16>
 
-    // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.And([[INPUT_TILE1]], [[INPUT_TILE1]])
+    // CHECK:       [[OUTPUT_TILE1:%.+]] = VPU.Add([[INPUT_TILE1]], [[INPUT_TILE1]])
     // CHECK-SAME:      -> tensor<1x1024x14x14xf16>
 
     // Concat

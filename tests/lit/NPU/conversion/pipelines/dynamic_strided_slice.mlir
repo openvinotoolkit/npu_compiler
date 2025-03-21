@@ -6,9 +6,9 @@
 // RUN: vpux-translate --vpu-arch=NPU37XX --import-IE ./slice.xml | FileCheck %s
 
 // CHECK:   IE.CNNNetwork entryPoint : @main inputsInfo : {
-// CHECK:       DataInfo "param_node_0" tensorNames = ["param_node_0"] : tensor<32xf32>
+// CHECK:       DataInfo "param_node_0" tensorNames = ["param_node_0"] : tensor<?xf32
 // CHECK:   } outputsInfo : {
-// CHECK:       DataInfo "StridedSlice_5" friendlyName = "Result_6" : tensor<19xf32>
+// CHECK:       DataInfo "StridedSlice_5" friendlyName = "Result_6" : tensor<?xf32
 // CHECK:   }
 // CHECK:   func.func @main([[ARG:%.+]]: tensor<?xf32, {bounds = [32], order = #C}>)
 // CHECK-SAME:      -> tensor<?xf32, {bounds = [19], order = #C}> {

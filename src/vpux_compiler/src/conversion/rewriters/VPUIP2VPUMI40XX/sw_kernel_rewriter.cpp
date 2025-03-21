@@ -289,7 +289,7 @@ void addLLVMMemrefArgToVector(SmallVector<uint8_t>& vec, mlir::Value value,
     vec.insert(vec.end(), strideByteArray.begin(), strideByteArray.end());
 }
 
-SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp) {
+SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp, bool isJitCompiled = false) {
     SmallVector<uint8_t> paramsVector;
 
     const auto insSize = swKernelOp.getInputs().size();
@@ -298,54 +298,8 @@ SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp) {
 
     const auto kernelOpArgsCount = insSize + outsSize;
 
-    mlir::Operation* firstInnerOp = &(swKernelOp.getBody().front().front());
-    auto firstInnerOpPackMemrefs = mlir::dyn_cast<vpux::IERT::PackMemrefsOp>(firstInnerOp);
-    if (firstInnerOpPackMemrefs == nullptr) {
-        for (auto&& kernelRun : swKernelOp.getBody().getOps<VPUIP::SwKernelRun>()) {
-            for (auto&& operand : kernelRun.getArgs()) {
-                auto blockArg = operand.dyn_cast_or_null<mlir::BlockArgument>();
-                if (blockArg) {
-                    auto blockId = blockArg.getArgNumber();
-                    VPUX_THROW_UNLESS(blockId < kernelOpArgsCount,
-                                      "Index '{0}' of argument of Kernel.Run operation is out of range {1}'", blockId,
-                                      kernelOpArgsCount);
-
-                    auto blockArgType = blockArg.getType();
-                    auto blockArgNdTypeIf = blockArgType.cast<vpux::NDTypeInterface>();
-                    auto ioType = blockId < insSize ? swKernelOp.getInputs()[blockId].getType()
-                                                    : swKernelOp.getOutputBuffs()[blockId - insSize].getType();
-                    auto ioNdTypeIf = ioType.cast<vpux::NDTypeInterface>();
-                    VPUX_THROW_UNLESS(blockArgNdTypeIf != nullptr || ioNdTypeIf != nullptr,
-                                      "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
-                    if (!vpux::areTypesCompatible(blockArgType, ioType, vpux::IE::TypeComparisonMode::STRICT_EQUAL,
-                                                  true, true)) {
-                        VPUX_THROW("createKernelParams: types of sw kernel I/O do not match, op: {0}, loc: {1}",
-                                   swKernelOp->getName(), swKernelOp.getLoc());
-                    }
-                    VPUX_THROW_UNLESS(blockArgNdTypeIf.getShape() == ioNdTypeIf.getShape(),
-                                      "createKernelParams: shapes of I/O do not match, op: {0}", swKernelOp->getName(),
-                                      ", loc: ", swKernelOp.getLoc());
-
-                    const auto [buffer, isDynamic] = extractKernelBuffer(swKernelOp, dynInputShapesSize, blockId);
-                    auto tileMaskForOutputBroadcast =
-                            blockId < insSize
-                                    ? std::nullopt
-                                    : computeTileMaskForBroadcast(swKernelOp.getOutputBuffs()[blockId - insSize]);
-                    addTensorArgToVector(paramsVector, tileMaskForOutputBroadcast, buffer, isDynamic);
-                } else {
-                    VPUX_THROW("Only block arguments are supported");
-                }
-            }
-            if (kernelRun.getAttrs().has_value()) {
-                const mlir::ArrayAttr arrayAttrs = kernelRun.getAttrs().value();
-                const auto& attrs = arrayAttrs.getValue();
-                for (const auto& attr : attrs) {
-                    addAttrsToVector(paramsVector, attr);
-                }
-            }
-        }
-    } else {
-        for (auto&& operand : firstInnerOpPackMemrefs.getOperands()) {
+    for (auto&& kernelRun : swKernelOp.getBody().getOps<VPUIP::SwKernelRun>()) {
+        for (auto&& operand : kernelRun.getArgs()) {
             auto blockArg = operand.dyn_cast_or_null<mlir::BlockArgument>();
             if (blockArg) {
                 auto blockId = blockArg.getArgNumber();
@@ -360,18 +314,35 @@ SmallVector<uint8_t> createKernelParams(VPUIP::SwKernelOp swKernelOp) {
                 auto ioNdTypeIf = ioType.cast<vpux::NDTypeInterface>();
                 VPUX_THROW_UNLESS(blockArgNdTypeIf != nullptr || ioNdTypeIf != nullptr,
                                   "createKernelParams: sw kernel I/O does not implement NDTypeInterface");
+                if (!vpux::areTypesCompatible(blockArgType, ioType, vpux::IE::TypeComparisonMode::STRICT_EQUAL, true,
+                                              true)) {
+                    VPUX_THROW("createKernelParams: types of sw kernel I/O do not match, op: {0}, loc: {1}",
+                               swKernelOp->getName(), swKernelOp.getLoc());
+                }
                 VPUX_THROW_UNLESS(blockArgNdTypeIf.getShape() == ioNdTypeIf.getShape(),
-                                  "createKernelParams: shapes of I/O do not match");
-                VPUX_THROW_UNLESS(blockArgNdTypeIf.getElementType() == ioNdTypeIf.getElementType(),
-                                  "createKernelParams: the element types of I/O do not match");
+                                  "createKernelParams: shapes of I/O do not match, op: {0}", swKernelOp->getName(),
+                                  ", loc: ", swKernelOp.getLoc());
 
-                const auto operandVal = swKernelOp->getOpOperand(blockId).get();
+                const auto [buffer, isDynamic] = extractKernelBuffer(swKernelOp, dynInputShapesSize, blockId);
                 auto tileMaskForOutputBroadcast =
                         blockId < insSize ? std::nullopt
                                           : computeTileMaskForBroadcast(swKernelOp.getOutputBuffs()[blockId - insSize]);
-                addLLVMMemrefArgToVector(paramsVector, operandVal, tileMaskForOutputBroadcast);
+
+                if (isJitCompiled) {
+                    addLLVMMemrefArgToVector(paramsVector, buffer, tileMaskForOutputBroadcast);
+                } else {
+                    addTensorArgToVector(paramsVector, tileMaskForOutputBroadcast, buffer, isDynamic);
+                }
+
             } else {
                 VPUX_THROW("Only block arguments are supported");
+            }
+        }
+        if (kernelRun.getAttrs().has_value()) {
+            const mlir::ArrayAttr arrayAttrs = kernelRun.getAttrs().value();
+            const auto& attrs = arrayAttrs.getValue();
+            for (const auto& attr : attrs) {
+                addAttrsToVector(paramsVector, attr);
             }
         }
     }
@@ -449,7 +420,7 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
                                          ? swKernelOp.getOutputBuffs()
                                          : convertOrUnrollBuffer(builder, swKernelOp.getOutputBuffs()[0]);
 
-    auto paramsVector = createKernelParams(swKernelOp);
+    auto paramsVector = createKernelParams(swKernelOp, isJitCompiled);
     auto paramsSize = static_cast<int64_t>(paramsVector.size());
     auto paramsData =
             mlir::DenseIntElementsAttr::get(mlir::VectorType::get({paramsSize}, getUInt8Type(ctx)), paramsVector);

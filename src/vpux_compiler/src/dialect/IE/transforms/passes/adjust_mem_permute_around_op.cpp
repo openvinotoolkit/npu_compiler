@@ -3,13 +3,21 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTMEMPERMUTEAROUNDOP
+#define GEN_PASS_DEF_ADJUSTMEMPERMUTEAROUNDOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -465,7 +473,7 @@ mlir::LogicalResult AdjustForSoftmax::matchAndRewrite(IE::SoftMaxOp origOp, mlir
 // AdjustMemPermuteAroundOpPass
 //
 
-class AdjustMemPermuteAroundOpPass final : public IE::AdjustMemPermuteAroundOpBase<AdjustMemPermuteAroundOpPass> {
+class AdjustMemPermuteAroundOpPass final : public IE::impl::AdjustMemPermuteAroundOpBase<AdjustMemPermuteAroundOpPass> {
 public:
     explicit AdjustMemPermuteAroundOpPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

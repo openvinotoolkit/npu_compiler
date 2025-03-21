@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --eltwise-fake-quantize-fusion %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @AddFakeQuantizeFusionScalarConstLhs
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x12x32x32xf32>
 func.func @AddFakeQuantizeFusionScalarConstLhs(%arg0: tensor<1x12x32x32xf32>) -> tensor<1x12x32x32xf32> {

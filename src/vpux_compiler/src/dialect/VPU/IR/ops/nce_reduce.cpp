@@ -51,12 +51,13 @@ bool vpux::VPU::NCEReduceOp::isSupported(mlir::Operation* op, LogCb logCb, bool 
         return false;
     }
 
-    auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(op);
     if (checkChannelAlignment) {
-        if (!NCEInvariant::isInputActTypeSupported(getArch(op), inputType, iface.getInputChannelAlignment(), false) ||
-            !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
-            logCb(formatv("Misaligned tensor shape"));
-            return false;
+        if (auto iface = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op)) {
+            if (!NCEInvariant::isInputActTypeSupported(inputType, iface.getInputChannelAlignment(), false) ||
+                !NCEInvariant::isOutputActTypeSupported(outputType, iface.getOutputChannelAlignment())) {
+                logCb(formatv("Misaligned tensor shape"));
+                return false;
+            }
         }
     }
 

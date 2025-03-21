@@ -30,5 +30,4 @@ mlir::LogicalResult vpux::NPUReg40XX::verifySingleOutputAsIndexOp(mlir::Operatio
 //
 // Generated
 //
-
 #include <vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops_interfaces.cpp.inc>

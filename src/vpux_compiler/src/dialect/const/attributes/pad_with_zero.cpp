@@ -266,3 +266,14 @@ Const::Content vpux::Const::PadWithZeroAttr::transform(vpux::Const::Content& inp
 
     return output;
 }
+
+//
+// PadWithZeroAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::PadWithZeroAttr::getStableHashValue() const {
+    const auto padBefore = parseIntArrayAttr<int64_t>(getPadBefore());
+    const auto padAfter = parseIntArrayAttr<int64_t>(getPadAfter());
+    return llvm::hash_combine(getMnemonic(), llvm::hash_combine_range(padBefore.begin(), padBefore.end()),
+                              llvm::hash_combine_range(padAfter.begin(), padAfter.end()));
+}

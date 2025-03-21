@@ -64,7 +64,6 @@ mlir::LogicalResult VPUIP::GroupSparseBufferOp::inferReturnTypes(mlir::MLIRConte
     const auto storageElementTableType =
             groupOp.getStorageElementTable() != nullptr ? groupOp.getStorageElementTable().getType() : nullptr;
 
-    // sparsityMapType is at some point null which it shouldn't be
     inferredReturnTypes.push_back(
             VPUIP::SparseBufferType::get(dataType, sparsityMapType, storageElementTableType, groupOp.getIsWeightsAttr(),
                                          groupOp.getSparsityCompressionAttr(), groupOp.getSeAttrAttr()));

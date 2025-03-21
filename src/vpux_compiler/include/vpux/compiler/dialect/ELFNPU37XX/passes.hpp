@@ -5,15 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"
-#include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
-#include "vpux/compiler/utils/passes.hpp"
-
 #include "vpux/utils/core/logger.hpp"
-#include "vpux/utils/core/optional.hpp"
 
-#include <mlir/IR/BuiltinOps.h>
 #include <mlir/Pass/Pass.h>
 
 #include <memory>
@@ -29,16 +22,10 @@ std::unique_ptr<mlir::Pass> createRemoveEmptyELFSectionsPass(Logger log = Logger
 std::unique_ptr<mlir::Pass> createUpdateELFSectionFlagsPass(Logger log = Logger::global());
 
 //
-// Generated
+// Registration
 //
 
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/dialect/ELFNPU37XX/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/dialect/ELFNPU37XX/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace ELFNPU37XX
 }  // namespace vpux

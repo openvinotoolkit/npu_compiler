@@ -9,12 +9,12 @@ namespace vpux::profiling {
 
 enum TargetDevice {
     TargetDevice_NONE = 0,
+    TargetDevice_MIN = TargetDevice_NONE,
     TargetDevice_VPUX30XX = 1,
     TargetDevice_VPUX37XX = 2,
     TargetDevice_VPUX311X = 3,
     TargetDevice_VPUX40XX = 4,
-    TargetDevice_MIN = TargetDevice_NONE,
-    TargetDevice_MAX = TargetDevice_VPUX40XX
+    TargetDevice_MAX
 };
 
 enum TargetDeviceRevision {

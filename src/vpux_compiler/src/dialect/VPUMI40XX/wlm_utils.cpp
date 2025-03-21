@@ -415,5 +415,121 @@ void setBarrierIDs(mlir::MLIRContext* ctx, mlir::func::FuncOp funcOp) {
     }
 }
 
+//
+// Log Fetch Tasks
+//
+
+VPUMI40XX::NNDMAOp getPreviousDMAWithBarriers(VPURegMapped::TaskOpInterface taskOpInterface) {
+    while (taskOpInterface != nullptr) {
+        if (mlir::isa<VPURegMapped::FetchTaskOp>(taskOpInterface.getOperation())) {
+            taskOpInterface = taskOpInterface.getPreviousTask();
+            continue;
+        }
+
+        if (auto previousDma = mlir::dyn_cast<VPUMI40XX::NNDMAOp>(taskOpInterface.getOperation())) {
+            return previousDma;
+        }
+        taskOpInterface = taskOpInterface.getPreviousTask();
+    }
+    return nullptr;
+}
+
+void logFetchOpsDetails(mlir::func::FuncOp netFunc, Logger log) {
+    auto fetchTaskOps = netFunc.getOps<VPURegMapped::FetchTaskOp>();
+    SmallVector<FetchTaskDetails> groupedTasks;
+    std::map<std::string, std::map<size_t, SmallVector<FetchTaskDetails>>> groupedTasksMap;
+
+    for (auto fetchTaskOp : fetchTaskOps) {
+        auto primaryTaskOpStart =
+                mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getPrimaryStart().getDefiningOp());
+
+        auto primaryTaskOpEnd = mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getPrimaryEnd().getDefiningOp());
+        auto secondaryTaskOpStart =
+                mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getSecondaryStart().getDefiningOp());
+        auto secondaryTaskOpEnd =
+                mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getSecondaryEnd().getDefiningOp());
+
+        size_t executionGroupIndex = 0;
+        if (fetchTaskOp.getAssociatedExecutionGroupIndex().has_value()) {
+            executionGroupIndex = fetchTaskOp.getAssociatedExecutionGroupIndex().value();
+        }
+        size_t tileIndex = 0;
+        if (fetchTaskOp.getAssociatedTileIndex().has_value()) {
+            tileIndex = fetchTaskOp.getAssociatedTileIndex().value();
+        }
+
+        std::string taskType = "N/A";
+        if (fetchTaskOp.getAssociatedTaskType().has_value()) {
+            taskType = (fetchTaskOp.getAssociatedTaskType().value() == VPURegMapped::TaskType::ActKernelInvocation ||
+                        fetchTaskOp.getAssociatedTaskType().value() == VPURegMapped::TaskType::ActKernelRange)
+                               ? "SHV"
+                               : "DPU";
+        }
+
+        size_t taskIndex = fetchTaskOp.getIndexType().getValue();
+        size_t dmaWithBarriers = SIZE_MAX;
+        size_t barrierIdx = 0;
+
+        if (fetchTaskOp.getPreviousTask() != nullptr) {
+            auto taskOpInterface =
+                    mlir::cast<VPURegMapped::TaskOpInterface>(fetchTaskOp.getPreviousTask().getDefiningOp());
+            if (auto prevDmaWithBarriers = getPreviousDMAWithBarriers(taskOpInterface)) {
+                dmaWithBarriers = prevDmaWithBarriers.getIndexType().getValue();
+
+                for (auto updateBarr : prevDmaWithBarriers.getWaitBarriers()) {
+                    auto barrOp = mlir::cast<VPUMI40XX::ConfigureBarrierOp>(updateBarr.getDefiningOp());
+                    barrierIdx = std::max(barrierIdx, static_cast<size_t>(barrOp.getType().getValue()));
+                }
+            }
+        }
+
+        FetchTaskDetails taskDetails = {tileIndex,
+                                        taskIndex,
+                                        dmaWithBarriers,
+                                        barrierIdx,
+                                        primaryTaskOpStart.getIndexType().getValue(),
+                                        primaryTaskOpEnd.getIndexType().getValue(),
+                                        secondaryTaskOpStart.getIndexType().getValue(),
+                                        secondaryTaskOpEnd.getIndexType().getValue(),
+                                        taskType,
+                                        executionGroupIndex};
+
+        groupedTasksMap[taskType][executionGroupIndex].push_back(taskDetails);
+    }
+
+    // Iterate and print in the required format
+    for (const auto& taskTypePair : groupedTasksMap) {
+        const std::string& taskType = taskTypePair.first;
+        log.trace("{0}", taskType);
+
+        for (const auto& execGroupPair : taskTypePair.second) {
+            size_t execGroup = execGroupPair.first;
+            log.nest().trace("Exec Group {0} - {1}", execGroup, (execGroup % 2 == 0 ? "BUF A" : "BUF B"));
+
+            const auto& tasksInGroup = execGroupPair.second;
+
+            for (const auto& task : tasksInGroup) {
+                if (taskType == "DPU") {
+                    log.nest(2).trace(
+                            "Tile {0} - FetchIndex: {1}, Prev DMA: {2}, BarrierBlockingFetch: {3}, Invariant: "
+                            "{4}-{5}, Variant: {6}-{7}",
+                            task.tileIndex, task.taskIndex,
+                            (task.dmaWithBarriers == SIZE_MAX ? "N/A" : std::to_string(task.dmaWithBarriers)),
+                            (task.barrierIdx == SIZE_MAX ? "N/A" : std::to_string(task.barrierIdx)), task.primaryStart,
+                            task.primaryEnd, task.secondaryStart, task.secondaryEnd);
+                } else {
+                    log.nest(2).trace(
+                            "Tile {0} - FetchIndex: {1}, Prev DMA: {2}, BarrierBlockingFetch: {3}, Invocation: "
+                            "{4}-{5}, Range: {6}-{7}",
+                            task.tileIndex, task.taskIndex,
+                            (task.dmaWithBarriers == SIZE_MAX ? "N/A" : std::to_string(task.dmaWithBarriers)),
+                            (task.barrierIdx == SIZE_MAX ? "N/A" : std::to_string(task.barrierIdx)), task.primaryStart,
+                            task.primaryEnd, task.secondaryStart, task.secondaryEnd);
+                }
+            }
+        }
+    }
+}
+
 }  // namespace VPUMI40XX
 }  // namespace vpux

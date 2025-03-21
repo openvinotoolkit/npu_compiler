@@ -13,6 +13,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZEAVGPOOLWITHUNALIGNEDCHANNELS
+#define GEN_PASS_DEF_OPTIMIZEAVGPOOLWITHUNALIGNEDCHANNELS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -159,7 +165,7 @@ mlir::LogicalResult AvgPoolToConv::matchAndRewrite(IE::AvgPoolOp origOp, mlir::P
 //
 
 class OptimizeAvgPoolWithUnalignedChannelsPass final :
-        public IE::OptimizeAvgPoolWithUnalignedChannelsBase<OptimizeAvgPoolWithUnalignedChannelsPass> {
+        public IE::impl::OptimizeAvgPoolWithUnalignedChannelsBase<OptimizeAvgPoolWithUnalignedChannelsPass> {
 public:
     explicit OptimizeAvgPoolWithUnalignedChannelsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

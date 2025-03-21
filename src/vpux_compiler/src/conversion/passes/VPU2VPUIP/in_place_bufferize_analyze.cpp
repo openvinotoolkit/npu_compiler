@@ -7,6 +7,12 @@
 
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 
+namespace vpux {
+#define GEN_PASS_DECL_INPLACEBUFFERIZATIONANALYZE
+#define GEN_PASS_DEF_INPLACEBUFFERIZATIONANALYZE
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -15,7 +21,8 @@ namespace {
 // InPlaceBufferizationAnalyzePass
 //
 
-class InPlaceBufferizationAnalyzePass final : public InPlaceBufferizationAnalyzeBase<InPlaceBufferizationAnalyzePass> {
+class InPlaceBufferizationAnalyzePass final :
+        public impl::InPlaceBufferizationAnalyzeBase<InPlaceBufferizationAnalyzePass> {
 private:
     void safeRunOnModule() final;
 };

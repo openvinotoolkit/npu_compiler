@@ -7,7 +7,7 @@
 
 #include "vpux/compiler/core/attributes/strided_shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/utils/core/small_vector.hpp"
 

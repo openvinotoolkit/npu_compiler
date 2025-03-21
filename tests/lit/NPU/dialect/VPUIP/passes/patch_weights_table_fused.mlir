@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --patch-weight-table %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
@@ -15,7 +14,7 @@ func.func @PatchFusedConstantWithSpill() ->  memref<1x126x2x2xf16, #NHWC, [@CMX_
     %out = VPURT.DeclareBuffer <CMX_NN> [0] <556416> -> memref<1x126x2x2xf16, #NHWC, [@CMX_NN, 0]>
 
     %fused_const = const.Declare memref<1x1x1x784xui8> = dense<1> : tensor<16x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x784xui8>,
+        [#const.FuseWeights<tensor<1x1x1x784xui8>,
             weightsTable=<dense<1> : tensor<16x1x1x4xsi32>>,
             weights=<dense<1.0> : tensor<16x16x1x1xf16>>>
         ]
@@ -58,7 +57,7 @@ func.func @PatchFusedConstantWithSpill() ->  memref<1x126x2x2xf16, #NHWC, [@CMX_
     // CHECK:   [[INPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1008x14x14xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <556416> -> memref<1x126x2x2xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK-DAG:   [[FUSED_CONSTANT:%.*]] = const.Declare memref<1x1x1x784xui8> =
-    // CHECK-SAME:  #const.RelocateWeightsTable<weightsPtr=[1837312], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=256 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64>
+    // CHECK-SAME:  #const.RelocateWeightsTable<weightsPtr=[1837312], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=256 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>
 
     // CHECK:   [[FUSED_CONSTANT_1:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <540288> -> memref<1x1x1x784xui8, [@CMX_NN, 0]>
     // CHECK:   [[FUSED_CONSTANT_DDR:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1x1x784xui8, @DDR>
@@ -89,7 +88,7 @@ func.func @PatchFusedConstantWithSpill() ->  memref<1x126x2x2xf16, #NHWC, [@CMX_
 func.func @PatchFusedConstantWithSpillAsyncConstruct() -> !IpOp_Stub {
 
     %cst_26 = const.Declare memref<1x1x1x5120xui8> = dense<1> : tensor<64x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x5120xui8>,
+        [#const.FuseWeights<tensor<1x1x1x5120xui8>,
             weightsTable=<dense<1> : tensor<64x1x1x4xsi32>>,
             weights=<dense<1.0> : tensor<64x64x1x1xf16>>>
         ]
@@ -135,7 +134,7 @@ func.func @PatchFusedConstantWithSpillAsyncConstruct() -> !IpOp_Stub {
     return %5 : memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
 
     // CHECK-DAG:   [[FUSED_CONSTANT:%.*]] = const.Declare memref<1x1x1x5120xui8> =
-    // CHECK-SAME:  #const.RelocateWeightsTable<weightsPtr=[1405952], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64>
+    // CHECK-SAME:  #const.RelocateWeightsTable<weightsPtr=[1405952], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>
     // CHECK:   [[INPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <692736> -> memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:   [[DDR_FUSED_BUF:%.*]] = VPUIP.StaticAlloc<2076800> -> memref<1x1x1x5120xui8, @DDR>

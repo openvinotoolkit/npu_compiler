@@ -17,7 +17,7 @@ static const std::map<std::string, int> executorStrToId = {
 ExecutorStallCycles vpux::getExecutorStallRegions(ScheduledOpInfoVec& scheduledOps) {
     ExecutorStallCycles executorStalls;
     // Map: Key: pair {executorKind, executorInstance}, Value: cycle
-    std::map<std::pair<FeasibleMemoryScheduler::QueueType, size_t>, size_t> executorCycles;
+    std::map<std::pair<FeasibleMemoryScheduler::QueueType, size_t>, int64_t> executorCycles;
 
     for (auto& schedOp : scheduledOps) {
         for (auto execInst : schedOp.executorInstanceMask.set_bits()) {

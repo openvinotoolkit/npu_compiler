@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --compute-se-sizes  %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @Conv(%input: memref<1x32x56x56xf16, #NHWC, [@CMX_NN, 0]>, %input_sm: memref<1x32x56x56xi1, #NHWC, [@CMX_NN, 0]>,

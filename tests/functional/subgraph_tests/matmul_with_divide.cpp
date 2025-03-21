@@ -115,7 +115,6 @@ TEST_P(MatMulWithDivideTestCommon, NPU4000_TestKindSubgraph) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 const std::vector<ov::element::Type> elementTypes = {ov::element::f32};
 
 INSTANTIATE_TEST_SUITE_P(MatMulWithDivide, MatMulWithDivideTestCommon, ::testing::ValuesIn(elementTypes),

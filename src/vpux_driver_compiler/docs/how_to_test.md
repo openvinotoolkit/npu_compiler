@@ -25,8 +25,6 @@ The optional command params are:
 - `config`: set device info, log level and other properties defined in [`Supported Properties` part](https://github.com/openvinotoolkit/openvino/blob/master/src/plugins/intel_npu/README.md#supported-properties).
 - `NPU_COMPILATION_MODE_PARAMS`: set compile config defined in [here](../../../src/vpux_compiler/include/vpux/compiler/core/pipelines_options.hpp).
 
->Note: In `compilerTest`, there defined the [default config](https://github.com/openvinotoolkit/npu_compiler.git/blob/master/src/vpux_driver_compiler/test/compilerTest.c#L231) file for googlenet-v1. If you not pass config file in command line, this default config will be used for the tested model.
-
 To obtain a complete configuration file for a model, here is an example:
 
 To get a config file, you need run the test model by benchmark first to get its node names. Run `./benchmark -m /path/to/model.xml` in windows git bash or linux shell, here using googlenet-v1 as example:
@@ -47,7 +45,7 @@ Gerenal command:
 ./profilingTest <blobfile>.blob profiling-0.bin
 ```
 
-To get the <blobfile>.blob,  please use the compilerTest or [compile_tool](https://github.com/openvinotoolkit/npu_compiler.git/tree/master/tools/compile_tool) of [NPU-Plugin Project].
+To get the <blobfile>.blob,  please use the compilerTest or [compile_tool](https://github.com/openvinotoolkit/openvino/tree/master/src/plugins/intel_npu/tools/compile_tool) of [NPU-Plugin Project].
 
 To get the profiling-0.bin and more profiling detail, please see **[how to use profiling.md](../../../guides/how-to-use-profiling.md)** in [NPU-Plugin Project].
 
@@ -64,10 +62,6 @@ Gerenal command:
 
 
 ## vpuxCompilerL0Test
-
-`vpuxCompilerL0Test` is the test suit of the driver compiler.
-
-To run vpuxCompilerL0Test, you need to set `POR_PATH` manually. Here use this [POR model](https://af01p-ir.devtools.intel.com/artifactory/ir-public-models-ir-local/20230703_vpu-models-mtl-por-ir_v11_ov_2023.0.0-10926-b4452d56304.tar.gz) as example to test with the following command:
 
 ```bash
 #copy and unpack POR model to special location.
@@ -94,4 +88,4 @@ Or you can run the tests via the gtest_filter, e.g., if you want to test the res
 
 
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler

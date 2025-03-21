@@ -8,6 +8,12 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_CONVERTTRANSFEROPSTODMAS
+#define GEN_PASS_DEF_CONVERTTRANSFEROPSTODMAS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -89,7 +95,8 @@ mlir::LogicalResult CopyOpRewrite::matchAndRewrite(VPUIP::CopyOp origOp, mlir::P
 // ConvertTransferOpsToDMAsPass
 //
 
-class ConvertTransferOpsToDMAsPass final : public VPUIP::ConvertTransferOpsToDMAsBase<ConvertTransferOpsToDMAsPass> {
+class ConvertTransferOpsToDMAsPass final :
+        public VPUIP::impl::ConvertTransferOpsToDMAsBase<ConvertTransferOpsToDMAsPass> {
 public:
     explicit ConvertTransferOpsToDMAsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

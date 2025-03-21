@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEFQTHROUGHCONCAT
+#define GEN_PASS_DEF_PROPAGATEFQTHROUGHCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -15,7 +22,7 @@ namespace {
 // PropagateFqThroughConcat
 //
 
-class PropagateFqThroughConcat final : public IE::PropagateFqThroughConcatBase<PropagateFqThroughConcat> {
+class PropagateFqThroughConcat final : public IE::impl::PropagateFqThroughConcatBase<PropagateFqThroughConcat> {
 public:
     explicit PropagateFqThroughConcat(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

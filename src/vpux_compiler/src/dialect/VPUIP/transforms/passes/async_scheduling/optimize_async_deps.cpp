@@ -7,6 +7,12 @@
 
 #include "vpux/compiler/core/async_deps_info.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_OPTIMIZEASYNCDEPS
+#define GEN_PASS_DEF_OPTIMIZEASYNCDEPS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -15,7 +21,7 @@ namespace {
 // OptimizeAsyncDepsPass
 //
 
-class OptimizeAsyncDepsPass final : public VPUIP::OptimizeAsyncDepsBase<OptimizeAsyncDepsPass> {
+class OptimizeAsyncDepsPass final : public VPUIP::impl::OptimizeAsyncDepsBase<OptimizeAsyncDepsPass> {
 public:
     explicit OptimizeAsyncDepsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

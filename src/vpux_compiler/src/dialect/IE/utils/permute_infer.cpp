@@ -4,7 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/permute_infer.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
 

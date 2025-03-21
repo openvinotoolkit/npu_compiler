@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -31,7 +31,7 @@ def InitResources : PassBase<"init-resources", "vpux::ModulePass"> {
         Option<
             "compilationModeOpt", "compilation-mode",
             "std::string", [{"DefaultHW"}],
-            "[Optional] Set compilation mode as `ReferenceSW`, `ReferenceHW` or `DefaultHW`"
+            "[Optional] Set compilation mode as `ReferenceSW` or `DefaultHW`"
         >,
         Option<
             "revisionIDOpt", "revision-id",
@@ -113,6 +113,11 @@ def MultiClusterStrategyAssignment : PassBase<"multi-cluster-strategy-assignment
             "tilingMode", "tiling-mode",
             "std::string", [{"PREFETCH"}],
             "[Optional] Set tiling mode as `ISOLATED` or `PREFETCH`. `PREFETCH` is set by default"
+        >,
+        Option<
+            "mcOptimizationScope", "mc-optimization-scope",
+            "std::string", [{"subgraph"}],
+            "[Optional] Set optimization scope as `local`, `subgraph` or `global`. `subgraph` is set by default"
         >
     ];
 
@@ -629,6 +634,27 @@ def CMXConcat : PassBase<"cmx-concat", "vpux::FunctionPass"> {
 }
 
 //
+// AddSwOpAuxiliaryBuffer
+//
+
+def AddSwOpAuxiliaryBuffer : PassBase<"add-sw-op-auxiliary-buffer", "vpux::FunctionPass"> {
+    let summary = "Adds buffers needed for specific Software Operations.";
+
+    let description = [{
+        It requires the creation of a auxiliary input buffer, who has the role of storing
+        the intermediate results obtained after the relevant operation.
+        The results will be sorted, recalculated, and finally, the output will be extracted based on them.
+        This auxiliary buffer has a necessary size depend by input parameters.
+    }];
+
+    let constructor = "vpux::VPU::createAddSwOpAuxiliaryBufferPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // SplitGRUSequence
 //
 
@@ -996,7 +1022,8 @@ def TilingStrategyAssignment : PassBase<"tiling-strategy-assignment", "vpux::Fun
     let constructor = "vpux::VPU::createTilingStrategyAssignmentPass()";
 
     let dependentDialects = [
-        "vpux::VPU::VPUDialect"
+        "vpux::VPU::VPUDialect",
+        "vpux::VPUIP::VPUIPDialect"
     ];
 
     let options = [
@@ -1163,6 +1190,33 @@ def ComputeInterpolateCoordinates : PassBase<"compute-interpolate-coordinates", 
 }
 
 //
+// RelocateWeightTableForReuse
+//
+
+def RelocateWeightTableForReuse : PassBase<"relocate-weight-table-for-reuse", "vpux::FunctionPass"> {
+    let summary = "Relocate weight table constant for reuse.";
+
+    let description = [{
+        This pass relocates weight table constant with zero offset
+        in order to be further reused.
+        For weight table with multiclustered segmented case, each cluster
+        has its content of weight table offseted from zero.
+            For example:
+                Looking at the following weight table const.Declare tensor<1152x1x1x4xsi32>
+                The offsets before relocate pass are the following :
+                    0, 256, 512,.........., 294400, 294656.
+                If distribution mode is segmented and num_clusters 4, after relocate pass the offsets are changed like below:
+                    0, 256,....., 73216, 73472, 0, 256,....., 73216, 73472, 0, 256,....., 73216, 73472, 0, 256,....., 73216, 73472.
+    }];
+
+    let constructor = "vpux::VPU::createRelocateWeightTableForReusePass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // EnsureNCEOpsSizeRequirements
 //
 
@@ -1268,21 +1322,23 @@ def SetupPipelineOptions : PassBase<"setup-pipeline-options", "vpux::ModulePass"
 }
 
 //
-// SetupPerBarrierVariantConstraint
+// SetupNpuConstraint
 //
 
-def SetupPerBarrierVariantConstraint : PassBase<"setup-per-barrier-variant-constraint", "vpux::ModulePass"> {
-    let summary = "Set per barrier variant constraints in the model/IR";
+def SetupNpuConstraint : PassBase<"setup-npu-constraint", "vpux::ModulePass"> {
+    let summary = "Set WLM related constraints in the model/IR";
 
     let description = [{
-        Uses the PipelineOptionsOp structure from the IR so the constraints could be exposed globally
+        Uses the PipelineOptionsOp structure from the IR so the WLM constraints could be exposed globally.
+        Sets the constraints like BarrierMaxVariantCount, BarrierMaxVariantSum, MetadataMaxInvariantCount, MetadataMaxKernelInvocationCount,
+        MetadataMaxVariantCount, MetadataMaxKernelRangeCount, MetadataMaxMediaCount
     }];
 
-    let constructor = "vpux::VPU::createSetupPerBarrierVariantConstraintPass()";
+    let constructor = "vpux::VPU::createSetupNpuConstraintPass()";
 
     let options = [
         Option<
-            "enablePartialWorkloadManagement", "enable-partial-workload-management",
+            "workloadManagementEnable", "workload-management-enable",
             "bool", "false",
             "[Optional] Set partial workload management to true/false"
         >,
@@ -1397,6 +1453,73 @@ def SetupIsReduceSupported : PassBase<"setup-is-reduce-supported", "vpux::Module
 }
 
 //
+// SetupEnableSEPtrsOperations
+//
+
+def SetupEnableSEPtrsOperations : PassBase<"setup-enable-se-ptrs-operations", "vpux::ModulePass"> {
+    let summary = "Enable SEPtrs operations to be supported";
+
+    let description = [{
+        Uses the PipelineOptionsOp structure from the IR so the options could be exposed globally
+    }];
+
+    let constructor = "vpux::VPU::createSetupEnableSEPtrsOperationsPass()";
+
+    let options = [
+        Option<
+            "enableSEPtrsOperations", "enable-se-ptrs-operations",
+            "bool", "false",
+            "[Optional] Set SEPtrsOperations to true/false"
+        >,
+        Option<
+            "allowCustomValues", "allow-custom-values",
+            "bool", "",
+            "[Optional] Allows keep predefined values in IR"
+        >,
+        Option<
+            "enableExperimentalSEPtrsOperations", "enable-experimental-se-ptrs-operations",
+            "bool", "false",
+            "[Optional] Set ExperimentalSEPtrsOperations to true/false"
+        >
+    ];
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// SetupEnableAdaptiveStripping
+//
+
+def SetupEnableAdaptiveStripping : PassBase<"setup-enable-adaptive-stripping", "vpux::ModulePass"> {
+    let summary = "Enable adaptive stripping";
+
+    let description = [{
+        Uses the PipelineOptionsOp structure from the IR so the options could be exposed globally
+    }];
+
+    let constructor = "vpux::VPU::createSetupEnableAdaptiveStrippingPass()";
+
+    let options = [
+        Option<
+            "enableAdaptiveStripping", "enable-adaptive-stripping",
+            "bool", "false",
+            "[Optional] Set AdaptiveStripping to true/false"
+        >,
+        Option<
+            "allowCustomValues", "allow-custom-values",
+            "bool", "",
+            "[Optional] Allows keep predefined values in IR"
+        >
+    ];
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // ConvertOpToDMAForPerformantExecution
 //
 
@@ -1405,8 +1528,8 @@ def ConvertOpToDMAForPerformantExecution : PassBase<"convert-op-to-dma-for-perfo
 
     let description = [{
         If op can be done with DMA efficiently this pass will, convert the op to DMA related op.
-        Only added to NPU40XX+ pipelines as only op converted via this pass is Gather and is only supported
-        on NPU40XX+ pipelines.
+        Only added to NPU40XX pipelines as only op converted via this pass is Gather and is only supported
+        on NPU40XX pipelines.
 
         Currently GatherOp -> GatherDMAOp is supported ( on NPU40XX and newer architectures)
         Gather -> Reshape + Convert + (Optional) Copy + GatherDMA + Reshape + Copy
@@ -1427,7 +1550,7 @@ def TileGather : PassBase<"tile-gather", "vpux::FunctionPass"> {
     let summary = "Tile Gather Op";
 
     let description = [{
-        GatherOp will convert to Gather DMA in NPU40XX+ pipelines.
+        GatherOp will convert to Gather DMA in NPU40XX pipelines.
         But Gather DMA has some limitation, the input size after axis shold less than 4096.
         The pass will tile gather from the dimention after axis
     }];
@@ -1438,7 +1561,6 @@ def TileGather : PassBase<"tile-gather", "vpux::FunctionPass"> {
         "vpux::VPU::VPUDialect"
     ];
 }
-
 
 #endif
 
@@ -1498,6 +1620,7 @@ def AddExplicitPaddingBeforeNCEPermute : PassBase<"add-explicit-padding-before-n
         "vpux::VPU::VPUDialect"
     ];
 }
+
 
 def LegalizeDynamicShapeConcatForSWLayers : PassBase<"legalize-dynamic-shape-concat-for-sw-layers", "vpux::FunctionPass"> {
     let summary = "Unroll a `VPU.Concat` with more than two dynamic operands.";

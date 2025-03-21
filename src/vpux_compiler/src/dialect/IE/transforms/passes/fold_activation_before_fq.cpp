@@ -12,6 +12,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_FOLDACTIVATIONBEFOREFQ
+#define GEN_PASS_DEF_FOLDACTIVATIONBEFOREFQ
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -122,7 +128,7 @@ mlir::LogicalResult FoldClampBeforeFQ::matchAndRewrite(IE::ClampOp clampOp, mlir
 // FoldActivationBeforeFQPass
 //
 
-class FoldActivationBeforeFQPass final : public IE::FoldActivationBeforeFQBase<FoldActivationBeforeFQPass> {
+class FoldActivationBeforeFQPass final : public IE::impl::FoldActivationBeforeFQBase<FoldActivationBeforeFQPass> {
 public:
     explicit FoldActivationBeforeFQPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

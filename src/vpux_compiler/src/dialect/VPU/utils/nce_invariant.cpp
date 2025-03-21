@@ -19,23 +19,6 @@
 using namespace vpux;
 
 //
-// Precision checks
-//
-
-bool vpux::VPU::NCEInvariant::isPrecisionSupported(ArchKind arch, mlir::ValueRange vals, LogCb logCb) {
-    for (const auto& val : vals) {
-        const auto elemType = val.getType().cast<vpux::NDTypeInterface>().getElementType();
-
-        if (elemType.isBF16() && arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX) {
-            logCb(formatv("BF16 is only supported by NPU37XX, NPU40XX"));
-            return false;
-        }
-    }
-
-    return true;
-}
-
-//
 // Fuse PadOp check
 //
 
@@ -84,7 +67,6 @@ bool vpux::VPU::NCEInvariant::verifyPads(mlir::ArrayAttr kernelSizeAttr, mlir::A
 bool vpux::VPU::NCEInvariant::isAttrsSupported(mlir::Operation* op, int64_t KY, int64_t KX, int64_t SY, int64_t SX,
                                                int64_t padTop, int64_t padBottom, int64_t padLeft, int64_t padRight,
                                                LogCb logCb) {
-    const auto arch = VPU::getArch(op);
     if (VPU::hasMaxKernelSize(op)) {
         const auto maxKernelSize = VPU::getMaxKernelSize(op);
 
@@ -100,10 +82,6 @@ bool vpux::VPU::NCEInvariant::isAttrsSupported(mlir::Operation* op, int64_t KY, 
 
     static const int64_t NCE_MAX_STRIDE_SIZE = 8;
 
-    if (SX != SY && arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX) {
-        logCb(formatv("Asymmetric strides are not supported"));
-        return false;
-    }
     if (SY > NCE_MAX_STRIDE_SIZE || SY <= 0) {
         logCb(formatv("Unsupported stride height dimension '{0}', must be in range [1, {1}]", SY, NCE_MAX_STRIDE_SIZE));
         return false;
@@ -120,15 +98,14 @@ bool vpux::VPU::NCEInvariant::isAttrsSupported(mlir::Operation* op, int64_t KY, 
 // Activation type checks
 //
 
-bool vpux::VPU::NCEInvariant::isAligned(vpux::NDTypeInterface type, int64_t alignment, ArchKind arch, LogCb logCb) {
+bool vpux::VPU::NCEInvariant::isAligned(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb) {
     const auto shape = type.getShape();
     const auto order = type.getDimsOrder();
     const auto memShape = order.toMemoryOrder(shape);
 
-    const bool supportsSuperDense = VPU::NCEInvariant::isSuperdenseSupported(arch);
     // In super-dense mode only channels must be aligned.
     const auto channels = type.getRank() == 4 ? shape[Dims4D::Act::C] : shape[DimsGroups5D::Act::C];
-    if (supportsSuperDense && channels % alignment == 0) {
+    if (channels % alignment == 0) {
         return true;
     }
 
@@ -141,15 +118,14 @@ bool vpux::VPU::NCEInvariant::isAligned(vpux::NDTypeInterface type, int64_t alig
     return true;
 }
 
-bool is5DAligned(vpux::NDTypeInterface type, int64_t alignment, vpux::VPU::ArchKind arch, LogCb logCb) {
+bool is5DAligned(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb) {
     const auto shape = type.getShape();
     const auto order = type.getDimsOrder();
     const auto memShape = order.toMemoryOrder(shape);
 
-    const bool supportsSuperDense = VPU::NCEInvariant::isSuperdenseSupported(arch);
     // In super-dense mode only channels must be aligned.
     const auto channels = shape[DimsGroups5D::Act::C];
-    if (supportsSuperDense && channels % alignment == 0) {
+    if (channels % alignment == 0) {
         return true;
     }
 
@@ -187,10 +163,10 @@ bool vpux::VPU::NCEInvariant::isOutputActTypeSupported(vpux::NDTypeInterface typ
     return true;
 }
 
-bool vpux::VPU::NCEInvariant::isInputActTypeSupported(ArchKind arch, vpux::NDTypeInterface type, int64_t alignment,
+bool vpux::VPU::NCEInvariant::isInputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment,
                                                       bool supportsInputActCompression, LogCb logCb) {
     if (type.getRank() == DimsGroups5D::Act::numDims) {
-        return isAligned(type, alignment, arch, logCb);
+        return isAligned(type, alignment, logCb);
     }
 
     if (type.getRank() != 4) {
@@ -208,7 +184,7 @@ bool vpux::VPU::NCEInvariant::isInputActTypeSupported(ArchKind arch, vpux::NDTyp
         return inputChannelsMatch;
     }
 
-    return isAligned(type, alignment, arch, logCb);
+    return isAligned(type, alignment, logCb);
 }
 
 //
@@ -225,6 +201,9 @@ Byte vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC) {
 
 bool vpux::VPU::NCEInvariant::checkLayouts(mlir::TypeRange operandTypes, mlir::TypeRange resultTypes,
                                            const VPU::ArchKind& arch, const unsigned numInputOperands, LogCb logCb) {
+    VPUX_UNUSED(resultTypes);
+    VPUX_UNUSED(arch);
+
     for (unsigned opIdx = 0; opIdx < numInputOperands; opIdx++) {
         const auto actualInLayout = operandTypes[opIdx].cast<vpux::NDTypeInterface>().getDimsOrder();
         const auto& expectedInLayout = DimsOrder::NHWC;
@@ -234,28 +213,11 @@ bool vpux::VPU::NCEInvariant::checkLayouts(mlir::TypeRange operandTypes, mlir::T
         }
     }
 
-    for (auto resultType : resultTypes) {
-        const auto actualOutLayout = resultType.cast<vpux::NDTypeInterface>().getDimsOrder();
-        const auto& expectedOutLayout = DimsOrder::NHWC;
-        if (arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX && actualOutLayout != expectedOutLayout) {
-            logCb(formatv("Unsupported output layout. Expected: {0}, got: {1}", expectedOutLayout, actualOutLayout));
-            return false;
-        }
-    }
-
     return true;
 }
 
-bool vpux::VPU::NCEInvariant::isSuperdenseSupported(const VPU::ArchKind arch) {
-    const llvm::DenseSet<VPU::ArchKind> compatibleTargets = {
-            VPU::ArchKind::NPU37XX,
-            VPU::ArchKind::NPU40XX,
-    };
-    return compatibleTargets.contains(arch);
-}
-
-bool vpux::VPU::NCEInvariant::isElementwiseMultiplySupported(const VPU::ArchKind /*arch*/) {
-    return false;
+bool vpux::VPU::NCEInvariant::isEltwiseMultiplySubtractSupported(const VPU::ArchKind arch) {
+    return arch > VPU::ArchKind::NPU40XX;
 }
 
 mlir::LogicalResult vpux::VPU::NCEInvariant::isSupported(mlir::Operation* op, Logger) {
@@ -281,24 +243,20 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::isSupported(mlir::Operation* op, Lo
                         return VPU::NCEEltwiseOp::isSupported(origOp, allowDifferentScales, allowDifferentZp,
                                                               emptyLogCb, checkLayout, checkChannelAlignment);
                     })
-                    .Case<IE::MultiplyOp>([&](IE::MultiplyOp origOp) {
+                    // #E157147: Do not set layout for NCE multiply. It will be enabled once it is optimal.
+                    .Case<IE::SubtractOp>([&](auto origOp) {
                         const auto arch = getArch(origOp);
-                        if (!isElementwiseMultiplySupported(arch)) {
+                        if (!isEltwiseMultiplySubtractSupported(arch)) {
                             return false;
                         }
-                        return VPU::NCEEltwiseOp::isSupported(origOp, allowDifferentScales, allowDifferentZp,
-                                                              emptyLogCb, checkLayout, checkChannelAlignment);
-                    })
-                    .Case<IE::SubtractOp>([&](IE::SubtractOp origOp) {
                         return VPU::NCEEltwiseOp::isSupported(origOp, allowDifferentScales, allowDifferentZp,
                                                               emptyLogCb, checkLayout, checkChannelAlignment);
                     })
                     .Case<IE::ReduceMeanOp>([&](IE::ReduceMeanOp origOp) {
                         return VPU::NCEReduceOp::isSupported(origOp, emptyLogCb, checkLayout, checkChannelAlignment);
                     })
-                    .Case<IE::AndOp>([&](IE::AndOp origOp) {
-                        return VPU::NCEEltwiseOp::isSupported(origOp, allowDifferentScales, allowDifferentZp,
-                                                              emptyLogCb, checkLayout, checkChannelAlignment);
+                    .Case<IE::ReduceSumOp>([&](IE::ReduceSumOp origOp) {
+                        return VPU::NCEReduceOp::isSupported(origOp, emptyLogCb, checkLayout, checkChannelAlignment);
                     })
                     .Case<IE::GroupConvolutionOp>([&](IE::GroupConvolutionOp origOp) {
                         return VPU::NCEDepthConvolutionOp::isSupported(origOp, emptyLogCb, checkLayout,
@@ -327,7 +285,7 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::isSupported(mlir::Operation* op, Lo
 
 bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(const VPU::ArchKind arch, mlir::Operation* op) {
     // TODO: E#96201, attach concrete implementation of NCEOpInterface depending on the type of device
-    if (arch != VPU::ArchKind::NPU40XX) {
+    if (arch == VPU::ArchKind::NPU37XX) {
         return false;
     }
     if (!mlir::isa<VPU::NCEDepthConvolutionOp>(op)) {
@@ -342,14 +300,13 @@ bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(const VPU::Arch
     // L1Opt can be enabled when kernelX = 3 and strideX = 1
     const auto kernelSize = nceOp.getKernelSizeVal();
     const auto KX = kernelSize[Dims4D::Kernel::X.ind()];
-
+    [[maybe_unused]] const auto KY = kernelSize[Dims4D::Kernel::Y.ind()];
     const auto kernelStride = nceOp.getStridesVal();
     const auto SX = kernelStride[Dims4D::Strides::X.ind()];
 
     // Get a set containing all the channels from the workloads of the given NCE operations
     mlir::DenseSet<int64_t> workloadsChannels;
     const auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-
     const auto isFp16Input = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType()).getElementType().isF16();
 
     const auto workloadChannelsMeetRequirement = llvm::all_of(workloads, [&](auto workload) {
@@ -370,7 +327,6 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, i
                                                           int64_t padLeft, int64_t padRight, Logger log) {
     log.setName("NCEInvariant");
     auto loc = op->getLoc();
-    const auto arch = VPU::getArch(op);
     if (VPU::hasMaxKernelSize(op)) {
         const auto maxKernelSize = VPU::getMaxKernelSize(op);
 
@@ -387,11 +343,6 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, i
     }
 
     static const int32_t NCE_MAX_STRIDE_SIZE = 8;
-
-    if (SX != SY && arch != VPU::ArchKind::NPU37XX && arch != VPU::ArchKind::NPU40XX) {
-        log.trace("[{0}] Asymmetric strides are not supported", loc);
-        return mlir::failure();
-    }
     if (SY > NCE_MAX_STRIDE_SIZE || SY <= 0) {
         log.trace("[{0}] Unsupported stride height dimension '{1}', must be in range [1, {2}]", loc, SY,
                   NCE_MAX_STRIDE_SIZE);
@@ -443,14 +394,14 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, L
             .Case<IE::SubtractOp>([&](IE::SubtractOp origOp) {
                 return VPU::NCEEltwiseOp::verifyKernel(origOp);
             })
-            .Case<IE::AndOp>([&](IE::AndOp origOp) {
-                return VPU::NCEEltwiseOp::verifyKernel(origOp);
-            })
             .Case<IE::GroupConvolutionOp>([&](IE::GroupConvolutionOp origOp) {
                 return VPU::NCEDepthConvolutionOp::verifyKernel(origOp);
             })
             .Case<IE::TransposedConvolutionOp>([&](IE::TransposedConvolutionOp origOp) {
                 return VPU::NCEConvolutionOp::verifyKernel(origOp);
+            })
+            .Case<IE::MatMulOp>([&](IE::MatMulOp origOp) {
+                return VPU::NCEMatMulOp::verifyKernel(origOp);
             })
             .Default([](mlir::Operation*) -> mlir::LogicalResult {
                 return mlir::failure();

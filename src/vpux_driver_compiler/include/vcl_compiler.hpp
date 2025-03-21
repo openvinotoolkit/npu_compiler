@@ -29,7 +29,7 @@ class VPUXQueryNetworkL0;
  */
 class VPUXCompilerL0 final {
 public:
-    VPUXCompilerL0(vcl_compiler_desc_t desc, const std::map<std::string, std::string>& config, VCLLogger* vclLogger);
+    VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_desc_t* deviceDesc, VCLLogger* vclLogger);
 
     /**
      * @brief Get the rough compiler capabilities
@@ -47,6 +47,15 @@ public:
      */
     vcl_compiler_desc_t getCompilerDesc() const {
         return _compilerDesc;
+    }
+
+    /**
+     * @brief Get the info of default device info
+     *
+     * @return vcl_device_desc_t Include device capabilities
+     */
+    vcl_device_desc_t getDeviceDesc() const {
+        return _deviceDesc;
     }
 
     /**
@@ -101,6 +110,7 @@ private:
     std::unique_ptr<vpux::CompilerImpl> _compiler;     ///< The handle of MLIR compiler
     vcl_compiler_properties_t _compilerProp;           ///< The capabilities of compiler
     vcl_compiler_desc_t _compilerDesc;                 ///< The info of platform and debug level
+    vcl_device_desc_t _deviceDesc;                     ///< The info of device
     VCLLogger* _logger;
 };
 

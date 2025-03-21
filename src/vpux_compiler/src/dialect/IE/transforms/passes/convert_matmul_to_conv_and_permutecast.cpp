@@ -12,6 +12,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTMATMULTOCONV
+#define GEN_PASS_DEF_CONVERTMATMULTOCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -20,7 +26,7 @@ namespace {
 // MatMulToConvAndPermuteCastPass
 //
 
-class ConvertMatMulToConvPass final : public IE::ConvertMatMulToConvBase<ConvertMatMulToConvPass> {
+class ConvertMatMulToConvPass final : public IE::impl::ConvertMatMulToConvBase<ConvertMatMulToConvPass> {
 public:
     explicit ConvertMatMulToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

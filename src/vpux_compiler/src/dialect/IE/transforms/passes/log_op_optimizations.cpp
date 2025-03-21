@@ -9,6 +9,12 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_LOGOPOPTIMIZATIONS
+#define GEN_PASS_DEF_LOGOPOPTIMIZATIONS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -229,7 +235,7 @@ void checkSEPTile(IE::TileOp op, const Logger& log) {
 // LogOpOptimizationsPass
 //
 
-class LogOpOptimizationsPass final : public IE::LogOpOptimizationsBase<LogOpOptimizationsPass> {
+class LogOpOptimizationsPass final : public IE::impl::LogOpOptimizationsBase<LogOpOptimizationsPass> {
 public:
     explicit LogOpOptimizationsPass() {
     }

@@ -5,8 +5,17 @@
 
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
+#include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/core/format.hpp"
+
+namespace vpux::VPUMI37XX {
+#define GEN_PASS_DECL_ASSIGNFULLKERNELPATH
+#define GEN_PASS_DEF_ASSIGNFULLKERNELPATH
+#include "vpux/compiler/dialect/VPUMI37XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI37XX
 
 using namespace vpux;
 
@@ -16,7 +25,7 @@ namespace {
 // AssignFullKernelPathPass
 //
 
-class AssignFullKernelPathPass final : public VPUMI37XX::AssignFullKernelPathBase<AssignFullKernelPathPass> {
+class AssignFullKernelPathPass final : public VPUMI37XX::impl::AssignFullKernelPathBase<AssignFullKernelPathPass> {
 public:
     explicit AssignFullKernelPathPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

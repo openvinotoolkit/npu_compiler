@@ -85,9 +85,19 @@ void vpux::IE::PermuteCastOp::getCanonicalizationPatterns(mlir::RewritePatternSe
     patterns.add<FuseMemPermAndPermCast>(context);
 }
 
-mlir::OpFoldResult vpux::IE::PermuteCastOp::fold(FoldAdaptor) {
+mlir::OpFoldResult vpux::IE::PermuteCastOp::fold(FoldAdaptor adaptor) {
     if (getInput().getType() == getOutput().getType() && getMemPerm().isIdentity()) {
         return getInput();
+    }
+
+    if (auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(adaptor.getInput())) {
+        // PermuteCastOp ensures that it is always a trivial permutation. That's why we can just add MemPermuteAttr
+        // which will not perform any data movements.
+        auto result =
+                attr.transform()
+                        .memPermute(DimsOrder::fromAffineMap(getDstOrder()), DimsOrder::fromAffineMap(getMemPerm()))
+                        .get();
+        return result;
     }
 
     return nullptr;

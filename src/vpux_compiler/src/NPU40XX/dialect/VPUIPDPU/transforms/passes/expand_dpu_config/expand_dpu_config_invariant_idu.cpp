@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant_idu.hpp"
+#include <mlir/Support/LogicalResult.h>
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/transforms/passes/expand_dpu_config/expand_dpu_config_invariant.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
@@ -70,28 +71,21 @@ mlir::LogicalResult configureInActivations(const Logger&, IDUConfig::InActivatio
     return mlir::success();
 }
 
-mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& config, VPUIP::NCETaskType taskType,
-                                     mlir::Type inActType, mlir::Type weightsType, bool wtSparse) {
-    const bool isPalletModeEnabled = llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedType>(weightsType) ||
-                                     llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedPerAxisType>(weightsType);
-
-    if (isPalletModeEnabled) {
-        if (!weightsType) {
-            log.error("Missing weights data for DPU task {0}", VPUIP::stringifyNCETaskType(taskType));
-            return mlir::failure();
-        }
-
+mlir::LogicalResult configurePalletization(const Logger& log, IDUConfig::Weights& config, mlir::Type weightsType) {
+    if (llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedType>(weightsType) ||
+        llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedPerAxisType>(weightsType)) {
         auto storageType = llvm::dyn_cast<mlir::quant::QuantizedType>(weightsType).getStorageType();
-        if (storageType.isInteger(4)) {
-            config.pltMode = IDUWeightPalletMode::FOUR_BIT_PLT;
-        } else if (storageType.isInteger(2)) {
-            config.pltMode = IDUWeightPalletMode::TWO_BIT_PLT;
-        } else if (storageType.isInteger(1)) {
-            config.pltMode = IDUWeightPalletMode::ONE_BIT_PLT;
-        } else {
-            log.error("Unsupported storage type for palletization mode: {0}", storageType);
+
+        const auto bitWidth = storageType.getIntOrFloatBitWidth();
+        if (bitWidth != 1 && bitWidth != 2 && bitWidth != 4) {
+            log.error("Unsupported palletization bitwidth {0} from type {1}. Only bitwidths of 1,2,4 are supported.",
+                      bitWidth, storageType);
             return mlir::failure();
         }
+        const std::map<uint32_t, IDUWeightPalletMode> palletBitWidthMap = {{1, IDUWeightPalletMode::ONE_BIT_PLT},
+                                                                           {2, IDUWeightPalletMode::TWO_BIT_PLT},
+                                                                           {4, IDUWeightPalletMode::FOUR_BIT_PLT}};
+        config.pltMode = palletBitWidthMap.at(bitWidth);
 
         if (!config.quantileLUT) {
             config.quantileLUT.emplace();
@@ -112,19 +106,27 @@ mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& conf
         config.pltMode = IDUWeightPalletMode::NO_PLT;
     }
 
+    return mlir::success();
+}
+
+mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& config, VPUIP::NCETaskType taskType,
+                                     mlir::Type inActType, mlir::Type weightsType, bool wtSparse) {
     if (taskType == VPUIP::NCETaskType::MAXPOOL || taskType == VPUIP::NCETaskType::AVEPOOL ||
-        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE) {
+        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE ||
+        taskType == VPUIP::NCETaskType::REDUCESUM) {
         config.wMode = getBaseType(inActType);
     } else {
         if (!weightsType) {
             log.error("Missing weights data for DPU task {0}", VPUIP::stringifyNCETaskType(taskType));
             return mlir::failure();
         }
+        const bool isPalletModeEnabled = llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedType>(weightsType) ||
+                                         llvm::isa_and_nonnull<mlir::quant::QuantileQuantizedPerAxisType>(weightsType);
         config.wMode = getBaseType(weightsType, isPalletModeEnabled);
     }
 
     if (taskType == VPUIP::NCETaskType::AVEPOOL || taskType == VPUIP::NCETaskType::REDUCEMEAN ||
-        taskType == VPUIP::NCETaskType::REDUCESUMSQUARE) {
+        taskType == VPUIP::NCETaskType::REDUCESUMSQUARE || taskType == VPUIP::NCETaskType::REDUCESUM) {
         if (config.wMode.isInteger(CHAR_BIT * sizeof(uint8_t))) {
             config.poolWtData = 0x0101;  // Two I8/U8 values => 0x0101;
         } else if (config.wMode.isF16()) {
@@ -163,7 +165,8 @@ mlir::LogicalResult configureStorageElement(const Logger& log, IDUConfig::Storag
                                             VPUIP::NCETaskType taskType, const NDTypeInterface& inActType,
                                             bool inSparsityEnabled, std::optional<int64_t> seSize) {
     if (taskType == VPUIP::NCETaskType::CONV || taskType == VPUIP::NCETaskType::ELTWISE ||
-        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE) {
+        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE ||
+        taskType == VPUIP::NCETaskType::REDUCESUM) {
         auto seSizeVal = seSize.value_or(0);
         if (inSparsityEnabled && seSizeVal) {
             auto inputZ = inActType.getShape()[Dims4D::Act::C];
@@ -214,6 +217,9 @@ mlir::LogicalResult configureWorkload(const Logger& log, IDUConfig::WorkloadCfg&
         break;
     case VPUIP::NCETaskType::REDUCESUMSQUARE:
         config.workloadType = IDUWorkloadType::REDUCESUMSQUARE;
+        break;
+    case VPUIP::NCETaskType::REDUCESUM:
+        config.workloadType = IDUWorkloadType::REDUCESUM;
         break;
     case VPUIP::NCETaskType::CONV:
         config.workloadType = IDUWorkloadType::CONV;
@@ -372,6 +378,9 @@ mlir::LogicalResult configureIDU(const Logger& log, IDUConfig& config, const vpu
 
     // IDUWeights
     auto inActElementType = inActType.cast<mlir::MemRefType>().getElementType();
+    if (configurePalletization(log, config.weights, weightsElementType).failed()) {
+        return mlir::failure();
+    }
     if (configureWeights(log, config.weights, taskType, inActElementType, weightsElementType, weightsSparse).failed()) {
         return mlir::failure();
     }

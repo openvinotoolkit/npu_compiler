@@ -606,3 +606,203 @@ module @VerticalFusionOutlining {
 // CHECK:       [[CALL0:%.+]] = call @main_vf1([[ARG0]]) : (tensor<1x30x256x256xf32, {order = #NHWC}>) -> tensor<1x30x256x256xf16, {order = #NHWC}>
 // CHECK:       [[CALL1:%.+]] = call @main_vf2([[CALL0]]) : (tensor<1x30x256x256xf16, {order = #NHWC}>) -> tensor<1x32x256x256xf16, {order = #NHWC}>
 // CHECK:       return [[CALL1]] : tensor<1x32x256x256xf16, {order = #NHWC}>
+
+// -----
+
+// CHECK-LABEL: @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T
+// Check whether OptimizeSharedInputCopyForConcat is applied after reordering with AdjustMemorySpace on 1T (E#156584)
+// The pattern that OptimizeSharedInputCopyForConcat expects: Copy(CMX2DDR) -> Concat(DDR) -> {Concat(DDR) -> Slice(DDR) -> Copy(DDR2CMX)} x N, where N >= 2
+// On 1 Tile, CMX won't be involved until AdjustMemorySpace, so OptimizeSharedInputCopyForConcat will fail to match due to the missing CopyOps at the beginning and end
+// By bringing AdjustMemorySpace in front of OptimizeSharedInputCopyForConcat, the pattern will be matched and rewritten to: Copy(CMX2DDR) -> Concat(DDR) -> {Slice(DDR) -> Copy(DDR2CMX) -> Concat(CMX)}
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
+  IE.TileResource 1 of @NCE at 1.850000e+03 MHz {
+    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+    IE.ExecutorResource 2 of @SHAVE_ACT
+    IE.ExecutorResource 1 of @DPU
+  }
+  IE.ExecutorResource 1 of @M2I
+  IE.ExecutorResource 1 of @DMA_NN
+  IE.MemoryResource 4194304000 bytes of @DDR {VPU.bandwidth = 64 : i64, VPU.derateFactor = 6.000000e-01 : f64}
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
+    DataInfo "input" tensorNames = ["input"] : tensor<1x3x128x128xf32>
+  } outputsInfo : {
+    DataInfo "output" friendlyName = "output" : tensor<1x32x128x128xf32>
+  } 
+  func.func @main(%arg0: tensor<1x3x128x128xf32>) -> tensor<1x32x128x128xf32> {
+    %cst = const.Declare tensor<1024x48x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1024x144x1x3xf16, {order = #NHWC}>, [#const.Reshape<[1024, 48, 3, 3]>]
+    %cst_0 = const.Declare tensor<1x1024x1x1xf16> = dense<1.000000e+00> : tensor<1x64x1x1xf32>, [#const.CastElemType<f16>, #const.Broadcast<1 : i64, 1024 : i64>, #const.Reshape<[1, 1024, 1, 1]>]
+    %cst_1 = const.Declare tensor<32x128x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x128x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_2 = const.Declare tensor<32x96x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x96x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_3 = const.Declare tensor<32x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x64x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_4 = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x32x1x1xf32>, [#const.CastElemType<f16>]
+    %cst_5 = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x32x1x1xf32>, [#const.CastElemType<f16>]
+    %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x3x128x128xf32> -> tensor<1x3x128x128xf16>
+    %1 = VPU.NCE.Permute(%0) {dstElemType = f16, dstOrder = #NHWC, expandedChannels = 3 : i64, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x3x128x128xf16, {order = #NHWC}> 
+    %2 = VPU.ShapeCast {shape = [1, 48, 128, 8]} inputs(%1 : tensor<1x3x128x128xf16, {order = #NHWC}>) -> tensor<1x48x128x8xf16, {order = #NHWC}>
+    %cst_6 = const.Declare tensor<1024x1x1x4xsi32> = dense<1> : tensor<1024x1x1x4xsi32>
+    %3 = VPU.NCE.Convolution(%2, %cst, %cst_6) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [1024, 48, 3, 3], strides = [1, 1]} -> tensor<1x1024x128x8xf16, {order = #NHWC}> 
+    %4 = VPU.ShapeCast {shape = [1, 64, 128, 128]} inputs(%3 : tensor<1x1024x128x8xf16, {order = #NHWC}>) -> tensor<1x64x128x128xf16, {order = #NHWC}>
+    %cst_7 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %5 = VPU.NCE.Convolution(%4, %cst_3, %cst_7) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1638 : i64, lrelu_shift = 13 : i64, fp_prelu_alpha = 0.199951171875 : f64>, rawFilterShape = [32, 64, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> 
+    %6 = VPU.Concat(%4, %5) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}> -> tensor<1x96x128x128xf16, {order = #NHWC}>
+    %cst_8 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %7 = VPU.NCE.Convolution(%6, %cst_2, %cst_8) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1638 : i64, lrelu_shift = 13 : i64, fp_prelu_alpha = 0.199951171875 : f64>, rawFilterShape = [32, 96, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> 
+    %8 = VPU.Concat(%4, %5, %7) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0], [0, 96, 0, 0]]} : tensor<1x64x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}> -> tensor<1x128x128x128xf16, {order = #NHWC}>
+    %cst_9 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %9 = VPU.NCE.Convolution(%8, %cst_1, %cst_9) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 128, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16> 
+    %10 = VPU.Convert(%9) {dstElemType = f32} : tensor<1x32x128x128xf16> -> tensor<1x32x128x128xf32>
+    return %10 : tensor<1x32x128x128xf32>
+    
+    // CHECK:   func.func @main([[ARG0:%.+]]: tensor<1x3x128x128xf32>) -> tensor<1x32x128x128xf32> {
+        // CHECK:       [[SHAPECAST1:%.+]] = VPU.ShapeCast {shape = [1, 64, 128, 128]} inputs({{%.+}} : tensor<1x1024x128x8xf16, {order = #NHWC}>) -> tensor<1x64x128x128xf16, {order = #NHWC}>
+        // CHECK:       [[CONCAT1:%.+]] = VPU.Concat({{%.+}}, {{%.+}}, {{%.+}}, {{%.+}}, {{%.+}}, {{%.+}}) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]]} : tensor<1x32x22x128xf16, {order = #NHWC}>, tensor<1x32x22x128xf16, {order = #NHWC}>, tensor<1x32x21x128xf16, {order = #NHWC}>, tensor<1x32x21x128xf16, {order = #NHWC}>, tensor<1x32x21x128xf16, {order = #NHWC}>, tensor<1x32x21x128xf16, {order = #NHWC}> -> tensor<1x32x128x128xf16, {order = #NHWC}>
+        // CHECK:       [[SLICE11:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 0, 0] [1, 32, 17, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x17x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY46:%.+]] = VPU.Copy([[SLICE11]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x17x128xf16, {order = #NHWC}> -> tensor<1x32x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE12:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 0, 0] [1, 64, 17, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x17x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY47:%.+]] = VPU.Copy([[SLICE12]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x17x128xf16, {order = #NHWC}> -> tensor<1x64x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE13:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 15, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY48:%.+]] = VPU.Copy([[SLICE13]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE14:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 15, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY49:%.+]] = VPU.Copy([[SLICE14]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE15:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 31, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY50:%.+]] = VPU.Copy([[SLICE15]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE16:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 31, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY51:%.+]] = VPU.Copy([[SLICE16]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE17:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 47, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY52:%.+]] = VPU.Copy([[SLICE17]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE18:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 47, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY53:%.+]] = VPU.Copy([[SLICE18]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE19:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 63, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY54:%.+]] = VPU.Copy([[SLICE19]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE20:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 63, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY55:%.+]] = VPU.Copy([[SLICE20]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE21:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 79, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY56:%.+]] = VPU.Copy([[SLICE21]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE22:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 79, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY57:%.+]] = VPU.Copy([[SLICE22]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE23:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 95, 0] [1, 32, 18, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY58:%.+]] = VPU.Copy([[SLICE23]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x18x128xf16, {order = #NHWC}> -> tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE24:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 95, 0] [1, 64, 18, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x18x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY59:%.+]] = VPU.Copy([[SLICE24]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x18x128xf16, {order = #NHWC}> -> tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE25:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 111, 0] [1, 32, 17, 128] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x17x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY60:%.+]] = VPU.Copy([[SLICE25]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x32x17x128xf16, {order = #NHWC}> -> tensor<1x32x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[SLICE26:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 111, 0] [1, 64, 17, 128] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x17x128xf16, {order = #NHWC}>
+        // CHECK:       [[COPY61:%.+]] = VPU.Copy([[SLICE26]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x64x17x128xf16, {order = #NHWC}> -> tensor<1x64x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT2:%.+]] = VPU.Concat([[COPY47]], [[COPY46]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT3:%.+]] = VPU.Concat([[COPY49]], [[COPY48]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT4:%.+]] = VPU.Concat([[COPY51]], [[COPY50]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT5:%.+]] = VPU.Concat([[COPY53]], [[COPY52]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT6:%.+]] = VPU.Concat([[COPY55]], [[COPY54]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT7:%.+]] = VPU.Concat([[COPY57]], [[COPY56]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT8:%.+]] = VPU.Concat([[COPY59]], [[COPY58]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x18x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+        // CHECK:       [[CONCAT9:%.+]] = VPU.Concat([[COPY61]], [[COPY60]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x32x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x96x17x128xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+
+        // CHECK:       return {{%.+}} : tensor<1x32x128x128xf32>
+  }
+}
+
+// -----
+
+// CHECK-LABEL: @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T
+// Check whether OptimizeSharedInputCopyForConcat is applied after reordering with AdjustMemorySpace on 2T (E#156584)
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T {
+  IE.TileResource 2 of @NCE at 1.850000e+03 MHz {
+    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+    IE.ExecutorResource 2 of @SHAVE_ACT
+    IE.ExecutorResource 1 of @DPU
+  }
+  IE.ExecutorResource 1 of @M2I
+  IE.ExecutorResource 2 of @DMA_NN
+  IE.MemoryResource 4194304000 bytes of @DDR {VPU.bandwidth = 64 : i64, VPU.derateFactor = 6.000000e-01 : f64}
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
+    DataInfo "input" tensorNames = ["input"] : tensor<1x3x128x128xf32>
+  } outputsInfo : {
+    DataInfo "output" friendlyName = "output" : tensor<1x32x128x128xf32>
+  } 
+  func.func @main(%arg0: tensor<1x3x128x128xf32>) -> tensor<1x32x128x128xf32> {
+    %cst = const.Declare tensor<1024x48x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1024x144x1x3xf16, {order = #NHWC}>, [#const.Reshape<[1024, 48, 3, 3]>]
+    %cst_0 = const.Declare tensor<1x1024x1x1xf16> = dense<1.000000e+00> : tensor<1x64x1x1xf32>, [#const.CastElemType<f16>, #const.Broadcast<1 : i64, 1024 : i64>, #const.Reshape<[1, 1024, 1, 1]>]
+    %cst_1 = const.Declare tensor<32x128x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x128x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_2 = const.Declare tensor<32x96x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x96x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_3 = const.Declare tensor<32x64x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x64x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %cst_4 = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x32x1x1xf32>, [#const.CastElemType<f16>]
+    %cst_5 = const.Declare tensor<1x32x1x1xf16> = dense<1.000000e+00> : tensor<1x32x1x1xf32>, [#const.CastElemType<f16>]
+    %0 = VPU.Convert(%arg0) {dstElemType = f16} : tensor<1x3x128x128xf32> -> tensor<1x3x128x128xf16>
+    %1 = VPU.NCE.Permute(%0) {dstElemType = f16, dstOrder = #NHWC, expandedChannels = 3 : i64, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>} -> tensor<1x3x128x128xf16, {order = #NHWC}> 
+    %2 = VPU.ShapeCast {shape = [1, 48, 128, 8]} inputs(%1 : tensor<1x3x128x128xf16, {order = #NHWC}>) -> tensor<1x48x128x8xf16, {order = #NHWC}>
+    %cst_6 = const.Declare tensor<1024x1x1x4xsi32> = dense<1> : tensor<1024x1x1x4xsi32>
+    %3 = VPU.NCE.Convolution(%2, %cst, %cst_6) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [1024, 48, 3, 3], strides = [1, 1]} -> tensor<1x1024x128x8xf16, {order = #NHWC}> 
+    %4 = VPU.ShapeCast {shape = [1, 64, 128, 128]} inputs(%3 : tensor<1x1024x128x8xf16, {order = #NHWC}>) -> tensor<1x64x128x128xf16, {order = #NHWC}>
+    %cst_7 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %5 = VPU.NCE.Convolution(%4, %cst_3, %cst_7) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1638 : i64, lrelu_shift = 13 : i64, fp_prelu_alpha = 0.199951171875 : f64>, rawFilterShape = [32, 64, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> 
+    %6 = VPU.Concat(%4, %5) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}> -> tensor<1x96x128x128xf16, {order = #NHWC}>
+    %cst_8 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %7 = VPU.NCE.Convolution(%6, %cst_2, %cst_8) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1638 : i64, lrelu_shift = 13 : i64, fp_prelu_alpha = 0.199951171875 : f64>, rawFilterShape = [32, 96, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> 
+    %8 = VPU.Concat(%4, %5, %7) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0], [0, 96, 0, 0]]} : tensor<1x64x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}>, tensor<1x32x128x128xf16, {order = #NHWC}> -> tensor<1x128x128x128xf16, {order = #NHWC}>
+    %cst_9 = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
+    %9 = VPU.NCE.Convolution(%8, %cst_1, %cst_9) {mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 128, 3, 3], strides = [1, 1]} -> tensor<1x32x128x128xf16> 
+    %10 = VPU.Convert(%9) {dstElemType = f32} : tensor<1x32x128x128xf16> -> tensor<1x32x128x128xf32>
+    return %10 : tensor<1x32x128x128xf32>
+
+    // CHECK:   func.func @main([[ARG0:%.+]]: tensor<1x3x128x128xf32>) -> tensor<1x32x128x128xf32> {
+        // CHECK:       [[SHAPECAST1:%.+]] = VPU.ShapeCast {shape = [1, 64, 128, 128]} inputs({{%.+}} : tensor<1x1024x128x8xf16, {order = #NHWC}>) -> tensor<1x64x128x128xf16, {order = #NHWC}>
+        // CHECK:       [[CONCAT1:%.+]] = VPU.Concat({{%.+}}, {{%.+}}, {{%.+}}) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 0, 0, 43], [0, 0, 0, 86]]} : tensor<1x32x128x43xf16, {order = #NHWC}>, tensor<1x32x128x43xf16, {order = #NHWC}>, tensor<1x32x128x42xf16, {order = #NHWC}> -> tensor<1x32x128x128xf16, {order = #NHWC}>
+        // CHECK:       [[SLICE3:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 0, 0] [1, 32, 128, 33] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x128x33xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING39:%.+]] = VPU.NCE.ClusterTiling ([[SLICE3]] as %arg1: tensor<1x32x128x33xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x32x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 32, 65, 33], [1, 32, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY30:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x32x128x33xf16, {order = #NHWC}> -> tensor<1x32x128x33xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE4:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 0, 0] [1, 64, 128, 33] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x128x33xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING40:%.+]] = VPU.NCE.ClusterTiling ([[SLICE4]] as %arg1: tensor<1x64x128x33xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x64x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 64, 65, 33], [1, 64, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY31:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x64x128x33xf16, {order = #NHWC}> -> tensor<1x64x128x33xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE5:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 0, 31] [1, 32, 128, 34] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x128x34xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING41:%.+]] = VPU.NCE.ClusterTiling ([[SLICE5]] as %arg1: tensor<1x32x128x34xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x32x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 32, 65, 34], [1, 32, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY32:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x32x128x34xf16, {order = #NHWC}> -> tensor<1x32x128x34xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE6:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 0, 31] [1, 64, 128, 34] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x128x34xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING42:%.+]] = VPU.NCE.ClusterTiling ([[SLICE6]] as %arg1: tensor<1x64x128x34xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x64x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 64, 65, 34], [1, 64, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY33:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x64x128x34xf16, {order = #NHWC}> -> tensor<1x64x128x34xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE7:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 0, 63] [1, 32, 128, 34] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x128x34xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING43:%.+]] = VPU.NCE.ClusterTiling ([[SLICE7]] as %arg1: tensor<1x32x128x34xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x32x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 32, 65, 34], [1, 32, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY34:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x32x128x34xf16, {order = #NHWC}> -> tensor<1x32x128x34xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE8:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 0, 63] [1, 64, 128, 34] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x128x34xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING44:%.+]] = VPU.NCE.ClusterTiling ([[SLICE8]] as %arg1: tensor<1x64x128x34xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x64x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 64, 65, 34], [1, 64, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY35:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x64x128x34xf16, {order = #NHWC}> -> tensor<1x64x128x34xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE9:%.+]] = VPU.Slice [[CONCAT1]] [0, 0, 0, 95] [1, 32, 128, 33] : tensor<1x32x128x128xf16, {order = #NHWC}> to tensor<1x32x128x33xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING45:%.+]] = VPU.NCE.ClusterTiling ([[SLICE9]] as %arg1: tensor<1x32x128x33xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x32x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 32, 65, 33], [1, 32, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY36:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x32x128x33xf16, {order = #NHWC}> -> tensor<1x32x128x33xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[SLICE10:%.+]] = VPU.Slice [[SHAPECAST1]] [0, 0, 0, 95] [1, 64, 128, 33] : tensor<1x64x128x128xf16, {order = #NHWC}> to tensor<1x64x128x33xf16, {order = #NHWC}>
+        // CHECK:       [[CLUSTERTILING46:%.+]] = VPU.NCE.ClusterTiling ([[SLICE10]] as %arg1: tensor<1x64x128x33xf16, {order = #NHWC}>) -> !VPU.DistributedTensor<1x64x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = 
+        // CHECK-SAME{LITERAL}:  [[1, 64, 65, 33], [1, 64, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> {
+        // CHECK:       [[COPY37:%.+]] = VPU.Copy(%arg1) {out_mem_space = @CMX_NN} : tensor<1x64x128x33xf16, {order = #NHWC}> -> tensor<1x64x128x33xf16, {mem_space = @CMX_NN, order = #NHWC}>
+        // CHECK:       [[CONCAT2:%.+]] = VPU.Concat([[CLUSTERTILING40]], [[CLUSTERTILING39]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : !VPU.DistributedTensor<1x64x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>, !VPU.DistributedTensor<1x32x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> -> !VPU.DistributedTensor<1x96x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 96, 64, 33], [1, 96, 64, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]], memory_shapes = [[1, 96, 65, 33], [1, 96, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>
+        // CHECK:       [[CONCAT3:%.+]] = VPU.Concat([[CLUSTERTILING42]], [[CLUSTERTILING41]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : !VPU.DistributedTensor<1x64x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>, !VPU.DistributedTensor<1x32x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> -> !VPU.DistributedTensor<1x96x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 96, 64, 34], [1, 96, 64, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]], memory_shapes = [[1, 96, 65, 34], [1, 96, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>
+        // CHECK:       [[CONCAT4:%.+]] = VPU.Concat([[CLUSTERTILING44]], [[CLUSTERTILING43]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : !VPU.DistributedTensor<1x64x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 34], [1, 64, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>, !VPU.DistributedTensor<1x32x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 34], [1, 32, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> -> !VPU.DistributedTensor<1x96x128x34xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 96, 64, 34], [1, 96, 64, 34]], compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]], memory_shapes = [[1, 96, 65, 34], [1, 96, 65, 34]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>
+        // CHECK:       [[CONCAT5:%.+]] = VPU.Concat([[CLUSTERTILING46]], [[CLUSTERTILING45]]) {static_offsets = 
+        // CHECK-SAME{LITERAL}:  [[0, 0, 0, 0], [0, 64, 0, 0]]} : !VPU.DistributedTensor<1x64x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 64, 65, 33], [1, 64, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>, !VPU.DistributedTensor<1x32x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]], memory_shapes = [[1, 32, 65, 33], [1, 32, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}> -> !VPU.DistributedTensor<1x96x128x33xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments, compute_shapes = [[1, 96, 64, 33], [1, 96, 64, 33]], compute_offsets = [[0, 0, 0, 0], [0, 0, 64, 0]], memory_shapes = [[1, 96, 65, 33], [1, 96, 65, 33]], memory_offsets = [[0, 0, 0, 0], [0, 0, 63, 0]]}>
+
+        // CHECK:       return {{%.+}} : tensor<1x32x128x128xf32>
+
+  }
+}

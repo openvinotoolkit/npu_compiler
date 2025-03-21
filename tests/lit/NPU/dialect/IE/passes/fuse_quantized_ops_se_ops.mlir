@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-quantized-ops="se-ops-enabled=true" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
 !qElemType1 = !quant.uniform<u8:f16, 2.4627450980392158>
 

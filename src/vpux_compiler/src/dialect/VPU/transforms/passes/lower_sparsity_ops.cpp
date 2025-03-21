@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -21,10 +21,19 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
+#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <limits>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_LOWERSPARSITYOPS
+#define GEN_PASS_DEF_LOWERSPARSITYOPS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -126,8 +135,7 @@ mlir::LogicalResult rewriteSparsityOpWithEltwiseOp(mlir::PatternRewriter& rewrit
     const auto maybeRequantizedOutputType = outputType;
 
     auto alignment = vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType());
-    const auto arch = VPU::getArch(origOp);
-    bool needAlignment = !vpux::VPU::NCEInvariant::isAligned(inputType, alignment, arch, logCb);
+    bool needAlignment = !vpux::VPU::NCEInvariant::isAligned(inputType, alignment, logCb);
     bool isAlignmentResolvedByReshape = false;
     const auto originalShape = outputType.getShape();
     Shape alignedShape;
@@ -300,7 +308,7 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
 
     const auto arch = VPU::getArch(origOp);
     auto alignment = vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType());
-    bool needAlignment = !vpux::VPU::NCEInvariant::isAligned(inputType, alignment, arch, logCb);
+    bool needAlignment = !vpux::VPU::NCEInvariant::isAligned(inputType, alignment, logCb);
     if (needAlignment) {
         Shape alignedShape;
         std::tie(input, alignedShape) = insertExpandToAlign(rewriter, input, alignment);
@@ -339,9 +347,14 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
     const auto ppeConverter = VPU::NCESparsity::getPPEConverterCb(arch);
     const auto biasConverter = VPU::NCESparsity::getBiasConverterCb(arch);
     const auto mpeEngineAttr = VPU::MPEEngineConfig::retrieveMPEEngineAttribute(origOp, arch);
-    auto weightsTableVec = VPU::createWeightsTableData(origOp->getOperand(0), origOp->getResult(0), filter,
+
+    const auto adaptedOutElemType =
+            VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterFpPreluAlpha>().adaptTypeForPreluAlphaScaling(
+                    ppeAttr, outputType.getElementType());
+
+    auto weightsTableVec = VPU::createWeightsTableData(origOp->getOperand(0), adaptedOutElemType, filter,
                                                        /*bias=*/{}, OC, ppeConverter, biasConverter,
-                                                       /*constScale=*/nullptr);
+                                                       /*constScale=*/nullptr, VPU::canAutopadOutput(origOp));
     auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
 
     auto stridesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>({1, 1}));
@@ -384,7 +397,7 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
 // LowerSparsityOpsPass
 //
 
-class LowerSparsityOpsPass final : public VPU::LowerSparsityOpsBase<LowerSparsityOpsPass> {
+class LowerSparsityOpsPass final : public VPU::impl::LowerSparsityOpsBase<LowerSparsityOpsPass> {
 public:
     explicit LowerSparsityOpsPass(std::optional<bool> maybeFakeSparsify, Logger log)
             : _maybeFakeSparsify(maybeFakeSparsify) {
@@ -489,6 +502,9 @@ void LowerSparsityOpsPass::safeRunOnFunc() {
     target.addIllegalOp<VPU::SparsifyOp>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
+    target.addLegalDialect<mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<mlir::math::MathDialect>();
+
     target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
     mlir::RewritePatternSet patterns(&ctx);

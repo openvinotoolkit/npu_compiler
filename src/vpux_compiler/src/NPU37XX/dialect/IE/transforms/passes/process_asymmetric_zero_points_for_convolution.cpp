@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -25,6 +26,12 @@
 #include <cmath>
 #include <functional>
 #include <vector>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_PROCESSASYMMETRICZEROPOINTSFORCONVOLUTION
+#define GEN_PASS_DEF_PROCESSASYMMETRICZEROPOINTSFORCONVOLUTION
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -181,10 +188,11 @@ mlir::LogicalResult ZeroPointWithConvolution::matchAndRewrite(IE::ConvolutionOp 
             mlir::quant::QuantizationFlags::Signed, getSInt8Type(context), mlir::Float16Type::get(context), scale,
             /*zp=*/0, /*min=*/static_cast<int64_t>(int8Min),
             /*max=*/static_cast<int64_t>(int8Max));
-    auto newFilterVal = Const::createFloatConst(rewriter, appendLoc(convOp.getLoc(), "new_filter"), filterShape,
-                                                weightsForNewConvolution);
-    auto quantizedFilter =
-            rewriter.create<IE::QuantizeOp>(appendLoc(convOp.getLoc(), "quantize_filter"), newFilterVal, quantType);
+    const auto denseElementVal = Const::createConstContent<float>(filterShape, weightsForNewConvolution);
+    const auto contentAttr = Const::ContentAttr::get(denseElementVal);
+    auto quantWeightConstAttr = contentAttr.transform().castElemType(quantType).get();
+    const auto weightsType = contentAttr.getType().cast<vpux::NDTypeInterface>().changeElemType(quantType);
+    auto quantizedFilter = rewriter.create<Const::DeclareOp>(convOp.getLoc(), weightsType, quantWeightConstAttr);
     const auto newConv = rewriter.create<IE::ConvolutionOp>(
             appendLoc(convOp.getLoc(), "new_conv"), convInput, quantizedFilter.getOutput(),
             /*bias=*/nullptr, convOp.getStridesAttr(), convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(),
@@ -203,7 +211,7 @@ mlir::LogicalResult ZeroPointWithConvolution::matchAndRewrite(IE::ConvolutionOp 
 }
 
 class ProcessAsymmetricZeroPointsForConvolutionPass final :
-        public IE::arch37xx::ProcessAsymmetricZeroPointsForConvolutionBase<
+        public IE::arch37xx::impl::ProcessAsymmetricZeroPointsForConvolutionBase<
                 ProcessAsymmetricZeroPointsForConvolutionPass> {
 public:
     explicit ProcessAsymmetricZeroPointsForConvolutionPass(Logger log): _log(log) {

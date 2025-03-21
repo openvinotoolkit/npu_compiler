@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_ELF_OPS
 #define VPUX_COMPILER_DIALECT_ELF_OPS
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/NPU40XX/dialect/ELF/attributes.td"
 include "vpux/compiler/NPU40XX/dialect/ELF/dialect.td"
 include "vpux/compiler/dialect/VPUIP/dialect.td"
@@ -156,7 +156,7 @@ def PerformanceMetricsOp :
         ELF_Op<"PerformanceMetricsSection",
             [
                 Symbol,
-                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize", "getBinarySize"]>,
+                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize", "getBinarySize", "getAlignmentRequirements"]>,
                 DeclareOpInterfaceMethods<ELF_WrappableOpInterface>
             ]
         > {
@@ -407,7 +407,7 @@ def PadOp :
 def ABIVersionOp :
         ELF_Op<"ABIVersion",
             [
-                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize", "getBinarySize"]>,
+                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize", "getBinarySize", "getAlignmentRequirements"]>,
                 DeclareOpInterfaceMethods<ELF_WrappableOpInterface>,
                 Symbol
             ]

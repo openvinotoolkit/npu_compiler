@@ -75,3 +75,12 @@ Const::Content vpux::Const::AddAttr::transform(vpux::Const::Content& input) cons
 
     return output;
 }
+
+//
+// AddAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::AddAttr::getStableHashValue() const {
+    const auto bias = getBias().getValue();
+    return llvm::hash_combine(getMnemonic(), bias);
+}

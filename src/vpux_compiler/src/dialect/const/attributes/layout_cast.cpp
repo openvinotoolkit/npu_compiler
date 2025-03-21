@@ -82,3 +82,12 @@ bool vpux::Const::LayoutCastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTy
 Const::Content vpux::Const::LayoutCastAttr::transform(vpux::Const::Content& input) const {
     return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
 }
+
+//
+// LayoutCastAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::LayoutCastAttr::getStableHashValue() const {
+    const auto order = DimsOrder::fromAffineMap(getDstOrder().getValue());
+    return llvm::hash_combine(getMnemonic(), order.code());
+}

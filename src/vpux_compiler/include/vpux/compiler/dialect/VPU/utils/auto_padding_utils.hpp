@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <vpux/compiler/utils/passes.hpp>
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
 
@@ -17,7 +16,6 @@ constexpr StringRef AUTO_PADDING_IDU = "VPU.AutoPaddingIDU";
 
 constexpr std::string_view outChanAttrName = "output_channels";
 
-// Hardware limitation
 constexpr int64_t WIDTH16_CHANNEL_LIMIT = 10;
 constexpr int64_t FP16_WIDTH = 16;
 
@@ -27,8 +25,9 @@ bool inputCompatibleWithAutoPad(vpux::NDTypeInterface);
 bool outputCompatibleWithAutoPad(vpux::NDTypeInterface);
 bool hasOnlyOutPadding(mlir::ModuleOp);
 bool hasOnlyInPadding(mlir::ModuleOp);
-bool canAutopadOutput(mlir::Operation*);
+bool canAutopadOutput(mlir::Operation*, std::optional<vpux::NDTypeInterface> type = std::nullopt);
 bool isODUSupportedOperation(mlir::Operation*);
+bool hasOnlyDirectSWConsumers(mlir::Operation*);
 
 }  // namespace VPU
 }  // namespace vpux

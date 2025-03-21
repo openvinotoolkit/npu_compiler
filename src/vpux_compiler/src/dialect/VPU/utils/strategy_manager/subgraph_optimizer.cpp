@@ -12,13 +12,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/subgraph_optimizer.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_manager.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include "mlir/IR/Iterators.h"
 
 using namespace vpux;
 using namespace VPU;
@@ -184,7 +185,7 @@ VPU::MultiClusterStrategy SubgraphOptimizer::getBestInSOHLikeStrategies(VPU::Clu
         SOHCost += spillingCost;
         _log.trace("SplitOverHeight has spilling cost {0}", spillingCost);
     }
-    // Currently only compressedConv op has SplitOverHeightOverlapped strategy on NPU37XX
+    // Currently only compressedConv op has SplitOverHeightOverlapped strategy on VPUX37XX
     // For general implementation, we consider both SOH & SOHO.
     if (isValidStrategy(clusteredOp, VPU::MultiClusterStrategy::SplitOverHeightOverlapped)) {
         SOHOverlappedCost =
@@ -1223,7 +1224,7 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnSubgraph(VPU::ClusteredOp
             _log.trace("  [rollback] '{0}' : set strategy as {1}", clusteredTask->getLoc(), newStrategy);
         }
     } else {
-        _log.trace("Subgraph opt: rollback unneccessary! Strategies no change");
+        _log.trace("Subgraph opt: rollback unnecessary! Strategies no change");
     }
     _log.trace("  Rollback cost: {0} , Current cost: {1}", rollbackCost, originalCost);
 
@@ -1233,7 +1234,16 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnSubgraph(VPU::ClusteredOp
     auto inputPermuteOp = clusteredOp->getOperand(0).getDefiningOp<VPU::NCEPermuteOp>();
     if (inputPermuteOp != nullptr && _layerCostModel.hasMultiClusterStrategy(inputPermuteOp.getOperation())) {
         auto inputClusteredPermuteOp = mlir::cast<VPU::ClusteredOpInterface>(inputPermuteOp.getOperation());
-        if (isSOCSegmentedNCEOp(clusteredOp.getOperation())) {
+        auto requiredNumCluster = [&]() -> int64_t {
+            if (!clusteredOp.getMultiClusterStrategy().has_value()) {
+                return 1;
+            }
+
+            auto outShape = getShape(clusteredOp->getResult(0));
+            return clusteredOp.getOptimalNumClusters(outShape, clusteredOp.getMultiClusterStrategy().value());
+        };
+        auto permuteOutShape = getShape(inputPermuteOp.getOutput());
+        if (isSOCSegmentedNCEOp(clusteredOp.getOperation()) || permuteOutShape[Dims4D::Act::H] < requiredNumCluster()) {
             inputClusteredPermuteOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::SplitOverKernel);
         } else {
             inputClusteredPermuteOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::SplitOverHeightOverlapped);
@@ -1255,17 +1265,37 @@ void SubgraphOptimizer::removeClusteringStrategyAvoidSpillingOnSubgraph(VPU::Clu
         return;
     }
 
-    auto hasSpillingToChildrenDueToClustering = llvm::all_of(clusteredOp->getResult(0).getUsers(), [&](auto child) {
-        if (mlir::isa_and_nonnull<VPU::DistributedCastOpInterface, VPU::ShapeCastOp, VPU::AffineReshapeOp>(child) &&
-            !VPU::hasMultiBranches(child)) {
-            child = *child->getResult(0).getUsers().begin();
-        }
-        return mlir::isa_and_nonnull<VPU::NCEOpInterface, VPU::SWOpInterface>(child) &&
-               !_layerCostModel.hasMultiClusterStrategy(child);
+    auto hasSpillingToChildrenDueToClustering = llvm::all_of(clusteredOp->getResults(), [&](auto result) {
+        return llvm::all_of(result.getUsers(), [&](auto child) {
+            if (mlir::isa_and_nonnull<VPU::DistributedCastOpInterface, VPU::ShapeCastOp, VPU::AffineReshapeOp>(child) &&
+                !VPU::hasMultiBranches(child)) {
+                child = *child->getResult(0).getUsers().begin();
+            }
+
+            return mlir::isa_and_nonnull<VPU::NCEOpInterface, VPU::SWOpInterface>(child) &&
+                   !_layerCostModel.hasMultiClusterStrategy(child);
+        });
     });
     if (hasSpillingToChildrenDueToClustering) {
         clusteredOp->removeAttr(multiClusterStrategy);
     }
+}
+
+bool isSOHUser(mlir::Operation* op) {
+    if (auto userClusterOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(op)) {
+        auto userStrategyAttr = userClusterOp.getMultiClusterStrategy();
+        if (!userStrategyAttr.has_value()) {
+            return false;
+        }
+        if (userStrategyAttr.value() != VPU::MultiClusterStrategy::SplitOverHeight) {
+            return false;
+        }
+    } else if (mlir::isa_and_nonnull<VPU::GroupSparseTensorOp, VPU::QuantizeCastOp>(op)) {
+        return llvm::all_of(op->getResult(0).getUsers(), isSOHUser);
+    } else {
+        return false;
+    }
+    return true;
 }
 
 void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
@@ -1310,8 +1340,25 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
     /// @brief Traversing nodes with preOrder to execute subgraph optimization
     _func.walk(callback);
 
+    const auto callbackForHK = [this](VPU::ClusteredOpInterface clusteredOp) {
+        auto currentStrategyAttr = clusteredOp.getMultiClusterStrategy();
+        if (!currentStrategyAttr.has_value()) {
+            return;
+        }
+        if (currentStrategyAttr.value() != VPU::MultiClusterStrategy::HKSwitch) {
+            return;
+        }
+        // Check if all the users are SOH
+        if (llvm::all_of(clusteredOp->getResult(0).getUsers(), isSOHUser)) {
+            _log.trace("Converting strategy from HKSwitch to SOH for op {0} at {1}", clusteredOp->getName(),
+                       clusteredOp->getLoc());
+            clusteredOp.setMultiClusterStrategy(VPU::MultiClusterStrategy::SplitOverHeight);
+        }
+    };
+    _func.walk(callbackForHK);
+
     const auto clusteringOptimizationCallBack = [this](VPU::ClusteredOpInterface clusteredOp) {
         removeClusteringStrategyAvoidSpillingOnSubgraph(clusteredOp);
     };
-    _func.walk(clusteringOptimizationCallBack);
+    _func.walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(clusteringOptimizationCallBack);
 }

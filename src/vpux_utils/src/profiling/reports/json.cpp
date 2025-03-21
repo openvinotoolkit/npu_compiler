@@ -82,55 +82,42 @@ private:
     /**
      * @brief helper function to ease exporting profiled tasks to JSON format
      *
-     * @param tasks - list of tasks to be exported
-     * @param processName - trace event process name
-     * @param createNewProcess - if true, meta data about the current trace event process and threads assigned to the
-     * tasks being processed are exported as meta trace events
+     * @param tasks list of tasks to be exported
+     * @param threadName trace event thread name
      *
      * The function schedules tasks for output to out stream and generates meta type header trace events.
-     * It internally manages trace events' thread IDs and names.
+     * It internally manages trace events' thread IDs
      */
-    void processTraceEvents(const TaskList& tasks, const std::string& processName, bool createNewProcess = true);
+    void processTraceEvents(const TaskList& tasks, const std::string& threadName);
+
+    void createProcess(const std::string& processName);
 
     /**
      * @brief set tracing event process name for given process id.
      *
-     * @param suffixStr - suffix added at the end of line. Except for the last tracing event, JSON events are separated
-     * by commas
-     * @param processId - trace event process identifier
-     * @param suffixStr - end of line string for the process name trace event
+     * @param processName process name
+     * @param processId trace event process identifier
      */
-    void setTraceEventProcessName(const std::string& processName, int processId, const std::string& suffixStr = ",");
+    void setTraceEventProcessName(const std::string& processName, int processId);
 
-    void setTraceEventThreadName(const std::string& threadName, int threadId, int processId,
-                                 const std::string& suffixStr = ",");
+    void setTraceEventThreadName(const std::string& threadName, int threadId, int processId);
 
     /**
      * @brief Set the Tracing Event Process Sort Index
      *
-     * @param processId - trace event process identifier
-     * @param sortIndex - index defining the process ordering in the output report. (Some UIs do not respect this value)
-     * @param suffixStr - suffix added at the end of line. Except for the last tracing event, JSON events are separated
-     * by
+     * @param processId trace event process identifier
+     * @param sortIndex index defining the process ordering in the output report. (Some UIs do not respect this value)
      */
-    void setTraceEventProcessSortIndex(int processId, unsigned sortIndex, const std::string& suffixStr = ",");
+    void setTraceEventProcessSortIndex(int processId, unsigned sortIndex);
 
     /**
-     * @brief Perform basic sanity checks on task name and duration
+     * @brief Perform basic sanity checks on a task
      *
-     * @param task - task to check
-     *
-     * For reporting tasks it is assumed that all tasks should have
-     * task name format compliant with:
-     *
-     *  originalLayerName?t_layerType/suffix1_value1/suffix2_value2...
-     *
-     * This method checks for existence of suffix separator (?) in task name and
-     * asserts cluster_id suffix exists for the relevant task types.
+     * @param task task to check
      *
      * Warning is issued if task duration is not a positive integer.
      */
-    void validateTaskNameAndDuration(const TaskInfo& task) const;
+    void validateTask(const TaskInfo& task) const;
 
     std::vector<TraceEventDesc> _events;
     std::ostream& _outStream;
@@ -139,42 +126,18 @@ private:
     int _threadId = -1;
 };
 
-constexpr auto CLUSTER_PROCESS_NAME = "Cluster";
-constexpr auto DMA_PROCESS_NAME = "DMA";
-constexpr auto LAYER_PROCESS_NAME = "Layers";
-constexpr auto M2I_PROCESS_NAME = "M2I";
-
-constexpr auto VARIANT_NAME = "Variants";
-constexpr auto SHAVE_NAME = "Shave";
-constexpr auto LAYER_THREAD_NAME = "Layers";
-
-constexpr auto DMA_TASK_CATEGORY = "DMA";
-constexpr auto DPU_TASK_CATEGORY = "DPU";
-constexpr auto NONE_TASK_CATEGORY = "NONE";
-constexpr auto SW_TASK_CATEGORY = "SW";
-constexpr auto M2I_TASK_CATEGORY = "M2I";
-
-static const std::map<TaskInfo::ExecType, std::string> enumToStr = {{TaskInfo::ExecType::NONE, NONE_TASK_CATEGORY},
-                                                                    {TaskInfo::ExecType::DPU, DPU_TASK_CATEGORY},
-                                                                    {TaskInfo::ExecType::SW, SW_TASK_CATEGORY},
-                                                                    {TaskInfo::ExecType::DMA, DMA_TASK_CATEGORY},
-                                                                    {TaskInfo::ExecType::M2I, M2I_TASK_CATEGORY}
-
-};
-
-std::string getTraceEventThreadName(const TaskInfo& task) {
-    switch (task.exec_type) {
-    case TaskInfo::ExecType::DMA:
-        return DMA_TASK_CATEGORY;
-    case TaskInfo::ExecType::SW:
-        return std::string(SW_TASK_CATEGORY) + " / " + SHAVE_NAME;
+std::string getTaskCategory(TaskInfo::ExecType type) {
+    switch (type) {
     case TaskInfo::ExecType::DPU:
-        return isVariantLevelProfilingTask(task) ? std::string(DPU_TASK_CATEGORY) + " / " + VARIANT_NAME
-                                                 : DPU_TASK_CATEGORY;
+        return "DPU";
+    case TaskInfo::ExecType::SW:
+        return "Shave";
+    case TaskInfo::ExecType::DMA:
+        return "DMA";
     case TaskInfo::ExecType::M2I:
-        return M2I_TASK_CATEGORY;
+        return "M2I";
     default:
-        VPUX_THROW("Unknown task category");
+        VPUX_THROW("Unexpected task type");
     }
 }
 
@@ -193,16 +156,70 @@ std::string formatDuration(uint64_t timeNs) {
     return timeString;
 }
 
+TraceEventDesc makeTaskTraceEvent(const TaskInfo& task, int pid, int tid) {
+    TraceEventDesc ted;
+    ted.name = task.name;
+    ted.category = getTaskCategory(task.exec_type);
+    ted.pid = pid;
+    ted.tid = tid;
+    // use ns-resolution integers to avoid round-off errors during fixed precision output to JSON
+    ted.timestamp = task.start_time_ns / 1000.;
+    ted.duration = task.duration_ns / 1000.;
+
+    if (task.total_cycles != 0) {
+        ted.customArgs.push_back({"Total cycles:", std::to_string(task.total_cycles)});
+    }
+    if (task.stall_cycles != 0) {
+        ted.customArgs.push_back({"Stall cycles:", std::to_string(task.stall_cycles)});
+    }
+    if (task.stall_counters.lsu0_stalls != 0) {
+        ted.customArgs.push_back({"LSU0 stall cycles:", std::to_string(task.stall_counters.lsu0_stalls)});
+    }
+    if (task.stall_counters.lsu1_stalls != 0) {
+        ted.customArgs.push_back({"LSU1 stall cycles:", std::to_string(task.stall_counters.lsu1_stalls)});
+    }
+    if (task.stall_counters.instruction_stalls != 0) {
+        ted.customArgs.push_back({"Instruction stall cycles:", std::to_string(task.stall_counters.instruction_stalls)});
+    }
+    return ted;
+}
+
+TraceEventDesc makeLayerTraceEvent(const LayerInfo& layer, int pid, int tid) {
+    TraceEventDesc ted;
+    ted.name = layer.name;
+    ted.category = "Layer";
+    ted.pid = pid;
+    ted.tid = tid;
+    // use ns-resolution integers to avoid round-off errors during fixed precision output to JSON
+    ted.timestamp = layer.start_time_ns / 1000.;
+    ted.duration = layer.duration_ns / 1000.;
+    ted.customArgs.push_back({"Layer type", layer.layer_type});
+
+    if (layer.dpu_ns != 0) {
+        ted.customArgs.push_back({"DPU time:", formatDuration(layer.dpu_ns)});
+    }
+    if (layer.sw_ns != 0) {
+        ted.customArgs.push_back({"Shave time:", formatDuration(layer.sw_ns)});
+    }
+    if (layer.dma_ns != 0) {
+        ted.customArgs.push_back({"DMA time:", formatDuration(layer.dma_ns)});
+    }
+    return ted;
+}
+
 void TraceEventExporter::processTasks(const std::vector<TaskInfo>& tasks) {
     for (auto& task : tasks) {
-        validateTaskNameAndDuration(task);
+        validateTask(task);
     }
 
     //
     // Export DMA tasks
     //
     auto dmaTasks = TaskList(tasks).selectDMAtasks();
-    processTraceEvents(dmaTasks, DMA_PROCESS_NAME, /* createNewProcess= */ true);
+    if (!dmaTasks.empty()) {
+        createProcess("DMA");
+        processTraceEvents(dmaTasks, "DMA");
+    }
 
     //
     // Export cluster tasks (DPU and SW)
@@ -213,15 +230,21 @@ void TraceEventExporter::processTasks(const std::vector<TaskInfo>& tasks) {
     TaskList swTasks = TaskList(tasks).selectSWtasks();
 
     for (unsigned clusterId = 0; clusterId < clusterCount; clusterId++) {
-        std::string processName = std::string(CLUSTER_PROCESS_NAME) + " (" + std::to_string(clusterId) + ")";
+        createProcess("Cluster (" + std::to_string(clusterId) + ")");
         auto clusterDpuTasks = dpuTasks.selectTasksFromCluster(clusterId);
-        processTraceEvents(clusterDpuTasks, processName, /* createNewProcess= */ true);
+        auto dpuInvariants = clusterDpuTasks.selectClusterLevelTasks();
+        auto dpuVariants = clusterDpuTasks.selectSubtasks();
+        processTraceEvents(dpuInvariants, "DPU");
+        processTraceEvents(dpuVariants, "DPU Variants");
         auto clusterSwTasks = swTasks.selectTasksFromCluster(clusterId);
-        processTraceEvents(clusterSwTasks, processName, /* createNewProcess= */ clusterDpuTasks.empty());
+        processTraceEvents(clusterSwTasks, "Shave");
     }
 
     TaskList m2iTasks = TaskList(tasks).selectM2Itasks();
-    processTraceEvents(m2iTasks, M2I_PROCESS_NAME, /* createNewProcess= */ true);
+    if (!m2iTasks.empty()) {
+        createProcess("M2I");
+        processTraceEvents(m2iTasks, "M2I");
+    }
 }
 
 void TraceEventExporter::processLayers(const std::vector<LayerInfo>& layers) {
@@ -229,109 +252,54 @@ void TraceEventExporter::processLayers(const std::vector<LayerInfo>& layers) {
         return;
     }
 
-    ++_processId;
-    _threadId = 0;
+    createProcess("Layers");
+    ++_threadId;
 
     TraceEventTimeOrderedDistribution layersDistr;
     for (auto& layer : layers) {
-        TraceEventDesc ted;
-        ted.name = layer.name;
-        ted.category = "Layer";
-        ted.pid = _processId;
-        ted.tid = layersDistr.getThreadId(layer.start_time_ns, layer.duration_ns);
-        // use ns-resolution integers to avoid round-off errors during fixed precision output to JSON
-        ted.timestamp = layer.start_time_ns / 1000.;
-        ted.duration = layer.duration_ns / 1000.;
-        ted.customArgs.push_back({"Layer type", layer.layer_type});
-
-        if (layer.dpu_ns != 0) {
-            ted.customArgs.push_back({"DPU time:", formatDuration(layer.dpu_ns)});
-        }
-        if (layer.sw_ns != 0) {
-            ted.customArgs.push_back({"Shave time:", formatDuration(layer.sw_ns)});
-        }
-        if (layer.dma_ns != 0) {
-            ted.customArgs.push_back({"DMA time:", formatDuration(layer.dma_ns)});
-        }
-
-        _events.push_back(ted);
+        auto tid = _threadId + layersDistr.getThreadId(layer.start_time_ns, layer.duration_ns);
+        _events.push_back(makeLayerTraceEvent(layer, _processId, tid));
     }
 
-    setTraceEventProcessName(LAYER_PROCESS_NAME, _processId);
-    setTraceEventProcessSortIndex(_processId, _processId);
-    for (unsigned threadId = 0; threadId < layersDistr.size(); ++threadId) {
-        setTraceEventThreadName(LAYER_THREAD_NAME, threadId, _processId);
+    for (unsigned n = 0; n < layersDistr.size(); ++n) {
+        setTraceEventThreadName("Layers", _threadId++, _processId);
     }
 }
 
-void TraceEventExporter::validateTaskNameAndDuration(const TaskInfo& task) const {
-    // check existence of cluster_id suffix in clustered tasks
-    if (task.exec_type == TaskInfo::ExecType::SW || task.exec_type == TaskInfo::ExecType::DPU) {
-        bool hasClusterInName = !getClusterFromName(task.name).empty();
-        VPUX_THROW_UNLESS(hasClusterInName, "Task {0} does not have assigned cluster_id", task.name);
-    }
-
+void TraceEventExporter::validateTask(const TaskInfo& task) const {
     // check task duration
     if (task.duration_ns <= 0) {
         _log.warning("Task {0} has duration {1} ns.", task.name, task.duration_ns);
     }
 }
 
-void TraceEventExporter::processTraceEvents(const TaskList& tasks, const std::string& processName,
-                                            bool createNewProcess) {
-    if (tasks.empty()) {  // don't need to output process details if there are no tasks to export
+void TraceEventExporter::processTraceEvents(const TaskList& tasks, const std::string& threadName) {
+    if (tasks.empty()) {
         return;
     }
 
-    if (createNewProcess) {
-        ++_processId;
-        _threadId = -1;
-        setTraceEventProcessName(processName, _processId);
-        setTraceEventProcessSortIndex(_processId, _processId);
-    }
-
-    int lastThreadId = _threadId;
-    ++_threadId;
-
-    TraceEventTimeOrderedDistribution threadDistr;
+    int lastThreadId = _threadId++;
 
     auto sortedTasks = tasks.getSortedByStartTime();
+    TraceEventTimeOrderedDistribution threadDistr;
+
     for (const auto& task : sortedTasks) {
-        auto thId = _threadId + threadDistr.getThreadId(task.start_time_ns, task.duration_ns);
-        if (thId > lastThreadId) {
-            setTraceEventThreadName(getTraceEventThreadName(task), thId, _processId);
-            lastThreadId = thId;
+        auto tid = _threadId + threadDistr.getThreadId(task.start_time_ns, task.duration_ns);
+        if (tid > lastThreadId) {
+            setTraceEventThreadName(threadName, tid, _processId);
+            lastThreadId = tid;
         }
 
-        TraceEventDesc ted;
-        ted.name = task.name;
-        ted.category = enumToStr.at(task.exec_type);
-        ted.pid = _processId;
-        ted.tid = thId;
-        // use ns-resolution integers to avoid round-off errors during fixed precision output to JSON
-        ted.timestamp = task.start_time_ns / 1000.;
-        ted.duration = task.duration_ns / 1000.;
-
-        if (task.total_cycles != 0) {
-            ted.customArgs.push_back({"Total cycles:", std::to_string(task.total_cycles)});
-        }
-        if (task.stall_cycles != 0) {
-            ted.customArgs.push_back({"Stall cycles:", std::to_string(task.stall_cycles)});
-        }
-        if (task.stall_counters.lsu0_stalls != 0) {
-            ted.customArgs.push_back({"LSU0 stall cycles:", std::to_string(task.stall_counters.lsu0_stalls)});
-        }
-        if (task.stall_counters.lsu1_stalls != 0) {
-            ted.customArgs.push_back({"LSU1 stall cycles:", std::to_string(task.stall_counters.lsu1_stalls)});
-        }
-        if (task.stall_counters.instruction_stalls != 0) {
-            ted.customArgs.push_back(
-                    {"Instruction stall cycles:", std::to_string(task.stall_counters.instruction_stalls)});
-        }
-        _events.push_back(ted);
+        _events.push_back(makeTaskTraceEvent(task, _processId, tid));
     }
 
     _threadId = lastThreadId;
+}
+
+void TraceEventExporter::createProcess(const std::string& name) {
+    auto pid = ++_processId;
+    setTraceEventProcessName(name, pid);
+    setTraceEventProcessSortIndex(pid, pid);
 }
 
 TraceEventExporter::TraceEventExporter(std::ostream& outStream, Logger& log): _outStream(outStream), _log(log) {
@@ -364,36 +332,19 @@ void TraceEventExporter::flushAsTraceEvents() {
     _outStream.flush();
 }
 
-void TraceEventExporter::setTraceEventProcessName(const std::string& processName, int processId,
-                                                  const std::string& suffixStr) {
+void TraceEventExporter::setTraceEventProcessName(const std::string& processName, int processId) {
     _outStream << std::string(R"({"name": "process_name", "ph": "M", "pid":)") << processId
-               << R"(, "args": {"name" : ")" << processName << R"("}})" << suffixStr << std::endl;
+               << R"(, "args": {"name" : ")" << processName << R"("}},)" << std::endl;
 }
 
-void TraceEventExporter::setTraceEventThreadName(const std::string& threadName, int threadId, int processId,
-                                                 const std::string& suffixStr) {
+void TraceEventExporter::setTraceEventThreadName(const std::string& threadName, int threadId, int processId) {
     _outStream << std::string(R"({"name": "thread_name", "ph": "M", "pid":)") << processId << R"(, "tid":)" << threadId
-               << R"(, "args": {"name" : ")" << threadName << R"("}})" << suffixStr << std::endl;
+               << R"(, "args": {"name" : ")" << threadName << R"("}},)" << std::endl;
 }
 
-void TraceEventExporter::setTraceEventProcessSortIndex(int processId, unsigned sortIndex,
-                                                       const std::string& suffixStr) {
+void TraceEventExporter::setTraceEventProcessSortIndex(int processId, unsigned sortIndex) {
     _outStream << std::string(R"({"name": "process_sort_index", "ph": "M", "pid":)") << processId
-               << R"(, "args": {"sort_index" : ")" << sortIndex << R"("}})" << suffixStr << std::endl;
-}
-
-const char* to_string(const FreqStatus& freqStatus) {
-    switch (freqStatus) {
-    case FreqStatus::UNKNOWN:
-        return "UNKNOWN";
-    case FreqStatus::VALID:
-        return "OK";
-    case FreqStatus::INVALID:
-        return "INVALID";
-    case FreqStatus::SIM:
-        return "SIM";
-    }
-    return NULL;
+               << R"(, "args": {"sort_index" : ")" << sortIndex << R"("}},)" << std::endl;
 }
 
 std::ostream& operator<<(std::ostream& os, const FreqInfo& freqInfo) {

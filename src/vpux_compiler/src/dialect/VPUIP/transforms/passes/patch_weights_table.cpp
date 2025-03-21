@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -14,6 +15,12 @@
 #include "vpux/compiler/utils/constant_fusion.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_PATCHWEIGHTSTABLE
+#define GEN_PASS_DEF_PATCHWEIGHTSTABLE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -22,7 +29,7 @@ namespace {
 // PatchWeightsTablePass
 //
 
-class PatchWeightsTablePass final : public VPUIP::PatchWeightsTableBase<PatchWeightsTablePass> {
+class PatchWeightsTablePass final : public VPUIP::impl::PatchWeightsTableBase<PatchWeightsTablePass> {
 public:
     explicit PatchWeightsTablePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -67,6 +74,11 @@ void PatchWeightsTablePass::safeRunOnFunc() {
             nceOp->removeAttr(vpux::VPUIP::populateWeightTableWithShave);
             return;
         }
+        // Don't need to run weights table patching if operation has zeroOffset.
+        // Patching is done earlier in compilation by RelocateWeightTableForReuse pass.
+        if (nceOp.getIsZeroOffsetWeightsTable()) {
+            return;
+        }
 
         auto wTable = nceOp.getWeightTable();
         if (wTable == nullptr) {
@@ -103,12 +115,17 @@ void PatchWeightsTablePass::safeRunOnFunc() {
 
         auto weightTableSize = getWeightTableSize(nceOp, weightsPtrPerCluster, baseOffset);
         const auto channelOffset = 0;
+        auto originalOC = 0;
+
+        if (VPU::canAutopadOutput(nceOp.getOperation())) {
+            originalOC = mlir::cast<vpux::NDTypeInterface>(nceOp->getResult(0).getType()).getShape()[Dims4D::Act::C];
+        }
 
         auto newConstAttr = cstOp.getContentAttr()
                                     .transform()
                                     .relocateWeightsTablePointers(weightsPtrPerCluster, sparsityPtr, ShapeRef(offsets),
                                                                   weightTableSize, weightsElemBitSize,
-                                                                  weightsCompression, channelOffset)
+                                                                  weightsCompression, channelOffset, originalOC)
                                     .get();
         mlir::OpBuilder builder(cstOp);
         auto newConstOp =

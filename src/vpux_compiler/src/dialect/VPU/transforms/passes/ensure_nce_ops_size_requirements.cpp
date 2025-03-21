@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -12,6 +13,12 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ENSURENCEOPSSIZEREQUIREMENTS
+#define GEN_PASS_DEF_ENSURENCEOPSSIZEREQUIREMENTS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -216,6 +223,13 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     // final Add
     auto finalPpeAttr = origOp.getPpeAttr();
 
+    auto weightInput = origOp.getFilter();
+    // check for parent weight shave dequantize op
+    auto weightDequantizeOp = weightInput.getDefiningOp<VPU::DequantizeOp>();
+    if (weightDequantizeOp != nullptr) {
+        weightInput = weightDequantizeOp.getInput();
+    }
+
     // TODO: E#70371 - Remaining opens for InputChannels 8K size
     for (auto tile = 0; tile < maxTiles; tile++) {
         auto offsetIC = tiles.value()[tile].offsets[Dims4D::Act::C];
@@ -233,9 +247,15 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
         const Shape kernelSliceOffsets{0, offsetIC, 0, 0};
         const Shape kernelSliceShape{kernelN, sizeIC, kernelH, kernelW};
         const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
-        auto convFilter = rewriter.create<VPU::SliceOp>(origOp.getLoc(), origOp.getFilter(),
-                                                        getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
-                                                        getIntArrayAttr(rewriter, kernelSliceShape.raw()));
+        auto weightSlice = rewriter.create<VPU::SliceOp>(origOp.getLoc(), weightInput,
+                                                         getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
+                                                         getIntArrayAttr(rewriter, kernelSliceShape.raw()));
+        auto weightSliceResult = weightSlice.getResult();
+        if (weightDequantizeOp != nullptr) {
+            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
+                                                                      weightDequantizeOp.getDstElemTypeAttr());
+            weightSliceResult = dequantizeSlice.getResult();
+        }
 
         // Adjust the weights table pointers to correspond to the new offsets of the slices
         const auto noOfBits = vpux::getElemTypeSize(filterElemType);
@@ -269,7 +289,7 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
 
         auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
         auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                origOp.getLoc(), origOp.getType(), convInput.getResult(), convFilter.getResult(), weightsTable,
+                origOp.getLoc(), origOp.getType(), convInput.getResult(), weightSliceResult, weightsTable,
                 origOp.getStrides(), origOp.getPad(), strippedPpeAttr, origOp.getMpeEngineAttr(), rawKernelSliceShape,
                 origOp.getMultiClusterStrategyAttr(), origOp.getOutputChannelsAttr());
 
@@ -347,7 +367,7 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
 //
 
 class EnsureNCEOpsSizeRequirementsPass final :
-        public VPU::EnsureNCEOpsSizeRequirementsBase<EnsureNCEOpsSizeRequirementsPass> {
+        public VPU::impl::EnsureNCEOpsSizeRequirementsBase<EnsureNCEOpsSizeRequirementsPass> {
 public:
     explicit EnsureNCEOpsSizeRequirementsPass(bool enableOutputEnsurance, Logger log)
             : _enableOutputEnsurance(enableOutputEnsurance) {

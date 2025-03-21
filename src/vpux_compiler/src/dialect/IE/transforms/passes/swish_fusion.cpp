@@ -6,7 +6,14 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWISHFUSION
+#define GEN_PASS_DEF_SWISHFUSION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -89,7 +96,7 @@ mlir::LogicalResult SwishFusion::matchAndRewrite(IE::MultiplyOp origOp, mlir::Pa
 // SwishFusionPass
 //
 
-class SwishFusionPass final : public IE::SwishFusionBase<SwishFusionPass> {
+class SwishFusionPass final : public IE::impl::SwishFusionBase<SwishFusionPass> {
 public:
     explicit SwishFusionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

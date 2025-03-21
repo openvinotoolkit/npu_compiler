@@ -16,15 +16,14 @@ using namespace npu40xx;
 //
 
 void vpux::NPUReg40XX::ActKernelInvocationOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    nn_public::VpuActKernelInvocation actKernelInvo;
+    auto actKernInvoDescriptor = getDescriptor().getRegMapped();
 
-    auto actKernInvoDescriptor = getActInvoDescriptorAttr().getRegMapped();
+    VPUX_THROW_UNLESS(sizeof(nn_public::VpuActKernelInvocation) == actKernInvoDescriptor.size(),
+                      "HW VpuActKernelInvocation size {0} != regMapped representation size {1}.",
+                      sizeof(nn_public::VpuActKernelInvocation), actKernInvoDescriptor.size());
+
     auto serializedActKernInvoDesc = actKernInvoDescriptor.getStorage();
-    memcpy(reinterpret_cast<uint8_t*>(&actKernelInvo), serializedActKernInvoDesc.data(),
-           serializedActKernInvoDesc.size());
-
-    uint8_t* ptrCharTmp = reinterpret_cast<uint8_t*>(&actKernelInvo);
-    binDataSection.appendData(ptrCharTmp, getBinarySize(VPU::ArchKind::NPU40XX));
+    binDataSection.appendData(serializedActKernInvoDesc.data(), getBinarySize(VPU::ArchKind::NPU40XX));
 }
 
 size_t vpux::NPUReg40XX::ActKernelInvocationOp::getBinarySize(VPU::ArchKind) {
@@ -32,18 +31,7 @@ size_t vpux::NPUReg40XX::ActKernelInvocationOp::getBinarySize(VPU::ArchKind) {
 }
 
 size_t vpux::NPUReg40XX::ActKernelInvocationOp::getAlignmentRequirements(VPU::ArchKind) {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-std::optional<ELF::SectionSignature> vpux::NPUReg40XX::ActKernelInvocationOp::getSectionSignature() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
-}
-
-bool vpux::NPUReg40XX::ActKernelInvocationOp::hasMemoryFootprint() {
-    // TODO: E#80148
-    VPUX_THROW("WrappableInterface method should not be called at this point! E#80148");
+    return alignof(nn_public::VpuActKernelInvocation);
 }
 
 namespace {

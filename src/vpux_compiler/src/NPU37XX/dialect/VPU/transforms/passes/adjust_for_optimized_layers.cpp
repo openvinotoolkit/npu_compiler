@@ -5,16 +5,23 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_matmul_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU::arch37xx {
+#define GEN_PASS_DECL_ADJUSTFOROPTIMIZEDLAYERS
+#define GEN_PASS_DEF_ADJUSTFOROPTIMIZEDLAYERS
+#include "vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch37xx
 
 using namespace vpux;
 
@@ -847,7 +854,7 @@ mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoo
 // It would be better to adjust tensor shape with considering sub-graph optimization as well
 // See E#119868 for details.
 class AdjustForOptimizedLayersPass final :
-        public VPU::arch37xx::AdjustForOptimizedLayersBase<AdjustForOptimizedLayersPass> {
+        public VPU::arch37xx::impl::AdjustForOptimizedLayersBase<AdjustForOptimizedLayersPass> {
 public:
     explicit AdjustForOptimizedLayersPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

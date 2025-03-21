@@ -3,7 +3,14 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_INSERTREORDERBETWEENLAYERANDCONCAT
+#define GEN_PASS_DEF_INSERTREORDERBETWEENLAYERANDCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -27,7 +34,7 @@ int64_t deduceAxis(const mlir::Value in, const mlir::Value out) {
 //
 
 class InsertReorderBetweenLayerAndConcat final :
-        public IE::InsertReorderBetweenLayerAndConcatBase<InsertReorderBetweenLayerAndConcat> {
+        public IE::impl::InsertReorderBetweenLayerAndConcatBase<InsertReorderBetweenLayerAndConcat> {
 public:
     explicit InsertReorderBetweenLayerAndConcat(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

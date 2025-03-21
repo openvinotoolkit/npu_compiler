@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConstFold
 func.func @ConstFold(%arg0: tensor<1x8x4x4xf32>) -> tensor<1x8x4x4xf32> {
     %prob = IE.LogSoftmax(%arg0) {axisInd = 0} : tensor<1x8x4x4xf32> -> tensor<1x8x4x4xf32>

@@ -15,20 +15,13 @@ namespace arch37xx {
 // Passes
 //
 
-std::unique_ptr<mlir::Pass> createAddUpdateBarrierForSwKernelsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddFinalBarrierPass(Logger log = Logger::global());
 
 //
-// Generated
+// Registration
 //
 
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/dialect/VPURT/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/dialect/VPURT/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace VPURT

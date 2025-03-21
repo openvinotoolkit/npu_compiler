@@ -67,7 +67,7 @@ HW-specific passes must also be registered in [vpux-opt](../../../../tools/vpux-
 
 ```C++
 // ...
-vpux::IE::arch37xx::registerIEPasses();
+vpux::IE::arch37xx::registerPasses();
 // ...
 ```
 

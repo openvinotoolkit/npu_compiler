@@ -6,8 +6,8 @@
 #ifndef VPUX_COMPILER_DIALECT_IERT_OPS
 #define VPUX_COMPILER_DIALECT_IERT_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
 include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IERT/dialect.td"
@@ -2200,15 +2200,14 @@ def IERT_AndOp :
     let summary = "InferenceEngine run-time And layer";
 
     let arguments = (ins
-        MemRefOf<[F16, F32, quant_QuantizedType]>:$input1,
-        MemRefOf<[F16, F32, quant_QuantizedType]>:$input2,
-        MemRefOf<[F16, F32, quant_QuantizedType]>:$output_buff,
+        MemRefOf<[F16, F32]>:$input1,
+        MemRefOf<[F16, F32]>:$input2,
 
-        OptionalAttr<IE_PostOpAttr>:$post_op
+        MemRefOf<[F16, F32]>:$output_buff
     );
 
     let results = (outs
-        MemRefOf<[F16, F32, quant_QuantizedType]>:$output
+        MemRefOf<[F16, F32]>:$output
     );
 
     let assemblyFormat = [{

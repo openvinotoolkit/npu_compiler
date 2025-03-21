@@ -11,6 +11,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPURT::arch40xx {
+#define GEN_PASS_DECL_OPTIMIZESYNCTASKS
+#define GEN_PASS_DEF_OPTIMIZESYNCTASKS
+#include "vpux/compiler/NPU40XX/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -143,7 +149,9 @@ bool isValidVariantCountForSyncTaskReplacement(VPURT::TaskOp replaceTaskOp,
             }
         }
     }
-    slotCount--;  // Decrement as syncTask will no longer be producer of this bar
+    if (slotCount > 0) {
+        slotCount--;  // Decrement as syncTask will no longer be producer of this bar
+    }
     slotCount += BarrierInfo::getNumOfSlotsUsed(replaceTaskOp);
 
     return slotCount <= maxVariantSum;
@@ -528,7 +536,7 @@ void removeRedundantSyncTasks(mlir::func::FuncOp func, Logger log) {
 //   op -> .. -> op -|           |-> op -> .. -> op
 //   op -> .. -> op --> SyncTask --> op -> .. -> op
 //   op -> .. -> op -|           |-> op -> .. -> op
-class OptimizeSyncTasksPass final : public VPURT::arch40xx::OptimizeSyncTasksBase<OptimizeSyncTasksPass> {
+class OptimizeSyncTasksPass final : public VPURT::arch40xx::impl::OptimizeSyncTasksBase<OptimizeSyncTasksPass> {
 public:
     explicit OptimizeSyncTasksPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

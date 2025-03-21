@@ -1,14 +1,14 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #ifndef VPUX_COMPILER_DIALECT_IE_OPS
 #define VPUX_COMPILER_DIALECT_IE_OPS
 
-include "vpux/compiler/core/attributes.td"
-include "vpux/compiler/core/ops_interfaces.td"
-include "vpux/compiler/core/types.td"
+include "vpux/compiler/dialect/core/attributes.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/IE/dialect.td"
 include "vpux/compiler/dialect/IE/ops_interfaces.td"
 include "vpux/compiler/dialect/IE/attributes.td"
@@ -196,7 +196,6 @@ def IE_DataInfoOp :
     let hasVerifier = 1;
 }
 
-
 //
 // IE_PipelineOptionsOp
 //
@@ -333,6 +332,7 @@ def IE_SparsityInfoOp :
 
     let hasVerifier = 0;
 }
+
 
 //
 // MemoryResourceOp
@@ -476,6 +476,7 @@ def IE_TileResourceOp :
         bool hasAvailableMemory(mlir::SymbolRefAttr memSpace);
 
         vpux::IE::MemoryResourceOp getAvailableMemory(mlir::SymbolRefAttr memSpace);
+
 
         template <typename Enum, typename OutT = vpux::IE::ExecutorResourceOp>
         using exec_resource_if = enable_t<OutT, std::is_enum<Enum>, details::HasStringifyEnum<Enum>>;
@@ -1235,21 +1236,16 @@ def IE_AndOp :
     let summary = "InferenceEngine And layer";
 
     let arguments = (ins
-        RankedTensorOf<[I8, F16, F32, SI32, SI64, quant_QuantizedType]>:$input1,
-        RankedTensorOf<[I8, F16, F32, SI32, SI64, quant_QuantizedType]>:$input2,
+        RankedTensorOf<[I8, F16, F32, SI32, SI64]>:$input1,
+        RankedTensorOf<[I8, F16, F32, SI32, SI64]>:$input2,
 
-        IE_AutoBroadcastTypeAttr:$auto_broadcast,
-        OptionalAttr<IE_PostOpAttr>:$post_op,
-        OptionalAttr<DictionaryAttr>:$clamp,
-        OptionalAttr<IntAttr>:$output_channels,
-        OptionalAttr<IntAttr>:$input_channels
+        IE_AutoBroadcastTypeAttr:$auto_broadcast
+
     );
 
     let results = (outs
         RankedTensorOf<[I8, F16, F32, SI32, SI64, quant_QuantizedType]>:$output
     );
-
-    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION];
 }
 
 //
@@ -2608,7 +2604,9 @@ def IE_MatMulOp:
         RankedTensorOf<[F16, F32, SI32, quant_QuantizedType]>:$input2,
 
         UnitAttr:$transpose_a,
-        UnitAttr:$transpose_b
+        UnitAttr:$transpose_b,
+
+        OptionalAttr<IE_PostOpAttr>:$post_op
     );
 
     let results = (outs
@@ -3802,6 +3800,30 @@ def IE_ROIAlignOp :
 }
 
 //
+// ExperimentalDetectronROIFeatureExtractorOp
+//
+
+def IE_ExperimentalDetectronROIFeatureExtractorOp :
+        IE_LayerOp<
+            "ExperimentalDetectronROIFeatureExtractor"
+        > {
+    let summary = "InferenceEngine ExperimentalDetectronROIFeatureExtractor layer";
+
+    let arguments = (ins
+        Variadic<AnyRankedTensor>:$inputs,
+
+        IE_ExperimentalDetectronROIFeatureExtractorAttr:$attr
+
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32]>:$output,
+        RankedTensorOf<[F16, F32]>:$outputROIs
+    );
+}
+
+
+//
 // StridedSliceOp
 //
 
@@ -4289,7 +4311,11 @@ def IE_SignOp :
 
 def IE_FullyConnectedOp:
         IE_LayerOp<
-            "FullyConnected"
+            "FullyConnected",
+            [
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>,
+                ShapeBoundOp
+            ]
         > {
     let summary = "InferenceEngine FullyConnected layer";
 
@@ -5957,14 +5983,14 @@ def IE_RangeOp :
     let summary = "InferenceEngine Range layer";
 
     let arguments = (ins
-        1DTensorOf<[AnyInteger, AnyFloat]>:$start,
-        1DTensorOf<[AnyInteger, AnyFloat]>:$stop,
-        1DTensorOf<[AnyInteger, AnyFloat]>:$step,
+        AnyRankedTensor:$start,
+        AnyRankedTensor:$stop,
+        AnyRankedTensor:$step,
         TypeAttr:$dstElemType
     );
 
     let results = (outs
-        1DTensorOf<[AnyInteger, AnyFloat]>:$output
+        AnyRankedTensor:$output
     );
 }
 
@@ -6229,6 +6255,75 @@ def IE_DynamicExpandOp :
     );
 
     let hasFolder = 1;
+}
+
+//
+// VariadicSplit
+//
+
+def IE_VariadicSplitOp :
+        IE_LayerOp<
+            "VariadicSplit"
+        > {
+    let summary = "VariadicSplit operation";
+
+    let description = [{
+        This operation is analogous to the OpenVINO VariadicSplit operation. It splits an input tensor along a given axis into multiple tensors according to split lengths.
+
+        'input' is the input tensor to split. It can have an arbitrary fixed shape. Its element type must not be quantized.
+
+        'axis' is the target axis to split along. It can be in the range [-rank('input'); rank('input')-1]. Negative values are counted from the back, with -1 referring to the last axis, -2 to the second last, and so on.
+
+        'split_lengths' specifies the sizes of the output tensor along the target axis. If all entries are positive, they must sum to the size of the target axis in 'input'.
+        At most one entry can be -1. If that's the case then the size of the target axis of the corresponding output tensor is deduced from the sum of remaining 'split_lengths' values.
+
+        To demonstrate the role of 'axis' and 'split_lengths', the following ops are all equal:
+        ```MLIR
+            %variadic_split_0 = IE.VariadicSplit(%input) {axis = 3, split_lengths = [1, 2, 3]} : tensor<3x3x3x6xf32> -> tensor<3x3x3x1xf32>, tensor<3x3x3x2xf32>, tensor<3x3x3x3xf32>
+            %variadic_split_1 = IE.VariadicSplit(%input) {axis = 3, split_lengths = [1, 2, -1]} : tensor<3x3x3x6xf32> -> tensor<3x3x3x1xf32>, tensor<3x3x3x2xf32>, tensor<3x3x3x3xf32>
+            %variadic_split_2 = IE.VariadicSplit(%input) {axis = -1, split_lengths = [1, 2, -1]} : tensor<3x3x3x6xf32> -> tensor<3x3x3x1xf32>, tensor<3x3x3x2xf32>, tensor<3x3x3x3xf32>
+        ```
+    }];
+
+    let arguments = (ins
+        RankedTensorOf<[AnyInteger, AnyFloat]>:$input,
+        IntAttr:$axis,
+        I64ArrayAttr:$split_lengths
+    );
+
+    let results = (outs
+        Variadic<RankedTensorOf<[AnyInteger, AnyFloat]>>:$output
+    );
+
+    let extraClassDeclaration = [{
+        // returns a copy of 'split_lengths' where the -1 value is inferred
+        mlir::SmallVector<int64_t> getInferredSplitLengths();
+
+        // returns the actual axis index which counts from the back if it's negative
+        int64_t getInferredAxis();
+    }];
+
+    let hasVerifier = 1;
+}
+
+//
+// RoPEOp
+//
+
+def IE_RoPEOp :
+        IE_LayerOp<
+            "RoPE"
+        > {
+    let summary = "InferenceEngine RoPE layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$input,
+        RankedTensorOf<[F16, F32]>:$input_cos,
+        RankedTensorOf<[F16, F32]>:$input_sin
+     );
+   let results = (outs
+        RankedTensorOf<[F16, F32]>:$output
+    );
 }
 
 #endif

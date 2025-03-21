@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/core/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/attributes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
@@ -14,6 +13,7 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/types.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>

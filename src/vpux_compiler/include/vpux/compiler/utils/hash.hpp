@@ -34,4 +34,6 @@ namespace vpux {
 // Hash operation based upon their operation name, attributes, operand types and result types.
 llvm::hash_code hashOperation(mlir::Operation* op);
 
+llvm::hash_code hashOperationForTiling(mlir::Operation* op);
+
 }  // namespace vpux

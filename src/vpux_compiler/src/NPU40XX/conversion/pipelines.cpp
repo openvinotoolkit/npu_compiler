@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU40XX/conversion.hpp"
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
+#include "vpux/compiler/NPU40XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
@@ -15,6 +16,7 @@
 
 #include <npu_40xx_nnrt.hpp>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/abi_version.hpp"
+#include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 
 #include <mlir/Transforms/Passes.h>
 
@@ -28,18 +30,33 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
                                                  const BackendCompilationOptions40XX& backendCompilationOptions,
                                                  Logger log, VPU::DPUDryRunMode dpuDryRunMode) {
     log.info("BackendCompilationOptions:\n"
-             "  enablePartialWorkloadManagement = {0}\n"
-             "  wlmVpurtEnqueue = {1}\n"
-             "  wlmOptimizationThreshold = {2}\n"
+             "  workloadManagementEnable = {0}\n"
+             "  workloadManagementMode = V{1}\n"
+             "  workloadManagementBarrierCountThreshold = {2}\n"
              "  enableMemorySideCache = {3}\n"
              "  enableDMAProfiling = {4}\n"
              "  enableShaveDDRAccessOptimization = {5}\n",
-             backendCompilationOptions.enablePartialWorkloadManagement,
-             backendCompilationOptions.wlmVpurtEnqueue == WlmVpurtEnqueueMode::ENABLED,
-             backendCompilationOptions.wlmOptimizationThreshold, backendCompilationOptions.enableMemorySideCache,
-             backendCompilationOptions.enableDMAProfiling, backendCompilationOptions.enableShaveDDRAccessOptimization);
+             backendCompilationOptions.workloadManagementEnable,
+             static_cast<int>(backendCompilationOptions.workloadManagementMode.getValue()),
+             backendCompilationOptions.workloadManagementBarrierCountThreshold,
+             backendCompilationOptions.enableMemorySideCache, backendCompilationOptions.enableDMAProfiling,
+             backendCompilationOptions.enableShaveDDRAccessOptimization);
 
     pm.addPass(VPUMI40XX::createAddPlatformInfoPass(log));
+
+    // Below VPURT WLM passes are placed in LowerVPUIP2ELF pipeline to leverage BarrierInfo
+    // working on VPURT dialect and order barriers in a way suitable for WLM
+    // Those can be moved to the end of VPURT once WLM rollback does not happen.
+    // Currently only ELF backend is retriggered during rollback and IR after VPURT
+    // needs to be left in a state suitable for nonWLM flow.
+    if (backendCompilationOptions.workloadManagementEnable) {
+        if (backendCompilationOptions.workloadManagementMode == WorkloadManagementMode::PWLM_V1_BARRIER_FIFO) {
+            pm.addPass(VPURT::arch40xx::createFindWlmEnqueueBarrierPass(log));
+        } else {
+            pm.addPass(VPURT::arch40xx::createOrderBarriersForWlmPass(log));
+        }
+    }
+
     pm.addPass(createConvertVPUIP2VPUMI40XXPass(log, backendCompilationOptions.enableMemorySideCache,
                                                 backendCompilationOptions.allocateShaveStackFrames));
     auto dmaProfilingMode =
@@ -48,28 +65,27 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(ELF::createAddABIVersionPass(log, NPUReg40XX::ABI_VERSION_MAJOR, NPUReg40XX::ABI_VERSION_MINOR,
                                             NPUReg40XX::ABI_VERSION_PATCH));
-    elfSubsetPipelineVPUMI(pm, backendCompilationOptions.enablePartialWorkloadManagement,
-                           backendCompilationOptions.wlmVpurtEnqueue,
+    elfSubsetPipelineVPUMI(pm, backendCompilationOptions.workloadManagementEnable,
+                           backendCompilationOptions.workloadManagementMode,
                            backendCompilationOptions.enableDumpStatisticsOfWlmOps, log);
 
     // To support forward compatibility between UD2024.44 and API version 11.4.10,
     // compiler by default set previous API version (11.4.10)
-    pm.addPass(VPUMI40XX::createAddMappedInferenceVersionOpPass(log, VPUMI40XX::NNRT_API_UD2024_44_MAJOR_VERSION,
-                                                                VPUMI40XX::NNRT_API_UD2024_44_MINOR_VERSION,
-                                                                VPUMI40XX::NNRT_API_UD2024_44_PATCH_VERSION));
+    pm.addPass(VPUMI40XX::createAddMappedInferenceVersionOpPass(log, npu40xx::NNRT_API_UD2024_44_MAJOR_VERSION,
+                                                                npu40xx::NNRT_API_UD2024_44_MINOR_VERSION,
+                                                                npu40xx::NNRT_API_UD2024_44_PATCH_VERSION));
 
-    // In case if IR contains logic which requires API version increasing, compiler will update the version and create
-    // blob with correspongind NNRT API version value. In that case new blob will be backward compatible, but not
-    // forward.
-    pm.addPass(VPUMI40XX::createUpdateMappedInferenceVersionOpPass(log));
-
-    elfSubsetPipelineVPUASM(pm, backendCompilationOptions.enablePartialWorkloadManagement, log);
+    elfSubsetPipelineVPUASM(pm, backendCompilationOptions.workloadManagementEnable, log);
 
     pm.addPass(VPUIPDPU::createExpandDPUConfigPass(log));
     pm.addPass(ELF::createUpdateELFSectionFlagsPass(log, backendCompilationOptions.enableShaveDDRAccessOptimization));
-    pm.addPass(createConvertVPUASM2NPUReg40XXPass(log, backendCompilationOptions.enablePartialWorkloadManagement));
+    pm.addPass(createConvertVPUASM2NPUReg40XXPass(log, backendCompilationOptions.workloadManagementEnable));
     pm.addPass(createConvertVPUIPDPU2NPUReg40XXPass(log, dpuDryRunMode));
-    pm.addPass(ELF::createSetOpOffsetsPass(log, backendCompilationOptions.enablePartialWorkloadManagement));
+
+    pm.addPass(VPURegMapped::createDeduceDynamicMappedInferenceVersionPass(log));
+
+    pm.addPass(ELF::createHandleAlignmentRequirementsPass(log));
+    pm.addPass(ELF::createSetOpOffsetsPass(log, backendCompilationOptions.workloadManagementEnable));
     pm.addPass(ELF::createAddELFRelocationsPass(log));
     pm.addPass(ELF::createRemoveEmptyELFSectionsPass(log));
 }
@@ -78,10 +94,10 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
 // buildElfSubsetPipelineVPUMI
 //
 
-void vpux::arch40xx::elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool enablePartialWorkloadManagement,
-                                            WlmVpurtEnqueueMode wlmVpurtEnqueue, bool enableDumpStatisticsOfWlmOps,
-                                            const Logger& log) {
-    if (!enablePartialWorkloadManagement) {
+void vpux::arch40xx::elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool workloadManagementEnable,
+                                            WorkloadManagementMode workloadManagementMode,
+                                            bool enableDumpStatisticsOfWlmOps, const Logger& log) {
+    if (!workloadManagementEnable) {
         pm.addPass(VPUMI40XX::createBarrierComputationPass(log));
         pm.addPass(VPUMI40XX::createLinkAllOpsPass(log));
         pm.addPass(VPUASM::createHoistInputOutputsPass(log));
@@ -98,15 +114,18 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool enable
         pm.addPass(VPUMI40XX::createPropagateFinalBarrierPass(log));
         pm.addPass(mlir::createCanonicalizerPass());
         pm.addPass(VPUMI40XX::createNextSameIdAssignmentPass(log));
-        pm.addPass(VPUMI40XX::createAddEnqueueOpsPass(wlmVpurtEnqueue, log));
+        pm.addPass(VPUMI40XX::createAddEnqueueOpsPass(workloadManagementMode, log));
         pm.addPass(VPUMI40XX::createUnrollFetchTaskOpsPass(log));
         pm.addPass(VPUMI40XX::createAddBootstrapOpsPass(log));
-        if (wlmVpurtEnqueue == WlmVpurtEnqueueMode::ENABLED) {
+        if (workloadManagementMode == WorkloadManagementMode::PWLM_V1_BARRIER_FIFO) {
             pm.addPass(VPUMI40XX::createAddInitialBarrierConfigurationOps(log));
         }
         pm.addPass(VPUMI40XX::createSplitEnqueueOpsPass(log));
         pm.addPass(VPUMI40XX::createLinkEnqueueTargetsPass(log));
         pm.addPass(VPUMI40XX::createUnrollEnqueueOpsPass(log));
+        if (workloadManagementMode == WorkloadManagementMode::PWLM_V1_BARRIER_FIFO) {
+            pm.addPass(VPUMI40XX::createLinkEnqueueOpsForSameBarrierPass(log));
+        }
         pm.addPass(VPUMI40XX::reorderMappedInferenceOpsPass(log));
 
         if (enableDumpStatisticsOfWlmOps) {
@@ -121,10 +140,9 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(mlir::OpPassManager& pm, bool enable
 // buildElfSubsetPipelineVPUASM
 //
 
-void vpux::arch40xx::elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool enablePartialWorkloadManagement,
+void vpux::arch40xx::elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool workloadManagementEnable,
                                              const Logger& log) {
-    pm.addPass(createConvertVPUMI40XX2VPUASMPass(log, enablePartialWorkloadManagement));
-    pm.addPass(ELF::createAddInnerSectionPaddingPass(log));
+    pm.addPass(createConvertVPUMI40XX2VPUASMPass(log, workloadManagementEnable));
     pm.addPass(ELF::createAddELFSymbolTablePass(log));
     pm.addPass(ELF::createSetEntryPointPass(log));
     pm.addPass(ELF::createAddNetworkMetadataPass(log));

@@ -6,7 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/core/interfaces/rewriter_pattern_strategies.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 

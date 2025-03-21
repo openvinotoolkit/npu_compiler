@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 #include "vpux/compiler/utils/attributes_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -19,6 +20,12 @@
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATETRANSPOSE
+#define GEN_PASS_DEF_PROPAGATETRANSPOSE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -440,7 +447,7 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
 // PropagateTransposePass
 //
 
-class PropagateTransposePass final : public IE::PropagateTransposeBase<PropagateTransposePass> {
+class PropagateTransposePass final : public IE::impl::PropagateTransposeBase<PropagateTransposePass> {
 public:
     explicit PropagateTransposePass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

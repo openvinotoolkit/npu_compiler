@@ -31,8 +31,8 @@ llvm::cl::opt<std::string> appArgBlobPathAndName(llvm::cl::Positional, llvm::cl:
                                                  llvm::cl::cat(appOptionCategory));
 
 llvm::cl::opt<std::string> appArgArchName("arch",
-                                          llvm::cl::desc("Arch name as defined by ELF library (default: NPU37XX)"),
-                                          llvm::cl::init("NPU37XX"), llvm::cl::cat(appOptionCategory));
+                                          llvm::cl::desc("Arch name as defined by ELF library (default: VPUX37XX)"),
+                                          llvm::cl::init("VPUX37XX"), llvm::cl::cat(appOptionCategory));
 
 enum class RunMode {
     SimpleLoad = 0,

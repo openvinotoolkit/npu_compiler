@@ -3,10 +3,18 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEMEMPERMUTEBEFOREOP
+#define GEN_PASS_DEF_PROPAGATEMEMPERMUTEBEFOREOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -677,7 +685,20 @@ bool MoveMemPermuteThroughOp<ConcreteOp>::isPropagationBeneficialForConcatAndSli
         return true;
     };
 
-    // Benefit from Permutation due to Permute can be fused or removed
+    const auto parentInShape = getShape(parentOp->getOperand(0));
+    const auto parentOutShape = getShape(parentOp->getResult(0));
+    const auto benificialStrideDMA = isBeneficialStrideDMA(parentInShape, parentOutShape);
+
+    // For ConcatOp, the propagation is beneficial once it benefits the stride DMA,
+    // bacause moving memPermute through ConcatOp brings no extra data movement
+    if (mlir::isa_and_nonnull<IE::ConcatOp>(parentOp)) {
+        return benificialStrideDMA;
+    }
+
+    // For SliceOp, the propagation is beneficial with the additional condition
+    // that the new MemPermute can be fused or removed, because moving memPermute through
+    // SliceOp will increase the data movement from sliced tensor to the full tensor.
+    // Current supported beneficial permutation conditions:
     // 1. Input has MemPermute, allowing subsequent MemPermute to be fused
     // 2. New MemPermute after propagation is a trivial permutation
     // 3. New MemPermute after propagation can be fused into an NCE task
@@ -703,12 +724,7 @@ bool MoveMemPermuteThroughOp<ConcreteOp>::isPropagationBeneficialForConcatAndSli
         const auto isNceHasOneUse = input.getDefiningOp()->hasOneUse();
         return isNceHasOneUse && doesFusedIntoNCE;
     };
-
-    const auto parentInShape = getShape(parentOp->getOperand(0));
-    const auto parentOutShape = getShape(parentOp->getResult(0));
-    const auto benificialStrideDMA = isBeneficialStrideDMA(parentInShape, parentOutShape);
     const auto benificialPermutation = llvm::any_of(parentOp->getOperands(), isBeneficialPermutation);
-
     return benificialStrideDMA && benificialPermutation;
 }
 
@@ -936,11 +952,115 @@ mlir::LogicalResult MoveThroughShapeCast::matchAndRewrite(IE::ShapeCastOp shapeC
 }
 
 //
+// MoveMemPermuteThroughReshape
+//
+// Replace the pattern:
+//      Reshape
+//         |
+//     MemPermute
+//         |
+// With below subgraph:
+//     MemPermute
+//         |
+//      Reshape
+//         |
+
+class MoveMemPermuteThroughReshape final : public mlir::OpRewritePattern<IE::ReshapeOp> {
+public:
+    MoveMemPermuteThroughReshape(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ReshapeOp>(ctx), _log(log) {
+        this->setDebugName("MoveMemPermuteThroughReshape");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::ReshapeOp reshapeOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult MoveMemPermuteThroughReshape::matchAndRewrite(IE::ReshapeOp reshapeOp,
+                                                                  mlir::PatternRewriter& rewriter) const {
+    auto ctx = rewriter.getContext();
+    _log.trace("[{0}]: Got {1}", getDebugName(), reshapeOp->getLoc());
+    if (!reshapeOp->hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto memPermuteOp = mlir::dyn_cast<IE::MemPermuteOp>(*reshapeOp->getUsers().begin());
+    if (memPermuteOp == nullptr) {
+        _log.trace("There is no MemPermute user op");
+        return mlir::failure();
+    }
+
+    const auto origReshapeInType = mlir::cast<vpux::NDTypeInterface>(reshapeOp->getOperand(0).getType());
+    const auto origReshapeOutType = mlir::cast<vpux::NDTypeInterface>(reshapeOp->getResult(0).getType());
+    const auto origReshapeInShape = origReshapeInType.getShape();
+    const auto origReshapeOutShape = origReshapeOutType.getShape();
+    const auto originPerm = DimsOrder::fromAffineMap(memPermuteOp.getMemPerm());
+
+    auto inRank = origReshapeInType.getRank();
+    auto outRank = origReshapeOutType.getRank();
+    if (inRank != 4 || outRank != 4) {
+        _log.trace("Only support 4D rank");
+        return mlir::failure();
+    }
+
+    // Check MemPermute output layout due to Reshape only support default order
+    const auto memPermuteOutputOrder =
+            mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType()).getDimsOrder();
+    const auto expectedOutOrder = DimsOrder::NCHW;
+    if (memPermuteOutputOrder != expectedOutOrder) {
+        _log.trace("Unsupported output layout. Expected: '{0}', got: '{1}'", expectedOutOrder, memPermuteOutputOrder);
+        return mlir::failure();
+    }
+
+    SmallVector<int32_t> reshapedDims{};
+    for (auto dim : origReshapeInShape | indexed) {
+        auto dimIndex = dim.index();
+        auto dimValue = dim.value();
+
+        if (origReshapeOutShape[Dim(dimIndex)] != dimValue) {
+            reshapedDims.push_back(dimIndex);
+        }
+    }
+    auto permuteOrder = to_small_vector(irange(originPerm.numDims()) | transformed([&](uint64_t idx) {
+                                            return checked_cast<uint64_t>(originPerm.dimAt(idx).ind());
+                                        }));
+    const auto memPermuteInputOrder =
+            mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType()).getDimsOrder();
+    const auto inputOrder = to_small_vector(irange(memPermuteInputOrder.numDims()) | transformed([&](uint64_t idx) {
+                                                return checked_cast<uint64_t>(memPermuteInputOrder.dimAt(idx).ind());
+                                            }));
+
+    // Check if the permute dims have been reshaped
+    for (size_t ind = 0; ind < inputOrder.size(); ind++) {
+        if (permuteOrder[ind] != inputOrder[ind]) {
+            if (llvm::find(reshapedDims, ind) != reshapedDims.end()) {
+                _log.trace("Permute dims have been reshaped");
+                return mlir::failure();
+            }
+        }
+    }
+
+    // Create new MemPermute
+    auto newMemPermuteOp =
+            rewriter.create<IE::MemPermuteOp>(memPermuteOp->getLoc(), reshapeOp.getInput(),
+                                              memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
+
+    // Create new Reshape
+    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(memPermuteOp, newMemPermuteOp.getOutput(), nullptr, false,
+                                               getIntArrayAttr(ctx, getShape(reshapeOp.getOutput())));
+
+    return mlir::success();
+}
+
+//
 // PropagateMemPermuteBeforeOpPass
 //
 
 class PropagateMemPermuteBeforeOpPass final :
-        public IE::PropagateMemPermuteBeforeOpBase<PropagateMemPermuteBeforeOpPass> {
+        public IE::impl::PropagateMemPermuteBeforeOpBase<PropagateMemPermuteBeforeOpPass> {
 public:
     explicit PropagateMemPermuteBeforeOpPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());
@@ -967,6 +1087,7 @@ void PropagateMemPermuteBeforeOpPass::safeRunOnFunc() {
     patterns.add<MoveMemPermuteThroughOp<IE::SliceOp>>(&ctx, _log);
     patterns.add<MovePermuteQuantizeThroughOp<IE::MultiplyOp>>(&ctx, _log);
     patterns.add<MoveThroughShapeCast>(&ctx, _log);
+    patterns.add<MoveMemPermuteThroughReshape>(&ctx, _log);
     IE::ReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
     IE::MemPermuteOp::getCanonicalizationPatterns(patterns, &ctx);
 

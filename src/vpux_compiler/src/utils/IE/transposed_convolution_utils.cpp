@@ -10,28 +10,16 @@
 
 namespace vpux {
 namespace IE {
-// Checks whether the TransposedConvolution filter is a constant or a FakeQuantize with a constant input
-mlir::FailureOr<Const::DeclareOp> getConstFilter(IE::TransposedConvolutionOp transposedConv) {
-    if (auto filterFq = transposedConv.getFilter().getDefiningOp<IE::FakeQuantizeOp>()) {
-        if (auto filterConst = filterFq.getInput().getDefiningOp<Const::DeclareOp>()) {
-            return filterConst;
-        }
-    } else if (auto filterDeq = transposedConv.getFilter().getDefiningOp<IE::DequantizeOp>()) {
-        if (auto filterConst = filterDeq.getInput().getDefiningOp<Const::DeclareOp>()) {
-            return filterConst;
-        }
-    } else if (auto filterConst = transposedConv.getFilter().getDefiningOp<Const::DeclareOp>()) {
-        return filterConst;
-    }
-    return mlir::failure();
-}
-
 mlir::LogicalResult canConvertTransposedConvToConv(IE::TransposedConvolutionOp transposedConv) {
     if (getShape(transposedConv.getInput()).size() != 4) {
         return mlir::failure();
     }
 
-    if (mlir::failed(IE::getConstFilter(transposedConv))) {
+    const auto inputType = transposedConv.getInput().getType().cast<vpux::NDTypeInterface>();
+    const auto filterType = transposedConv.getFilter().getType().cast<vpux::NDTypeInterface>();
+    const auto inputShape = inputType.getShape();
+    const auto filterShape = filterType.getShape();
+    if (inputShape[Dims4D::Act::C] != filterShape[Dims4D::Filter::IC]) {
         return mlir::failure();
     }
 

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-shape-cast %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @SwapWithAbs
@@ -302,9 +301,9 @@ func.func @SwapWithMultiply(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @SwapWithAnd
+// CHECK-LABEL: @NotSwapWithAnd
 // CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x24x112x224xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x1x1x1xf16, {order = #NHWC}>)
-func.func @SwapWithAnd(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
+func.func @NotSwapWithAnd(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
                        %arg1: tensor<1x1x1x1xf16, {order = #NHWC}>)
                        -> tensor<1x192x56x56xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> = dense<-1.0> : tensor<1x1x1x1xf16>, [#const.Reorder<#NHWC>, #const.Broadcast<0 : i64, 16 : i64>]
@@ -317,20 +316,21 @@ func.func @SwapWithAnd(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
     return %4 : tensor<1x192x56x56xf16, {order = #NHWC}>
 
     // CHECK-DAG:           [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> = dense<-1.000000e+00> : tensor<1x1x1x1xf16>, [#const.Reorder<#NHWC>, #const.Broadcast<0 : i64, 16 : i64>]
-    // CHECK:               [[SHAPE_CAST_0:%.+]] = IE.ShapeCast {shape = [1, 16, 196, 192]} inputs([[INPUT0]] : tensor<1x24x112x224xf16, {order = #NHWC}>) -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[AND:%.+]] = IE.And([[SHAPE_CAST_0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[GROUP_CONVOLUTION:%.+]] = IE.GroupConvolution([[AND]], [[CST]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[SHAPE_CAST_1:%.+]] = IE.ShapeCast {shape = [1, 192, 56, 56]} inputs([[GROUP_CONVOLUTION]] : tensor<1x16x196x192xf16, {order = #NHWC}>) -> tensor<1x192x56x56xf16, {order = #NHWC}>
-    // CHECK:               return [[SHAPE_CAST_1]] : tensor<1x192x56x56xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_0:%.+]] = IE.ShapeCast {shape = [1, 48, 112, 112]} inputs([[INPUT0]] : tensor<1x24x112x224xf16, {order = #NHWC}>) -> tensor<1x48x112x112xf16, {order = #NHWC}>
+    // CHECK:               [[AND:%.+]] = IE.And([[SHAPE_CAST_0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x48x112x112xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x48x112x112xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_1:%.+]] = IE.ShapeCast {shape = [1, 16, 196, 192]} inputs([[AND]] : tensor<1x48x112x112xf16, {order = #NHWC}>) -> tensor<1x16x196x192xf16, {order = #NHWC}>
+    // CHECK:               [[GROUP_CONV:%.+]] = IE.GroupConvolution([[SHAPE_CAST_1]], [[CST]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_2:%.+]] = IE.ShapeCast {shape = [1, 192, 56, 56]} inputs([[GROUP_CONV]] : tensor<1x16x196x192xf16, {order = #NHWC}>) -> tensor<1x192x56x56xf16, {order = #NHWC}>
+    // CHECK:               return [[SHAPE_CAST_2]] : tensor<1x192x56x56xf16, {order = #NHWC}>
 }
 
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @SwapWithAndForDifferentOperandsOrder
+// CHECK-LABEL: @NotSwapWithAndForDifferentOperandsOrder
 // CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x24x112x224xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x1x1x1xf16, {order = #NHWC}>)
-func.func @SwapWithAndForDifferentOperandsOrder(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
+func.func @NotSwapWithAndForDifferentOperandsOrder(%arg0: tensor<1x24x112x224xf16, {order = #NHWC}>,
                                                 %arg1: tensor<1x1x1x1xf16, {order = #NHWC}>)
                                                 -> tensor<1x192x56x56xf16, {order = #NHWC}> {
     %cst = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> = dense<-1.0> : tensor<1x1x1x1xf16>, [#const.Reorder<#NHWC>, #const.Broadcast<0 : i64, 16 : i64>]
@@ -343,11 +343,12 @@ func.func @SwapWithAndForDifferentOperandsOrder(%arg0: tensor<1x24x112x224xf16, 
     return %4 : tensor<1x192x56x56xf16, {order = #NHWC}>
 
     // CHECK-DAG:           [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16, {order = #NHWC}> = dense<-1.000000e+00> : tensor<1x1x1x1xf16>, [#const.Reorder<#NHWC>, #const.Broadcast<0 : i64, 16 : i64>]
-    // CHECK:               [[SHAPE_CAST_0:%.+]] = IE.ShapeCast {shape = [1, 16, 196, 192]} inputs([[INPUT0]] : tensor<1x24x112x224xf16, {order = #NHWC}>) -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[AND:%.+]] = IE.And([[SHAPE_CAST_0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[GROUP_CONVOLUTION:%.+]] = IE.GroupConvolution([[AND]], [[CST]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
-    // CHECK:               [[SHAPE_CAST_1:%.+]] = IE.ShapeCast {shape = [1, 192, 56, 56]} inputs([[GROUP_CONVOLUTION]] : tensor<1x16x196x192xf16, {order = #NHWC}>) -> tensor<1x192x56x56xf16, {order = #NHWC}>
-    // CHECK:               return [[SHAPE_CAST_1]] : tensor<1x192x56x56xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_0:%.+]] = IE.ShapeCast {shape = [1, 48, 112, 112]} inputs([[INPUT0]] : tensor<1x24x112x224xf16, {order = #NHWC}>) -> tensor<1x48x112x112xf16, {order = #NHWC}>
+    // CHECK:               [[AND:%.+]] = IE.And([[INPUT1]], [[SHAPE_CAST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf16, {order = #NHWC}>, tensor<1x48x112x112xf16, {order = #NHWC}> -> tensor<1x48x112x112xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_1:%.+]] = IE.ShapeCast {shape = [1, 16, 196, 192]} inputs([[AND]] : tensor<1x48x112x112xf16, {order = #NHWC}>) -> tensor<1x16x196x192xf16, {order = #NHWC}>
+    // CHECK:               [[GROUP_CONV:%.+]] = IE.GroupConvolution([[SHAPE_CAST_1]], [[CST]]) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x196x192xf16, {order = #NHWC}>, tensor<16x1x1x1xf16, {order = #NHWC}> -> tensor<1x16x196x192xf16, {order = #NHWC}>
+    // CHECK:               [[SHAPE_CAST_2:%.+]] = IE.ShapeCast {shape = [1, 192, 56, 56]} inputs([[GROUP_CONV]] : tensor<1x16x196x192xf16, {order = #NHWC}>) -> tensor<1x192x56x56xf16, {order = #NHWC}>
+    // CHECK:               return [[SHAPE_CAST_2]] : tensor<1x192x56x56xf16, {order = #NHWC}>
 }
 
 // -----

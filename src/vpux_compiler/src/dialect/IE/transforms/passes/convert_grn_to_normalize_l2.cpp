@@ -10,6 +10,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTGRNTONORMALIZEL2
+#define GEN_PASS_DEF_CONVERTGRNTONORMALIZEL2
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -54,7 +60,7 @@ mlir::LogicalResult ConvertGRNToNormalizeL2::matchAndRewrite(IE::GRNOp origOp, m
 // ConvertGRNToNormalizeL2Pass
 //
 
-class ConvertGRNToNormalizeL2Pass final : public IE::ConvertGRNToNormalizeL2Base<ConvertGRNToNormalizeL2Pass> {
+class ConvertGRNToNormalizeL2Pass final : public IE::impl::ConvertGRNToNormalizeL2Base<ConvertGRNToNormalizeL2Pass> {
 public:
     explicit ConvertGRNToNormalizeL2Pass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

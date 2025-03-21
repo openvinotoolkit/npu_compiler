@@ -39,7 +39,7 @@ void FeasibleMemorySchedulerControlEdges::insertDependenciesBasic(
             continue;
         }
 
-        size_t nextTimeDiff = 0;
+        int64_t nextTimeDiff = 0;
         for (auto nextTimeOpIt = opIt; nextTimeOpIt != scheduledOps.end(); nextTimeOpIt++) {
             if (!nextTimeOpIt->isOriginalOp()) {
                 continue;
@@ -89,7 +89,7 @@ void FeasibleMemorySchedulerControlEdges::insertScheduleOrderDepsForExecutor(
 
         auto srcAsyncOp = _depsInfo.getExecuteOpAtIndex(opIt->op_);
 
-        size_t nextTimeDiff = 0;
+        int64_t nextTimeDiff = 0;
         for (auto nextTimeOpIt = opIt; nextTimeOpIt != scheduledOps.end(); nextTimeOpIt++) {
             if (!nextTimeOpIt->isOriginalOp()) {
                 continue;
@@ -226,10 +226,7 @@ void vpux::updateScheduledOpsResourcesForControlEdge(std::list<ScheduledOpOneRes
     // about memory ranges to properly identify range producer and consumers at a given time
     auto updateResources = [&](SmallVector<mlir::Value>& operands, ScheduledOpOneResource::EResRelation relType) {
         for (auto& operand : operands) {
-            auto buffers = aliasInfo.getRoots(operand);
-            VPUX_THROW_UNLESS(buffers.size() == 1, "Value '{0}' expected to have only one root. Got {1}", operand,
-                              buffers.size());
-            auto buf = *buffers.begin();
+            auto buf = aliasInfo.getRoot(operand);
             if (!isBufAllocOp(buf.getDefiningOp())) {
                 continue;
             }
@@ -263,16 +260,17 @@ void vpux::updateScheduledOpsResourcesForControlEdge(std::list<ScheduledOpOneRes
                 } while ((sourceAlias = aliasInfo.getSource(sourceAlias)));
 
                 if (subViewOp) {
-                    const auto subViewShape = parseIntArrayAttr<int64_t>(subViewOp.getStaticSizes());
-                    const auto subViewOffsets = parseIntArrayAttr<int64_t>(subViewOp.getStaticOffsets());
-                    const auto subViewStrides =
+                    auto subViewShape = parseIntArrayAttr<int64_t>(subViewOp.getStaticSizes());
+                    auto subViewOffsets = parseIntArrayAttr<int64_t>(subViewOp.getStaticOffsets());
+                    auto subViewStrides =
                             subViewOp.getStaticStrides().has_value()
                                     ? parseIntArrayAttr<int64_t>(subViewOp.getStaticStrides().value())
                                     : SmallVector<int64_t>(
                                               subViewOp.getSource().getType().cast<vpux::NDTypeInterface>().getRank(),
                                               1);
 
-                    resView = ScheduledOpOneResource::ResourceView({buf, subViewOffsets, subViewShape, subViewStrides});
+                    resView = ScheduledOpOneResource::ResourceView(
+                            {buf, std::move(subViewOffsets), std::move(subViewShape), std::move(subViewStrides)});
                 }
             }
 
@@ -339,7 +337,12 @@ void vpux::updateControlEdgesInDepsInfo(AsyncDepsInfo& depsInfo, ControlEdgeSet&
     //  key - sink node
     //  vector of values - source nodes
     // TODO: This is to be removed when control edge subview awareness is fully completed (E#106837)
-    std::map<size_t, SmallVector<size_t>> optimizedEdges;
+    std::map<size_t, SmallVector<size_t>> optimizedEdgesBasedOnSinkOp;
+    // Map represents all control edges for a given  source node
+    //  key - source node
+    //  vector of values - sink nodes
+    // TODO: This is to be removed when control edge subview awareness is fully completed (E#106837)
+    std::map<size_t, SmallVector<size_t>> optimizedEdgesBasedOnSourceOp;
 
     for (auto itr = controlEdges.begin(); itr != controlEdges.end(); ++itr) {
         if (itr->_source == itr->_sink) {
@@ -357,7 +360,8 @@ void vpux::updateControlEdgesInDepsInfo(AsyncDepsInfo& depsInfo, ControlEdgeSet&
         // If there is cycle overlap then scheduler assumed operations can coexist and there
         // is no need for memory control edge
         if (sinkOpCycleStart < sourceOpCycleEnd && sinkOpCycleEnd > sourceOpCycleStart) {
-            optimizedEdges[itr->_sink].push_back(itr->_source);
+            optimizedEdgesBasedOnSinkOp[itr->_sink].push_back(itr->_source);
+            optimizedEdgesBasedOnSourceOp[itr->_source].push_back(itr->_sink);
             continue;
         }
 
@@ -365,11 +369,11 @@ void vpux::updateControlEdgesInDepsInfo(AsyncDepsInfo& depsInfo, ControlEdgeSet&
         depsInfo.addDependency(sourceOp, sinkOp);
     }
 
-    if (optimizedEdges.empty()) {
+    if (optimizedEdgesBasedOnSinkOp.empty() && optimizedEdgesBasedOnSourceOp.empty()) {
         return;
     }
 
-    log.trace("Identified edges to optimize due to overlapping cycles - {0}", optimizedEdges);
+    log.trace("Identified edges to optimize due to overlapping cycles - {0}", optimizedEdgesBasedOnSourceOp);
 
     // Traverse again to update dependencies from optimized deps sources
     // to destinations of optimized control flow sinks
@@ -378,18 +382,26 @@ void vpux::updateControlEdgesInDepsInfo(AsyncDepsInfo& depsInfo, ControlEdgeSet&
             continue;
         }
 
-        auto thisOpOptimEdgesItr = optimizedEdges.find(itr->_source);
+        auto thisOpOptimEdgesItr = optimizedEdgesBasedOnSinkOp.find(itr->_source);
+        if (thisOpOptimEdgesItr != optimizedEdgesBasedOnSinkOp.end()) {
+            for (auto& src : thisOpOptimEdgesItr->second) {
+                auto sourceOp = depsInfo.getExecuteOpAtIndex(src);
+                auto sinkOp = depsInfo.getExecuteOpAtIndex(itr->_sink);
 
-        if (thisOpOptimEdgesItr == optimizedEdges.end()) {
-            continue;
+                log.trace("Dep: {0} -> {1}", src, itr->_sink);
+                depsInfo.addDependency(sourceOp, sinkOp);
+            }
         }
 
-        for (auto& src : thisOpOptimEdgesItr->second) {
-            auto sourceOp = depsInfo.getExecuteOpAtIndex(src);
-            auto sinkOp = depsInfo.getExecuteOpAtIndex(itr->_sink);
+        thisOpOptimEdgesItr = optimizedEdgesBasedOnSourceOp.find(itr->_sink);
+        if (thisOpOptimEdgesItr != optimizedEdgesBasedOnSourceOp.end()) {
+            for (auto& dst : thisOpOptimEdgesItr->second) {
+                auto sourceOp = depsInfo.getExecuteOpAtIndex(itr->_source);
+                auto sinkOp = depsInfo.getExecuteOpAtIndex(dst);
 
-            log.trace("Dep: {0} -> {1}", itr->_source, itr->_sink);
-            depsInfo.addDependency(sourceOp, sinkOp);
+                log.trace("Dep: {0} -> {1}", itr->_source, dst);
+                depsInfo.addDependency(sourceOp, sinkOp);
+            }
         }
     }
 }

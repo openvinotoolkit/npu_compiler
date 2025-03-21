@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_config.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/utils/dma.hpp"
 
 #include "llvm/ADT/SetOperations.h"
 
@@ -607,4 +608,9 @@ bool vpux::VPU::isPrevOperationEarlyScheduled(mlir::Operation* prevOp, mlir::Ope
     }
 
     return false;
+}
+
+bool vpux::VPU::spillingCopyOpsCanBeOverlapped(VPU::ArchKind arch) {
+    return getDMAChannelsWithIndependentLinkAgents(arch) !=
+           SmallVector<VPUIP::DmaChannelType>{VPUIP::DmaChannelType::NOT_SPECIFIED};
 }

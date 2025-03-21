@@ -50,7 +50,7 @@ mlir::LogicalResult vpux::VPU::RMSOp::inferReturnTypes(mlir::MLIRContext* ctx, s
 
 bool vpux::VPU::RMSOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
     return strategy == VPU::MultiClusterStrategy::SplitOverKernel ||
-           strategy == VPU::MultiClusterStrategy::SplitOverHeight;
+           strategy == VPU::MultiClusterStrategy::SplitOverHeight || strategy == VPU::MultiClusterStrategy::Clustering;
 }
 
 void vpux::VPU::RMSOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,

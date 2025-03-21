@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_REMOVEVIEWLIKEOPSCHAINPASS
+#define GEN_PASS_DEF_REMOVEVIEWLIKEOPSCHAINPASS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -107,7 +114,7 @@ mlir::LogicalResult ViewLikeOpsChainRewriter::matchAndRewrite(IE::ViewLikeOpInte
 // RemoveViewLikeOpsChainPass
 //
 
-class RemoveViewLikeOpsChainPass final : public IE::RemoveViewLikeOpsChainPassBase<RemoveViewLikeOpsChainPass> {
+class RemoveViewLikeOpsChainPass final : public IE::impl::RemoveViewLikeOpsChainPassBase<RemoveViewLikeOpsChainPass> {
 public:
     explicit RemoveViewLikeOpsChainPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-branches-concat-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @OptimizeGroupConvConcat
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x16x144x144xf16>
 func.func @OptimizeGroupConvConcat(%arg0: tensor<1x16x144x144xf16>) -> (tensor<1x32x144x144xf16>) {

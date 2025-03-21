@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -15,6 +16,12 @@
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SPLITFAKEQUANT
+#define GEN_PASS_DEF_SPLITFAKEQUANT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -132,7 +139,7 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     auto op = value.getDefiningOp();
     // Go upwards through the traversing chain comprising
     // BlockArgument->ViewLikeOp*N->ConvertOp->ViewLikeOp*N->FakeQuantOp
-    while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface>(op)) {
+    while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface, IE::TransposeOp>(op)) {
         value = *op->getOperands().begin();
         op = value.getDefiningOp();
     }
@@ -375,7 +382,7 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 // SplitFakeQuantPass
 //
 
-class SplitFakeQuantPass final : public IE::SplitFakeQuantBase<SplitFakeQuantPass> {
+class SplitFakeQuantPass final : public IE::impl::SplitFakeQuantBase<SplitFakeQuantPass> {
 public:
     explicit SplitFakeQuantPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

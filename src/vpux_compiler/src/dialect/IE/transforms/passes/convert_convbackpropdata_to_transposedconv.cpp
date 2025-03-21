@@ -15,6 +15,12 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTCONVBACKPROPDATATOTRANSPOSEDCONV
+#define GEN_PASS_DEF_CONVERTCONVBACKPROPDATATOTRANSPOSEDCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -62,9 +68,36 @@ mlir::LogicalResult ConvolutionBackpropDataConversion::matchAndRewrite(IE::Convo
         filterTensor = filterFqOp.getInput();
     }
 
+    mlir::Value newFilter;
     auto filterOp = filterTensor.getDefiningOp<Const::DeclareOp>();
     if (filterOp == nullptr) {
-        return matchFailed(rewriter, origOp, "Unable to find filter constant operation");
+        // Create transposeOp
+        auto filterTensorType = filterTensor.getType().cast<NDTypeInterface>();
+        auto permutation = to_small_vector(filterTensorType.getDimsOrder().toPermutation() | transformed([](Dim dim) {
+                                               return checked_cast<uint32_t>(dim.ind());
+                                           }));
+        std::swap(permutation[Dims4D::Filter::OC.ind()], permutation[Dims4D::Filter::IC.ind()]);
+        auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(permutation, getContext()));
+        auto transposeOp = rewriter.create<IE::TransposeOp>(appendLoc(origOp->getLoc(), "_transpose"), filterTensor,
+                                                            /*order=*/nullptr, orderAttr);
+
+        // Create reverseOp
+        const auto axes = SmallVector<int64_t>{Dims4D::Act::H.ind(), Dims4D::Act::W.ind()};
+        const auto axesAttr = getIntArrayAttr(getContext(), axes);
+        IE::ReverseModeAttr modeAttr = IE::ReverseModeAttr::get(getContext(), IE::ReverseMode::INDEX);
+        auto reverseOp = rewriter.create<IE::ReverseOp>(appendLoc(origOp->getLoc(), "_reverse"),
+                                                        transposeOp.getOutput(), nullptr, axesAttr, modeAttr);
+
+        newFilter = reverseOp.getOutput();
+
+        // Replace Op with transposedConv
+        rewriter.replaceOpWithNewOp<IE::TransposedConvolutionOp>(
+                origOp, origOp.getInput(), newFilter, origOp.getOutputShape(), /*bias*/ nullptr,
+                origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getDilationsAttr(),
+                origOp.getOutputPaddingAttr(), /*postOp=*/nullptr, /*clamp=*/nullptr, /*output_channels=*/nullptr,
+                /*input_channels=*/nullptr);
+
+        return mlir::success();
     }
 
     // Reverse IC and OC dimensions in filter constant:
@@ -94,7 +127,7 @@ mlir::LogicalResult ConvolutionBackpropDataConversion::matchAndRewrite(IE::Convo
 
     auto newFilterConstant =
             rewriter.create<Const::DeclareOp>(takeOpLoc(filterOp, "new_filter"), newFilterType, std::move(contentAttr));
-    auto newFilter = newFilterConstant.getOutput();
+    newFilter = newFilterConstant.getOutput();
 
     const auto transposeFqInput = [&](mlir::Value fqInput, StringRef locSuffix) -> mlir::Value {
         auto fqInputType = fqInput.getType().cast<NDTypeInterface>();
@@ -263,7 +296,7 @@ mlir::LogicalResult GroupConvolutionBackpropDataConversion::matchAndRewrite(IE::
 //
 
 class ConvertConvBackpropDataToTransposedConvPass final :
-        public IE::ConvertConvBackpropDataToTransposedConvBase<ConvertConvBackpropDataToTransposedConvPass> {
+        public IE::impl::ConvertConvBackpropDataToTransposedConvBase<ConvertConvBackpropDataToTransposedConvPass> {
 public:
     explicit ConvertConvBackpropDataToTransposedConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -289,6 +322,7 @@ void ConvertConvBackpropDataToTransposedConvPass::safeRunOnFunc() {
     target.addLegalOp<IE::TransposeOp>();
     target.addLegalOp<IE::TransposedConvolutionOp>();
     target.addLegalOp<IE::ConvertOp>();
+    target.addLegalOp<IE::ReverseOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<ConvolutionBackpropDataConversion>(&ctx, _log);

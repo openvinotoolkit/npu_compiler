@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --canonicalize --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 #map = affine_map<(d0, d1, d2) -> (d0, d2, d1)>

@@ -21,10 +21,14 @@ public:
 
 vcl_result_t VCLSingleThreadTest::run(const std::string& options) {
     vcl_result_t ret = VCL_RESULT_SUCCESS;
-    /// Default device is 3720, can be updated by test config
-    vcl_compiler_desc_t compilerDesc = {VCL_PLATFORM_VPU3720, VCL_LOG_ERROR};
+    /// Default device is 4000, can be updated by test config
+    vcl_compiler_desc_t compilerDesc;
+    compilerDesc.version.major = VCL_COMPILER_VERSION_MAJOR;
+    compilerDesc.version.minor = VCL_COMPILER_VERSION_MINOR;
+    compilerDesc.debugLevel = VCL_LOG_ERROR;
+    vcl_device_desc_t deviceDesc = {sizeof(vcl_device_desc_t), 0x643e, 3, 5};
     vcl_compiler_handle_t compiler = nullptr;
-    ret = vclCompilerCreate(compilerDesc, &compiler, nullptr);
+    ret = vclCompilerCreate(&compilerDesc, &deviceDesc, &compiler, nullptr);
     if (ret) {
         std::cerr << "Failed to create compiler! Result: " << ret << std::endl;
         return ret;

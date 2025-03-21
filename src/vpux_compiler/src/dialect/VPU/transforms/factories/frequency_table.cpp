@@ -16,12 +16,8 @@ VPU::FrequencyTableCb VPU::getFrequencyTable(VPU::ArchKind arch) {
     case VPU::ArchKind::NPU40XX: {
         return VPU::arch40xx::getFrequencyTable;
     }
-    case VPU::ArchKind::NPU37XX: {
-        return VPU::arch37xx::getFrequencyTable;
-    }
-    case VPU::ArchKind::UNKNOWN:
     default: {
-        VPUX_THROW("Unexpected architecture {0}", arch);
+        return VPU::arch37xx::getFrequencyTable;
     }
     }
 }

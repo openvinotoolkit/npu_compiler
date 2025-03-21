@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-nce-ops-to-4d %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertNceOpsTo4DConvolution
 func.func @ConvertNceOpsTo4DConvolution(%arg0: tensor<1x16x64xf16>) -> tensor<1x1x61xf16> {
     %FILTERS = const.Declare tensor<1x16x5xf16> = dense<1.000000e+00> : tensor<1x16x5xf16>
@@ -18,6 +17,34 @@ func.func @ConvertNceOpsTo4DConvolution(%arg0: tensor<1x16x64xf16>) -> tensor<1x
     // CHECK-SAME:      pads_end = [2, 0]
     // CHECK-SAME:      strides = [1, 1]
     // CHECK-SAME:      tensor<1x16x64x1xf16>, tensor<1x16x5x1xf16> -> tensor<1x1x61x1xf16>
+    // CHECK:       %[[RESULT:.*]] = IE.Reshape(%[[VAL0]]) {shape_value = [1, 1, 61]} : tensor<1x1x61x1xf16> -> tensor<1x1x61xf16>
+    // CHECK:       return %[[RESULT]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+// CHECK: [[QTYPE:!.+]] = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+// CHECK: func.func @ConvertNceOpsTo4DConvolution_MixedPrecision
+// CHECK-SAME: (%[[ARG0:.+]]: tensor<1x16x64x[[QTYPE]]>) -> tensor<1x1x61xf16>
+func.func @ConvertNceOpsTo4DConvolution_MixedPrecision(%arg0: tensor<1x16x64x!qElemType>) -> tensor<1x1x61xf16> {
+    %FILTERS = const.Declare tensor<1x16x5x!qElemType> = dense<1.000000e+00> : tensor<1x16x5xf16>,
+        [#const.CastElemType<!qElemType>]
+    %RESULT = IE.Convolution(%arg0, %FILTERS)
+        {dilations = [2], pads_begin = [3], pads_end = [2], strides = [1]}
+        : tensor<1x16x64x!qElemType>, tensor<1x16x5x!qElemType> -> tensor<1x1x61xf16>
+    return %RESULT : tensor<1x1x61xf16>
+
+    // CHECK: %[[RESHAPE:.+]] = IE.Reshape(%[[ARG0]]) {shape_value = [1, 16, 64, 1]}
+    // CHECK: %[[FILTERS:.+]] = const.Declare tensor<1x16x5x1x[[QTYPE]]>
+
+    // CHECK:       %[[VAL0:.*]] = IE.Convolution(%[[RESHAPE]], %[[FILTERS]])
+    // CHECK-SAME:      dilations = [2, 1]
+    // CHECK-SAME:      pads_begin = [3, 0]
+    // CHECK-SAME:      pads_end = [2, 0]
+    // CHECK-SAME:      strides = [1, 1]
+    // CHECK-SAME:      tensor<1x16x64x1x[[QTYPE]]>, tensor<1x16x5x1x[[QTYPE]]> -> tensor<1x1x61x1xf16>
     // CHECK:       %[[RESULT:.*]] = IE.Reshape(%[[VAL0]]) {shape_value = [1, 1, 61]} : tensor<1x1x61x1xf16> -> tensor<1x1x61xf16>
     // CHECK:       return %[[RESULT]]
 }
@@ -132,6 +159,37 @@ func.func @ConvertNceOpsTo4DAvgpool(%arg0: tensor<1x512x16xf16>) -> tensor<1x512
 
     // CHECK: [[RESHAPE_OUTPUT:%.*]] = IE.Reshape([[AVGPOOL]]) {shape_value = [1, 512, 1]} : tensor<1x512x1x1xf16> -> tensor<1x512x1xf16>
     // CHECK: return [[RESHAPE_OUTPUT]] : tensor<1x512x1xf16>
+}
+
+// -----
+
+!qElemType1 = !quant.uniform<i8:f16, 0.3>
+!qElemType2 = !quant.uniform<u8:f16, 0.3:128>
+// CHECK-DAG: [[QTYPE1:!.+]] = !quant.uniform<i8:f16, 3.000000e-01>
+// CHECK-DAG: [[QTYPE2:!.+]] = !quant.uniform<u8:f16, 3.000000e-01:128>
+
+// CHECK: func.func @ConvertNceOpsTo4DAvgpool_DifferentInOutTypes
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x4332x320x[[QTYPE1]]>) -> tensor<1x4332x320x[[QTYPE2]]>
+func.func @ConvertNceOpsTo4DAvgpool_DifferentInOutTypes(%arg0: tensor<1x4332x320x!qElemType1>)
+        -> tensor<1x4332x320x!qElemType2> {
+    %RESULT = IE.AvgPool(%arg0)
+        {exclude_pads, kernel_size = [1], pads_begin = [0], pads_end = [0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1]}
+        : tensor<1x4332x320x!qElemType1> -> tensor<1x4332x320x!qElemType2>
+    return %RESULT : tensor<1x4332x320x!qElemType2>
+
+    // CHECK: [[RESHAPE_TO_4D:%.+]] = IE.Reshape([[ARG0]]) {shape_value = [1, 4332, 320, 1]}
+
+    // CHECK: [[AVGPOOL:%.+]] = IE.AvgPool([[RESHAPE_TO_4D]])
+    // CHECK-SAME:  exclude_pads
+    // CHECK-SAME:  kernel_size = [1, 1]
+    // CHECK-SAME:  pads_begin = [0, 0]
+    // CHECK-SAME:  pads_end = [0, 0]
+    // CHECK-SAME:  rounding_type = #IE.rounding_type<FLOOR>
+    // CHECK-SAME:  strides = [1, 1]
+    // CHECK-SAME:  tensor<1x4332x320x1x[[QTYPE1]]> -> tensor<1x4332x320x1x[[QTYPE2]]>
+
+    // CHECK: [[RESHAPE_FROM_4D:%.+]] = IE.Reshape([[AVGPOOL]]) {shape_value = [1, 4332, 320]}
+    // CHECK: return [[RESHAPE_FROM_4D]]
 }
 
 // -----

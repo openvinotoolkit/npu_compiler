@@ -7,7 +7,15 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTOSCALESHIFT
+#define GEN_PASS_DEF_CONVERTTOSCALESHIFT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -271,16 +279,16 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
 // ConvertMultiplyToScaleShift
 //
 
-class ConvertMultiplyToScaleShift final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+class ConvertMultiplyToScaleShift : public mlir::OpRewritePattern<IE::MultiplyOp> {
 public:
     ConvertMultiplyToScaleShift(mlir::MLIRContext* ctx, Logger log)
             : mlir::OpRewritePattern<IE::MultiplyOp>(ctx), _log(log) {
-        setDebugName("ConvertMultiplyToScaleShift");
+        this->setDebugName("ConvertMultiplyToScaleShift");
     }
 
     mlir::LogicalResult matchAndRewrite(IE::MultiplyOp mulOp, mlir::PatternRewriter& rewriter) const final;
 
-private:
+protected:
     Logger _log;
 };
 
@@ -290,16 +298,16 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
     const auto lhsType = mulOp.getInput1().getType().cast<mlir::ShapedType>();
     const auto outShapeRes = mulOp.getOutput().getType().cast<mlir::ShapedType>();
 
-    // from the ops defination, scale shift can only support F16
-    const auto lhsEltmentType = lhsType.getElementType();
-    if (!(lhsEltmentType.isF16())) {
+    // From the ops definition, scale shift can only support F16
+    const auto lhsElementType = lhsType.getElementType();
+    if (!(lhsElementType.isF16())) {
         _log.trace("Could not convert to scale shift due to input data type is not FP16");
         return mlir::failure();
     }
 
     bool lhsIsActivation = (lhsType == outShapeRes);
-    auto activationInput = lhsIsActivation ? mulOp.getInput1() : mulOp.getInput2();
-    auto weightsInput = lhsIsActivation ? mulOp.getInput2() : mulOp.getInput1();
+    mlir::Value activationInput = lhsIsActivation ? mulOp.getInput1() : mulOp.getInput2();
+    mlir::Value weightsInput = lhsIsActivation ? mulOp.getInput2() : mulOp.getInput1();
 
     auto mulOutShape = getShape(mulOp.getOutput());
     auto weightsShape = getShape(weightsInput);
@@ -319,6 +327,24 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
         return mlir::failure();
     }
 
+    // Convert:
+    //
+    // Tensor                 Const
+    //    |                     |
+    //    |                     |
+    //    |                     |
+    //     \_____MultiplyOp____/
+    //               |
+    //
+    // To:
+    //
+    // Tensor             NewConst
+    //    |                  |
+    //    |                  |
+    //    |                  |
+    //     \___ScaleShift___/
+    //              |
+
     _log.nest().trace("replaced op {0} with ScaleShift", mulOp->getName());
     rewriter.replaceOpWithNewOp<IE::ScaleShiftOp>(mulOp, mulOp.getType(), activationInput, newInput, nullptr);
 
@@ -329,7 +355,7 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
 // ConvertToScaleShiftPass
 //
 
-class ConvertToScaleShiftPass final : public IE::ConvertToScaleShiftBase<ConvertToScaleShiftPass> {
+class ConvertToScaleShiftPass final : public IE::impl::ConvertToScaleShiftBase<ConvertToScaleShiftPass> {
 public:
     explicit ConvertToScaleShiftPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

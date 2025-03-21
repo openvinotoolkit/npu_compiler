@@ -32,6 +32,15 @@ void ConfigureBarrierOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState
     return;
 }
 
+void ConfigureBarrierOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
+                               VPURegMapped::IndexType index, int64_t id, int64_t next_same_id,
+                               mlir::IntegerAttr producer_count, mlir::IntegerAttr consumer_count, bool isFinalBarrier,
+                               bool isStartBarrier) {
+    build(odsBuilder, odsState, index, mlir::ValueRange{}, checked_cast<uint8_t>(id), next_same_id,
+          /*previousSameId*/ nullptr, producer_count, consumer_count, isFinalBarrier, isStartBarrier);
+    return;
+}
+
 mlir::LogicalResult ConfigureBarrierOp::verify() {
     // Skip checks if architecture is unknown since all of them depend on the architecture used
     if (VPU::getArch(getOperation()) == VPU::ArchKind::UNKNOWN) {

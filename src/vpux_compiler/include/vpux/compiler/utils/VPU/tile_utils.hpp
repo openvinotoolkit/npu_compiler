@@ -51,6 +51,9 @@ std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> getTileDistributi
         mlir::Operation* op, SiblingOpsAnalysis& siblingsAnalysis, const TileInfo& outTile,
         const std::optional<InputTiling>& inputTiles = std::nullopt);
 
+std::vector<std::pair<NDTypeInterface, TensorDistributionMap>> getTileDistributions(
+        mlir::Operation* op, const TileInfo& outTile, const std::optional<InputTiling>& inputTiles = std::nullopt);
+
 Byte getRequiredCMXForWeight(VPU::ConvolutionOp convOp, const vpux::TileInfo& tiling,
                              const std::optional<InputTiling>& inputTiles = std::nullopt);
 
@@ -139,12 +142,6 @@ Byte getRequiredCMX(VPU::SubtractOp op, const vpux::TileInfo& tiling,
 Byte getRequiredCMXForWeight(VPU::SubtractOp op, const vpux::TileInfo& tiling,
                              const std::optional<InputTiling>& inputTiles = std::nullopt);
 
-Byte getRequiredCMX(VPU::AndOp op, const vpux::TileInfo& tiling,
-                    const std::optional<InputTiling>& inputTiles = std::nullopt);
-
-Byte getRequiredCMXForWeight(VPU::AndOp op, const vpux::TileInfo& tiling,
-                             const std::optional<InputTiling>& inputTiles = std::nullopt);
-
 Byte getRequiredCMX(VPU::NCEEltwiseOp op, const vpux::TileInfo& tiling,
                     const std::optional<InputTiling>& inputTiles = std::nullopt);
 
@@ -165,7 +162,12 @@ Byte getRequiredCMX(mlir::Operation* op, const vpux::TileInfo& tiling, Logger lo
 
 Byte getRequiredCMXSize(ArrayRef<vpux::NDTypeInterface> operands);
 
+Byte getRequiredCMXSize(ArrayRef<std::pair<NDTypeInterface, TensorDistributionMap>> operands);
+
 Byte getRequiredCMXSizeForNCEOps(ArrayRef<vpux::NDTypeInterface> operands, int64_t numChannels);
+
+Byte getRequiredCMXSizeForNCEOps(ArrayRef<std::pair<NDTypeInterface, TensorDistributionMap>> operands,
+                                 int64_t numChannels);
 
 Byte getRequiredCMXSizeForDefaultOps(mlir::Operation* op);
 
@@ -179,5 +181,8 @@ struct TileShapeCompare {
         return tile1.shape < tile2.shape;
     }
 };
+
+bool isDivisibleTile(mlir::Operation* op, ShapeRef tileAxis, Dim tileDim);
+
 }  // namespace VPU
 }  // namespace vpux

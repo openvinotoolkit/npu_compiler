@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -7,10 +7,9 @@
 
 #include <vpux_elf/accessor.hpp>
 #include "vpux/compiler/dialect/ELFNPU37XX/attributes.hpp"
-#include "vpux/compiler/dialect/ELFNPU37XX/import.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>

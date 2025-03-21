@@ -119,3 +119,13 @@ Const::Content vpux::Const::BroadcastAttr::transform(vpux::Const::Content& input
 
     return output;
 }
+
+//
+// BroadcastAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::BroadcastAttr::getStableHashValue() const {
+    const auto axis = getAxis().getValue();
+    const auto value = getValue().getValue();
+    return llvm::hash_combine(getMnemonic(), axis, value);
+}

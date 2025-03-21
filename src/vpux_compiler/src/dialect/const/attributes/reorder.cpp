@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
 #include <mlir/IR/DialectImplementation.h>
@@ -76,16 +77,6 @@ bool vpux::Const::ReorderAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeI
     return inputIsSplat;
 }
 
-static SmallVector<uint32_t> computeOrder(const DimsOrder inOrder, const DimsOrder outOrder) {
-    auto inPerm = inOrder.toPermutation();
-    auto outPerm = outOrder.toPermutation();
-    SmallVector<uint32_t> memPerm(inPerm.size());
-    for (auto p : outPerm | indexed) {
-        memPerm[p.index()] = static_cast<uint32_t>(inOrder.dimPos(p.value()));
-    }
-    return memPerm;
-}
-
 //
 // ReorderAttr::transform
 //
@@ -94,6 +85,15 @@ Const::Content vpux::Const::ReorderAttr::transform(vpux::Const::Content& input) 
     const auto outType = inferOutputType(input.getType());
     const auto inOrder = input.getType().getDimsOrder();
     const auto outOrder = outType.getDimsOrder();
-    const auto memPerm = mlir::AffineMap::getPermutationMap(ArrayRef(computeOrder(inOrder, outOrder)), getContext());
+    const auto memPerm = getPermutationFromOrders(inOrder, outOrder, getContext());
     return Const::details::memPermuteTransformation(input, outType, memPerm);
+}
+
+//
+// ReorderAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ReorderAttr::getStableHashValue() const {
+    const auto order = DimsOrder::fromAffineMap(getOrder().getValue());
+    return llvm::hash_combine(getMnemonic(), order.code());
 }

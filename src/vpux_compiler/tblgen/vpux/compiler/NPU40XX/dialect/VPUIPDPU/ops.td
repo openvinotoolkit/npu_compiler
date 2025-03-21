@@ -186,8 +186,7 @@ def VPUIPDPU_ODUHaloRegionOp :
 def VPUIPDPU_ForceInvReadOp :
         VPUIPDPU_Op<"ForceInvRead",
             [
-                HasParent<"vpux::VPUIPDPU::DPUVariantOp">,
-                DeclareOpInterfaceMethods<VPUIPDPU_LowerToNPURegInterface>
+                HasParent<"vpux::VPUIPDPU::DPUVariantOp">
             ]
         > {
     let summary = "Force read of the Invariant descriptor";

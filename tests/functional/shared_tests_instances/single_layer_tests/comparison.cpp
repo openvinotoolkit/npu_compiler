@@ -50,7 +50,18 @@ class ComparisonLayerTestCommon : public ComparisonLayerTest, virtual public Vpu
 
 class ComparisonLayerTest_Tiling : public ComparisonLayerTestCommon {};
 
+class ComparisonLayerTest_FP32 : public ComparisonLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "convert-precision-to-fp16=false";
+    }
+};
+
 TEST_P(ComparisonLayerTestCommon, NPU3720_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(ComparisonLayerTest_FP32, NPU3720_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU3720);
 }
@@ -61,6 +72,11 @@ TEST_P(ComparisonLayerTest_Tiling, NPU3720_HW) {
 }
 
 TEST_P(ComparisonLayerTestCommon, NPU4000_SW) {
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(ComparisonLayerTest_FP32, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
@@ -128,6 +144,11 @@ const auto tiling_comparison_params = ::testing::Combine(
         ::testing::Values(ComparisonTypes::EQUAL), ::testing::ValuesIn(secondInputTypes),
         ::testing::Values(ov::element::f16), ::testing::Values(DEVICE_NPU), ::testing::Values(additionalConfig));
 
+const auto precommit_comparison_params_FP32 = ::testing::Combine(
+        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesPrecommit)),
+        ::testing::Values(ComparisonTypes::LESS_EQUAL), ::testing::ValuesIn(secondInputTypes),
+        ::testing::Values(ov::element::f32), ::testing::Values(DEVICE_NPU), ::testing::Values(additionalConfig));
+
 INSTANTIATE_TEST_SUITE_P(smoke_Comparison, ComparisonLayerTestCommon, comparison_params,
                          ComparisonLayerTestCommon::getTestCaseName);
 
@@ -135,6 +156,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Comparison, ComparisonLayerTestCommon, 
                          ComparisonLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_tiling_Comparison, ComparisonLayerTestCommon, tiling_comparison_params,
+                         ComparisonLayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Comparison_FP32, ComparisonLayerTestCommon, precommit_comparison_params_FP32,
                          ComparisonLayerTestCommon::getTestCaseName);
 
 }  // namespace

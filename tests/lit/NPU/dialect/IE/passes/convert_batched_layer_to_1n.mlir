@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-batched-layer-to-1n %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #map = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
 
 func.func @main(%arg0: tensor<5x16x1x1xf16>, %arg1: tensor<4x16x1x1xf16>) -> tensor<5x4x1x1xf16> {
@@ -389,4 +388,96 @@ func.func @NotReshapeMultiplyWithSmallBatchSize(%arg0: tensor<4x128x2x8192xf16>,
 
     // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x128x2x8192xf16>, tensor<4x128x2x8192xf16> -> tensor<4x128x2x8192xf16>
     // CHECK: return [[MULTIPLY]] : tensor<4x128x2x8192xf16>
+}
+
+// -----
+
+#map = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
+
+// CHECK-LABEL: @ConvertSubtract
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<5x16x1x1xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<5x16x1x1xf16>
+func.func @ConvertSubtract(%arg0: tensor<5x16x1x1xf16>, %arg1: tensor<5x16x1x1xf16>) -> tensor<5x16x1x1xf16> {
+    %0 = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<5x16x1x1xf16>, tensor<5x16x1x1xf16> -> tensor<5x16x1x1xf16>
+    return %0 : tensor<5x16x1x1xf16>
+
+    // CHECK: [[IN_TRANSPOSE1:%.+]] = IE.Transpose([[INPUT0]]) {order_value = #map} : tensor<5x16x1x1xf16> -> tensor<1x16x5x1xf16>
+    // CHECK: [[IN_TRANSPOSE2:%.+]] = IE.Transpose([[INPUT1]]) {order_value = #map} : tensor<5x16x1x1xf16> -> tensor<1x16x5x1xf16>
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[IN_TRANSPOSE1]], [[IN_TRANSPOSE2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x16x5x1xf16>, tensor<1x16x5x1xf16> -> tensor<1x16x5x1xf16>
+    // CHECK: [[OUT_TRANSPOSE:%.+]] = IE.Transpose([[SUB]]) {order_value = #map} : tensor<1x16x5x1xf16> -> tensor<5x16x1x1xf16>
+    // CHECK: return [[OUT_TRANSPOSE]] : tensor<5x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoChangesSubtractOpDueToNotBroadcastable
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<5x16x1x1xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<1x16x1x1xf16>
+func.func @NoChangesSubtractOpDueToNotBroadcastable(%arg0: tensor<5x16x1x1xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<5x16x1x1xf16> {
+    %0 = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<5x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<5x16x1x1xf16>
+    return %0 : tensor<5x16x1x1xf16>
+
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<5x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<5x16x1x1xf16>
+    // CHECK: return [[SUB]] : tensor<5x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoChangesSubtractOpDueToNotBroadcastableButHWNotOne
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<2x3x576x576xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<2x1x576x576xf16>
+func.func @NoChangesSubtractOpDueToNotBroadcastableButHWNotOne(%arg0: tensor<2x3x576x576xf16>, %arg1: tensor<2x1x576x576xf16>) -> tensor<2x3x576x576xf16> {
+    %0 = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x3x576x576xf16>, tensor<2x1x576x576xf16> -> tensor<2x3x576x576xf16>
+    return %0 : tensor<2x3x576x576xf16>
+
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x3x576x576xf16>, tensor<2x1x576x576xf16> -> tensor<2x3x576x576xf16>
+    // CHECK: return [[SUB]] : tensor<2x3x576x576xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertSubtractWithHW
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<50x16x10x10xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<50x16x10x10xf16>
+func.func @ConvertSubtractWithHW(%arg0: tensor<50x16x10x10xf16>, %arg1: tensor<50x16x10x10xf16>) -> tensor<50x16x10x10xf16> {
+    %0 = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<50x16x10x10xf16>, tensor<50x16x10x10xf16> -> tensor<50x16x10x10xf16>
+    return %0 : tensor<50x16x10x10xf16>
+
+    // CHECK: [[SHAPE_CAST_IN1:%.+]] = IE.ShapeCast {shape = [1, 800, 10, 10]} inputs([[INPUT0]] : tensor<50x16x10x10xf16>) -> tensor<1x800x10x10xf16>
+    // CHECK: [[SHAPE_CAST_IN2:%.+]] = IE.ShapeCast {shape = [1, 800, 10, 10]} inputs([[INPUT1]] : tensor<50x16x10x10xf16>) -> tensor<1x800x10x10xf16>
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[SHAPE_CAST_IN1]], [[SHAPE_CAST_IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x800x10x10xf16>, tensor<1x800x10x10xf16> -> tensor<1x800x10x10xf16>
+    // CHECK: [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [50, 16, 10, 10]} inputs([[SUB]] : tensor<1x800x10x10xf16>) -> tensor<50x16x10x10xf16>
+    // CHECK: return [[SHAPE_CAST_OUT]] : tensor<50x16x10x10xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertSubtractWithHWWithDiffInputShape
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<50x16x10x10xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<50x16x1x1xf16>
+func.func @ConvertSubtractWithHWWithDiffInputShape(%arg0: tensor<50x16x10x10xf16>, %arg1: tensor<50x16x1x1xf16>) -> tensor<50x16x10x10xf16> {
+    %0 = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<50x16x10x10xf16>, tensor<50x16x1x1xf16> -> tensor<50x16x10x10xf16>
+    return %0 : tensor<50x16x10x10xf16>
+
+    // CHECK: [[SHAPE_CAST_IN1:%.+]] = IE.ShapeCast {shape = [1, 800, 10, 10]} inputs([[INPUT0]] : tensor<50x16x10x10xf16>) -> tensor<1x800x10x10xf16>
+    // CHECK: [[SHAPE_CAST_IN2:%.+]] = IE.ShapeCast {shape = [1, 800, 1, 1]} inputs([[INPUT1]] : tensor<50x16x1x1xf16>) -> tensor<1x800x1x1xf16>
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[SHAPE_CAST_IN1]], [[SHAPE_CAST_IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x800x10x10xf16>, tensor<1x800x1x1xf16> -> tensor<1x800x10x10xf16>
+    // CHECK: [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [50, 16, 10, 10]} inputs([[SUB]] : tensor<1x800x10x10xf16>) -> tensor<50x16x10x10xf16>
+    // CHECK: return [[SHAPE_CAST_OUT]] : tensor<50x16x10x10xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 2.000000e+00>
+
+// CHECK-LABEL: @ConvertSubtractWithQuant
+// CHECK-SAME: [[INPUT:%.+]]: tensor<2x3x224x224xf16>
+func.func @ConvertSubtractWithQuant(%arg0: tensor<2x3x224x224xf16>) -> tensor<2x3x224x224x!quant.uniform<u8:f16, 2.000000e+00>> {
+    %0 = IE.Subtract(%arg0, %arg0) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<2x3x224x224xf16>, tensor<2x3x224x224xf16> -> tensor<2x3x224x224x!quant.uniform<u8:f16, 2.000000e+00>>
+    return %0 : tensor<2x3x224x224x!quant.uniform<u8:f16, 2.000000e+00>>
+    // CHECK: [[SHAPE_CAST_IN1:%.+]] = IE.ShapeCast {shape = [1, 6, 224, 224]} inputs([[INPUT]] : tensor<2x3x224x224xf16>) -> tensor<1x6x224x224xf16>
+    // CHECK: [[SHAPE_CAST_IN2:%.+]] = IE.ShapeCast {shape = [1, 6, 224, 224]} inputs([[INPUT]] : tensor<2x3x224x224xf16>) -> tensor<1x6x224x224xf16>
+    // CHECK: [[SUB:%.+]] = IE.Subtract([[SHAPE_CAST_IN1]], [[SHAPE_CAST_IN2]]) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x6x224x224xf16>, tensor<1x6x224x224xf16> -> tensor<1x6x224x224x!qElemType>
+    // CHECK: [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [2, 3, 224, 224]} inputs([[SUB]] : tensor<1x6x224x224x!qElemType>) -> tensor<2x3x224x224x!qElemType>
+    // CHECK: return [[SHAPE_CAST_OUT]] : tensor<2x3x224x224x!qElemType>
 }

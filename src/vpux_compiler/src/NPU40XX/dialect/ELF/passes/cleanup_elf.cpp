@@ -9,6 +9,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_REMOVEEMPTYELFSECTIONS
+#define GEN_PASS_DEF_REMOVEEMPTYELFSECTIONS
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -38,7 +44,7 @@ void recursivelyRemove(mlir::Operation* symbol, ELF::MainOp main, llvm::SmallVec
     symbol->remove();
 }
 
-class RemoveEmptyELFSectionsPass : public ELF::RemoveEmptyELFSectionsBase<RemoveEmptyELFSectionsPass> {
+class RemoveEmptyELFSectionsPass : public ELF::arch40xx::impl::RemoveEmptyELFSectionsBase<RemoveEmptyELFSectionsPass> {
 public:
     explicit RemoveEmptyELFSectionsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -223,6 +223,12 @@ def UnrollEnqueueOps : PassBase<"unroll-enqueue-ops", "vpux::FunctionPass"> {
     let constructor = "vpux::VPUMI40XX::createUnrollEnqueueOpsPass()";
 }
 
+def LinkEnqueueOpsForSameBarrier : PassBase<"link-enqueue-ops-for-same-barrier", "vpux::FunctionPass"> {
+    let summary = [{ Create a link to previous enqueue happening on same barrier}];
+
+    let constructor = "vpux::VPUMI40XX::createLinkEnqueueOpsForSameBarrierPass()";
+}
+
 def AddBootstrapOps : PassBase<"add-bootstrap-ops", "vpux::FunctionPass"> {
     let summary = [{ Add Bootstrap Ops}];
     let description = [{Previously we initialize and used barriers on FW in fixed order
@@ -271,18 +277,6 @@ def AddMappedInferenceVersionOp : PassBase<"add-mapped-inference-version-op", "v
     let summary = "Add explicit operation for Mapped Inference and Managed Mapped inference version representation";
 
     let constructor = "vpux::VPUMI40XX::createAddMappedInferenceVersionOpPass()";
-}
-
-def UpdateMappedInferenceVersionOp : PassBase<"update-mapped-inference-version-op", "vpux::FunctionPass"> {
-    let summary = "WA for NPU4 platform which allow us set different version of mapped inference based on IR content";
-
-    let description = [{
-        UD2024.48 release contains new set of features for WLM which require new API. At the same time we want to keep forward compatibility
-        between UD2024.44 and future releases. This pass analyzing IR content and looking for specific operations/attributes which signed that we are using new features and new API is required.
-        If we found such operations we will update version of mapped inference.
-    }];
-
-    let constructor = "vpux::VPUMI40XX::createUpdateMappedInferenceVersionOpPass()";
 }
 
 #endif

@@ -19,14 +19,15 @@ using namespace vpux;
 using MLIR_FunctionOutliningSplitterOptions = MLIR_UnitBase;
 
 TEST_F(MLIR_FunctionOutliningSplitterOptions, ParamsWellFormed) {
-    std::string param =
-            "'repeating-blocks=max-num-iterations=11 min-ops-in-block=22 weights-as-inputs=true, naive=num-parts=33'";
+    std::string param = "'repeating-blocks=max-num-iterations=11 min-ops-in-block=22 weights-as-inputs=true, "
+                        "naive=num-parts=33, batching='";
     auto options = OutlinerPassOptions::createFromString(param);
 
     ASSERT_EQ(options.getIf<NaiveOptions>(0), nullptr);
     ASSERT_NE(options.getIf<NaiveOptions>(1), nullptr);
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(1), nullptr);
     ASSERT_NE(options.getIf<RepeatingBlocksOptions>(0), nullptr);
+    ASSERT_NE(options.getIf<BatchingOptions>(2), nullptr);
 
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(0)->minOpsInBlock, 22);
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(0)->maxNumIterations, 11);
@@ -37,13 +38,14 @@ TEST_F(MLIR_FunctionOutliningSplitterOptions, ParamsWellFormed) {
 TEST_F(MLIR_FunctionOutliningSplitterOptions, ParamsWellFormedInsaneSpacing) {
     std::string param =
             " '  repeating-blocks= min-ops-in-block=22     max-num-iterations=11  weights-as-inputs=false  ,   naive=  "
-            "num-parts=33'    ";
+            "num-parts=33,   batching=   '    ";
     auto options = OutlinerPassOptions::createFromString(param);
 
     ASSERT_EQ(options.getIf<NaiveOptions>(0), nullptr);
     ASSERT_NE(options.getIf<NaiveOptions>(1), nullptr);
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(1), nullptr);
     ASSERT_NE(options.getIf<RepeatingBlocksOptions>(0), nullptr);
+    ASSERT_NE(options.getIf<BatchingOptions>(2), nullptr);
 
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(0)->minOpsInBlock, 22);
     ASSERT_EQ(options.getIf<RepeatingBlocksOptions>(0)->maxNumIterations, 11);

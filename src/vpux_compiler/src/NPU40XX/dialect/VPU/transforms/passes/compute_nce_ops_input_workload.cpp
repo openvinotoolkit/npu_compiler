@@ -6,12 +6,20 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+
+namespace vpux::VPU::arch40xx {
+#define GEN_PASS_DECL_COMPUTENCEINPUTWORKLOADS
+#define GEN_PASS_DEF_COMPUTENCEINPUTWORKLOADS
+#include "vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch40xx
 
 using namespace vpux;
 using namespace VPU;
@@ -50,8 +58,8 @@ int64_t getInputWorkloadSizeCh(NCEOpInterface nceOp, const int64_t outputSizeCh,
             .Case<NCEConvolutionOp, NCEInterpolateOp, NCEReduceOp>([&](mlir::Operation* /*op*/) {
                 return fullInputChannels;
             })
-            .Case<NCEEltwiseOp>([&](mlir::Operation* /*op*/) {
-                VPUX_THROW_WHEN(fullInputChannels != outputSizeCh,
+            .Case<NCEEltwiseOp>([&](mlir::Operation* op) {
+                VPUX_THROW_WHEN(!VPU::canAutopadOutput(op) && fullInputChannels != outputSizeCh,
                                 "HW Eltwise does not support workload segmentation over K. input channels ({0}) != "
                                 "output channels ({1})",
                                 fullInputChannels, outputSizeCh);
@@ -80,34 +88,27 @@ int64_t getInputWorkloadSizeCh(NCEOpInterface nceOp, const int64_t outputSizeCh,
 
 SmallVector<Shape> getInputOffsetsPerCluster(NCEOpInterface nceOp, Logger log) {
     auto input = nceOp->getOperand(0);
-    auto nceClusterTilingOp = mlir::dyn_cast<VPU::NCEClusterTilingOp>(nceOp->getParentOp());
 
-    if (nceClusterTilingOp == nullptr) {
+    auto inputTypes = mlir::dyn_cast<VPU::DistributedTypeInterface>(input.getType());
+    if (inputTypes == nullptr) {
         return {};
     }
-
-    auto inputClusterOperand = VPU::getDistributedOperandFromNCEClusterTiling(nceClusterTilingOp, input);
-    if (inputClusterOperand == nullptr) {
-        return {};
-    }
-
-    auto inputTypes = inputClusterOperand.getType().cast<VPU::DistributedTypeInterface>();
     if (!inputTypes.containsDistributedTypes()) {
         return {};
     }
 
     auto distributedInType = inputTypes.getDistributedTypes().begin()->cast<VPU::DistributedTensorType>();
-    if (auto inputSparseType = inputTypes.dyn_cast<VPU::SparseTensorType>()) {
+    if (auto inputSparseType = mlir::dyn_cast<VPU::SparseTensorType>(inputTypes)) {
         auto effectiveSparseOutputType = getEffectiveSparseOutputType(inputSparseType);
         distributedInType = effectiveSparseOutputType.cast<VPU::DistributedTensorType>();
     }
     auto inputDistrAttr = distributedInType.getDistribution();
     auto modeInput = inputDistrAttr.getMode().getValue();
 
-    const auto output = nceClusterTilingOp->getResult(0);
-    const auto outputTypes = output.getType().dyn_cast<VPU::DistributedTypeInterface>();
+    const auto output = nceOp->getResult(0);
+    const auto outputTypes = mlir::dyn_cast<VPU::DistributedTypeInterface>(output.getType());
     VPUX_THROW_WHEN(outputTypes == nullptr || !outputTypes.containsDistributedTypes(),
-                    "nceClusterTilingOp has distributed type input and non distributed output type.");
+                    "nceOp has distributed type input and non distributed output type.");
 
     auto distributedOutputType = outputTypes.getDistributedTypes().begin()->cast<VPU::DistributedTensorType>();
     const auto outputDistrAttr = distributedOutputType.getDistribution();
@@ -181,7 +182,7 @@ std::pair<SmallVector<int64_t>, SmallVector<int64_t>> compute5DInputWorkload(NCE
     auto fullInputShape = inputType.getShape();
     if (auto inputSparseType = inputType.dyn_cast<VPU::SparseTensorType>()) {
         auto effectiveSparseOutputType = getEffectiveSparseOutputType(inputSparseType);
-        fullInputShape = effectiveSparseOutputType.getShape();
+        fullInputShape = mlir::cast<NDTypeInterface>(effectiveSparseOutputType).getShape();
     }
 
     const auto fullInputChannels = fullInputShape[DimsGroups5D::Act::C];
@@ -250,7 +251,7 @@ std::pair<SmallVector<int64_t>, SmallVector<int64_t>> computeInputWorkload(NCEOp
     auto fullInputShape = inputType.getShape();
     if (auto inputSparseType = inputType.dyn_cast<VPU::SparseTensorType>()) {
         auto effectiveSparseOutputType = getEffectiveSparseOutputType(inputSparseType);
-        fullInputShape = effectiveSparseOutputType.getShape();
+        fullInputShape = mlir::cast<NDTypeInterface>(effectiveSparseOutputType).getShape();
     }
 
     const auto fullInputChannels = fullInputShape[Dims4D::Act::C];
@@ -310,7 +311,7 @@ std::pair<SmallVector<int64_t>, SmallVector<int64_t>> computeInputWorkload(NCEOp
 //
 
 class ComputeNCEInputWorkloadsPass final :
-        public VPU::arch40xx::ComputeNCEInputWorkloadsBase<ComputeNCEInputWorkloadsPass> {
+        public VPU::arch40xx::impl::ComputeNCEInputWorkloadsBase<ComputeNCEInputWorkloadsPass> {
 public:
     explicit ComputeNCEInputWorkloadsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

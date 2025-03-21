@@ -3,12 +3,21 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZECONCATWITHCONV
+#define GEN_PASS_DEF_OPTIMIZECONCATWITHCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -204,7 +213,7 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
 // OptimizeConcatWithConvPass
 //
 
-class OptimizeConcatWithConvPass final : public IE::OptimizeConcatWithConvBase<OptimizeConcatWithConvPass> {
+class OptimizeConcatWithConvPass final : public IE::impl::OptimizeConcatWithConvBase<OptimizeConcatWithConvPass> {
 public:
     explicit OptimizeConcatWithConvPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

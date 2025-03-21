@@ -10,14 +10,15 @@ namespace ov {
 namespace test {
 
 class ScatterNDUpdateLayerTestCommon : public ScatterNDUpdateLayerTest, virtual public VpuOv2LayerTest {};
-class ScatterNDUpdateLayerTestHW : public ScatterNDUpdateLayerTest, virtual public VpuOv2LayerTest {};
+class ScatterNDUpdateLayerTestMTLHW : public ScatterNDUpdateLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(ScatterNDUpdateLayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(ScatterNDUpdateLayerTestHW, NPU3720_HW) {
+// Special class for tests that work only on MTL and HW pipe
+TEST_P(ScatterNDUpdateLayerTestMTLHW, NPU3720_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
@@ -30,7 +31,7 @@ TEST_P(ScatterNDUpdateLayerTestCommon, NPU4000_SW) {
 }  // namespace ov
 
 using ov::test::ScatterNDUpdateLayerTestCommon;
-using ov::test::ScatterNDUpdateLayerTestHW;
+using ov::test::ScatterNDUpdateLayerTestMTLHW;
 
 namespace {
 
@@ -94,8 +95,8 @@ const auto precommit_params = testing::Combine(testing::ValuesIn(combineShapes(p
                                                testing::Values(ov::element::i32),  // indices
                                                testing::Values(ov::test::utils::DEVICE_NPU));
 
-INSTANTIATE_TEST_SUITE_P(smoke_ScatterNDUpdate, ScatterNDUpdateLayerTestHW, params,
-                         ScatterNDUpdateLayerTestHW::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_ScatterNDUpdate, ScatterNDUpdateLayerTestMTLHW, params,
+                         ScatterNDUpdateLayerTestMTLHW::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ScatterNDUpdate, ScatterNDUpdateLayerTestCommon, precommit_params,
                          ScatterNDUpdateLayerTestCommon::getTestCaseName);

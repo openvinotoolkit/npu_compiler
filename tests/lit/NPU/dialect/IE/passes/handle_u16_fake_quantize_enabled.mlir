@@ -6,7 +6,6 @@
 // RUN: vpux-opt --split-input-file --mlir-print-elementsattrs-with-hex-if-larger=512 --init-compiler="vpu-arch=%arch%" --handle-u16-fake-quantize="enable-u16-fake-quantize-to-scale-shift-conversion=true" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
-
 // CHECK-LABEL: func.func @RemoveFQU16
 // CHECK-SAME:        [[INPUT:%arg0]]: tensor<1x4x640x640xf16>
 func.func @RemoveFQU16(%arg0: tensor<1x4x640x640xf16>) -> tensor<1x4x640x640xf16> {

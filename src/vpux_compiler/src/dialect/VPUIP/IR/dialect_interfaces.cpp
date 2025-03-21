@@ -12,6 +12,7 @@
 
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/batch.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
 
@@ -21,12 +22,7 @@ namespace detail {
  * Dispatch pre-inlining callOp processing to
  * a specific processor if conditions are met
  */
-struct CallOPPreInliner {
-    virtual ~CallOPPreInliner() = default;
-    virtual bool isApplicable(mlir::Operation*) const = 0;
-    virtual void apply(mlir::Operation*, mlir::iterator_range<mlir::Region::iterator>) const = 0;
-};
-
+struct CallOPPreInliner;
 struct CallOPPreInlinerVisitor {
     CallOPPreInlinerVisitor(Logger log = Logger::global());
 
@@ -42,7 +38,6 @@ private:
     std::vector<std::unique_ptr<CallOPPreInliner>> preInliners;
 };
 
-namespace batching {
 /*
  * Once callOp is categorized as a part of batched processing,
  * which means is has `debatched` tag at the moment of the implementation,
@@ -59,9 +54,10 @@ namespace batching {
  *  b) remap CMX, cluster_id, section_id etc. from the range [0...T], where T is a compilation tile count, to the range
  * [0 + I... (T + I) / N] c) Apply similar logic to DDR allocation (TODO - E###-131884)
  */
-struct BatchedCallOpPreInliner : public CallOPPreInliner {
-    BatchedCallOpPreInliner(Logger& log): _log(log.nest("batch-preinliner")), dispatcher(_log) {
+struct CallOPPreInliner {
+    CallOPPreInliner(Logger&& log): _log(log), dispatcher(_log) {
     }
+    virtual ~CallOPPreInliner() = default;
 
     struct CMXTypeModifier {
         mutable Logger _log;
@@ -84,12 +80,17 @@ struct BatchedCallOpPreInliner : public CallOPPreInliner {
                 ArrayRef<vpux::VPUIP::HaloRegionAttr> haloAttrs, ClusterIdFunctor modifier, Logger log);
     };
 
-    struct ResourceDescriptor {
-        DebatchedCallOpData callOpData;
+    struct FunctionAnalyticBase {
         size_t totalAvailableTilesCount;
-        std::optional<size_t> singleFunctionDDRConsumptionBytes;
         size_t maxDDRBytesAvailable;
+        std::map<size_t, std::optional<size_t>> argsOffset;
+        std::string to_string() const;
+        static FunctionAnalyticBase create(::mlir::func::CallOp callOp);
+    };
 
+    struct ResourceDescriptor : public FunctionAnalyticBase {
+        DebatchedCallOpData callOpData;
+        std::optional<size_t> singleFunctionDDRConsumptionBytes;
         std::string to_string() const;
         static ResourceDescriptor create(::mlir::func::CallOp callOp,
                                          ::mlir::iterator_range<::mlir::Region::iterator> inlinedBlocks, Logger log);
@@ -102,6 +103,7 @@ struct BatchedCallOpPreInliner : public CallOPPreInliner {
      * depends on operation type and attributes it carrying
      */
     class Dispatcher {
+    public:
         struct OpExtractor {
             OpExtractor(mlir::Operation& op): _op(op), _opCounter(0) {
             }
@@ -135,6 +137,17 @@ struct BatchedCallOpPreInliner : public CallOPPreInliner {
         struct SpecificOpPreInliner {
             virtual ~SpecificOpPreInliner() = default;
             virtual bool apply(mlir::Operation& op, const ResourceDescriptor& resource) const = 0;
+            virtual void reset() {
+            }
+        };
+
+        struct GreedyModifier final : public SpecificOpPreInliner, private CMXTypeModifier {
+            GreedyModifier(Logger&& log): CMXTypeModifier(log), _log(std::move(log)) {
+            }
+            bool apply(mlir::Operation& op, const ResourceDescriptor& resource) const override;
+
+        private:
+            mutable Logger _log;
         };
 
         struct CMXModifierForDeclareOp final : public SpecificOpPreInliner, private CMXTypeModifier {
@@ -167,33 +180,89 @@ struct BatchedCallOpPreInliner : public CallOPPreInliner {
         private:
             mutable Logger _log;
         };
-        mutable Logger _log;
-        std::vector<std::unique_ptr<SpecificOpPreInliner>> specificPreInliners;
 
-    public:
+        struct FuncArgumentDeclareModifier final : public SpecificOpPreInliner {
+            FuncArgumentDeclareModifier(Logger&& log): _log(std::move(log)) {
+            }
+            bool apply(mlir::Operation& op, const ResourceDescriptor& resource) const override;
+            void reset() override;
+
+        private:
+            mutable std::map<size_t, std::optional<size_t>> argsLastRelativeOffsetInCluster;
+            mutable Logger _log;
+        };
+
         Dispatcher(Logger& log);
         ~Dispatcher() = default;
+
+        template <class PreInlinerProcessor, class... Args>
+        void addPreInlinerProcessor(Args&&... args) {
+            specificPreInliners.push_back(std::make_unique<PreInlinerProcessor>(std::forward<Args>(args)...));
+        }
         void dispatch(mlir::Operation& op, const ResourceDescriptor& resourse) const;
+        void reset();
+
+    private:
+        mutable Logger _log;
+        std::vector<std::unique_ptr<SpecificOpPreInliner>> specificPreInliners;
     };
 
-    bool isApplicable(mlir::Operation* call) const override;
-    void apply(mlir::Operation* call, mlir::iterator_range<mlir::Region::iterator> inlinedBlocks) const override;
+    virtual bool isApplicable(mlir::Operation*) const = 0;
+    virtual void apply(mlir::Operation* call, mlir::iterator_range<mlir::Region::iterator> inlinedBlocks) const;
 
-private:
+protected:
     Logger _log;
     Dispatcher dispatcher;
 };
 
-/*
- * BatchedCallOpPreInliner
- */
+struct FuncArgOffsetPreInliner : public CallOPPreInliner {
+    FuncArgOffsetPreInliner(Logger& log);
+    bool isApplicable(mlir::Operation* call) const override;
+};
 
-bool BatchedCallOpPreInliner::isApplicable(mlir::Operation* call) const {
-    if (mlir::isa_and_nonnull<mlir::func::CallOp>(call) && call->hasAttr(vpux::DebatchedCallOpAttributeView::name())) {
-        return true;
+struct BatchedCallOpReorderingPreInliner : public CallOPPreInliner {
+    BatchedCallOpReorderingPreInliner(Logger& log);
+    bool isApplicable(mlir::Operation* call) const override;
+};
+
+/*
+ * FuncArgOffsetPreInliner
+ */
+FuncArgOffsetPreInliner::FuncArgOffsetPreInliner(Logger& log)
+        : CallOPPreInliner(log.nest("func-arg-offset-preinliner")) {
+    dispatcher.addPreInlinerProcessor<Dispatcher::FuncArgumentDeclareModifier>(log.nest());
+}
+
+bool FuncArgOffsetPreInliner::isApplicable(mlir::Operation* call) const {
+    if (mlir::isa_and_nonnull<mlir::func::CallOp>(call)) {
+        return !vpux::DebatchedCallOpAttributeView::hasReorderingAttr(mlir::dyn_cast<::mlir::func::CallOp>(call));
+        ;
     }
     return false;
 }
+
+/*
+ * BatchedCallOpReorderingPreInliner
+ */
+BatchedCallOpReorderingPreInliner::BatchedCallOpReorderingPreInliner(Logger& log)
+        : CallOPPreInliner(log.nest("batch-reordering-preinliner")) {
+    dispatcher.addPreInlinerProcessor<Dispatcher::CMXModifierForDeclareOp>(log.nest());
+    dispatcher.addPreInlinerProcessor<Dispatcher::CMXModifierForNCEClusterTaskOp>(log.nest());
+    dispatcher.addPreInlinerProcessor<Dispatcher::CMXModifierForSWKernelOp>(log.nest());
+    dispatcher.addPreInlinerProcessor<Dispatcher::FuncArgumentDeclareModifier>(log.nest());
+    dispatcher.addPreInlinerProcessor<Dispatcher::GreedyModifier>(log.nest());
+}
+
+bool BatchedCallOpReorderingPreInliner::isApplicable(mlir::Operation* call) const {
+    if (mlir::isa_and_nonnull<mlir::func::CallOp>(call) && call->hasAttr(vpux::DebatchedCallOpAttributeView::name())) {
+        return vpux::DebatchedCallOpAttributeView::hasReorderingAttr(mlir::dyn_cast<::mlir::func::CallOp>(call));
+    }
+    return false;
+}
+
+/*
+ * CallOPPreInliner
+ */
 
 mlir::func::FuncOp getCalledFunction(mlir::func::CallOp callOp) {
     mlir::SymbolRefAttr sym = llvm::dyn_cast_if_present<mlir::SymbolRefAttr>(callOp.getCallableForCallee());
@@ -202,47 +271,146 @@ mlir::func::FuncOp getCalledFunction(mlir::func::CallOp callOp) {
     return mlir::dyn_cast_or_null<mlir::func::FuncOp>(mlir::SymbolTable::lookupNearestSymbolFrom(callOp, sym));
 }
 
-void BatchedCallOpPreInliner::apply(mlir::Operation* call,
-                                    mlir::iterator_range<mlir::Region::iterator> inlinedBlocks) const {
+void CallOPPreInliner::apply(mlir::Operation* call, mlir::iterator_range<mlir::Region::iterator> inlinedBlocks) const {
     ResourceDescriptor resourse =
             ResourceDescriptor::create(mlir::dyn_cast<::mlir::func::CallOp>(call), inlinedBlocks, _log);
+    _log.debug("apply CallOPPreInliner on {0}: analytic: {1}", *call, resourse.to_string());
 
-    _log.info("apply BatchedCallOpPreInliner: {0}", resourse.to_string());
+    size_t inlinedBlocksCountIndex = 0;
+    std::unordered_map<size_t /*block index*/, size_t /*op index*/> opPerBlockCount;
+    using OperationPtrIndexPair = std::pair<mlir::Operation*, size_t>;
+    std::optional<OperationPtrIndexPair> openTagOperationCandidate{};
+    std::optional<OperationPtrIndexPair> closeTagOperationCandidate{};
     for (mlir::Block& block : inlinedBlocks) {
+        opPerBlockCount[inlinedBlocksCountIndex] = 0;
         for (auto& op : block.getOperations()) {
             dispatcher.dispatch(op, resourse);
+
+            if (!openTagOperationCandidate.has_value()) {
+                // find first operation for inserting TAG, skip Constants
+                // as they will be optimized by canonizerPass
+                // and won't appear in a final IR providing that we loose the TAG,
+                // as well as beginning of batched-processing operation block
+                if (!mlir::isa<vpux::Const::DeclareOp>(op)) {
+                    openTagOperationCandidate = std::make_pair(&op, opPerBlockCount[inlinedBlocksCountIndex]);
+                    closeTagOperationCandidate = std::make_pair(&op, opPerBlockCount[inlinedBlocksCountIndex]);
+                }
+            } else if (closeTagOperationCandidate.has_value() && !mlir::isa<mlir::func::ReturnOp>(op)) {
+                // find a last operation in the block standing before ReturnOp
+                // as it won't be inlined so that we will loose the TAG, as well
+                // as an end of batched-processing operation block
+                closeTagOperationCandidate.value().first = &op;
+                closeTagOperationCandidate.value().second++;
+            }
+            opPerBlockCount[inlinedBlocksCountIndex]++;
         }
+        _log.info("CallOPPreInliner has inlined operations: {0} from block: {1}",
+                  opPerBlockCount[inlinedBlocksCountIndex], inlinedBlocksCountIndex);
+        VPUX_THROW_UNLESS(closeTagOperationCandidate.has_value() && openTagOperationCandidate.has_value(),
+                          "InlinedTagAttribute candidate operation must have been determined");
+        _log.debug("InlinedTagAttributes candidate positions: {0} and {1}", openTagOperationCandidate.value().second,
+                   closeTagOperationCandidate.value().second);
+        inlinedBlocksCountIndex++;
+    }
+    if (openTagOperationCandidate.has_value()) {
+        static constexpr const char* inlinedLocDebugFormat{
+                "_inlined_{0}_{1}_{2}"};  // opIndexInOrigFunc / callIndex / totalCalls
+        openTagOperationCandidate.value().first->setLoc(
+                vpux::appendLoc(openTagOperationCandidate.value().first->getLoc(),
+                                formatv(inlinedLocDebugFormat, 0, resourse.callOpData.getCallIndex(),
+                                        resourse.callOpData.getBatchSize())
+                                        .str()));
+        closeTagOperationCandidate.value().first->setLoc(vpux::appendLoc(
+                closeTagOperationCandidate.value().first->getLoc(),
+                formatv(inlinedLocDebugFormat,
+                        closeTagOperationCandidate.value().second -
+                                openTagOperationCandidate.value()
+                                        .second /*as a relative position in the block starting from the beginning*/,
+                        resourse.callOpData.getCallIndex(), resourse.callOpData.getBatchSize())
+                        .str()));
     }
 }
 
 /*
- * BatchedCallOpPreInliner::ResourceDescriptor
+ * CallOPPreInliner::ResourceDescriptor
  */
-
-std::string BatchedCallOpPreInliner::ResourceDescriptor::to_string() const {
+std::string CallOPPreInliner::FunctionAnalyticBase::to_string() const {
     std::stringstream ss;
-    ss << callOpData.to_string() << ", tiles count: " << totalAvailableTilesCount;
+    ss << "DDR available bytes: ";
+    if (maxDDRBytesAvailable == 0) {
+        ss << "UNDETERMINED";
+    } else {
+        ss << maxDDRBytesAvailable;
+    }
+    ss << ", Available Tiles count: ";
+    if (totalAvailableTilesCount == 0) {
+        ss << "UNDETERMINED";
+    } else {
+        ss << totalAvailableTilesCount;
+    }
+    if (!argsOffset.empty()) {
+        ss << "\nFunction arguments: " << argsOffset.size() << std::endl;
+        for (auto [argIdx, argOffset] : argsOffset) {
+            ss << "argIdx: " << argIdx;
+            if (argOffset.has_value()) {
+                ss << " has an actual offset: " << argOffset.value();
+            } else {
+                ss << "has an UNDETERMINED offset";
+            }
+            ss << std::endl;
+        }
+    }
+    return ss.str();
+}
+CallOPPreInliner::FunctionAnalyticBase CallOPPreInliner::FunctionAnalyticBase::create(::mlir::func::CallOp call) {
+    size_t tileExecutorCount = 0;
+    uint64_t maxDDRBytesAvailable = 0;
+    auto module = vpux::getModuleOp(call);
+    auto tileOp = IE::getTileExecutor(module);
+    if (tileOp) {
+        tileExecutorCount = static_cast<size_t>(tileOp.getCount());
+    }
+    auto memOp = IE::getAvailableMemory(module, vpux::VPU::MemoryKind::DDR);
+    if (memOp) {
+        maxDDRBytesAvailable = checked_cast<uint64_t>(memOp.getByteSize());
+    }
+    size_t argIdx = 0;
+    std::map<size_t, std::optional<size_t>> argsOffset;
+    for (auto op : call->getOperands()) {
+        auto argDefiningOp = op.getDefiningOp();
+        std::optional<size_t> argBytesOffset;
+        if (mlir::isa<VPURT::DeclareBufferOp>(argDefiningOp)) {
+            auto declareOp = mlir::dyn_cast<VPURT::DeclareBufferOp>(argDefiningOp);
+            argBytesOffset = std::make_optional<size_t>(declareOp.getByteOffset());
+        }
+        argsOffset[argIdx] = std::move(argBytesOffset);
+        argIdx++;
+    }
+    return FunctionAnalyticBase{tileExecutorCount, maxDDRBytesAvailable, std::move(argsOffset)};
+}
+
+std::string CallOPPreInliner::ResourceDescriptor::to_string() const {
+    std::stringstream ss;
+    ss << callOpData.to_string();
     if (singleFunctionDDRConsumptionBytes.has_value()) {
         ss << ", DDR offset: " << singleFunctionDDRConsumptionBytes.value();
     } else {
         ss << ", DDR offset: UNDETERMINED";
     }
-    ss << ", DDR available bytes: " << maxDDRBytesAvailable;
+    ss << ", " << FunctionAnalyticBase::to_string();
     return ss.str();
 }
 
-BatchedCallOpPreInliner::ResourceDescriptor BatchedCallOpPreInliner::ResourceDescriptor::create(
+CallOPPreInliner::ResourceDescriptor CallOPPreInliner::ResourceDescriptor::create(
         ::mlir::func::CallOp call, ::mlir::iterator_range<::mlir::Region::iterator> inlinedBlocks, Logger log) {
+    FunctionAnalyticBase commonFuncData = FunctionAnalyticBase::create(call);
     auto debatchedAttr = DebatchedCallOpAttributeView::extract(call);
-    VPUX_THROW_UNLESS(debatchedAttr.has_value(), "BatchedCallOpPreInliner::apply expected an attribute: {0}",
+    if (!debatchedAttr.has_value()) {
+        return ResourceDescriptor{std::move(commonFuncData), DebatchedCallOpData{0, 1}, {}};
+    }
+    VPUX_THROW_UNLESS(debatchedAttr.has_value(), "CallOPPreInliner::apply expected an attribute: {0}",
                       DebatchedCallOpAttributeView::name());
     const DebatchedCallOpData& callOpData = debatchedAttr.value().getCallData();
-    auto module = vpux::getModuleOp(call);
-    auto tileOp = IE::getTileExecutor(module);
-    auto tileExecutorCount = tileOp.getCount();
-    // get used memory
-    auto maxDDRBytesAvailable =
-            checked_cast<uint64_t>(IE::getAvailableMemory(module, vpux::VPU::MemoryKind::DDR).getByteSize());
     log.debug("Procced with gathering all DDR buffer allocations to determine a device memory occupation range");
     std::map<size_t, size_t> allocationsOffsetSize;
     for (mlir::Block& block : inlinedBlocks) {
@@ -266,7 +434,7 @@ BatchedCallOpPreInliner::ResourceDescriptor BatchedCallOpPreInliner::ResourceDes
 
     if (allocationsOffsetSize.empty()) {
         log.debug("No DDR allocations, no any offset recalculation required");
-        return ResourceDescriptor{callOpData, static_cast<size_t>(tileExecutorCount), {}, maxDDRBytesAvailable};
+        return ResourceDescriptor{std::move(commonFuncData), callOpData, {}};
     }
 
     log.debug("collected DDR allocations: {0}", allocationsOffsetSize.size());
@@ -285,53 +453,44 @@ BatchedCallOpPreInliner::ResourceDescriptor BatchedCallOpPreInliner::ResourceDes
     VPUX_THROW_WHEN(occupiedDDRAdressesRange.first > occupiedDDRAdressesRange.second,
                     "DDR adress range determined incorrectly, left border: {0} cann't be greater than right: {1}",
                     occupiedDDRAdressesRange.first, occupiedDDRAdressesRange.second);
-    return ResourceDescriptor{callOpData, static_cast<size_t>(tileExecutorCount),
-                              occupiedDDRAdressesRange.first + occupiedDDRAdressesRange.second, maxDDRBytesAvailable};
+    return ResourceDescriptor{std::move(commonFuncData), callOpData,
+                              occupiedDDRAdressesRange.first + occupiedDDRAdressesRange.second};
 }
 
 /*
- * BatchedCallOpPreInliner::Dispatcher
+ * CallOPPreInliner::Dispatcher
  */
 
-BatchedCallOpPreInliner::Dispatcher::Dispatcher(Logger& log): _log(log.nest()) {
-    specificPreInliners.push_back(std::make_unique<CMXModifierForDeclareOp>(log.nest()));
-    specificPreInliners.push_back(std::make_unique<CMXModifierForNCEClusterTaskOp>(log.nest()));
-    specificPreInliners.push_back(std::make_unique<CMXModifierForSWKernelOp>(log.nest()));
+CallOPPreInliner::Dispatcher::Dispatcher(Logger& log): _log(log.nest()) {
 }
 
-void BatchedCallOpPreInliner::Dispatcher::dispatch(mlir::Operation& op, const ResourceDescriptor& res) const {
-    bool processed = false;
+void CallOPPreInliner::Dispatcher::dispatch(mlir::Operation& op, const ResourceDescriptor& res) const {
     OpExtractor extractor(op);
     for (auto innerOp = extractor.next(); innerOp != nullptr; innerOp = extractor.next()) {
         for (const auto& p : specificPreInliners) {
             if (p->apply(*innerOp, res)) {
-                processed = true;
                 break;
             }
-        }
-        if (!processed) {
-            _log.trace("Default processing of: {0} started", innerOp->getName());
-            CMXTypeModifier modifier(_log);
-            for (auto&& result : innerOp->getResults()) {
-                auto newType = modifier.transform(result.getType(), res.callOpData, res.totalAvailableTilesCount);
-                result.setType(newType);
-            }
-            _log.trace("Default processing of: {0} finished", innerOp->getName());
         }
     }
 }
 
+void CallOPPreInliner::Dispatcher::reset() {
+    for (auto& p : specificPreInliners) {
+        p->reset();
+    }
+}
 /*
- * BatchedCallOpPreInliner::CMXTypeModifier
+ * CallOPPreInliner::CMXTypeModifier
  */
 
-size_t BatchedCallOpPreInliner::CMXTypeModifier::recalculateIndex(size_t index, const DebatchedCallOpData& callOpData,
-                                                                  size_t totalAvailableTilesCount) {
+size_t CallOPPreInliner::CMXTypeModifier::recalculateIndex(size_t index, const DebatchedCallOpData& callOpData,
+                                                           size_t totalAvailableTilesCount) {
     return index + (callOpData.getCallIndex() * totalAvailableTilesCount) / callOpData.getBatchSize();
 }
 
-mlir::Type BatchedCallOpPreInliner::CMXTypeModifier::transform(mlir::Type type, const DebatchedCallOpData& callOpData,
-                                                               size_t totalAvailableTilesCount) const {
+mlir::Type CallOPPreInliner::CMXTypeModifier::transform(mlir::Type type, const DebatchedCallOpData& callOpData,
+                                                        size_t totalAvailableTilesCount) const {
     auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(type);
     if (ndType == nullptr || ndType.getMemoryKind() != VPU::MemoryKind::CMX_NN) {
         return type;
@@ -380,7 +539,7 @@ mlir::Type BatchedCallOpPreInliner::CMXTypeModifier::transform(mlir::Type type, 
 }
 
 template <class ClusterIdFunctor>
-SmallVector<vpux::VPUIP::HaloRegionAttr> BatchedCallOpPreInliner::CMXTypeModifier::modifyHaloAttrsClusterId(
+SmallVector<vpux::VPUIP::HaloRegionAttr> CallOPPreInliner::CMXTypeModifier::modifyHaloAttrsClusterId(
         ArrayRef<vpux::VPUIP::HaloRegionAttr> haloAttrs, ClusterIdFunctor modifier, Logger log) {
     SmallVector<vpux::VPUIP::HaloRegionAttr> newInwardsHaloAttr;
     newInwardsHaloAttr.reserve(haloAttrs.size());
@@ -399,7 +558,7 @@ SmallVector<vpux::VPUIP::HaloRegionAttr> BatchedCallOpPreInliner::CMXTypeModifie
 }
 
 template <class ClusterIdFunctor>
-SmallVector<vpux::VPUIP::OutwardHaloRegionAttr> BatchedCallOpPreInliner::CMXTypeModifier::modifyOutwardHaloAttrs(
+SmallVector<vpux::VPUIP::OutwardHaloRegionAttr> CallOPPreInliner::CMXTypeModifier::modifyOutwardHaloAttrs(
         ArrayRef<vpux::VPUIP::OutwardHaloRegionAttr> outwardHalos, ClusterIdFunctor modifier, Logger log) {
     SmallVector<vpux::VPUIP::OutwardHaloRegionAttr> newOutwardsHaloAttr;
     newOutwardsHaloAttr.reserve(outwardHalos.size());
@@ -429,11 +588,26 @@ SmallVector<vpux::VPUIP::OutwardHaloRegionAttr> BatchedCallOpPreInliner::CMXType
 }
 
 /*
- * BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp
+ * CallOPPreInliner::Dispatcher::GreedyModifier
  */
 
-bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::apply(mlir::Operation& op,
-                                                                         const ResourceDescriptor& resource) const {
+bool CallOPPreInliner::Dispatcher::GreedyModifier::apply(mlir::Operation& op,
+                                                         const ResourceDescriptor& resource) const {
+    _log.trace("GreedyModifier of: {0} started", op.getName());
+    for (auto&& result : op.getResults()) {
+        auto newType = transform(result.getType(), resource.callOpData, resource.totalAvailableTilesCount);
+        result.setType(newType);
+    }
+    _log.trace("GreedyModifier processing of: {0} finished", op.getName());
+    return true;
+}
+
+/*
+ * CallOPPreInliner::Dispatcher::CMXModifierForDeclareOp
+ */
+
+bool CallOPPreInliner::Dispatcher::CMXModifierForDeclareOp::apply(mlir::Operation& op,
+                                                                  const ResourceDescriptor& resource) const {
     if (!mlir::isa<VPURT::DeclareBufferOp>(op)) {
         return false;
     }
@@ -443,7 +617,8 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::apply(mlir::O
     if (ndType.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
         return applyCMX(declareOp, resource.callOpData, resource.totalAvailableTilesCount);
     } else if (ndType.getMemoryKind() == VPU::MemoryKind::DDR &&
-               resource.singleFunctionDDRConsumptionBytes.has_value()) {
+               (declareOp.getSection() != VPURT::BufferSection::FunctionInput &&
+                declareOp.getSection() != VPURT::BufferSection::FunctionOutput)) {
         return applyDDR(declareOp, resource.callOpData, resource.singleFunctionDDRConsumptionBytes.value(),
                         resource.maxDDRBytesAvailable);
     }
@@ -451,9 +626,9 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::apply(mlir::O
     return false;
 }
 
-bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::applyCMX(VPURT::DeclareBufferOp& op,
-                                                                            const DebatchedCallOpData& callOpData,
-                                                                            size_t totalAvailableTilesCount) const {
+bool CallOPPreInliner::Dispatcher::CMXModifierForDeclareOp::applyCMX(VPURT::DeclareBufferOp& op,
+                                                                     const DebatchedCallOpData& callOpData,
+                                                                     size_t totalAvailableTilesCount) const {
     mlir::ModuleOp module = vpux::getModuleOp(op);
     auto ctx = module.getContext();
 
@@ -474,10 +649,10 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::applyCMX(VPUR
     return true;
 }
 
-bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::applyDDR(VPURT::DeclareBufferOp& op,
-                                                                            const DebatchedCallOpData& callOpData,
-                                                                            size_t offsetDDRAllocationBytes,
-                                                                            size_t maxDDRBytesAvailable) const {
+bool CallOPPreInliner::Dispatcher::CMXModifierForDeclareOp::applyDDR(VPURT::DeclareBufferOp& op,
+                                                                     const DebatchedCallOpData& callOpData,
+                                                                     size_t offsetDDRAllocationBytes,
+                                                                     size_t maxDDRBytesAvailable) const {
     size_t currentBatchedCallDDROffset = callOpData.getCallIndex() * offsetDDRAllocationBytes;
     auto opBytesOffset = op.getByteOffset();
     auto ndType = mlir::dyn_cast<vpux::NDTypeInterface>(op.getType());
@@ -495,11 +670,11 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForDeclareOp::applyDDR(VPUR
 }
 
 /*
- * BatchedCallOpPreInliner::Dispatcher::CMXModifierForNCEClusterTaskOp
+ * CallOPPreInliner::Dispatcher::CMXModifierForNCEClusterTaskOp
  */
 
-bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForNCEClusterTaskOp::apply(
-        mlir::Operation& op, const ResourceDescriptor& resource) const {
+bool CallOPPreInliner::Dispatcher::CMXModifierForNCEClusterTaskOp::apply(mlir::Operation& op,
+                                                                         const ResourceDescriptor& resource) const {
     if (!mlir::isa<vpux::VPUIP::NCEClusterTaskOp>(op)) {
         return false;
     }
@@ -526,11 +701,11 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForNCEClusterTaskOp::apply(
 }
 
 /*
- * BatchedCallOpPreInliner::Dispatcher::CMXModifierForSWKernelOp
+ * CallOPPreInliner::Dispatcher::CMXModifierForSWKernelOp
  */
 
-bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForSWKernelOp::apply(mlir::Operation& op,
-                                                                          const ResourceDescriptor& resource) const {
+bool CallOPPreInliner::Dispatcher::CMXModifierForSWKernelOp::apply(mlir::Operation& op,
+                                                                   const ResourceDescriptor& resource) const {
     if (!mlir::isa<vpux::VPUIP::SwKernelOp>(op)) {
         return false;
     }
@@ -563,10 +738,69 @@ bool BatchedCallOpPreInliner::Dispatcher::CMXModifierForSWKernelOp::apply(mlir::
     }
     return true;
 }
-}  // namespace batching
+
+/*
+ * CallOPPreInliner::Dispatcher::FuncArgumentDeclareModifier
+ */
+
+bool CallOPPreInliner::Dispatcher::FuncArgumentDeclareModifier::apply(mlir::Operation& op,
+                                                                      const ResourceDescriptor& resource) const {
+    if (!mlir::isa<VPURT::DeclareBufferOp>(op)) {
+        return false;
+    }
+    auto declareOp = mlir::dyn_cast<VPURT::DeclareBufferOp>(op);
+    if (declareOp.getSection() != VPURT::BufferSection::FunctionInput &&
+        declareOp.getSection() != VPURT::BufferSection::FunctionOutput) {
+        return false;
+    }
+
+    const auto& funcArgAttr = declareOp.getSectionIndexAttr();
+    VPUX_THROW_UNLESS(funcArgAttr,
+                      "BufferSection::FunctionInput from operation {0} must contains a section index attribute");
+
+    auto sectionArrayAttr = declareOp.getSectionIndexAttr();
+    auto sectionArray = parseIntArrayAttr<size_t>(sectionArrayAttr);
+    _log.trace("DeclareOp current section attribute: {0}", sectionArray);
+    VPUX_THROW_UNLESS(
+            sectionArray.size() >= 1,
+            "DeclareOp current section attribute of BufferSection::FunctionInput must contains at least 1 element");
+
+    size_t argIndex = sectionArray[0];
+    if (auto funcArgOffsetIt = resource.argsOffset.find(argIndex); funcArgOffsetIt != resource.argsOffset.end()) {
+        auto declareOp = mlir::dyn_cast<VPURT::DeclareBufferOp>(op);
+
+        // clear FunctionInput/Output section
+        declareOp.setSection(VPURT::BufferSection::DDR);
+        declareOp.setSectionIndexAttr(::mlir::ArrayAttr());
+
+        VPUX_THROW_UNLESS(funcArgOffsetIt->second.has_value(), "Func arguments: {0} has no determined offset",
+                          argIndex);
+        auto opBytesOffset = declareOp.getByteOffset();
+
+        // If unroll-cluster-tiling has been executed, an original buffer at a fixed offset position
+        // will be superseded by its shards, which occupy the fixed offset position plus a shard specific offset
+        // so that we must preserve this offset during our func args inlining
+        size_t newOffset = 0;
+        if (argsLastRelativeOffsetInCluster[argIndex].has_value()) {
+            newOffset =
+                    opBytesOffset - argsLastRelativeOffsetInCluster[argIndex].value() + funcArgOffsetIt->second.value();
+        } else {
+            newOffset = funcArgOffsetIt->second.value();
+            argsLastRelativeOffsetInCluster[argIndex] = std::make_optional<size_t>(opBytesOffset);
+        }
+        _log.debug("fix the func argument by index: {1}. DDR offset old: {2}, new: {3}", op.getName(), argIndex,
+                   opBytesOffset, newOffset);
+        declareOp.setByteOffset(newOffset);
+    }
+    return true;
+}
+void CallOPPreInliner::Dispatcher::FuncArgumentDeclareModifier::reset() {
+    argsLastRelativeOffsetInCluster.clear();
+}
 
 CallOPPreInlinerVisitor::CallOPPreInlinerVisitor(Logger log): _log(log.nest()) {
-    addPreInliner<batching::BatchedCallOpPreInliner>();
+    addPreInliner<FuncArgOffsetPreInliner>();
+    addPreInliner<BatchedCallOpReorderingPreInliner>();
 }
 
 void CallOPPreInlinerVisitor::visit(mlir::Operation* op,

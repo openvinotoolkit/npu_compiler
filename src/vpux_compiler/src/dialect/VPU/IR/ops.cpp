@@ -4,10 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 
 using namespace vpux;
 
@@ -144,18 +144,6 @@ mlir::LogicalResult VPU::sameLayout(VPUIP::DistributedBufferType inDistributedTy
     return mlir::success();
 }
 
-bool VPU::isVFNCESupported(VPU::NCEOpInterface op) {
-    auto isOne = [](auto val) {
-        return val == 1;
-    };
-
-    if (llvm::all_of(op.getStridesVal(), isOne)) {
-        return true;
-    }
-
-    return false;
-}
-
 //
 // materializeConstant
 //
@@ -192,6 +180,25 @@ bool VPU::isNCEWithInt4Weights(mlir::Operation* op) {
     }
 
     return false;
+}
+
+bool VPU::isNCEWithSEPActivation(mlir::Operation* op) {
+    auto nceOp = mlir::dyn_cast_or_null<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        return false;
+    }
+    auto sparseTensorActivation = nceOp->getOperand(0).getDefiningOp<VPU::GroupSparseTensorOp>();
+    if (sparseTensorActivation == nullptr) {
+        return false;
+    }
+    return sparseTensorActivation.getStorageElementTable() != nullptr;
+}
+
+std::optional<int64_t> VPU::getWeightsChannelsAutopad(mlir::Operation* op) {
+    if (VPU::canAutopadOutput(op)) {
+        return vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    }
+    return std::nullopt;
 }
 
 SmallVector<SmallVector<int64_t>> arrayOfArrayFromShape(ArrayRef<Shape> shape);

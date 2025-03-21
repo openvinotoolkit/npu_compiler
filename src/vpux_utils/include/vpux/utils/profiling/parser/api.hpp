@@ -20,9 +20,9 @@ namespace vpux::profiling {
  * @brief Declares verbosity level of printing information
  */
 enum VerbosityLevel {
-    LOW = 0,     ///< Default, only DMA/SW/Aggregated DPU info
-    MEDIUM = 1,  ///< Extend by cluster level information
-    HIGH = 5,    ///< Full information including individual variants timings
+    LOW = 0,     ///< Default, aggregated DPU timing
+    MEDIUM = 1,  ///< Include individual DPU variant timing
+    HIGH = 5,    ///< Same as medium
 };
 
 /**

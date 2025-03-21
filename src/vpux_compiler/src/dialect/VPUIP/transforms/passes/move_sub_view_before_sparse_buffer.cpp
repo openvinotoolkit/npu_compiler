@@ -11,6 +11,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_MOVESUBVIEWBEFORESPARSEBUFFER
+#define GEN_PASS_DEF_MOVESUBVIEWBEFORESPARSEBUFFER
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -61,6 +67,8 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
     if (origSubViewOp.getStaticStrides().has_value()) {
         return mlir::failure();
     }
+
+    _log.trace("Moving SubView before SparseBuffer for: {0}", *origSubViewOp);
 
     auto seAttr = groupSparseBuffer.getSeAttr().value_or(nullptr);
     auto sparsityCompressionAttr = groupSparseBuffer.getSparsityCompression().value_or(nullptr);
@@ -133,6 +141,17 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
         if (mlir::isa<mlir::InferTypeOpInterface>(currentOp)) {
             vpux::inferReturnTypes(currentOp, vpux::InferShapedTypeMode::ALL);
         }
+
+        // VPUIP::NCEClusterTilingOp doesn't provide type inference but we still need to propagte our new type for
+        // proper type checking down in the pipeline
+        else if (auto nceClusterTiling = mlir::dyn_cast_or_null<VPUIP::NCEClusterTilingOp>(currentOp)) {
+            int i = 0;
+            for (auto operandIterator : nceClusterTiling.getOutputs()) {
+                if (newOp == operandIterator.getDefiningOp()) {
+                    nceClusterTiling.getResult(i++).setType(newOp.getType());
+                }
+            }
+        }
         currentOp = currentOp->getNextNode();
     }
 
@@ -144,7 +163,7 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
 //
 
 class MoveSubViewBeforeSparseBufferPass final :
-        public VPUIP::MoveSubViewBeforeSparseBufferBase<MoveSubViewBeforeSparseBufferPass> {
+        public VPUIP::impl::MoveSubViewBeforeSparseBufferBase<MoveSubViewBeforeSparseBufferPass> {
 public:
     explicit MoveSubViewBeforeSparseBufferPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

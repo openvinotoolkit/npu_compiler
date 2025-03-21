@@ -9,6 +9,12 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_SEGMENTHALOS
+#define GEN_PASS_DEF_SEGMENTHALOS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 using namespace VPUIP;
 
@@ -211,17 +217,18 @@ void updateNceOps(NCEClusterTaskOp nceOp, DenseMap<NCEClusterTaskOp, NceOpOutput
             builder, taskOp.getWaitBarriers(), taskOp.getUpdateBarriers(), nceOp.getLoc(), output.getType(),
             outSparsityMapType, profilingOutputType, nceOp.getInput(), nceOp.getInputSparsityMap(),
             nceOp.getInputStorageElementTable(), nceOp.getWeights(), nceOp.getWeightsSparsityMap(),
-            nceOp.getWeightTable(),
-            /*spr_lookup_table=*/nullptr, nceOp.getParentInput(), nceOp.getParentInputSparsityMap(),
-            nceOp.getParentInputStorageElementTable(), output, outSparsityMap, mlir::ValueRange(newOutputItis), output,
-            outSparsityMap, nceOp.getProfilingData(),
-            /*max_per_xy=*/nullptr, /*min_per_xy=*/nullptr, /*min_max_per_tensor=*/mlir::ValueRange(),
-            nceOp.getTaskType(), nceOp.getKernelSizeAttr(), nceOp.getKernelStridesAttr(), nceOp.getKernelPaddingAttr(),
-            nceOp.getIsContinuedAttr(), nceOp.getCmSpPatternAttr(),
+            nceOp.getWeightTable(), /*weight_table_data_ptr=*/nullptr, /*weight_table_sp_ptr=*/nullptr,
+            /*weight_table_scale=*/nullptr, /*weight_table_bias=*/nullptr, /*weight_zero_points=*/nullptr,
+            nceOp.getSprLookupTable(), nceOp.getPalletLookupTable(), nceOp.getParentInput(),
+            nceOp.getParentInputSparsityMap(), nceOp.getParentInputStorageElementTable(), output, outSparsityMap,
+            mlir::ValueRange(newOutputItis), output, outSparsityMap, nceOp.getProfilingData(), nceOp.getMaxPerXy(),
+            nceOp.getMinPerXy(), nceOp.getMinMaxPerTensor(), nceOp.getTaskType(), nceOp.getKernelSizeAttr(),
+            nceOp.getKernelStridesAttr(), nceOp.getKernelPaddingAttr(), nceOp.getIsContinuedAttr(),
+            nceOp.getCmSpPatternAttr(),
             /*is_segmented*/ nullptr, nceOp.getOutChannelOffsetAttr(), nceOp.getInputChannelsCompressionAttr(),
             nceOp.getIsZeroOffsetWeightsTableAttr(), nceOp.getIsSuperdenseAttr(), nceOp.getIsInplaceAttr(),
             nceOp.getInputSeSizeAttr(), nceOp.getOutputSeSizeAttr(), nceOp.getIsPermuteQuantizeAttr(),
-            nceOp.getIsSmallKernelOptimizedAttr());
+            nceOp.getIsSmallKernelOptimizedAttr(), nceOp.getMpeEngineAttr(), nceOp.getEltwiseTypeAttr());
     if (auto profMetadata = nceOp.getProfilingMetadataAttr()) {
         updatedNceOp.setProfilingMetadataAttr(profMetadata);
     }
@@ -253,7 +260,7 @@ void updateNceOps(NCEClusterTaskOp nceOp, DenseMap<NCEClusterTaskOp, NceOpOutput
 // Segment Halo Regions so that each one fits inside one workload only
 //
 
-class SegmentHalosPass final : public VPUIP::SegmentHalosBase<SegmentHalosPass> {
+class SegmentHalosPass final : public VPUIP::impl::SegmentHalosBase<SegmentHalosPass> {
 public:
     explicit SegmentHalosPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

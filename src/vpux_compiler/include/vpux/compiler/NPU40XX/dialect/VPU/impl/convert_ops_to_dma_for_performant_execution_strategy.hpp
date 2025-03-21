@@ -15,7 +15,7 @@
 namespace vpux::VPU::arch40xx {
 
 /*
-   Class for getting ConvertOpToDMAForPerformantExecutionStrategy patterns for NPU40XX
+   Class for getting ConvertOpToDMAForPerformantExecutionStrategy patterns for VPU40XX
 */
 class ConvertOpToDMAForPerformantExecutionStrategy : public IConversionPassStrategy {
 public:

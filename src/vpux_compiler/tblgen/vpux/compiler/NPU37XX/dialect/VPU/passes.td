@@ -106,27 +106,6 @@ def ApplyTilingMVN1Sum : PassBase<"apply-tiling-mvn1sum", "vpux::FunctionPass"> 
     ];
 }
 
-//
-// AddProposalAuxiliaryBuffer
-//
-
-def AddProposalAuxiliaryBuffer : PassBase<"add-proposal-auxiliary-buffer", "vpux::FunctionPass"> {
-    let summary = "Proposal VPU layer";
-
-    let description = [{
-        The pass is only used for NPU37XX onward, and requires the creation of a auxiliary input buffer, who has the role of storing
-        the intermediate results obtained after the relevant operation.
-        The results will be sorted, recalculated, and finally, the output will be extracted based on them.
-        This auxiliary buffer has a necessary size depend by input parameters.
-    }];
-
-    let constructor = "vpux::VPU::arch37xx::createAddProposalAuxiliaryBufferPass()";
-
-    let dependentDialects = [
-        "vpux::VPU::VPUDialect"
-    ];
-}
-
 
 //
 // CorrectNCEWorkloads

@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -9,13 +9,23 @@
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/empty_node.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/IR/IRMapping.h>
 
 #include <openvino/op/convolution.hpp>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTCONVOLUTIONINPUTSHAPE
+#define GEN_PASS_DEF_ADJUSTCONVOLUTIONINPUTSHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -31,6 +41,42 @@ std::tuple<int64_t, int64_t> calcShapeAligned(int64_t divider, int64_t dimValue)
     }
 
     return std::make_tuple(divider, dimValue);
+}
+
+template <typename ConcreteOp>
+bool quantizationAllowsChannelsReshape(ConcreteOp origOp) {
+    // Channels cannot be reshaped when the operation is per-channel quantized.
+    const auto outElemType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType()).getElementType();
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType)) {
+        return false;
+    }
+
+    if constexpr (std::is_same_v<IE::GroupConvolutionOp, ConcreteOp>) {
+        const auto inElemType = mlir::cast<NDTypeInterface>(origOp.getInput().getType()).getElementType();
+        const auto filterElemType = mlir::cast<NDTypeInterface>(origOp.getFilter().getType()).getElementType();
+
+        if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inElemType) ||
+            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(filterElemType)) {
+            return false;
+        }
+
+    } else if constexpr (std::is_same_v<IE::AddOp, ConcreteOp>) {
+        const auto in1ElemType = mlir::cast<NDTypeInterface>(origOp.getInput1().getType()).getElementType();
+        const auto in2ElemType = mlir::cast<NDTypeInterface>(origOp.getInput2().getType()).getElementType();
+
+        if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in1ElemType) ||
+            mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(in2ElemType)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+template <typename ConcreteOp>
+bool postOpAllowsChannelsReshape(ConcreteOp layerWithPostOp) {
+    const auto postOp = layerWithPostOp.getPostOpAttr();
+    return postOp == nullptr || postOp.isChannelAgnostic();
 }
 
 //
@@ -71,19 +117,13 @@ mlir::LogicalResult ReshapeSingleConstDWConvInput::matchAndRewrite(IE::GroupConv
     const auto filterShape = getShape(origOp.getFilter());
     const auto filterConst = mlir::cast<Const::DeclareOp>(origOp.getFilter().getDefiningOp());
 
-    const auto inputElementType = origOp.getInput().getType().cast<vpux::NDTypeInterface>().getElementType();
-    const auto filterElementType = origOp.getFilter().getType().cast<vpux::NDTypeInterface>().getElementType();
-    const auto outputElementType = origOp.getOutput().getType().cast<vpux::NDTypeInterface>().getElementType();
-
-    // Could not support adjust from C to H or W for quantize type since each channel may have different quantize
-    // parameter
-    if (inputElementType.isa<mlir::quant::QuantizedType>() || filterElementType.isa<mlir::quant::QuantizedType>() ||
-        outputElementType.isa<mlir::quant::QuantizedType>()) {
-        return matchFailed(rewriter, origOp, "Could not support quantize");
+    if (!quantizationAllowsChannelsReshape(origOp)) {
+        return matchFailed(rewriter, origOp, "Cannot reshape channels of per-channel quantized operation.");
     }
 
-    if (origOp.getPostOpAttr() != nullptr) {
-        return matchFailed(rewriter, origOp, "Could not support grouConv with post op");
+    if (!postOpAllowsChannelsReshape(origOp)) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Cannot reshape channels of operation with non-channel-agnostic post-op.");
     }
 
     auto outputLayout = origOp.getOutput().getType().cast<vpux::NDTypeInterface>().getDimsOrder();
@@ -243,16 +283,13 @@ mlir::LogicalResult ReshapeAddInput::matchAndRewrite(IE::AddOp origOp, mlir::Pat
         }
     }
 
-    // Could not support adjust from C to H or W for per channel quantize type
-    const auto inputElementType = origOp.getInput1().getType().cast<vpux::NDTypeInterface>().getElementType();
-    const auto outputElementType = origOp.getOutput().getType().cast<vpux::NDTypeInterface>().getElementType();
-    if (inputElementType.isa<mlir::quant::UniformQuantizedPerAxisType>() ||
-        outputElementType.isa<mlir::quant::UniformQuantizedPerAxisType>()) {
-        return matchFailed(_log, rewriter, origOp, "Could not support addOp with per channel quantize");
+    if (!quantizationAllowsChannelsReshape(origOp)) {
+        return matchFailed(rewriter, origOp, "Cannot reshape channels of per-channel quantized operation.");
     }
 
-    if (origOp.getPostOpAttr() != nullptr) {
-        return matchFailed(_log, rewriter, origOp, "Could not support addOp with post op");
+    if (!postOpAllowsChannelsReshape(origOp)) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Cannot reshape channels of operation with non-channel-agnostic post-op.");
     }
 
     if (inputShape[Dims4D::Act::H] != 1 || inputShape[Dims4D::Act::W] != 1) {
@@ -556,6 +593,16 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     if (!VPU::NCEDepthConvolutionOp::isSupported(origOp, logCb, /*checkLayout=*/true, /*checkChannelAlignment=*/true)) {
         return mlir::failure();
     }
+
+    if (!quantizationAllowsChannelsReshape(origOp)) {
+        return matchFailed(rewriter, origOp, "Cannot reshape channels of per-channel quantized operation.");
+    }
+
+    if (!postOpAllowsChannelsReshape(origOp)) {
+        return matchFailed(_log, rewriter, origOp,
+                           "Cannot reshape channels of operation with non-channel-agnostic post-op.");
+    }
+
     // Check stride
     auto strides = parseIntArrayAttr<int64_t>(origOp.getStrides());
     if (strides[Dims4D::Strides::X.ind()] > 1 || strides[Dims4D::Strides::Y.ind()] == 1) {
@@ -681,7 +728,8 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
     auto grpConv = rewriter.create<IE::GroupConvolutionOp>(
             origOp->getLoc(), convOutType, shapeCastInputOp, newConstInput, origOp.getBias(), origOp.getStridesAttr(),
             origOp.getPadsBegin(), origOp.getPadsEnd(), origOp.getDilationsAttr(), groupsAttr,
-            /*post_opAttr=*/nullptr, /*clamp=*/nullptr, origOp.getOutputChannelsAttr(), origOp.getInputChannelsAttr());
+            /*post_op=*/origOp.getPostOpAttr(), /*clamp=*/nullptr, origOp.getOutputChannelsAttr(),
+            origOp.getInputChannelsAttr());
 
     // Insert ShapeCast to reshape the output to original outShape
     auto unExpandedOutShape = Shape({IN, IC, convOutType.getShape()[Dims4D::Act::H], IW});
@@ -703,7 +751,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
 //
 
 class AdjustConvolutionInputShapePass final :
-        public IE::AdjustConvolutionInputShapeBase<AdjustConvolutionInputShapePass> {
+        public IE::impl::AdjustConvolutionInputShapeBase<AdjustConvolutionInputShapePass> {
 public:
     explicit AdjustConvolutionInputShapePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

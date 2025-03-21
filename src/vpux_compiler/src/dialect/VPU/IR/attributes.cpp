@@ -1,9 +1,10 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/tiling.hpp"
@@ -12,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
+#include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -93,28 +95,19 @@ double vpux::VPU::getDMABandwidth(ArchKind arch, VPU::RevisionID rev) {
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
         return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_2_7) / VPU::getDpuFrequency(arch, rev);
-    case VPU::ArchKind::NPU40XX:
-        return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_4_0) / VPU::getDpuFrequency(arch, rev);
     default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
+        return VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_4_0) / VPU::getDpuFrequency(arch, rev);
     }
 }
 
-double vpux::VPU::getNCEThroughput(ArchKind arch) {
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return 8000000.0;
-    default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
-    }
+double vpux::VPU::getNCEThroughput() {
+    return 8000000.0;
 }
 
 unsigned int vpux::VPU::getDpuFrequency(vpux::VPU::ArchKind arch, vpux::VPU::RevisionID rev) {
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_2_7); /*!< The value 1300 corresponds to Highvcc of dpuclk.
-                (See NPU37XX HAS #voltage-and-frequency-targets section).
                  */
     case VPU::ArchKind::NPU40XX:
         if (rev >= VPU::RevisionID::REVISION_B) {
@@ -122,7 +115,7 @@ unsigned int vpux::VPU::getDpuFrequency(vpux::VPU::ArchKind arch, vpux::VPU::Rev
         }
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
     default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
+        return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
     }
 }
 
@@ -137,12 +130,10 @@ double vpux::VPU::getDmaBandwidthGBps(vpux::VPU::ArchKind arch) {
     case VPU::ArchKind::NPU37XX:
         BW = VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_2_7);  // 27000 MB/s
         break;
-    case VPU::ArchKind::NPU40XX:
+    default:
         BW = VPUNN::get_dram_bandwidth_MBps(VPUNN::VPUDevice::VPU_4_0);  // 45000 MB/s
         break;
-    default:
-        VPUX_THROW("Unsupported architecture '{0}'", arch);
-    };
+    }
 
     BW /= 1000;  // convert to GB/s
     return BW;
@@ -156,9 +147,9 @@ Byte vpux::VPU::getTotalCMXSize(mlir::ModuleOp module) {
     // because we want to get exactly same compiled networks with profiling enabled and disabled.
     // Two buffer sizes are required in case when profiling allocates new buffer and old buffer
     // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
-    const int64_t profilingBufferSize = vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE +
-                                        vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE +
-                                        vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
+    int64_t profilingBufferSize = vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE +
+                                  vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE +
+                                  vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
 
     return cmxRes.size() - Byte(2 * profilingBufferSize);
 }
@@ -418,7 +409,7 @@ VPU::ArchKind vpux::VPU::getArch(mlir::Operation* op) {
     return VPU::ArchKind::UNKNOWN;
 }
 
-// To discern between VPUX3XXX and later on architectures
+// To discern between NPU37XX and later on architectures
 bool vpux::VPU::isArchVPUX3XXX(VPU::ArchKind arch) {
     return (arch == VPU::ArchKind::NPU37XX);
 }
@@ -591,9 +582,9 @@ mlir::LogicalResult vpux::VPU::verify(FuncRef<mlir::InFlightDiagnostic()> emitEr
         return printTo(emitError(), "The number of clusters must be greater than 0. Got: {0}", numClusters);
     }
 
-    const auto neutralTilingScheme = SmallVector<int64_t>(shape.size(), 1);
+    auto neutralTilingScheme = SmallVector<int64_t>(shape.size(), 1);
     const auto tilingScheme = distributedAttr.getNumTiles() == nullptr
-                                      ? neutralTilingScheme
+                                      ? std::move(neutralTilingScheme)
                                       : vpux::parseIntArrayAttr<int64_t>(distributedAttr.getNumTiles());
 
     auto areShapesOffsetsValidForShape = [&](mlir::ArrayAttr perClusterShapesAttr,
@@ -1092,6 +1083,12 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
 
 std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef shapeRef,
                                                                        const VPU::DistributionInfo& distribution) {
+    auto& cache = VPU::OpTilingCache::instance();
+    auto hash = cache.calculateShapeAndDistributionHash(shapeRef, distribution);
+    auto cacheResult = cache.getPerClusterMemoryShapes(hash);
+    if (cacheResult.has_value()) {
+        return cacheResult.value();
+    }
     auto shape = to_small_vector(shapeRef.raw());
     const auto distributionMode = distribution.getDistributionMode();
 
@@ -1108,7 +1105,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
         VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::MULTICASTED)) {
         std::fill_n(tiledMemoryShapes.begin(), tiledMemoryShapes.size(),
                     Shape(alignShape(shape, optionalAlignment, alignValUp<int64_t>)));
-
+        cache.updatePerClusterShape(hash, tiledMemoryShapes);
         return tiledMemoryShapes;
     }
 
@@ -1117,8 +1114,11 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
         const auto axis = vpux::VPU::getDistributedTilingAxis(tilingScheme);
         VPUX_THROW_UNLESS(axis < int64_t(tilingScheme.size()), "Segmented tiling scheme requires at least 1 dimension "
                                                                "to be segmented but the tiling schema is [1, 1, 1, 1]");
-        return vpux::VPU::splitSegmentedShape(shape, tilingScheme, numClusters, axis, optionalAlignment,
-                                              distribution.hasUniformDistributedSegments());
+        auto tiledShapes = vpux::VPU::splitSegmentedShape(shape, tilingScheme, numClusters, axis, optionalAlignment,
+                                                          distribution.hasUniformDistributedSegments());
+
+        cache.updatePerClusterShape(hash, tiledShapes);
+        return tiledShapes;
     }
 
     if (distributionMode == VPU::DistributionMode::OVERLAPPED) {
@@ -1130,6 +1130,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
                 axis, numClusters, distribution.hasUniformDistributedSegments());
 
         if (!optionalInputTileDimRanges.has_value()) {
+            cache.updatePerClusterShape(hash, std::nullopt);
             return std::nullopt;
         }
 
@@ -1142,6 +1143,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
             tiledMemoryShapes[cluster] = Shape(alignShape(shape, optionalAlignment, alignValUp<int64_t>));
         }
 
+        cache.updatePerClusterShape(hash, tiledMemoryShapes);
         return tiledMemoryShapes;
     }
 

@@ -4,8 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
-
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
@@ -33,7 +33,6 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
         return false;
     }
 
-    auto arch = getArch(op);
     if (!NCEInvariant::isAttrsSupported(op, KY, KX, SY, SX, pads.top, pads.bottom, pads.left, pads.right, logCb)) {
         return false;
     }
@@ -47,7 +46,7 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
                                                : vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType());
         auto outputAlignment = iface != nullptr ? iface.getOutputChannelAlignment()
                                                 : vpux::VPU::NCEInvariant::getAlignment(outputType.getElementType());
-        if (!NCEInvariant::isInputActTypeSupported(arch, inputType, !isChannelMajor ? inputAlignment : 1,
+        if (!NCEInvariant::isInputActTypeSupported(inputType, !isChannelMajor ? inputAlignment : 1,
                                                    supportsInputActCompression) ||
             !NCEInvariant::isOutputActTypeSupported(outputType, outputAlignment)) {
             logCb(formatv("Misaligned tensor shape"));
@@ -57,7 +56,6 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
 
     if (checkLayout) {
         const auto filterOrder = filterType.getDimsOrder();
-        const auto outputOrder = outputType.getDimsOrder();
 
         if (inputOrder != DimsOrder::NHWC && inputOrder != DimsOrder::NCHW) {
             logCb(formatv("Unsupported input layout '{0}'", inputOrder));
@@ -65,14 +63,6 @@ bool vpux::VPU::isNCEConvSupported(mlir::Operation* op, NDTypeInterface inputTyp
         }
         if (filterOrder != DimsOrder::OYXI) {
             logCb(formatv("Unsupported filter layout '{0}'", filterOrder));
-            return false;
-        }
-        const std::set<VPU::ArchKind> compatibleTargets = {
-                VPU::ArchKind::NPU37XX,
-                VPU::ArchKind::NPU40XX,
-        };
-        if (compatibleTargets.count(arch) <= 0 && outputOrder != DimsOrder::NHWC) {
-            logCb(formatv("Unsupported output layout '{0}'", outputOrder));
             return false;
         }
     }
@@ -266,15 +256,15 @@ std::optional<bool> VPU::isSEPConvCompatibleWithClusterStrategy(VPU::NCEConvolut
     return std::nullopt;
 }
 
-mlir::LogicalResult vpux::VPU::verifyConvUtil(mlir::Location loc, mlir::Operation* op, Shape filterShape,
-                                              Shape kernelStrides, PaddingAttr padAttr, ShapeRef weightsTableShape,
+mlir::LogicalResult vpux::VPU::verifyConvUtil(mlir::Location loc, mlir::Operation* op, ShapeRef filterShape,
+                                              ShapeRef kernelStrides, PaddingAttr padAttr, ShapeRef weightsTableShape,
                                               mlir::Value output) {
     const auto logCb = [loc](const formatv_object_base& msg) {
         std::ignore = errorAt(loc, "{0}", msg.str());
     };
 
     const auto outputShape = getShape(output);
-    const auto OC = outputShape[Dims4D::Act::C];
+    auto OC = outputShape[Dims4D::Act::C];
 
     const auto KY = filterShape[Dims4D::Filter::KY];
     const auto KX = filterShape[Dims4D::Filter::KX];
@@ -289,6 +279,10 @@ mlir::LogicalResult vpux::VPU::verifyConvUtil(mlir::Location loc, mlir::Operatio
 
     if (!VPU::NCEInvariant::isAttrsSupported(op, KY, KX, SY, SX, padTop, padBottom, padLeft, padRight, logCb)) {
         return mlir::failure();
+    }
+
+    if (VPU::canAutopadOutput(op)) {
+        OC = vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
     }
 
     const auto expectedWeightsTableShape = VPU::NCESparsity::inferWeightsTableShape(OC);

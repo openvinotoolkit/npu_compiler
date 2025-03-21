@@ -9,12 +9,12 @@
 
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/types.hpp"
-
 #include "vpux/compiler/utils/passes.hpp"
 
-#include "vpux/utils/core/logger.hpp"
-
+#include <llvm/ADT/DenseMap.h>
+#include <llvm/ADT/SmallVector.h>
 #include <mlir/IR/BuiltinOps.h>
+#include <mlir/IR/Value.h>
 #include <mlir/Pass/Pass.h>
 
 namespace vpux {
@@ -51,6 +51,14 @@ protected:
             {};  // needs to be populated by correspondent pass with the task types supported by the arch in the
                  // specific order that the FW expects
 };
+
+std::unique_ptr<mlir::Pass> createDeduceDynamicMappedInferenceVersionPass(Logger log = Logger::global());
+
+//
+// Registration
+//
+
+void registerPasses();
 
 }  // namespace VPURegMapped
 }  // namespace vpux

@@ -259,7 +259,7 @@ mlir::Value SingleClusterScheduler::copyToDDR(mlir::BlockArgument& profilingResu
 }
 
 mlir::Value SingleClusterScheduler::getViewToBuffer(mlir::Operation* currentProfilingBuffer,
-                                                    unsigned profilingSamplesInCMX, SmallVector<int64_t> sizes) {
+                                                    unsigned profilingSamplesInCMX, ArrayRef<int64_t> sizes) {
     return _builder.create<VPUIP::SubViewOp>(
             mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "dpuProfilingSubview")),
             currentProfilingBuffer->getResult(0),
@@ -302,7 +302,7 @@ mlir::Operation* MultiClusterScheduler::createAllocationOp(unsigned totalSizeCMX
 }
 
 mlir::Value MultiClusterScheduler::getViewToBuffer(mlir::Operation* currentProfilingBuffer,
-                                                   unsigned profilingSamplesInCMX, SmallVector<int64_t> sizes) {
+                                                   unsigned profilingSamplesInCMX, ArrayRef<int64_t> sizes) {
     return _builder.create<VPUIP::SubViewOp>(
             mlir::NameLoc::get(mlir::StringAttr::get(_ctx, "dpuProfilingSubview")),
             currentProfilingBuffer->getResult(0),

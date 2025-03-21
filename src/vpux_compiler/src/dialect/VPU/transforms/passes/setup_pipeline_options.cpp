@@ -5,11 +5,18 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/ppe_factory.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SETUPPIPELINEOPTIONS
+#define GEN_PASS_DEF_SETUPPIPELINEOPTIONS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -33,7 +40,7 @@ static void registerPpeFactory() {
 // SetupPipelineOptionsPass
 //
 
-class SetupPipelineOptionsPass final : public VPU::SetupPipelineOptionsBase<SetupPipelineOptionsPass> {
+class SetupPipelineOptionsPass final : public VPU::impl::SetupPipelineOptionsBase<SetupPipelineOptionsPass> {
 public:
     SetupPipelineOptionsPass() = default;
     SetupPipelineOptionsPass(const VPU::InitCompilerOptions& initCompilerOptions, Logger log) {
@@ -81,7 +88,6 @@ void SetupPipelineOptionsPass::initializeFromOptions() {
             registerPpeFactory<VPU::arch37xx::PpeFactory>();
             _log.info("Auto target PPE version set to: 'IntPPE'");
         }
-
     } else if (ppeVersion == "IntPPE") {
         registerPpeFactory<VPU::arch37xx::PpeFactory>();
     } else {

@@ -195,12 +195,10 @@ mlir::LogicalResult exportELF(mlir::ModuleOp module, llvm::raw_ostream& output) 
 
     auto arch = VPU::getArch(module.getOperation());
 
-    const std::set<VPU::ArchKind> compatibleTargets = {VPU::ArchKind::NPU40XX};
-
     if (arch == VPU::ArchKind::NPU37XX) {
         const auto buf = ELFNPU37XX::exportToELF(module);
         output.write(reinterpret_cast<const char*>(buf.data()), buf.size());
-    } else if (compatibleTargets.count(arch) > 0) {
+    } else if (arch >= VPU::ArchKind::NPU40XX) {
         const auto buf = ELF::exportToELF(module);
         output.write(reinterpret_cast<const char*>(buf.data()), buf.size());
     } else {

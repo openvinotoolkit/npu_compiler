@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --wrap-in-vertical-fusion %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @WrapNCETiledTask(%arg0: tensor<1x32x256x256xf16, {order = #NHWC}>, %wt: tensor<32x1x1x4xsi32>, %weights: tensor<32x32x3x3xf16, {order = #NHWC}>) -> tensor<1x32x256x256xf16, {order = #NHWC}> {
@@ -99,6 +98,21 @@ func.func @WrapMultiply(%arg0: tensor<1x4x720x1080xf16, {order = #NHWC}>, %arg1:
 
     //CHECK:  VPU.VerticalFusion (%arg0 as %arg2: tensor<1x4x720x1080xf16, {order = #NHWC}>, %arg1 as %arg3: tensor<1x4x720x1080xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 5, 1]} -> tensor<1x4x720x1080xf16, {order = #NHWC}> {
     //CHECK:  VPU.Multiply(%arg2, %arg3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x720x1080xf16, {order = #NHWC}>, tensor<1x4x720x1080xf16, {order = #NHWC}> -> tensor<1x4x720x1080xf16, {order = #NHWC}>
+    //CHECK:    VPU.Yield
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+//CHECK-LABEL: @WrapSubtract
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x4x720x1080xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x4x720x1080xf16, {order = #NHWC}>)
+func.func @WrapSubtract(%arg0: tensor<1x4x720x1080xf16, {order = #NHWC}>, %arg1: tensor<1x4x720x1080xf16, {order = #NHWC}>) -> tensor<1x4x720x1080xf16, {order = #NHWC}> {
+    %0 = VPU.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, tilingStrategy = [1, 1, 5, 1]} : tensor<1x4x720x1080xf16, {order = #NHWC}>, tensor<1x4x720x1080xf16, {order = #NHWC}> -> tensor<1x4x720x1080xf16, {order = #NHWC}>
+    return %0 : tensor<1x4x720x1080xf16, {order = #NHWC}>
+
+    //CHECK:  VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:%.+]]: tensor<1x4x720x1080xf16, {order = #NHWC}>, [[INPUT1]] as [[INNER_ARG1:%.+]]: tensor<1x4x720x1080xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 5, 1]} -> tensor<1x4x720x1080xf16, {order = #NHWC}> {
+    //CHECK:  VPU.Subtract([[INNER_ARG0]], [[INNER_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>} : tensor<1x4x720x1080xf16, {order = #NHWC}>, tensor<1x4x720x1080xf16, {order = #NHWC}> -> tensor<1x4x720x1080xf16, {order = #NHWC}>
     //CHECK:    VPU.Yield
 }
 

@@ -4,11 +4,19 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUMI40XX {
+#define GEN_PASS_DECL_ADDENQUEUEOPS
+#define GEN_PASS_DEF_ADDENQUEUEOPS
+#include "vpux/compiler/dialect/VPUMI40XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI40XX
 
 using namespace vpux;
 
@@ -16,10 +24,10 @@ namespace {
 
 static constexpr int64_t DMA_OUTSTANDING_TRANSACTIONS = 64;
 
-class AddEnqueueOpsPass : public VPUMI40XX::AddEnqueueOpsBase<AddEnqueueOpsPass> {
+class AddEnqueueOpsPass : public VPUMI40XX::impl::AddEnqueueOpsBase<AddEnqueueOpsPass> {
 public:
-    explicit AddEnqueueOpsPass(const WlmVpurtEnqueueMode wlmVpurtEnqueue, Logger log)
-            : _enabledWlmVpurtEnqueue(wlmVpurtEnqueue == WlmVpurtEnqueueMode::ENABLED) {
+    explicit AddEnqueueOpsPass(const WorkloadManagementMode workloadManagementMode, Logger log)
+            : _enabledWlmVpurtEnqueue(workloadManagementMode == WorkloadManagementMode::PWLM_V1_BARRIER_FIFO) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -241,154 +249,6 @@ mlir::LogicalResult verifyEnqueueOpsOrderIsAlignedWithPerFifoTaskOrder(SmallVect
     return mlir::success();
 }
 
-// Check if all enqueue ops for same barrier are adjacent to each other. Otherwise runtime
-// processing will fail.
-// Example that woudl fail:
-//  Enq0  Bar0
-//  Enq1  Bar1
-//  Enq2  Bar0 <- error: Enq2 should be placed next to Enq0
-//
-// TODO: This check will not be needed once E#144867 is implemented
-mlir::LogicalResult verifyEnqueueOpsForSameBarrierArePutInAdjacentWay(SmallVector<VPURegMapped::EnqueueOp>& enquOps,
-                                                                      Logger log) {
-    if (enquOps.empty()) {
-        return mlir::success();
-    }
-
-    llvm::DenseSet<size_t> enqBarsSet;
-
-    auto prevEnqBar = mlir::cast<VPURegMapped::IndexType>(enquOps[0].getBarrier().getType()).getValue();
-    enqBarsSet.insert(prevEnqBar);
-
-    for (size_t i = 1; i < enquOps.size(); i++) {
-        auto bar = mlir::cast<VPURegMapped::IndexType>(enquOps[i].getBarrier().getType()).getValue();
-        if (bar == prevEnqBar) {
-            continue;
-        }
-        if (enqBarsSet.find(bar) != enqBarsSet.end()) {
-            log.warning("Incorrect position for enque {0} in WorkItem list - enqueues for bar {1} are not adjacent to "
-                        "each other",
-                        enquOps[i], bar);
-            return mlir::failure();
-        }
-
-        enqBarsSet.insert(bar);
-        prevEnqBar = bar;
-    }
-
-    return mlir::success();
-}
-
-bool checkIfEnqueuesDoNotFollowBarrierIndexOrder(
-        llvm::DenseMap<size_t, SmallVector<VPURegMapped::EnqueueOp>>& enqOpsVecOnBarInd,
-        ArrayRef<size_t> barsWithEnqu) {
-    llvm::DenseMap<VPUMI40XX::HwQueueType, uint32_t> lastTaskPerQueue;
-    for (size_t i = 0; i < barsWithEnqu.size(); i++) {
-        auto barInd = barsWithEnqu[i];
-        for (auto& enqu : enqOpsVecOnBarInd[barInd]) {
-            auto tile = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getTileIdx();
-            auto list = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getListIdx();
-            auto index = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getValue();
-            auto taskType = enqu.getTaskType();
-            VPUMI40XX::HwQueueType qType({taskType, tile, list});
-
-            if (lastTaskPerQueue.find(qType) != lastTaskPerQueue.end()) {
-                return false;
-            }
-            lastTaskPerQueue[qType] = index;
-        }
-    }
-    return true;
-}
-
-bool updateBarOrderForEnqueue(llvm::DenseMap<size_t, SmallVector<VPURegMapped::EnqueueOp>>& enqOpsVecOnBarInd,
-                              SmallVector<size_t>& barsWithEnqu) {
-    bool orderingSuccess = true;
-
-    struct BarEnqueues {
-        size_t barInd;
-        llvm::DenseMap<VPUMI40XX::HwQueueType, int> qTypeTaskIndMap;
-    };
-
-    SmallVector<BarEnqueues> barEnqueues(barsWithEnqu.size());
-
-    for (size_t i = 0; i < barsWithEnqu.size(); i++) {
-        auto barInd = barsWithEnqu[i];
-        barEnqueues[i].barInd = barInd;
-        for (auto& enqu : enqOpsVecOnBarInd[barInd]) {
-            auto tile = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getTileIdx();
-            auto list = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getListIdx();
-            auto index = mlir::cast<VPURegMapped::IndexType>(enqu.getStart().getType()).getValue();
-            auto taskType = enqu.getTaskType();
-            VPUMI40XX::HwQueueType qType({taskType, tile, list});
-
-            barEnqueues[i].qTypeTaskIndMap[qType] = index;
-        }
-    }
-
-    SmallVector<size_t> newBarsWithEnquOrder;
-
-    // Below function uses selection sort for ordering barriers used by enqueues
-    // It is not compile time efficient for large data but number of independant
-    // enqueues should not be large for most models
-    // barEnqueues is expected to have order following increasing barrier indexes
-    // Goal of the sort is to try to maintain this order as much as possible
-    // and only delay (move later in order) enqueues that cannot where they are because
-    // of violating HW FIFO order.
-    // TODO: Create more efficient ordering method.
-    size_t searchStartOffset = 0;
-    while (!barEnqueues.empty()) {
-        if (searchStartOffset >= barEnqueues.size()) {
-            orderingSuccess = false;
-            break;
-        }
-        auto searchStartIt = barEnqueues.begin() + searchStartOffset;
-        auto minBarEnq =
-                std::min_element(searchStartIt, barEnqueues.end(), [&](const BarEnqueues& a, const BarEnqueues& b) {
-                    std::optional<bool> aIsSmaller;
-
-                    for (const auto& [qType, aInd] : a.qTypeTaskIndMap) {
-                        // Check if b has same qType in it
-                        if (b.qTypeTaskIndMap.find(qType) != b.qTypeTaskIndMap.end()) {
-                            const int bInd = b.qTypeTaskIndMap.at(qType);
-                            bool aIsSmallerForQueue = (aInd < bInd);
-                            if (aIsSmaller.has_value() && aIsSmaller.value() != aIsSmallerForQueue) {
-                                // In this case reordering can not be applied. Report an error
-                                orderingSuccess = false;
-                                break;
-                            }
-                            aIsSmaller = aIsSmallerForQueue;
-                        }
-                    }
-                    if (aIsSmaller.has_value()) {
-                        return aIsSmaller.value();
-                    }
-
-                    return a.barInd < b.barInd;
-                });
-
-        // For given search iteration only use first element if it is the minimal one.
-        // If it is not on next iteration repeat the search by skipping initial elements (searchStartOffset)
-        // Such differentation is done because two different elements can be compared either based on barrier index
-        // (if they are different HW FIFO) or task index (if they are on the same HW FIFO).
-        // Current method favors keeping barrier order what is important for progressing schedule during inference
-        // but at the same time makes sure HW FIFO order is maintained, by delaying some enqueue ops with earlier
-        // barrier to be pushed further if they enqueue tasks with later indexes
-        if (minBarEnq == searchStartIt) {
-            newBarsWithEnquOrder.push_back(minBarEnq->barInd);
-            barEnqueues.erase(minBarEnq);
-            searchStartOffset = 0;
-        } else {
-            searchStartOffset++;
-        }
-    }
-
-    if (orderingSuccess) {
-        barsWithEnqu = std::move(newBarsWithEnquOrder);
-    }
-    return orderingSuccess;
-}
-
 // For each task that depends also on descriptor fetching (DPU and SHV) search for enqueue barrier
 // and create new enqueue op if needed
 // This method will use an LCA algorithm on previous instance of tasks barriers and update barrier
@@ -527,8 +387,9 @@ mlir::LogicalResult addEnqusForTasksWithFetch(VPUMI40XX::MappedInferenceOp mpi, 
                                                       ? localPreviousEnqu.getResult()
                                                       : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
                 localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
-                        taskOp->getLoc(), index, previousEnquVal, enqueueTarget, secondary,
-                        firstSecondary->getResult(0), lastSecondary->getResult(0));
+                        taskOp->getLoc(), index, previousEnquVal, enqueueTarget,
+                        /*previousTaskIdxOnSameBarrier*/ nullptr, secondary, firstSecondary->getResult(0),
+                        lastSecondary->getResult(0));
                 counter++;
                 log.trace("New enqueue for task {0} at barrier {1}",
                           mlir::cast<VPURegMapped::IndexType>(firstSecondary->getResult(0).getType()).getValue(),
@@ -648,7 +509,8 @@ mlir::LogicalResult addEnqusForDmas(VPUMI40XX::MappedInferenceOp mpi, const int6
                                                       : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
                             localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
                                     dmaTask.getLoc(), index, previousEnquVal, enqueueTarget,
-                                    VPURegMapped::TaskType::DMA, dmaTask, dmaTask);
+                                    /*previousTaskIdxOnSameBarrier*/ nullptr, VPURegMapped::TaskType::DMA, dmaTask,
+                                    dmaTask);
 
                             outstandingEnqueuedDmas[outstandingEnquOpsCounter] = executableTaskOp;
                             outstandingEnquOpsCounter = (outstandingEnquOpsCounter + 1) % DMA_OUTSTANDING_TRANSACTIONS;
@@ -740,8 +602,9 @@ void addPredefinedEnqusForTasksWithFetch(VPUMI40XX::MappedInferenceOp mpi, const
                                                       ? localPreviousEnqu.getResult()
                                                       : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
                 localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
-                        taskOp->getLoc(), index, previousEnquVal, enqueueTarget, secondary,
-                        firstSecondary->getResult(0), lastSecondary->getResult(0));
+                        taskOp->getLoc(), index, previousEnquVal, enqueueTarget,
+                        /*previousTaskIdxOnSameBarrier*/ nullptr, secondary, firstSecondary->getResult(0),
+                        lastSecondary->getResult(0));
                 counter++;
                 log.trace("New enqueue for task {0} at barrier {1}",
                           mlir::cast<VPURegMapped::IndexType>(firstSecondary->getResult(0).getType()).getValue(),
@@ -791,8 +654,9 @@ void addPredefinedEnqusForDmas(VPUMI40XX::MappedInferenceOp mpi, const int64_t t
                                 localPreviousEnqu ? localPreviousEnqu.getResult()
                                                   : (globalPreviousEnqu ? globalPreviousEnqu.getResult() : nullptr);
                         localPreviousEnqu = builder.create<VPURegMapped::EnqueueOp>(
-                                dmaTask.getLoc(), index, previousEnquVal, enqueueTarget, VPURegMapped::TaskType::DMA,
-                                dmaTask, dmaTask);
+                                dmaTask.getLoc(), index, previousEnquVal, enqueueTarget,
+                                /*previousTaskIdxOnSameBarrier*/ nullptr, VPURegMapped::TaskType::DMA, dmaTask,
+                                dmaTask);
 
                         counter++;
                         log.trace("New enqueue for task {0} at barrier {1}",
@@ -815,6 +679,116 @@ void addPredefinedEnqusForDmas(VPUMI40XX::MappedInferenceOp mpi, const int64_t t
             log = log.unnest();
         }
     }
+}
+
+// After inserting enqueue ops for each FIFO in the IR, enqueue ops need to be ordered
+// as there is only 1 enqueue ops (WorkItem task) list that will be processed by VPU-FW
+// There are following restrictions:
+// 1:
+// Prepared enqueues order need to always guarantee that for given HW FIFO tasks are not
+// enqueued out of order, meaning enqueue for taskFifoX[N] is not placed after enqueue
+// for taskFifoX[N+1]
+// This constraint is verified by verifyEnqueueOpsOrderIsAlignedWithPerFifoTaskOrder()
+//
+// 2:
+// For each Enq[j] and Enq[i], such that j > i, tasks enqueued by Enq[j] cannot block barrier consumption
+// of any task enqueued by Enq[i]
+// Example for incorrect order:
+//  Enq[0]: Bar0, taskX[0]
+//  Enq[1]: Bar2, taskX[1]
+//  Enq[2]: Bar1, taskY[1], taskY[1].wait(Bar2)
+//
+// Although above order satisfies constraint 1 it will cause a deadlock as Enq[1] happening at Bar2
+// will never happen as Bar2 will be consumed by task which is enqueued later at Enq[2]
+// In that case Enq[2] should be placed before Enq[1]
+//
+// This constraint can be satisfied by updating the order of enqueues with order of barriers - smaller
+// index first. Barriers are ordered based on consumption order so if Bar[i] depends on Bar[j] it is
+// guaranteed to have larger index (i > j)
+// Important: Larger index does not always mean barrier dependency, for example Bar[N+1] does not
+// need to depend on Bar[N] in schedule if they are on parallel branch
+//
+// This constraint is verified by verifyEnqueueBarrierIsNotBlockedByFutureTask()
+//
+// To satisfy both constraints algorithm should process enqueues for tasks following
+// their order in given HW FIFO to satisfy constraint 1 and when picking HW FIFO from
+// which enqueue to order first should use smaller barrier index to satisfy constraint 2
+SmallVector<VPURegMapped::EnqueueOp> getEnqueueOpsOrder(mlir::func::FuncOp netFunc) {
+    size_t enquOpsCount = 0;
+    // Store enqueue ops information per FIFO
+    // For each HW FIFO (identified by VPUMI40XX::HwQueueType) vector of enqueue ops
+    // is ordered for given FIFO as this is how they were inserted by previous functions
+    // which processed IR top to bottom
+    // Example:
+    //  HW FIFO X: Enq(Bar1, taskX[0-1]), Enq(Bar3, taskX[2])
+    //  HW FIFO Y: Enq(Bar2, taskY[0]), Enq(Bar0, taskY[1-2])
+    llvm::DenseMap<VPUMI40XX::HwQueueType, SmallVector<VPURegMapped::EnqueueOp>> enquOpsPerQueue;
+    for (auto enquOp : netFunc.getOps<VPURegMapped::EnqueueOp>()) {
+        // EnqueueOp can cover range of tasks start(tile:list:startIdx)-end(tile:list:endIdx)
+        // Tile and list is guaranteed to be the same for start and end because they both identify
+        // HW FIFO and enqueue op can have tasks only from HW FIFO
+        auto tile = mlir::cast<VPURegMapped::IndexType>(enquOp.getStart().getType()).getTileIdx();
+        auto list = mlir::cast<VPURegMapped::IndexType>(enquOp.getStart().getType()).getListIdx();
+        auto taskType = enquOp.getTaskType();
+        VPUMI40XX::HwQueueType queueType({taskType, tile, list});
+        enquOpsPerQueue[queueType].push_back(enquOp);
+        enquOpsCount++;
+    }
+
+    // Vector for storing final order of enqueue ops
+    SmallVector<VPURegMapped::EnqueueOp> enquOpsOrder;
+    enquOpsOrder.reserve(enquOpsCount);
+
+    // For each HW FIFO store index of next enqueue op to be processed
+    mlir::DenseMap<VPUMI40XX::HwQueueType, size_t> perQueueCurrentEnqIndex;
+
+    size_t i = 0;
+    while (i < enquOpsCount) {
+        // From all HW FIFOs pick next enqueue with the smallest barrier
+        // index. Take into account only top of the list for each HW FIFO
+        // identified by perQueueCurrentEnqIndex
+        // Example:
+        //  HW FIFO X: Enq(Bar1, TaskX[0]), Enq(Bar2, TaskX[1]), ...
+        //  HW FIFO Y: Enq(Bar2, TaskY[0]), Enq(Bar3, TaskX[1]), ...
+        //  HW FIFO Z: Enq(Bar1, TaskZ[0]), Enq(Bar2, TaskZ[1]), ...
+        // Next enqueue barriers: Bar1, Bar2, Bar1
+        // Min barrier: Bar1
+        auto minEnqOpBar = std::numeric_limits<uint32_t>::max();
+        for (const auto& [queueType, enqVecOnQueue] : enquOpsPerQueue) {
+            auto indexInQueue = perQueueCurrentEnqIndex[queueType];
+            // Check if all enqueues from this FIFO were accounted for already and skip
+            if (indexInQueue == enqVecOnQueue.size()) {
+                continue;
+            }
+            auto enqOp = enqVecOnQueue[indexInQueue];
+            auto enqOpBar = mlir::cast<VPURegMapped::IndexType>(enqOp.getBarrier().getType()).getValue();
+            minEnqOpBar = std::min(minEnqOpBar, enqOpBar);
+        }
+
+        // After identifying next enqueue barrier pick all enqueues from top of each FIFOs that match this barrier
+        // For previous example that would be 2 enqueues: for HW FIFO X and Z:
+        // Enq(Bar1, TaskX[0]) and Enq(Bar1, TaskZ[0])
+        // Push those enqueues to final order vector and increment counters
+        // for those FIFOs
+        for (auto& [queueType, enqVecOnQueue] : enquOpsPerQueue) {
+            auto indexInQueue = perQueueCurrentEnqIndex[queueType];
+            // Check if all enqueues from this FIFO were accounted for already and skip
+            if (indexInQueue >= enqVecOnQueue.size()) {
+                continue;
+            }
+            auto enqOp = enqVecOnQueue[indexInQueue];
+            auto enqOpBar = mlir::cast<VPURegMapped::IndexType>(enqOp.getBarrier().getType()).getValue();
+            // Barrier for this HW FIFO does not match indetified barrier, do not pick this enqueue
+            if (enqOpBar != minEnqOpBar) {
+                continue;
+            }
+            enquOpsOrder.push_back(enqOp);
+            perQueueCurrentEnqIndex[queueType]++;
+            i++;
+        }
+    }
+
+    return enquOpsOrder;
 }
 
 void AddEnqueueOpsPass::safeRunOnFunc() {
@@ -853,50 +827,13 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
         addPredefinedEnqusForDmas(mpi, tilesCount, globalPreviousEnqu, builder, globalEnquCounter, lastDmaWithNoEnqueue,
                                   _log);
 
-        // Store data about enqueue ops happening on given barrier
-        // and also barriers that are used for enqueues
-        // This data will be used later to check barrier order and allow reordering of enqueues
-        llvm::DenseMap<size_t, SmallVector<VPURegMapped::EnqueueOp>> enqOpsVecOnBarInd;
-        SmallVector<size_t> barsWithEnqu;
-        for (size_t barInd = 0; barInd < barriers.size(); barInd++) {
-            bool barHasEnqUser = false;
-            for (auto user : barriers[barInd].getResult().getUsers()) {
-                auto enqu = mlir::dyn_cast<VPURegMapped::EnqueueOp>(user);
-                if (!enqu) {
-                    continue;
-                }
-                barHasEnqUser = true;
-                enqOpsVecOnBarInd[barInd].push_back(enqu);
-            }
+        // After inserting enqueue ops for each FIFO in the IR, enqueue ops need to be ordered
+        // as there is only 1 enqueue ops (WorkItem task) list that will be processed by VPU-FW
+        auto enquOpsOrder = getEnqueueOpsOrder(netFunc);
 
-            if (barHasEnqUser) {
-                llvm::sort(enqOpsVecOnBarInd[barInd], [](VPURegMapped::EnqueueOp lhs, VPURegMapped::EnqueueOp rhs) {
-                    return mlir::cast<VPURegMapped::IndexType>(lhs.getResult().getType()).getValue() <
-                           mlir::cast<VPURegMapped::IndexType>(rhs.getResult().getType()).getValue();
-                });
-
-                barsWithEnqu.push_back(barInd);
-            }
-        }
-        llvm::sort(barsWithEnqu);
-
-        if (!checkIfEnqueuesDoNotFollowBarrierIndexOrder(enqOpsVecOnBarInd, barsWithEnqu)) {
-            _log.trace("Need to reorder barriers for enqueeus to maintain task order");
-
-            if (!updateBarOrderForEnqueue(enqOpsVecOnBarInd, barsWithEnqu)) {
-                _log.warning("Reordering of barriers unsuccessful");
-                vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
-                signalPassFailure();
-                return;
-            }
-        }
-
-        // Apply ordering to IR
-        for (size_t i = 0; i < barsWithEnqu.size(); i++) {
-            auto barInd = barsWithEnqu[i];
-            for (auto& enqu : enqOpsVecOnBarInd[barInd]) {
-                enqu.getOperation()->moveBefore(mpi.getOperation());
-            }
+        // Update enqueue ops order in IR
+        for (auto& enqu : enquOpsOrder) {
+            enqu.getOperation()->moveBefore(mpi.getOperation());
         }
 
     } else {
@@ -973,13 +910,6 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
         signalPassFailure();
         return;
     }
-
-    // Verify enqueue ops for the same barrier are put adjacent to each other
-    if (mlir::failed(verifyEnqueueOpsForSameBarrierArePutInAdjacentWay(enquOps, _log))) {
-        vpux::VPUIP::setWlmStatus(module, vpux::VPUIP::WlmStatus::FAILED);
-        signalPassFailure();
-        return;
-    }
 }
 
 }  // namespace
@@ -988,6 +918,7 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
 // createAddEnqueueOpsPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUMI40XX::createAddEnqueueOpsPass(WlmVpurtEnqueueMode wlmVpurtEnqueue, Logger log) {
-    return std::make_unique<AddEnqueueOpsPass>(wlmVpurtEnqueue, log);
+std::unique_ptr<mlir::Pass> vpux::VPUMI40XX::createAddEnqueueOpsPass(WorkloadManagementMode workloadManagementMode,
+                                                                     Logger log) {
+    return std::make_unique<AddEnqueueOpsPass>(workloadManagementMode, log);
 }

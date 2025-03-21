@@ -23,6 +23,12 @@
 #include <algorithm>
 #include <numeric>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_DPUPROFILING
+#define GEN_PASS_DEF_DPUPROFILING
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -31,7 +37,7 @@ namespace {
 // DPUProfilingPass
 //
 
-class DPUProfilingPass final : public VPUIP::DPUProfilingBase<DPUProfilingPass> {
+class DPUProfilingPass final : public VPUIP::impl::DPUProfilingBase<DPUProfilingPass> {
 public:
     explicit DPUProfilingPass(VPUIP::MemKindCreateFunc memKindCb, Logger log): _memKindCb(std::move(memKindCb)) {
         VPUX_THROW_UNLESS(_memKindCb != nullptr, "Missing memKindCb");

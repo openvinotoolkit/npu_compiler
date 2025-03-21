@@ -8,14 +8,22 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_MERGETILEWITHSLICE
+#define GEN_PASS_DEF_MERGETILEWITHSLICE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
 
 //
-// MergeTileWithSlice
+// MergeTileWithReshapeSlice
 //
 
 //                                Input(2x1x10x80)
@@ -36,10 +44,10 @@ namespace {
 //             |                   |                   |                 |
 //        IE.Slice(1x1x10x80) IE.Slice(1x1x10x80) IE.Slice(1x1x10x80) IE.Slice(1x1x10x80)
 
-class MergeTileWithSlice final : public mlir::OpRewritePattern<IE::TileOp> {
+class MergeTileWithReshapeSlice final : public mlir::OpRewritePattern<IE::TileOp> {
 public:
-    MergeTileWithSlice(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::TileOp>(ctx), _log(log) {
-        setDebugName("MergeTileWithSlice");
+    MergeTileWithReshapeSlice(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::TileOp>(ctx), _log(log) {
+        setDebugName("MergeTileWithReshapeSlice");
     }
 
 public:
@@ -131,7 +139,8 @@ bool doesTransposeMeetRequirement(IE::TransposeOp transposeOp, ArrayRef<int64_t>
     return true;
 }
 
-mlir::LogicalResult MergeTileWithSlice::matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult MergeTileWithReshapeSlice::matchAndRewrite(IE::TileOp tileOp,
+                                                               mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got Tile layer at '{1}'", tileOp->getName(), tileOp->getLoc());
 
     const int64_t rank4D = 4;
@@ -235,10 +244,91 @@ mlir::LogicalResult MergeTileWithSlice::matchAndRewrite(IE::TileOp tileOp, mlir:
 }
 
 //
+// MergeTileWithSlice
+//
+
+//                                Input(1x1x80x80)
+//                                        |
+//                                IE.Tile(1x4x80x80)
+//                                        |
+//             -----------------------------------------------------------
+//             |                   |                   |                 |
+//        IE.Slice(1x1x80x80) IE.Slice(1x1x80x80) IE.Slice(1x1x80x80) IE.Slice(1x1x80x80)
+
+// To:
+
+//                                Input(1x1x80x80)
+//                                        |
+
+class MergeTileWithSlice final : public mlir::OpRewritePattern<IE::TileOp> {
+public:
+    MergeTileWithSlice(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::TileOp>(ctx), _log(log) {
+        setDebugName("MergeTileWithSlice");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult MergeTileWithSlice::matchAndRewrite(IE::TileOp tileOp, mlir::PatternRewriter& rewriter) const {
+    const int64_t rank4D = 4;
+    auto tileInShape = getShape(tileOp.getInput());
+    auto tileOutShape = getShape(tileOp.getOutput());
+
+    if (tileInShape.size() != rank4D || tileOutShape.size() != rank4D) {
+        return matchFailed(_log, rewriter, tileOp, "Input is not 4D");
+    }
+
+    auto repeatDim = IE::getSingleDiffAxis(tileInShape, tileOutShape);
+    if (!repeatDim.has_value()) {
+        return matchFailed(_log, rewriter, tileOp, "Tile on different axis");
+    }
+
+    auto areAllUserSliceMeetRequirement = [](IE::TileOp tileOp) {
+        auto origShape = getShape(tileOp.getInput());
+        for (auto user : tileOp.getOutput().getUsers()) {
+            auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
+            if (sliceOp == nullptr) {
+                return false;
+            }
+            if (getShape(tileOp.getInput()) != getShape(sliceOp.getResult())) {
+                return false;
+            }
+
+            auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsets());
+            const auto sliceInShape = getShape(sliceOp.getSource());
+            const auto sliceOutShape = getShape(sliceOp.getResult());
+            auto sliceDim = IE::getSingleDiffAxis(sliceInShape, sliceOutShape);
+            // Check if the slice offset is within the repeated range
+            if (sliceOffset[sliceDim.value().ind()] % origShape[sliceDim.value()] != 0) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    if (!areAllUserSliceMeetRequirement(tileOp)) {
+        return matchFailed(_log, rewriter, tileOp, "Cannot find user Slice op meet requirement");
+    }
+
+    for (auto user : tileOp.getOutput().getUsers()) {
+        auto sliceOp = mlir::dyn_cast<IE::SliceOp>(user);
+        VPUX_THROW_UNLESS(sliceOp != nullptr, "Cannot find user Slice op");
+        sliceOp->getResult(0).replaceAllUsesWith(tileOp.getInput());
+    }
+
+    _log.trace("Merge Tile {0} to slice success", tileOp->getLoc());
+    return mlir::success();
+}
+
+//
 // MergeTileWithSlicePass
 //
 
-class MergeTileWithSlicePass final : public IE::MergeTileWithSliceBase<MergeTileWithSlicePass> {
+class MergeTileWithSlicePass final : public IE::impl::MergeTileWithSliceBase<MergeTileWithSlicePass> {
 public:
     explicit MergeTileWithSlicePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -256,6 +346,7 @@ void MergeTileWithSlicePass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::RewritePatternSet patterns(&ctx);
+    patterns.add<MergeTileWithReshapeSlice>(&ctx, _log);
     patterns.add<MergeTileWithSlice>(&ctx, _log);
 
     auto func = getOperation();

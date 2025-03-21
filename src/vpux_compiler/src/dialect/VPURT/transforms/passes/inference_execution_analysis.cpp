@@ -10,13 +10,32 @@
 #include "vpux/compiler/core/cycle_cost_info.hpp"
 #include "vpux/utils/profiling/reports/api.hpp"
 
+namespace vpux::VPURT {
+#define GEN_PASS_DECL_INFERENCEEXECUTIONANALYSIS
+#define GEN_PASS_DEF_INFERENCEEXECUTIONANALYSIS
+#include "vpux/compiler/dialect/VPURT/passes.hpp.inc"
+}  // namespace vpux::VPURT
+
 using namespace vpux;
 
 namespace {
 
+size_t getClusterId(VPUIP::DPUTaskOp op) {
+    return op.getClusterId().value_or(0);
+}
+
+size_t getClusterId(VPUIP::SwKernelOp op) {
+    return op.getTileIndex().value_or(0);
+}
+
+size_t getClusterId(VPUIP::NCEClusterTaskOp nceOp) {
+    const auto dpuTasks = nceOp.getVariants().getOps<VPUIP::DPUTaskOp>();
+    return dpuTasks.empty() ? 0 : getClusterId(*dpuTasks.begin());
+}
+
 profiling::TaskInfo makeTaskInfo(VPURT::TaskOp taskOp, double startTimeNs, double durationNs, Logger log,
                                  std::string suffix = "") {
-    profiling::TaskInfo taskInfo;
+    profiling::TaskInfo taskInfo = {};
     auto execKind = taskOp.getExecutorKind();
     switch (execKind) {
     case VPU::ExecutorKind::DMA_NN:
@@ -24,9 +43,12 @@ profiling::TaskInfo makeTaskInfo(VPURT::TaskOp taskOp, double startTimeNs, doubl
         break;
     case VPU::ExecutorKind::DPU:
         taskInfo.exec_type = profiling::TaskInfo::ExecType::DPU;
+        taskInfo.clusterId = getClusterId(mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(taskOp.getInnerTaskOp()));
+        taskInfo.isSubtask = !suffix.empty();  // variant
         break;
     case VPU::ExecutorKind::SHAVE_ACT:
         taskInfo.exec_type = profiling::TaskInfo::ExecType::SW;
+        taskInfo.clusterId = getClusterId(mlir::dyn_cast<VPUIP::SwKernelOp>(taskOp.getInnerTaskOp()));
         break;
 
     default:
@@ -106,7 +128,7 @@ void createScheduleTraceEventFile(const SmallVector<VPURT::TaskConfig, 1>& tasks
 }
 
 class InferenceExecutionAnalysisPass final :
-        public VPURT::InferenceExecutionAnalysisBase<InferenceExecutionAnalysisPass> {
+        public VPURT::impl::InferenceExecutionAnalysisBase<InferenceExecutionAnalysisPass> {
 public:
     explicit InferenceExecutionAnalysisPass(const std::string& compileSchedTraceFileName, bool dumpToJson,
                                             bool enableActivityFactor, Logger log)

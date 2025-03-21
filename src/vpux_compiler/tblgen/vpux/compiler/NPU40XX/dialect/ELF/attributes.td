@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_ELF_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_ELF_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/NPU40XX/dialect/ELF/dialect.td"
 
 //

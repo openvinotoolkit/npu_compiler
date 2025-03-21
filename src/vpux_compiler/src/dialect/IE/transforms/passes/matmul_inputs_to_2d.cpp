@@ -8,8 +8,8 @@
 #include <climits>
 #include <cstdint>
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
@@ -26,6 +26,12 @@
 #include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/core/type/float16.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_MATMULINPUTSTO2D
+#define GEN_PASS_DEF_MATMULINPUTSTO2D
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -35,17 +41,11 @@ namespace {
 const uint32_t levelCount = 2;
 SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
-bool needBroadcast(ShapeRef in1, ShapeRef in2) {
-    // Exclude any matmuls with dims of 1 since it may result into broadcast
-    return in1[Dim(in1.size() - 1)] == 1 || in1[Dim(in1.size() - 2)] == 1 || in2[Dim(in2.size() - 1)] == 1 ||
-           in2[Dim(in2.size() - 2)] == 1;
-};
-
 //
 // MatMulInputsTo2dPass
 //
 
-class MatMulInputsTo2dPass final : public IE::MatMulInputsTo2dBase<MatMulInputsTo2dPass> {
+class MatMulInputsTo2dPass final : public IE::impl::MatMulInputsTo2dBase<MatMulInputsTo2dPass> {
 public:
     explicit MatMulInputsTo2dPass(const bool enableGroupedMatMul, Logger log)
             : _enableGroupedMatMul(enableGroupedMatMul) {
@@ -141,15 +141,6 @@ static SmallVector<mlir::Value> sliceTensor(const mlir::Value tensorToSplit, con
     return weightSlices;
 }
 
-bool isGroupBiggerThanTileCount(IE::MatMulOp matmulOp, ShapeRef inputShape) {
-    const auto module = getModuleOp(matmulOp);
-    auto tileOp = IE::getTileExecutor(module);
-    const auto numOfTiles = tileOp.getCount();
-    auto batchSize = inputShape.size() == 3 ? inputShape[Dims3D::Act::B]
-                                            : inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N];
-    return batchSize >= numOfTiles;
-}
-
 mlir::LogicalResult MatMulInputsTo2dPass::MatMulOpConverter::matchAndRewrite(IE::MatMulOp matmulOp,
                                                                              mlir::PatternRewriter& rewriter) const {
     // E-122051:
@@ -173,7 +164,8 @@ mlir::LogicalResult MatMulInputsTo2dPass::MatMulOpConverter::matchAndRewrite(IE:
             input2 = rewriter.create<IE::TransposeOp>(takeOpLoc(matmulOp, "input_b_transpose"), input2, nullptr,
                                                       orderAttr)
                              .getOutput();
-            rewriter.replaceOpWithNewOp<IE::MatMulOp>(matmulOp, matmulOp.getInput1(), input2, false, false);
+            rewriter.replaceOpWithNewOp<IE::MatMulOp>(matmulOp, matmulOp.getInput1(), input2, false, false,
+                                                      matmulOp.getPostOpAttr());
             return mlir::success();
         }
         return mlir::failure();
@@ -191,11 +183,8 @@ mlir::LogicalResult MatMulInputsTo2dPass::MatMulOpConverter::matchAndRewrite(IE:
     }
 
     // Ideally this should be skipped using calculation from ReshapeNDInputConverter
-    if (_enableGroupedMatMul && !needBroadcast(input1Shape, input2Shape)) {
-        if (IE::doesIEMatMulFitIntoCMX(matmulOp, input1Shape, input2Shape) &&
-            isGroupBiggerThanTileCount(matmulOp, input1Shape)) {
-            return mlir::failure();
-        }
+    if (_enableGroupedMatMul && IE::isGroupedMatMulBeneficial(matmulOp, input1Shape, input2Shape)) {
+        return mlir::failure();
     }
 
     SmallVector<mlir::Value> activationSlices =
@@ -220,7 +209,8 @@ mlir::LogicalResult MatMulInputsTo2dPass::MatMulOpConverter::matchAndRewrite(IE:
         auto lhs2d = activationSlices[sliceIdx];
         auto rhs2d = weightSlices[weightSlices.size() == 1 ? 0 : sliceIdx];
         auto op = rewriter.create<IE::MatMulOp>(takeOpLoc(matmulOp, llvm::StringLiteral("slice_{0}"), sliceIdx), lhs2d,
-                                                rhs2d, matmulOp.getTransposeA(), matmulOp.getTransposeB());
+                                                rhs2d, matmulOp.getTransposeA(), matmulOp.getTransposeB(),
+                                                matmulOp.getPostOpAttr());
         matmulSlices.push_back(op.getOutput());
     }
 
@@ -313,9 +303,8 @@ mlir::LogicalResult MatMulInputsTo2dPass::ReshapeNDInputConverter::matchAndRewri
     }
 
     if (_enableGroupedMatMul && newIn1Shape.size() > 2 && newIn2Shape.size() > 2 && newIn1Shape.front() != 1 &&
-        newIn2Shape.front() != 1 && !needBroadcast(newIn1Shape, newIn2Shape)) {
-        if (IE::doesIEMatMulFitIntoCMX(matmulOp, newIn1Shape, newIn2Shape) &&
-            isGroupBiggerThanTileCount(matmulOp, newIn1Shape)) {
+        newIn2Shape.front() != 1) {
+        if (IE::isGroupedMatMulBeneficial(matmulOp, newIn1Shape, newIn2Shape)) {
             return mlir::failure();
         }
     }
@@ -340,8 +329,8 @@ mlir::LogicalResult MatMulInputsTo2dPass::ReshapeNDInputConverter::matchAndRewri
     auto reshapeInput1 = adjustInputTensor(matmulOp.getInput1(), newIn1Shape, takeOpLoc(matmulOp, "in1_reshape"));
     auto reshapeInput2 = adjustInputTensor(matmulOp.getInput2(), newIn2Shape, takeOpLoc(matmulOp, "in2_reshape"));
 
-    auto newMatMul =
-            rewriter.create<IE::MatMulOp>(matmulOp->getLoc(), reshapeInput1, reshapeInput2, transposeA, transposeB);
+    auto newMatMul = rewriter.create<IE::MatMulOp>(matmulOp->getLoc(), reshapeInput1, reshapeInput2, transposeA,
+                                                   transposeB, matmulOp.getPostOpAttr());
 
     const auto origOutShape = getShape(matmulOp.getOutput());
     const auto origOutShapeAttr = getIntArrayAttr(rewriter.getContext(), origOutShape);

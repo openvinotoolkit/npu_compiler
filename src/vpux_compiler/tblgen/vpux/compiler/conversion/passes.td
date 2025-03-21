@@ -145,29 +145,29 @@ def AdjustDynamicOpsBeforeBufferization : PassBase<"adjust-dynamic-ops-before-bu
 }
 
 //
-// ConvertSWLayers2Affine
+// ConvertEltwiseLayers2Math
 //
 
-def ConvertSWLayers2Affine : PassBase<"convert-sw-layers-to-Affine", "vpux::ModulePass"> {
-    let summary = "Convert Software Operations to Affine Dialect";
+def ConvertEltwiseLayers2Math : PassBase<"convert-eltwise-layers-to-math", "vpux::FunctionPass"> {
+    let summary = "Convert Eltwise IE Dialect SW Layers to Math dialect";
 
     let description = [{
-        Convert software operations from IERT to Affine operations for NPU37XX.
+        Some IE SW Layers are simple elementwise operations that can be directly mapped to Math dialect
+        equivalent ops. This pass defines conversion patterns for such operations.
     }];
 
-    let constructor = "vpux::createConvertSWLayers2AffinePass()";
+    let constructor = "vpux::ShaveCodeGen::createConvertEltwiseLayers2MathPass()";
 
     let dependentDialects = [
+        "vpux::IE::IEDialect",
         "mlir::arith::ArithDialect",
-        "mlir::affine::AffineDialect",
-        "mlir::memref::MemRefDialect",
         "mlir::func::FuncDialect",
-        "mlir::LLVM::LLVMDialect",
         "mlir::scf::SCFDialect",
+        "mlir::linalg::LinalgDialect",
+        "mlir::tensor::TensorDialect",
         "mlir::math::MathDialect"
     ];
 }
-
 
 //
 // ConvertAffine2LLVM
@@ -176,7 +176,7 @@ def ConvertSWLayers2Affine : PassBase<"convert-sw-layers-to-Affine", "vpux::Modu
 def ConvertAffine2LLVM : PassBase<"convert-Affine-to-LLVM", "vpux::ModulePass"> {
     let summary = "Convert Affine and Std dialects to LLVM dialect";
 
-    let constructor = "vpux::createConvertAffine2LLVMPass()";
+    let constructor = "vpux::ShaveCodeGen::createConvertAffine2LLVMPass()";
 
     let dependentDialects = [
         "mlir::arith::ArithDialect",
@@ -186,23 +186,8 @@ def ConvertAffine2LLVM : PassBase<"convert-Affine-to-LLVM", "vpux::ModulePass"> 
         "mlir::func::FuncDialect",
         "mlir::LLVM::LLVMDialect",
         "mlir::scf::SCFDialect",
-        "mlir::math::MathDialect"
-    ];
-}
-
-//
-// ConvertIERT2VPUIP
-//
-
-def ConvertIERT2VPUIP : PassBase<"convert-IERT-to-VPUIP", "vpux::ModulePass"> {
-    let summary = "Convert for the entry point function the IERT dialect operations to VPUIP dialect";
-
-    let constructor = "vpux::createConvertIERT2VPUIPPass()";
-
-    let dependentDialects = [
-        "vpux::IERT::IERTDialect",
-        "vpux::VPUIP::VPUIPDialect",
-        "vpux::VPURT::VPURTDialect"
+        "mlir::math::MathDialect",
+        "mlir::index::IndexDialect"
     ];
 }
 
@@ -307,7 +292,7 @@ def ConvertVPUMI40XX2VPUASM : PassBase<"convert-VPUMI40XX-to-VPUASM", "vpux::Mod
 
     let options = [
         Option<
-            "enablePWLMOpt", "enable-partial-workload-management",
+            "enablePWLMOpt", "workload-management-enable",
             "bool", "false",
             "Flag which identifies enablement of partial workload management"
         >
@@ -357,13 +342,12 @@ def ConvertVPUASM2NPUReg40XX : PassBase<"convert-VPUASM-to-NPUReg40XX", "vpux::M
 
     let options = [
         Option<
-            "wlmEnabled", "enable-partial-workload-management",
+            "wlmEnabled", "workload-management-enable",
             "bool", "false",
             "Flag which identifies enablement of Workload management"
         >
     ];
 }
-
 //
 // ConvertVPUIPDPU2NPUReg40XX
 //
@@ -393,7 +377,6 @@ def ConvertVPUIPDPU2NPUReg40XX : PassBase<"convert-VPUIPDPU-to-NPUReg40XX", "vpu
     ];
 
 }
-
 //
 // ConvertLayers2VPU
 //

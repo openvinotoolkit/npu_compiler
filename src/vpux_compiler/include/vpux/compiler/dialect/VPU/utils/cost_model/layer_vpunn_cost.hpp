@@ -88,6 +88,13 @@ public:
             std::function<vpux::NDTypeInterface(const TileInfo&)> getOutputType = nullptr) const;
 
     /*
+     *  Get the cost of DMA writes in DDR for all tiles
+     */
+    SmallVector<StrategyCost> getSpillingWriteCostsForAllTiles(
+            mlir::Operation* operation, const VPUNNCostParameters& parameters,
+            std::function<vpux::NDTypeInterface(const TileInfo&)> getOutputType = nullptr) const;
+
+    /*
      *  Get the cost of DMA reads from DDR
      */
     StrategyCost getSpillingReadCost(
@@ -96,6 +103,14 @@ public:
             std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType = nullptr) const;
     StrategyCost getSpillingReadCost(
             mlir::Operation* operation, const VPUNNCostParameters& parameters, mlir::Value operand,
+            std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType = nullptr) const;
+
+    /*
+     *  Get the cost of DMA reads from DDR for all tiles
+     */
+    SmallVector<StrategyCost> getSpillingReadCostsForAllTiles(
+            mlir::Operation* operation, const VPUNNCostParameters& parameters, mlir::Operation* parentOp = nullptr,
+            std::function<bool(mlir::Value value)> findOperand = nullptr,
             std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType = nullptr) const;
 
     StrategyCost getSpillingTypeCost(vpux::NDTypeInterface type,

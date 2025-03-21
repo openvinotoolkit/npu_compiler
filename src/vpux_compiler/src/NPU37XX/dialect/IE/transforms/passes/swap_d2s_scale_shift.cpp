@@ -15,6 +15,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPD2SANDSCALESHIFT
+#define GEN_PASS_DEF_SWAPD2SANDSCALESHIFT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -90,7 +96,7 @@ mlir::LogicalResult SwapDepth2SpaceAndScaleShift::matchAndRewrite(IE::DepthToSpa
 // SwapD2SAndScaleShiftPass
 //
 
-class SwapD2SAndScaleShiftPass final : public IE::SwapD2SAndScaleShiftBase<SwapD2SAndScaleShiftPass> {
+class SwapD2SAndScaleShiftPass final : public IE::impl::SwapD2SAndScaleShiftBase<SwapD2SAndScaleShiftPass> {
 public:
     explicit SwapD2SAndScaleShiftPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

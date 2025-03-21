@@ -11,6 +11,12 @@
 
 #include <llvm/ADT/STLExtras.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_FLATTENSPARSEWEIGHTSTYPES
+#define GEN_PASS_DEF_FLATTENSPARSEWEIGHTSTYPES
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -143,7 +149,7 @@ void flattenShapes(mlir::func::FuncOp func) {
 // FlattenSparseWeightsTypes
 //
 
-class FlattenSparseWeightsTypes final : public VPUIP::FlattenSparseWeightsTypesBase<FlattenSparseWeightsTypes> {
+class FlattenSparseWeightsTypes final : public VPUIP::impl::FlattenSparseWeightsTypesBase<FlattenSparseWeightsTypes> {
 public:
     explicit FlattenSparseWeightsTypes(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

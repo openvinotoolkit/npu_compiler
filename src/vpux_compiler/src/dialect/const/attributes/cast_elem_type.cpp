@@ -35,3 +35,12 @@ bool vpux::Const::CastElemTypeAttr::inferOutputSplat(bool inputIsSplat, vpux::ND
 Const::Content vpux::Const::CastElemTypeAttr::transform(vpux::Const::Content& input) const {
     return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
 }
+
+//
+// CastElemTypeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::CastElemTypeAttr::getStableHashValue() const {
+    const auto type = getElemType();
+    return llvm::hash_combine(getMnemonic(), formatv("{0}", type).str());
+}

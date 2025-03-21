@@ -5,12 +5,20 @@
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_to_mixed_precision.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_OPTIMIZENETWORKINPUTCONVERT
+#define GEN_PASS_DEF_OPTIMIZENETWORKINPUTCONVERT
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -21,7 +29,7 @@ namespace {
 //
 
 class OptimizeNetworkInputConvertPass final :
-        public IE::arch37xx::OptimizeNetworkInputConvertBase<OptimizeNetworkInputConvertPass> {
+        public IE::arch37xx::impl::OptimizeNetworkInputConvertBase<OptimizeNetworkInputConvertPass> {
 public:
     explicit OptimizeNetworkInputConvertPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

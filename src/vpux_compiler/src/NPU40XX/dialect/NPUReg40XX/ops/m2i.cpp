@@ -57,7 +57,7 @@ void setAddendForInAddr1AndInAddr2(size_t addend, uint64_t inFormat, uint64_t PS
 }  // namespace
 
 void NPUReg40XX::M2IOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    auto m2iDescriptor = getM2iDescriptorAttr().getRegMapped();
+    auto m2iDescriptor = getDescriptor().getRegMapped();
 
     VPUX_THROW_UNLESS(sizeof(nn_public::VpuMediaTask) == m2iDescriptor.size(),
                       "HW M2iDescriptor size {0} != regMapped representation size {1}.",
@@ -73,14 +73,6 @@ size_t NPUReg40XX::M2IOp::getBinarySize(VPU::ArchKind) {
 
 size_t NPUReg40XX::M2IOp::getAlignmentRequirements(VPU::ArchKind) {
     return alignof(nn_public::VpuMediaTask);
-}
-
-std::optional<ELF::SectionSignature> NPUReg40XX::M2IOp::getSectionSignature() {
-    return {};
-}
-
-bool NPUReg40XX::M2IOp::hasMemoryFootprint() {
-    return true;
 }
 
 namespace {
@@ -108,7 +100,7 @@ std::vector<ELF::RelocationInfo> NPUReg40XX::M2IOp::getRelocationInfo(ELF::Symbo
     auto buffDescOffset = offsetof(nn_public::VpuMediaTask, standard.buff_desc_);
 
     auto inputSymRef = getInput();
-    auto m2iDescriptor = getM2iDescriptor().getRegMapped();
+    auto m2iDescriptor = getDescriptor().getRegMapped();
     auto PSOB_inPS = m2iDescriptor.read<Fields::inPS>();
     auto inFormat = m2iDescriptor.read<Fields::inFormat>();
 

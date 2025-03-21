@@ -147,7 +147,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_
 
 INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_NPU4000, perTensorCfg,
                          FakeQuantizeLayerTest_SW_NPU4000::getTestCaseName);
-
 // NPU3720 Per-Tensor Tiling
 const auto fqParamsT =
         ::testing::Combine(::testing::ValuesIn(u8qLevels), ::testing::Values(constShapes[0]),

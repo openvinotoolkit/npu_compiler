@@ -65,6 +65,11 @@ bool operator!=(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) 
     return d1.ind() != d2.ind();
 }
 
+template <class ConcreteDim>
+bool operator<(const DimBase<ConcreteDim>& d1, const DimBase<ConcreteDim>& d2) {
+    return d1.ind() < d2.ind();
+}
+
 }  // namespace details
 
 //

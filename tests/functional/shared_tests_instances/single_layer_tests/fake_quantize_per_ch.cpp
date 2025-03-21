@@ -110,7 +110,6 @@ TEST_P(FakeQuantPerChLayerTest_NPU4000, SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
-
 TEST_P(FakeQuantPerChCustomLimitsLayerTest_NPU3720, SW) {
     rel_threshold = 0.1;
     setReferenceSoftwareMode();
@@ -142,7 +141,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_FakeQuantPerCh, FakeQuantPerChLayerTest
 INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantPerCh, FakeQuantPerChLayerTestConfig_NPU3720, ::testing::ValuesIn(shapesSW));
 
 INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantPerCh, FakeQuantPerChLayerTest_NPU4000, ::testing::ValuesIn(shapesSW));
-
 INSTANTIATE_TEST_SUITE_P(smoke_tiling_FakeQuantPerCh, FakeQuantPerChLayerTestConfig_NPU3720,
                          ::testing::ValuesIn(shapesTiling));
 

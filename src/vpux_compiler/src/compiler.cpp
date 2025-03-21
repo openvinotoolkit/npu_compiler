@@ -31,6 +31,7 @@
 #include "vpux/compiler/utils/memory_usage_collector.hpp"
 
 #include "vpux/utils/IE/itt.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/memory_usage.hpp"
 #include "vpux/utils/core/optional.hpp"
@@ -41,6 +42,7 @@
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Support/Timing.h>
 
+#include <llvm/Support/ManagedStatic.h>  // llvm_shutdown
 #include <llvm/Support/Regex.h>
 #include <llvm/Support/ThreadPool.h>
 #include <llvm/Support/raw_ostream.h>
@@ -377,23 +379,18 @@ auto exportToELF(mlir::ModuleOp module, Logger log) {
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
         return vpux::ELFNPU37XX::exportToELF(module, log);
-    case VPU::ArchKind::NPU40XX:
-        return vpux::ELF::exportToELF(module, log);
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        return vpux::ELF::exportToELF(module, log);
     }
 }
 
 auto exportToELF(mlir::ModuleOp module, Logger log, BlobAllocator& allocator) {
     const auto arch = VPU::getArch(module);
-
     switch (arch) {
     case VPU::ArchKind::NPU37XX:
         return vpux::ELFNPU37XX::exportToELF(module, allocator, log);
-    case VPU::ArchKind::NPU40XX:
-        return vpux::ELF::exportToELF(module, allocator, log);
     default:
-        VPUX_THROW("Unsupported arch kind: {0}", arch);
+        return vpux::ELF::exportToELF(module, allocator, log);
     }
 }
 
@@ -674,6 +671,17 @@ auto enableMultithreading(mlir::MLIRContext& context, const intel_npu::Config& c
 
 }  // namespace
 
+CompilerImpl::CompilerImpl() {
+    // Ensure llvm_shutdown is called to free LLVM's managed static objects.
+    // llvm_shutdown must be called in a single thread while no LLVM APIs are in use
+    // but CompilerImpl dtor and vclCompilerDestroy may be called from multiple threads.
+    // Use an object with static lifetime to get llvm_shutdown called on DLL unload
+    // While this could same well be a global object, block scoped static brings more
+    // deterministic destruction order akin to calling llvm_shutdown from main as in LLVM
+    // samples.
+    [[maybe_unused]] static llvm::llvm_shutdown_obj shutdown;
+}
+
 uint32_t CompilerImpl::getSupportedOpsetVersion() const {
     return SUPPORTED_OPSET;
 }
@@ -700,8 +708,9 @@ NetworkDescription CompilerImpl::compile(const std::shared_ptr<ov::Model>& model
 
     auto peakMemEnd = getPeakMemoryUsage();
     log.debug("Start of compilation memory usage: Peak {0} KB", peakMemStart.count());
+    log.debug("End of compilation memory usage: Peak {0} KB", peakMemEnd.count());
     // Note: Following log is parsed by CI. Take care when modifying it.
-    log.info("End of compilation memory usage: Peak {0} KB", peakMemEnd.count());
+    log.info("Compilation memory usage: Peak {0} KB", peakMemEnd.count() - peakMemStart.count());
 
     return networkDescription;
 }
@@ -729,8 +738,9 @@ NetworkDescriptionView CompilerImpl::compile(const std::shared_ptr<ov::Model>& m
     auto peakMemEnd = getPeakMemoryUsage();
 
     log.debug("Start of compilation memory usage: Peak {0} KB", peakMemStart.count());
+    log.debug("End of compilation memory usage: Peak {0} KB", peakMemEnd.count());
     // Note: Following log is parsed by CI. Take care when modifying it.
-    log.info("End of compilation memory usage: Peak {0} KB", peakMemEnd.count());
+    log.info("Compilation memory usage: Peak {0} KB", peakMemEnd.count() - peakMemStart.count());
 
     return allocatedCompliedNetwork;
 }

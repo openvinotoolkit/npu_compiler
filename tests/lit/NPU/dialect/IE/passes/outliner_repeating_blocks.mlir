@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --outliner="function-outlining=\"repeating-blocks='min-ops-in-block=2 max-num-iterations=10'\"" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 module @TwoInstances {
     IE.CNNNetwork entryPoint : @main
     inputsInfo : {

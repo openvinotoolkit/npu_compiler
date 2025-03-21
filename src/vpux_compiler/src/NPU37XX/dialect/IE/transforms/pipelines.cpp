@@ -1,12 +1,12 @@
 //
-// Copyright (C) 2023 Intel Corporation.
+// Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/NPU37XX/pipelines.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/core/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/MemRef/Transforms/Passes.h>
@@ -122,9 +122,8 @@ void vpux::IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(
         mlir::OpPassManager& pm, const IE::LowPrecisionTransformOptions& options, Logger log) {
     pm.addPass(IE::createConvertScalarToTensorPass(log));
     pm.addPass(IE::createWeightsDequantizeToFakeQuantizePass(options, log));
-    if (options.enableWeightsDynamicDequantization) {
-        pm.addPass(IE::createConsolidateWeightsDequantizationPass(log));
-    }
+    pm.addPass(IE::createFuseInputScaleShiftPass(log));
+    pm.addPass(IE::createConsolidateWeightsDequantizationPass(options, log));
     pm.addPass(IE::createConvertMinMaxToClampPass(log));
     pm.addPass(IE::createFoldActivationBeforeFQPass(log));
 }
@@ -138,9 +137,11 @@ void vpux::IE::arch37xx::buildInitialTransformationsPipeline(mlir::OpPassManager
     const auto grc = getDefaultGreedyRewriteConfig();
 
     pm.addPass(IE::createFuseRMSNormPass(log));
+    pm.addPass(IE::createFuseRoPEPass(log));
     pm.addPass(IE::createDecomposeLSTMSequencePass(log));
     pm.addPass(IE::createDecomposeLSTMCellPass(log));
     pm.addPass(IE::createDecomposeGRUCellPass(log));
+    pm.addPass(IE::createDecomposeNormalizeL2Pass(log));
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     pm.addPass(IE::createFuseFQAndMulPass(log));
     pm.addPass(IE::createHandleU16FakeQuantizePass(options, log));
@@ -305,22 +306,25 @@ void vpux::IE::arch37xx::buildDynamicShapeTransformationsPipeline(mlir::OpPassMa
 void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const IE::arch37xx::DefaultHWOptions& options,
                                                 Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
-    pm.addPass(createStartLocationVerifierPass(log, options.locationsVerificationMode));
+    pm.addPass(Core::createStartLocationVerifierPass(log, options.locationsVerificationMode));
 
     bool isOutliningEnabled = options.functionOutlining.hasValue();
+    if (options.enableProfiling) {
+        // TODO: E#140041 enable profiling with outlining
+        log.warning("Outlining was disabled due to profiling being enabled");
+        isOutliningEnabled = false;
+    }
     if (isOutliningEnabled) {
         if (options.enableLoopOutliner) {
             pm.addPass(IE::createLoopOutlinerPass(log));
         }
         pm.addPass(mlir::createCanonicalizerPass(grc));
-        pm.addPass(IE::createOutlinerPass(options.functionOutlining, log));
+        pm.addPass(IE::createOutlinerPass(options, log));
         pm.addPass(IE::createDuplicateFQAcrossFunctionCallsPass(log));
     }
 
-    // NB: these passes are intentionally placed before the first canonicalizer
-    // so we avoid canonicalizing the dynamic shape ops
-    IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, log);
-
+    // No passes should be run before this pipeline, with very few exceptions.
+    IE::buildPostImportPipeline(pm, log);
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     // Level 3 : Topology
@@ -328,6 +332,7 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
+    IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, log);
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
     IE::arch37xx::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
@@ -362,17 +367,19 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                     isOptionEnabled(options.enableExperimentalSEPtrsOperations),
                                             log));
     pm.addPass(IE::createSwapPadLayerPass(log));
+    pm.addPass(IE::createConvertDivideToMultiplyPass(log));
+    // Note: apply FuseStaticScale after ConvertDivideToMultiply to increase
+    // the applicability
     pm.addPass(IE::arch37xx::createFuseStaticScalePass(log, false));
-    pm.addPass(IE::createConvertToScaleShiftPass(log));
     pm.addPass(IE::createBroadcastInputForAddPass(log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
     // E#79878: Solve eltwise single layer test failure.
     // SwapOperations pass may generate non-4D AddOp.
     // If AddOp appears here means that it cannot be fused into NCE task.
     // So convert it's shape to 4D and then convert this AddOp to ScaleShift.
     pm.addPass(IE::createConvertShapeTo4DPass(log));
     pm.addPass(IE::createConvertToScaleShiftPass(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
     pm.addPass(IE::createConvertGroupConvToConvPass(log));
     pm.addPass(IE::createSwapOperationsPass(isOptionEnabled(options.enableSEPtrsOperations) ||
@@ -381,9 +388,10 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     pm.addPass(IE::createConvertDepth2SpaceToTransposedConvPass(log));
     pm.addPass(IE::createSwapD2SAndScaleShiftPass(log));
+    pm.addPass(IE::createConvertReverseToDWConvPass(log));
 
     IE::buildAdjustForVPUPipeline(pm, IE::AdjustForVPUOptions(options), log);
-    pm.addPass(createStopLocationVerifierPass(log));
+    pm.addPass(Core::createStopLocationVerifierPass(log));
 
     pm.addPass(IE::createHandleExcludePadForAvgPoolPass(log));
     pm.addPass(IE::createResolveStridedSlicePass(log));
@@ -423,13 +431,6 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
     IE::arch37xx::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
 
-    // Note: this pass depends on DequantizeConst pass (part of
-    // buildLowPrecisionPipeline) to eliminate potential quantization ops on
-    // constant operands
-    pm.addPass(IE::createConvertDivideToMultiplyPass(log));
-    // Note: apply FuseStaticScale after ConvertDivideToMultiply to increase
-    // the applicability
-    pm.addPass(IE::arch37xx::createFuseStaticScalePass(log));
     pm.addPass(IE::createOptimizeTileOpPass(log));
 
     if (options.enableSEPtrsOperations && options.enableSplitBilinerIntoHAndW) {
@@ -442,7 +443,8 @@ void vpux::IE::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createConvertBatchedLayerTo1NPass(log));
-    pm.addPass(IE::arch37xx::createUnrollBatchPass(log, isOptionEnabled(options.skipUnrollBatch)));
+    pm.addPass(IE::createConvertBroadcastToTilePass(log));
+    pm.addPass(IE::createUnrollBatchPass(log, isOptionEnabled(options.skipUnrollBatch)));
 
     if (options.enableUpstreamSlice) {
         pm.addPass(IE::createUpstreamSlicePass(log));

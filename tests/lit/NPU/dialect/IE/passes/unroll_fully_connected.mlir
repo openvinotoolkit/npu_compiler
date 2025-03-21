@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-fully-connected %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #CN = affine_map<(d0, d1) -> (d1, d0)>
 
 // CHECK-LABEL: @UnrollMatMul

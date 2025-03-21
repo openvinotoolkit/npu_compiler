@@ -73,30 +73,18 @@ TaskList TaskList::selectClusterLevelTasks() const {
 }
 
 TaskList TaskList::selectTasksFromCluster(unsigned clusterId) const {
-    auto log = Logger::global();
     TaskList selectedTasks;
+    std::copy_if(begin(), end(), std::back_inserter(selectedTasks), [=](const TaskInfo& task) {
+        return task.clusterId == clusterId;
+    });
+    return selectedTasks;
+}
 
-    for (const auto& task : *this) {
-        std::string idStr = getClusterFromName(task.name);
-        unsigned id;
-        try {
-            size_t idx;
-            id = std::stoi(idStr, &idx);
-            if (idx < idStr.size()) {  // Not all characters converted, ignoring
-                log.warning("Not all characters converted while extracting cluster id from task ({0}). Task will "
-                            "not be reported.",
-                            task.name);
-                continue;
-            }
-        } catch (...) {  // Could not extract cluster id
-            log.warning("Could not extract cluster id for task ({0}). Task will not be reported.", task.name);
-            continue;
-        }
-
-        if (id == clusterId) {
-            selectedTasks.push_back(task);
-        }
-    }
+TaskList TaskList::selectSubtasks() const {
+    TaskList selectedTasks;
+    std::copy_if(begin(), end(), std::back_inserter(selectedTasks), [](const TaskInfo& task) {
+        return task.isSubtask;
+    });
     return selectedTasks;
 }
 
@@ -105,11 +93,9 @@ void TaskList::sortByStartTime() {
 }
 
 unsigned TaskList::getClusterCount() const {
-    std::set<std::string> clusterLevelThreadNames;
-    for (const auto& task : *this) {
-        clusterLevelThreadNames.insert(getClusterFromName(task.name));
-    }
-    return checked_cast<unsigned>(clusterLevelThreadNames.size());
+    return 1 + std::accumulate(begin(), end(), 0u, [&](unsigned n, auto task) {
+               return std::max(n, task.clusterId);
+           });
 }
 
 uint64_t TaskList::getSumOfDurations() const {
@@ -150,15 +136,18 @@ TaskList& TaskList::append(const TaskList& tasks) {
 }
 
 bool isVariantLevelProfilingTask(const TaskInfo& task) {
-    const std::string variantSuffix = vpux::LOCATION_SEPARATOR + VARIANT_LEVEL_PROFILING_SUFFIX + "_";
-    bool hasVariantInName = getTaskNameSuffixes(task.name).find(variantSuffix) != std::string::npos;
-    return hasVariantInName;
+    return task.exec_type == TaskInfo::ExecType::DPU && task.isSubtask;
 }
 
 bool isClusterLevelProfilingTask(const TaskInfo& task) {
-    const std::string clusterSuffix = vpux::LOCATION_SEPARATOR + CLUSTER_LEVEL_PROFILING_SUFFIX + "_";
-    bool hasClusterInName = getTaskNameSuffixes(task.name).find(clusterSuffix) != std::string::npos;
-    return hasClusterInName && !isVariantLevelProfilingTask(task);
+    switch (task.exec_type) {
+    case TaskInfo::ExecType::SW:
+        return true;
+    case TaskInfo::ExecType::DPU:
+        return !task.isSubtask;  // Invariants only
+    default:
+        return false;
+    }
 }
 
 }  // namespace vpux::profiling

@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/core/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/logger.hpp"
@@ -120,9 +120,8 @@ TEST(MLIR_AliasesInfo, OpWithNoUsers) {
         const auto allocSource = info.getSource(allocRes);
         EXPECT_TRUE(allocSource == nullptr);
 
-        const auto allocRoots = info.getRoots(allocRes);
-        EXPECT_EQ(allocRoots.size(), 1) << "allocRes roots: %0";
-        EXPECT_TRUE(*allocRoots.begin() == allocRes);
+        const auto allocRoot = info.getRoot(allocRes);
+        EXPECT_TRUE(allocRoot == allocRes);
 
         const auto& allocAliases = info.getAllAliases(allocRes);
         EXPECT_EQ(allocAliases.size(), 1);
@@ -167,9 +166,8 @@ TEST(MLIR_AliasesInfo, TestMultiViewOp) {
     const auto funcArgSource = info.getSource(funcArg);
     EXPECT_TRUE(funcArgSource == nullptr);
 
-    const auto funcArgRoots = info.getRoots(funcArg);
-    EXPECT_EQ(funcArgRoots.size(), 1) << "funcArg roots: %arg";
-    EXPECT_TRUE(*funcArgRoots.begin() == funcArg);
+    const auto funcArgRoot = info.getRoot(funcArg);
+    EXPECT_TRUE(funcArgRoot == funcArg);
 
     const auto& funcArgAliases = info.getAllAliases(funcArg);
     EXPECT_EQ(funcArgAliases.size(), 3) << "%arg aliases: %arg, %1, %2#1";
@@ -194,9 +192,8 @@ TEST(MLIR_AliasesInfo, TestMultiViewOp) {
             const auto allocSource = info.getSource(allocRes);
             EXPECT_TRUE(allocSource == nullptr);
 
-            const auto allocRoots = info.getRoots(allocRes);
-            EXPECT_EQ(allocRoots.size(), 1) << "allocRes roots: %0";
-            EXPECT_TRUE(*allocRoots.begin() == allocRes);
+            const auto allocRoot = info.getRoot(allocRes);
+            EXPECT_TRUE(allocRoot == allocRes);
 
             const auto& allocAliases = info.getAllAliases(allocRes);
             EXPECT_EQ(allocAliases.size(), 2) << "%0 aliases: %0, %2#0";
@@ -220,27 +217,24 @@ TEST(MLIR_AliasesInfo, TestMultiViewOp) {
             const auto viewSource = info.getSource(viewRes);
             EXPECT_TRUE(viewSource == viewOp.getViewSource());
 
-            const auto viewRoots = info.getRoots(viewRes);
-            EXPECT_EQ(viewRoots.size(), 1) << "viewRes roots: %arg";
-            EXPECT_TRUE((*viewRoots.begin()).isa<mlir::BlockArgument>());
+            const auto viewRoot = info.getRoot(viewRes);
+            EXPECT_TRUE((viewRoot).isa<mlir::BlockArgument>());
         } else if (auto viewOp = mlir::dyn_cast<AlisesInfoTest::TestMultiViewOp>(op)) {
             const auto viewRes0 = viewOp->getResult(0);
 
             const auto viewSource0 = info.getSource(viewRes0);
             EXPECT_TRUE(viewSource0 == viewOp.getViewSource(0));
 
-            const auto viewRoots0 = info.getRoots(viewRes0);
-            EXPECT_EQ(viewRoots0.size(), 1) << "viewRes0 roots: %0";
-            EXPECT_TRUE(mlir::isa<mlir::memref::AllocOp>((*viewRoots0.begin()).getDefiningOp()));
+            const auto viewRoot0 = info.getRoot(viewRes0);
+            EXPECT_TRUE(mlir::isa<mlir::memref::AllocOp>((viewRoot0).getDefiningOp()));
 
             const auto viewRes1 = viewOp->getResult(1);
 
             const auto viewSource1 = info.getSource(viewRes1);
             EXPECT_TRUE(viewSource1 == viewOp.getViewSource(1));
 
-            const auto viewRoots1 = info.getRoots(viewRes1);
-            EXPECT_EQ(viewRoots1.size(), 1) << "viewRes1 roots: %arg";
-            EXPECT_TRUE((*viewRoots1.begin()).isa<mlir::BlockArgument>());
+            const auto viewRoot1 = info.getRoot(viewRes1);
+            EXPECT_TRUE((viewRoot1).isa<mlir::BlockArgument>());
         }
     });
 }
@@ -276,9 +270,8 @@ TEST(MLIR_AliasesInfo, TestGroupedViewOp) {
     const auto funcArgSource = info.getSource(funcArg);
     EXPECT_TRUE(funcArgSource == nullptr);
 
-    const auto funcArgRoots = info.getRoots(funcArg);
-    EXPECT_EQ(funcArgRoots.size(), 1) << "funcArg roots: %arg";
-    EXPECT_TRUE(*funcArgRoots.begin() == funcArg);
+    const auto funcArgRoot = info.getRoot(funcArg);
+    EXPECT_TRUE(funcArgRoot == funcArg);
 
     const auto& funcArgAliases = info.getAllAliases(funcArg);
     EXPECT_EQ(funcArgAliases.size(), 2) << "%arg aliases: %arg, %1";
@@ -298,9 +291,8 @@ TEST(MLIR_AliasesInfo, TestGroupedViewOp) {
             const auto allocSource = info.getSource(allocRes);
             EXPECT_TRUE(allocSource == nullptr);
 
-            const auto allocRoots = info.getRoots(allocRes);
-            EXPECT_EQ(allocRoots.size(), 1) << "allocRes roots: %0";
-            EXPECT_TRUE(*allocRoots.begin() == allocRes);
+            const auto allocRoot = info.getRoot(allocRes);
+            EXPECT_TRUE(allocRoot == allocRes);
 
             const auto& allocAliases = info.getAllAliases(allocRes);
             EXPECT_EQ(allocAliases.size(), 2) << "%0 aliases: %0, %1";
@@ -319,7 +311,7 @@ TEST(MLIR_AliasesInfo, TestGroupedViewOp) {
             EXPECT_EQ(viewSources.size(), 2) << "test.groupedview sources: %arg, %0";
             EXPECT_TRUE(viewSources.size() == viewOp.getViewSources().size());
             for (const auto& source : viewOp.getViewSources()) {
-                EXPECT_TRUE(viewSources.count(source) > 0);
+                EXPECT_TRUE(std::find(viewSources.begin(), viewSources.end(), source) != viewSources.end());
             }
 
             const auto viewRoots = info.getRoots(viewRes);
@@ -413,12 +405,8 @@ TEST(MLIR_AliasesInfo, RemoveAlias) {
             EXPECT_EQ(viewSources.size(), 1) << "memref.subview sources: %0";
             const auto viewSource = *viewSources.begin();
 
-            const auto viewRoots = info.getRoots(viewRes);
-            EXPECT_EQ(viewRoots.size(), 1) << "memref.subview roots: %0";
-            for (const auto& root : viewRoots) {
-                EXPECT_TRUE(mlir::isa<mlir::memref::AllocOp>(root.getDefiningOp()));
-            }
-            const auto viewRoot = *viewRoots.begin();
+            const auto viewRoot = info.getRoot(viewRes);
+            EXPECT_TRUE(mlir::isa<mlir::memref::AllocOp>(viewRoot.getDefiningOp()));
             EXPECT_EQ(info.getAllAliases(viewRoot).size(), 2);
 
             info.removeAlias(viewRes);
@@ -472,9 +460,8 @@ TEST(MLIR_AliasesInfo, RemoveAllAlias) {
             const auto allocSource = info.getSource(allocRes);
             EXPECT_TRUE(allocSource == nullptr);
 
-            const auto allocRoots = info.getRoots(allocRes);
-            EXPECT_EQ(allocRoots.size(), 1) << "allocRes roots: %0";
-            EXPECT_TRUE(*allocRoots.begin() == allocRes);
+            const auto allocRoot = info.getRoot(allocRes);
+            EXPECT_TRUE(allocRoot == allocRes);
 
             const auto& allocAliases = info.getAllAliases(allocRes);
             EXPECT_EQ(allocAliases.size(), 2) << "%0 aliases: %0, %1";
@@ -493,9 +480,8 @@ TEST(MLIR_AliasesInfo, RemoveAllAlias) {
             const auto newAllocSource = info.getSource(allocRes);
             EXPECT_TRUE(newAllocSource == nullptr);
 
-            const auto newAllocRoots = info.getRoots(allocRes);
-            EXPECT_EQ(newAllocRoots.size(), 1) << "new allocRes roots: %0";
-            EXPECT_TRUE(*newAllocRoots.begin() == allocRes);
+            const auto newAllocRoot = info.getRoot(allocRes);
+            EXPECT_TRUE(newAllocRoot == allocRes);
 
             const auto& newAllocAliases = info.getAllAliases(allocRes);
             EXPECT_EQ(newAllocAliases.size(), 1) << "new %0 aliases: %0";
@@ -513,7 +499,7 @@ TEST(MLIR_AliasesInfo, RemoveAllAlias) {
             EXPECT_EQ(viewSources.size(), 2) << "test.groupedview sources: %arg, %0";
             EXPECT_TRUE(viewSources.size() == viewOp.getViewSources().size());
             for (const auto& source : viewOp.getViewSources()) {
-                EXPECT_TRUE(viewSources.count(source) > 0);
+                EXPECT_TRUE(std::find(viewSources.begin(), viewSources.end(), source) != viewSources.end());
             }
 
             const auto viewRoots = info.getRoots(viewRes);
@@ -528,9 +514,8 @@ TEST(MLIR_AliasesInfo, RemoveAllAlias) {
             const auto newViewSources = info.getSource(viewRes);
             EXPECT_TRUE(newViewSources == nullptr);
 
-            const auto newViewRoots = info.getRoots(viewRes);
-            EXPECT_EQ(newViewRoots.size(), 1) << "new test.groupedview roots: %1";
-            EXPECT_TRUE(*newViewRoots.begin() == viewRes);
+            const auto newViewRoot = info.getRoot(viewRes);
+            EXPECT_TRUE(newViewRoot == viewRes);
 
             const auto& newViewAliases = info.getAllAliases(viewRes);
             EXPECT_EQ(newViewAliases.size(), 1) << "new %1 aliases: %1";
@@ -608,10 +593,9 @@ TEST(MLIR_AliasesInfo, CallOp) {
     vpux::AliasesInfo info(func);
     func.walk([&](mlir::func::ReturnOp op) {
         for (const auto& resultValue : op.getOperands()) {
-            auto sources = info.getRoots(resultValue);
+            auto source = info.getRoot(resultValue);
 
-            EXPECT_EQ(sources.size(), 1);
-            EXPECT_TRUE(mlir::isa<mlir::BlockArgument>(*sources.begin()));
+            EXPECT_TRUE(mlir::isa<mlir::BlockArgument>(source));
         }
     });
 }

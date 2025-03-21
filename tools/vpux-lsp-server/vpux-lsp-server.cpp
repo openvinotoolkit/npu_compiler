@@ -7,7 +7,6 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/core/passes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
@@ -21,6 +20,7 @@
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/interfaces_registry.hpp"
 #include "vpux/compiler/passes_register.hpp"
@@ -53,22 +53,22 @@ int main(int argc, char* argv[]) {
         const auto passsesRegistery = vpux::createPassesRegistry(archKind);
         passsesRegistery->registerPasses();
 
-        vpux::registerCorePasses();
-        vpux::Const::registerConstPasses();
-        vpux::IE::registerIEPasses();
+        vpux::Core::registerPasses();
+        vpux::Const::registerPasses();
+        vpux::IE::registerPasses();
         vpux::IE::registerIEPipelines();
-        vpux::VPU::registerVPUPasses();
+        vpux::VPU::registerPasses();
         vpux::VPU::registerVPUPipelines();
-        vpux::VPUIP::registerVPUIPPasses();
+        vpux::VPUIP::registerPasses();
         vpux::VPUIP::registerVPUIPPipelines();
         vpux::VPURT::registerVPURTPipelines();
-        vpux::VPURT::registerVPURTPasses();
-        vpux::ELFNPU37XX::registerELFNPU37XXPasses();
-        vpux::ELF::registerELFPasses();
-        vpux::VPUMI37XX::registerVPUMI37XXPasses();
-        vpux::VPUMI40XX::registerVPUMI40XXPasses();
-        vpux::VPUASM::registerVPUASMPasses();
-        vpux::VPUIPDPU::registerVPUIPDPUPasses();
+        vpux::VPURT::registerPasses();
+        vpux::ELFNPU37XX::registerPasses();
+        vpux::ELF::registerPasses();
+        vpux::VPUMI37XX::registerPasses();
+        vpux::VPUMI40XX::registerPasses();
+        vpux::VPUASM::registerPasses();
+        vpux::VPUIPDPU::registerPasses();
         vpux::registerConversionPasses();
         vpux::registerConversionPipelines();
 

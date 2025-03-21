@@ -8,6 +8,12 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEMVN6SCALEBIAS
+#define GEN_PASS_DEF_FUSEMVN6SCALEBIAS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -153,7 +159,7 @@ mlir::LogicalResult FuseMvn6ScaleBias::matchAndRewrite(IE::MVN6Op origOp, mlir::
 // FuseMvn6ScaleBiasPass
 //
 
-class FuseMvn6ScaleBiasPass final : public IE::FuseMvn6ScaleBiasBase<FuseMvn6ScaleBiasPass> {
+class FuseMvn6ScaleBiasPass final : public IE::impl::FuseMvn6ScaleBiasBase<FuseMvn6ScaleBiasPass> {
 public:
     explicit FuseMvn6ScaleBiasPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

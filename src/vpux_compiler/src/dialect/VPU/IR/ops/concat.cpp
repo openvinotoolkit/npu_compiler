@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -28,12 +29,12 @@ using namespace vpux;
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::ValueRange inputs,
                                 IE::ConcatAttr per_axis) {
-    build(builder, state, inputs, per_axis, nullptr, nullptr);
+    build(builder, state, inputs, per_axis, nullptr, nullptr, nullptr);
 }
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::ValueRange inputs,
                                 IE::ConcatAttr per_axis, mlir::ArrayAttr static_offsets) {
-    build(builder, state, inputs, per_axis, static_offsets, nullptr);
+    build(builder, state, inputs, per_axis, static_offsets, nullptr, nullptr);
 }
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::ValueRange inputs,
@@ -54,12 +55,12 @@ void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& 
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Type outType,
                                 mlir::ValueRange inputs, mlir::ArrayAttr static_offsets) {
-    build(builder, state, outType, inputs, nullptr, static_offsets, nullptr);
+    build(builder, state, outType, inputs, nullptr, static_offsets, nullptr, nullptr);
 }
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Type outType,
                                 mlir::ValueRange inputs, IE::ConcatAttr per_axis, mlir::ArrayAttr static_offsets) {
-    build(builder, state, outType, inputs, per_axis, static_offsets, nullptr);
+    build(builder, state, outType, inputs, per_axis, static_offsets, nullptr, nullptr);
 }
 
 void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Type outType,
@@ -78,6 +79,11 @@ void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& 
                                          }));
 
     build(builder, state, outType, inputs, builder.getArrayAttr(attrArr));
+}
+
+void vpux::VPU::ConcatOp::build(mlir::OpBuilder& builder, mlir::OperationState& state, mlir::Type outType,
+                                mlir::ValueRange inputs, mlir::ArrayAttr static_offsets, mlir::ArrayAttr strides) {
+    build(builder, state, outType, inputs, nullptr, static_offsets, strides, nullptr);
 }
 
 //
@@ -152,7 +158,7 @@ mlir::FailureOr<Shape> inferOutShapeWithAxis(VPU::ConcatOpAdaptor concat, const 
 }
 
 mlir::FailureOr<Shape> inferOutShapeWithOffsets(VPU::ConcatOpAdaptor concat, const GetShapeFunc& getShapeFunctor,
-                                                mlir::Location loc) {
+                                                mlir::Location loc, mlir::MLIRContext* ctx) {
     if (!concat.getStaticOffsets().has_value()) {
         return errorAt(loc, "Missing static_offsets attribute");
     }
@@ -166,9 +172,20 @@ mlir::FailureOr<Shape> inferOutShapeWithOffsets(VPU::ConcatOpAdaptor concat, con
     const auto inType = concat.getInputs().front().getType().cast<vpux::NDTypeInterface>();
     const auto allOffsets = staticOffsets.getAsRange<mlir::ArrayAttr>();
 
+    const auto dummyStridesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>(inType.getRank(), 1));
+    SmallVector<mlir::ArrayAttr> allStrides(concat.getInputs().size(), dummyStridesAttr);
+
+    if (concat.getStrides().has_value()) {
+        allStrides = parseCustomAttrArray<mlir::ArrayAttr>(concat.getStridesAttr());
+        if (allStrides.size() != concat.getInputs().size()) {
+            return errorAt(loc, "Concat 'strides' count '{0}' doesn't match inputs count '{1}'", allStrides.size(),
+                           concat.getInputs().size());
+        }
+    }
+
     Shape outShape(checked_cast<size_t>(inType.getRank()), 0);
 
-    for (const auto p : zip(concat.getInputs(), allOffsets)) {
+    for (const auto p : zip(concat.getInputs(), allOffsets, allStrides)) {
         const auto curVal = std::get<0>(p);
         const auto curShape = getShapeFunctor(curVal);
 
@@ -183,13 +200,20 @@ mlir::FailureOr<Shape> inferOutShapeWithOffsets(VPU::ConcatOpAdaptor concat, con
             return errorAt(loc, "Concat 'static_offsets' rank doesn't match its input");
         }
 
+        const auto curStrides = Shape(parseIntArrayAttr<int64_t>(std::get<2>(p)));
+
+        if (concat.getStrides().has_value() && curStrides.size() != curShape.size()) {
+            return errorAt(loc, "Concat 'strides' rank doesn't match its input");
+        }
+
         for (const auto ind : irange(outShape.size())) {
             const auto d = Dim(ind);
             if (curShape[d] == mlir::ShapedType::kDynamic) {
                 VPUX_THROW_UNLESS(curOffsets[d] == 0, "Concatenation over dynamic dimension is not supported.");
                 outShape[d] = curShape[d];
             } else {
-                outShape[d] = std::max(outShape[d], curOffsets[d] + curShape[d]);
+                const auto curOutShape = curStrides[d] * (curShape[d] - 1) + 1 + curOffsets[d];
+                outShape[d] = std::max(outShape[d], curOutShape);
             }
         }
     }
@@ -354,7 +378,7 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
 
     // Infer output shape
     const auto outShape = concat.getPerAxis() ? inferOutShapeWithAxis(concat, getDynamicShape, loc)
-                                              : inferOutShapeWithOffsets(concat, getDynamicShape, loc);
+                                              : inferOutShapeWithOffsets(concat, getDynamicShape, loc, ctx);
     if (mlir::failed(outShape)) {
         return mlir::failure();
     }
@@ -390,7 +414,7 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
         } else {
             // Infer output bounds
             const auto outBounds = concat.getPerAxis() ? inferOutShapeWithAxis(concat, getUpperBounds, loc)
-                                                       : inferOutShapeWithOffsets(concat, getUpperBounds, loc);
+                                                       : inferOutShapeWithOffsets(concat, getUpperBounds, loc, ctx);
             if (mlir::failed(outBounds)) {
                 return mlir::failure();
             }
@@ -545,14 +569,39 @@ bool FuseConcatsWithDifferentAxes::hasConcatProducer(const mlir::Value input) {
     if (concatOp == nullptr || concatOp.getStaticOffsetsAttr() == nullptr || !concatOp.getStaticOffsets().has_value()) {
         return false;
     }
-    // Fusion of VPU.Concat operations with multiple consumers results in scheduling errors.
-    // It is safe to fuse VPU.Concat producer when all its consumers are VPU.Concat operations.
-    // See [E#75133]
-    const auto isConcat = [](const mlir::Operation* consumer) -> bool {
-        return mlir::isa<VPU::ConcatOp>(consumer);
+
+    // Fusion of VPU.Concat operations with multiple consumers results in scheduling errors. It is safe to fuse
+    // VPU.Concat producer when all its consumers are VPU.Concat/VPU.Slice operations. See [E#75133].
+    // Note that the below scenarios may cause performance regression, so skip fusing concat if so.
+    // 1. slice is only on outer most dim, in which the fusion may cause inefficient dma ops.
+    // 2. slice has concat op users, in which the fusion will break other concat related optimizations.
+    auto isSliceNotOnOuterMostDim = [](mlir::Operation* op) {
+        if (!mlir::isa<VPU::SliceOp>(op)) {
+            return false;
+        }
+        auto usedByConcat = llvm::any_of(op->getUsers(), [](const mlir::Operation* user) {
+            return mlir::isa<VPU::ConcatOp>(user);
+        });
+        if (usedByConcat) {
+            return false;
+        }
+        auto inShape = getShape(op->getOperand(0));
+        auto outShape = getShape(op->getResult(0));
+        auto dimOrder = DimsOrder::fromValue(op->getOperand(0));
+        auto highestDim = vpux::getHighestNonTrivialDim(inShape, dimOrder);
+        if (!highestDim.has_value()) {
+            return false;
+        }
+        auto sliceDim = IE::getDiffInOutSizeDims(inShape, outShape);
+        return llvm::any_of(sliceDim, [&](auto dim) {
+            return dim != highestDim.value();
+        });
+    };
+    const auto isConcatOrSlice = [&](mlir::Operation* consumer) -> bool {
+        return mlir::isa<VPU::ConcatOp>(consumer) || isSliceNotOnOuterMostDim(consumer);
     };
     const auto consumers = concatOp->getUsers();
-    return std::all_of(consumers.begin(), consumers.end(), isConcat);
+    return std::all_of(consumers.begin(), consumers.end(), isConcatOrSlice);
 }
 
 // Propagate inputs from producer concat to consumer concat:
@@ -616,6 +665,11 @@ SmallVector<SmallVector<int64_t>> FuseConcatsWithDifferentAxes::recalculateOffse
 mlir::LogicalResult FuseConcatsWithDifferentAxes::matchAndRewrite(VPU::ConcatOp origOp,
                                                                   mlir::PatternRewriter& rewriter) const {
     if (origOp.getStaticOffsetsAttr() == nullptr || !origOp.getStaticOffsets().has_value()) {
+        return mlir::failure();
+    }
+
+    // Do not fuse if concat is strided
+    if (origOp.getStridesAttr() != nullptr) {
         return mlir::failure();
     }
 

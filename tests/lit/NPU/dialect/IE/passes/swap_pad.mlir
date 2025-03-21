@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --swap-pad-layer %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 func.func @SwapTransposeWithPerTensorQuant(%arg0: tensor<1x64x128x8xf16>) -> tensor<1x8x70x134xf16> {

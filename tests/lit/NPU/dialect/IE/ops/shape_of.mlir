@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @FoldSi32
 func.func @FoldSi32(%arg0: tensor<1x8x4x4xf32>) -> tensor<4xsi32> {
     %shape_of = IE.ShapeOf(%arg0) {dstElemType = si32} : tensor<1x8x4x4xf32> -> tensor<4xsi32>

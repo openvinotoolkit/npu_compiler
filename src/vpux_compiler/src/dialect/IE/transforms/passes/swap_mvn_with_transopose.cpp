@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_SWAPMVNWITHTRANSPOSE
+#define GEN_PASS_DEF_SWAPMVNWITHTRANSPOSE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -15,7 +22,7 @@ namespace {
 // SwapMVNWithTranspose
 //
 
-class SwapMVNWithTranspose final : public IE::SwapMVNWithTransposeBase<SwapMVNWithTranspose> {
+class SwapMVNWithTranspose final : public IE::impl::SwapMVNWithTransposeBase<SwapMVNWithTranspose> {
 public:
     explicit SwapMVNWithTranspose(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

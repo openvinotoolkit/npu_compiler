@@ -9,6 +9,7 @@
 #include "vpux/compiler/compiler.hpp"
 #include "vpux/compiler/options_mapper.hpp"
 #include "vpux/compiler/utils/platform_resources.hpp"
+#include "vpux/utils/IE/private_properties.hpp"
 
 #include "vpux/compiler/NPU37XX/pipelines.hpp"
 #include "vpux/compiler/NPU40XX/pipelines.hpp"
@@ -108,7 +109,15 @@ int getNumberOfDPUGroupsUnchecked(const intel_npu::Config& config) {
     }
 }
 
-};  // namespace
+std::optional<bool> getCompilerDynamicQuantization(const intel_npu::Config& config) {
+    if (config.has<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>()) {
+        return config.get<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
+    } else {
+        return std::nullopt;
+    }
+}
+
+}  // namespace
 
 VPU::InitCompilerOptions vpux::getInitCompilerOptions(const intel_npu::Config& config) {
     const auto archKind = getArchKind(config);
@@ -121,6 +130,11 @@ VPU::InitCompilerOptions vpux::getInitCompilerOptions(const intel_npu::Config& c
     const auto enableFP16CompressedConv = getEnableFP16CompressConv(config);
     const auto enableAutoPaddingIDU = getEnableAutoPaddingIDU(config);
     const auto enableAutoPaddingODU = getEnableAutoPaddingODU(config);
+    const auto enableSEPtrsOperations = getEnableSEPtrsOperations(config);
+    const auto enableExperimentalSEPtrsOperations = getEnableExperimentalSEPtrsOperations(config);
+    const auto enableIsReduceSupported = getReduceOperations(config);
+    const auto compilerDynamicQuantization = getCompilerDynamicQuantization(config);
+    const auto enableAdaptiveStripping = getEnableAdaptiveStripping(config);
 
     return {archKind,
             compilationMode,
@@ -131,7 +145,12 @@ VPU::InitCompilerOptions vpux::getInitCompilerOptions(const intel_npu::Config& c
             availableCmx,
             enableFP16CompressedConv,
             enableAutoPaddingIDU,
-            enableAutoPaddingODU};
+            enableAutoPaddingODU,
+            enableSEPtrsOperations,
+            enableExperimentalSEPtrsOperations,
+            enableIsReduceSupported,
+            compilerDynamicQuantization,
+            enableAdaptiveStripping};
 }
 
 //
@@ -302,13 +321,11 @@ std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
     return options->wlmRollback;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getWlmRollback<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getWlmRollback<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getWlmRollback<DefaultHWOptions>(config);
     } else {
@@ -319,9 +336,9 @@ std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
 std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getWlmRollback<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getWlmRollback<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getWlmRollback<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getWlmRollback<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -349,13 +366,11 @@ std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& c
     return options->performanceHintOverride;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getPerformanceHintOverride<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getPerformanceHintOverride<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getPerformanceHintOverride<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -370,9 +385,9 @@ std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& c
 std::optional<std::string> getPerformanceHintOverride(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getPerformanceHintOverride<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getPerformanceHintOverride<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getPerformanceHintOverride<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getPerformanceHintOverride<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -388,13 +403,11 @@ std::optional<bool> getEnableFP16CompressConv(const intel_npu::Config& config) {
     return options->enableFP16CompressedConvolution;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableFP16CompressConv(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableFP16CompressConv<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableFP16CompressConv<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableFP16CompressConv<DefaultHWOptions>(config);
     } else {
@@ -405,28 +418,42 @@ std::optional<bool> getEnableFP16CompressConv(const intel_npu::Config& config) {
 std::optional<bool> getEnableFP16CompressConv(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableFP16CompressConv<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getEnableFP16CompressConv<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableFP16CompressConv<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getEnableFP16CompressConv<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
 }
 
 template <typename Options>
-std::optional<int> getWlmBarrierThreshold(const intel_npu::Config& config) {
-    const auto options = Options::createFromString(config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
+std::optional<bool> getReduceOperations(const intel_npu::Config& config) {
+    const auto options = Options::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
     if (options == nullptr) {
         return std::nullopt;
     }
 
-    return options->wlmOptimizationThreshold;
+    return options->enableIsReduceSupported;
 }
 
-std::optional<int> getWlmBarrierThreshold(const intel_npu::Config& config) {
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
+std::optional<bool> getReduceOperations(const intel_npu::Config& config) {
+    const auto compilationMode = getCompilationMode(config);
+    if (compilationMode == VPU::CompilationMode::ReferenceSW) {
+        return getReduceOperations<ReferenceSWOptions>(config);
+    } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
+        return getReduceOperations<DefaultHWOptions>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> getReduceOperations(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
-    if (arch == VPU::ArchKind::NPU40XX) {
-        return getWlmBarrierThreshold<BackendCompilationOptions40XX>(config);
+    if (arch == VPU::ArchKind::NPU37XX) {
+        return getReduceOperations<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
+    } else if (arch == VPU::ArchKind::NPU40XX) {
+        return getReduceOperations<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -439,7 +466,7 @@ std::optional<bool> getWlmEnabled(const intel_npu::Config& config) {
         return std::nullopt;
     }
 
-    return options->enablePartialWorkloadManagement;
+    return options->workloadManagementEnable;
 }
 
 std::optional<bool> getWlmEnabled(const intel_npu::Config& config) {
@@ -463,13 +490,11 @@ std::optional<bool> getEnableAutoPaddingIDU(const intel_npu::Config& config) {
     return options->enableAutoPaddingIDU;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableAutoPaddingIDU(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableAutoPaddingIDU<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableAutoPaddingIDU<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableAutoPaddingIDU<DefaultHWOptions>(config);
     } else {
@@ -480,9 +505,9 @@ std::optional<bool> getEnableAutoPaddingIDU(const intel_npu::Config& config) {
 std::optional<bool> getEnableAutoPaddingIDU(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableAutoPaddingIDU<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getEnableAutoPaddingIDU<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableAutoPaddingIDU<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getEnableAutoPaddingIDU<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -498,13 +523,11 @@ std::optional<bool> getEnableAutoPaddingODU(const intel_npu::Config& config) {
     return options->enableAutoPaddingODU;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableAutoPaddingODU(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableAutoPaddingODU<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableAutoPaddingODU<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableAutoPaddingODU<DefaultHWOptions>(config);
     } else {
@@ -515,9 +538,112 @@ std::optional<bool> getEnableAutoPaddingODU(const intel_npu::Config& config) {
 std::optional<bool> getEnableAutoPaddingODU(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableAutoPaddingODU<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getEnableAutoPaddingODU<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableAutoPaddingODU<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getEnableAutoPaddingODU<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+// SEP
+
+template <typename Options>
+std::optional<bool> getEnableSEPtrsOperations(const intel_npu::Config& config) {
+    const auto options = Options::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+    if (options == nullptr) {
+        return std::nullopt;
+    }
+
+    return options->enableSEPtrsOperations;
+}
+
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
+std::optional<bool> getEnableSEPtrsOperations(const intel_npu::Config& config) {
+    const auto compilationMode = getCompilationMode(config);
+    if (compilationMode == VPU::CompilationMode::ReferenceSW) {
+        return getEnableSEPtrsOperations<ReferenceSWOptions>(config);
+    } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
+        return getEnableSEPtrsOperations<DefaultHWOptions>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> getEnableSEPtrsOperations(const intel_npu::Config& config) {
+    const auto arch = getArchKind(config);
+    if (arch == VPU::ArchKind::NPU37XX) {
+        return getEnableSEPtrsOperations<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
+    } else if (arch == VPU::ArchKind::NPU40XX) {
+        return getEnableSEPtrsOperations<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+template <typename Options>
+std::optional<bool> getEnableExperimentalSEPtrsOperations(const intel_npu::Config& config) {
+    const auto options = Options::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+    if (options == nullptr) {
+        return std::nullopt;
+    }
+
+    return options->enableExperimentalSEPtrsOperations;
+}
+
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
+std::optional<bool> getEnableExperimentalSEPtrsOperations(const intel_npu::Config& config) {
+    const auto compilationMode = getCompilationMode(config);
+    if (compilationMode == VPU::CompilationMode::ReferenceSW) {
+        return getEnableExperimentalSEPtrsOperations<ReferenceSWOptions>(config);
+    } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
+        return getEnableExperimentalSEPtrsOperations<DefaultHWOptions>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> getEnableExperimentalSEPtrsOperations(const intel_npu::Config& config) {
+    const auto arch = getArchKind(config);
+    if (arch == VPU::ArchKind::NPU37XX) {
+        return getEnableExperimentalSEPtrsOperations<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
+    } else if (arch == VPU::ArchKind::NPU40XX) {
+        return getEnableExperimentalSEPtrsOperations<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+// Adaptive Stripping
+
+template <typename Options>
+std::optional<bool> getEnableAdaptiveStripping(const intel_npu::Config& config) {
+    const auto options = Options::createFromString(config.get<intel_npu::COMPILATION_MODE_PARAMS>());
+    if (options == nullptr) {
+        return std::nullopt;
+    }
+
+    return options->enableAdaptiveStripping;
+}
+
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
+std::optional<bool> getEnableAdaptiveStripping(const intel_npu::Config& config) {
+    const auto compilationMode = getCompilationMode(config);
+    if (compilationMode == VPU::CompilationMode::ReferenceSW) {
+        return getEnableAdaptiveStripping<ReferenceSWOptions>(config);
+    } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
+        return getEnableAdaptiveStripping<DefaultHWOptions>(config);
+    } else {
+        return std::nullopt;
+    }
+}
+
+std::optional<bool> getEnableAdaptiveStripping(const intel_npu::Config& config) {
+    const auto arch = getArchKind(config);
+    if (arch == VPU::ArchKind::NPU37XX) {
+        return getEnableAdaptiveStripping<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
+    } else if (arch == VPU::ArchKind::NPU40XX) {
+        return getEnableAdaptiveStripping<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -532,13 +658,11 @@ std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
     return options->enableVerifiers;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableVerifiers<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableVerifiers<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableVerifiers<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -551,9 +675,9 @@ std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
 std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableVerifiers<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getEnableVerifiers<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableVerifiers<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getEnableVerifiers<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -568,13 +692,11 @@ std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& confi
     return options->enableMemoryUsageCollector;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableMemoryUsageCollector<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableMemoryUsageCollector<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableMemoryUsageCollector<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -587,11 +709,9 @@ std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& confi
 std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableMemoryUsageCollector<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(
-                config);
+        return getEnableMemoryUsageCollector<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableMemoryUsageCollector<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(
-                config);
+        return getEnableMemoryUsageCollector<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -606,13 +726,11 @@ std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::
     return options->enableFunctionStatisticsInstrumentation;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableFunctionStatisticsInstrumentation<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableFunctionStatisticsInstrumentation<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableFunctionStatisticsInstrumentation<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -625,11 +743,9 @@ std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::
 std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableFunctionStatisticsInstrumentation<ReferenceSWOptions37XX, ReferenceHWOptions37XX,
-                                                          DefaultHWOptions37XX>(config);
+        return getEnableFunctionStatisticsInstrumentation<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableFunctionStatisticsInstrumentation<ReferenceSWOptions40XX, ReferenceHWOptions40XX,
-                                                          DefaultHWOptions40XX>(config);
+        return getEnableFunctionStatisticsInstrumentation<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -644,13 +760,11 @@ std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config
     return options->enableDummyOpReplacement ? DummyOpMode::ENABLED : DummyOpMode::DISABLED;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getDummyOpReplacement<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getDummyOpReplacement<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getDummyOpReplacement<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -663,9 +777,9 @@ std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config
 std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getDummyOpReplacement<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(config);
+        return getDummyOpReplacement<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getDummyOpReplacement<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(config);
+        return getDummyOpReplacement<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -685,13 +799,11 @@ std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_
                                  options->constantFoldingInBackgroundCacheCleanThreshold};
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getConstantFoldingInBackground<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getConstantFoldingInBackground<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getConstantFoldingInBackground<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -704,11 +816,9 @@ std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_
 std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getConstantFoldingInBackground<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(
-                config);
+        return getConstantFoldingInBackground<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getConstantFoldingInBackground<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(
-                config);
+        return getConstantFoldingInBackground<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return std::nullopt;
     }
@@ -725,13 +835,11 @@ bool getEnableExtraShapeBoundOps(const intel_npu::Config& config) {
     return options->enableExtraShapeBoundOps;
 }
 
-template <typename ReferenceSWOptions, typename ReferenceHWOptions, typename DefaultHWOptions>
+template <typename ReferenceSWOptions, typename DefaultHWOptions>
 bool getEnableExtraShapeBoundOps(const intel_npu::Config& config) {
     const auto compilationMode = getCompilationMode(config);
     if (compilationMode == VPU::CompilationMode::ReferenceSW) {
         return getEnableExtraShapeBoundOps<ReferenceSWOptions>(config);
-    } else if (compilationMode == VPU::CompilationMode::ReferenceHW) {
-        return getEnableExtraShapeBoundOps<ReferenceHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::DefaultHW) {
         return getEnableExtraShapeBoundOps<DefaultHWOptions>(config);
     } else if (compilationMode == VPU::CompilationMode::ShaveCodeGen) {
@@ -744,11 +852,9 @@ bool getEnableExtraShapeBoundOps(const intel_npu::Config& config) {
 bool getEnableExtraShapeBoundOps(const intel_npu::Config& config) {
     const auto arch = getArchKind(config);
     if (arch == VPU::ArchKind::NPU37XX) {
-        return getEnableExtraShapeBoundOps<ReferenceSWOptions37XX, ReferenceHWOptions37XX, DefaultHWOptions37XX>(
-                config);
+        return getEnableExtraShapeBoundOps<ReferenceSWOptions37XX, DefaultHWOptions37XX>(config);
     } else if (arch == VPU::ArchKind::NPU40XX) {
-        return getEnableExtraShapeBoundOps<ReferenceSWOptions40XX, ReferenceHWOptions40XX, DefaultHWOptions40XX>(
-                config);
+        return getEnableExtraShapeBoundOps<ReferenceSWOptions40XX, DefaultHWOptions40XX>(config);
     } else {
         return false;
     }

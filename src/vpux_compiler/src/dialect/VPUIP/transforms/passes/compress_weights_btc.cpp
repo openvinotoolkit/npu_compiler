@@ -15,6 +15,12 @@
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_COMPRESSWEIGHTSBTC
+#define GEN_PASS_DEF_COMPRESSWEIGHTSBTC
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 // CompressWeightsBTCPass
 //
 
-class CompressWeightsBTCPass final : public VPUIP::CompressWeightsBTCBase<CompressWeightsBTCPass> {
+class CompressWeightsBTCPass final : public VPUIP::impl::CompressWeightsBTCBase<CompressWeightsBTCPass> {
 public:
     explicit CompressWeightsBTCPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

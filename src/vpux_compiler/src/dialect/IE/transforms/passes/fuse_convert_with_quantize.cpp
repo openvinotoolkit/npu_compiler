@@ -12,6 +12,12 @@
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSECONVERTWITHQUANTIZE
+#define GEN_PASS_DEF_FUSECONVERTWITHQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -111,7 +117,7 @@ mlir::LogicalResult DequantizeConvertRewriter::matchAndRewrite(IE::ConvertOp con
 // FuseConvertWithQuantizePass
 //
 
-class FuseConvertWithQuantizePass final : public IE::FuseConvertWithQuantizeBase<FuseConvertWithQuantizePass> {
+class FuseConvertWithQuantizePass final : public IE::impl::FuseConvertWithQuantizeBase<FuseConvertWithQuantizePass> {
 public:
     explicit FuseConvertWithQuantizePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

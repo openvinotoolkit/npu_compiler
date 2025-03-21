@@ -13,6 +13,8 @@
 namespace vpux {
 namespace VPUIP {
 
+using DmaFusionHandlerType = std::function<void(SmallVector<std::pair<VPUIP::NNDMAOp, bool>>)>;
+
 //
 // ClusterNCEBaseRewriter
 //
@@ -63,8 +65,9 @@ protected:
 
 class ClusterPerElementDMABaseRewriter {
 public:
-    ClusterPerElementDMABaseRewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount, Logger log)
-            : _log(log), _ctx(ctx), _dmaPortCount(dmaPortCount) {
+    ClusterPerElementDMABaseRewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount,
+                                     std::optional<DmaFusionHandlerType> maybeFusionHandler, Logger log)
+            : _log(log), _ctx(ctx), _dmaPortCount(dmaPortCount), _maybeFusionHandler(std::move(maybeFusionHandler)) {
         _cmxNameAttr = mlir::FlatSymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
     }
 
@@ -89,6 +92,7 @@ private:
     mlir::MLIRContext* _ctx;
     int64_t _dmaPortCount;
     mlir::FlatSymbolRefAttr _cmxNameAttr;
+    std::optional<DmaFusionHandlerType> _maybeFusionHandler;
 };
 
 //
@@ -97,8 +101,9 @@ private:
 
 class ClusterDMARewriter final : public ClusterPerElementDMABaseRewriter {
 public:
-    ClusterDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount, Logger log)
-            : ClusterPerElementDMABaseRewriter(ctx, dmaPortCount, log) {
+    ClusterDMARewriter(mlir::MLIRContext* ctx, int64_t dmaPortCount,
+                       std::optional<DmaFusionHandlerType> maybeFusionHandler, Logger log)
+            : ClusterPerElementDMABaseRewriter(ctx, dmaPortCount, std::move(maybeFusionHandler), log) {
     }
 
 private:
@@ -108,6 +113,9 @@ private:
                                              int64_t port, mlir::OpBuilder& builder) const override;
     UnrollingType getUnrollingType(VPU::DistributionMode inputMode, VPU::DistributionMode outputMode) const override;
 };
+
+void unrollClusterTilingCommon40XXPlus(mlir::func::FuncOp funcOp,
+                                       std::optional<DmaFusionHandlerType> maybeDmaFusionHandler, vpux::Logger log);
 
 }  // namespace VPUIP
 }  // namespace vpux

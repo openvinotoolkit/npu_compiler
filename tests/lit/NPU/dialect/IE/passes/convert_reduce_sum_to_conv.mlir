@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --convert-reduce-sum-to-conv %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @ConvertReduceSumToConv4D
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x4x32x31xf16>
 func.func @ConvertReduceSumToConv4D(%arg0: tensor<1x4x32x31xf16>) -> tensor<1x1x32x31xf16> {

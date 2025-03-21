@@ -12,6 +12,12 @@
 #include <mlir/Transforms/DialectConversion.h>
 #include <openvino/op/util/slice_plan.hpp>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_RESOLVESTRIDEDSLICE
+#define GEN_PASS_DEF_RESOLVESTRIDEDSLICE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -20,7 +26,7 @@ namespace {
 // ResolveStridedSlicePass
 //
 
-class ResolveStridedSlicePass final : public IE::ResolveStridedSliceBase<ResolveStridedSlicePass> {
+class ResolveStridedSlicePass final : public IE::impl::ResolveStridedSliceBase<ResolveStridedSlicePass> {
 public:
     explicit ResolveStridedSlicePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

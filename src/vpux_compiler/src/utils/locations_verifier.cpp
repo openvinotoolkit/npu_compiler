@@ -6,9 +6,9 @@
 #include "vpux/compiler/utils/locations_verifier.hpp"
 
 #include "vpux/compiler/core/developer_build_utils.hpp"
-#include "vpux/compiler/core/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 
@@ -25,6 +25,7 @@
 #include "vpux/utils/core/type_traits.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinDialect.h>
 
 #include <unordered_map>

@@ -11,6 +11,12 @@
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_OPTIMIZECONVERTDMAOP
+#define GEN_PASS_DEF_OPTIMIZECONVERTDMAOP
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -325,7 +331,7 @@ public:
 // OptimizeConvertDMAPass
 //
 
-class OptimizeConvertDMAPass final : public VPUIP::arch40xx::OptimizeConvertDMAOpBase<OptimizeConvertDMAPass> {
+class OptimizeConvertDMAPass final : public VPUIP::arch40xx::impl::OptimizeConvertDMAOpBase<OptimizeConvertDMAPass> {
 public:
     explicit OptimizeConvertDMAPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -10,6 +10,12 @@
 #include "vpux/compiler/dialect/IE/utils/pad_extract.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTPADTOCONCAT
+#define GEN_PASS_DEF_CONVERTPADTOCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -109,7 +115,7 @@ mlir::LogicalResult ReplacePadWithConstAndConcat::matchAndRewrite(IE::PadOp orig
 // ConvertPadToConcat
 //
 
-class ConvertPadToConcatPass final : public IE::ConvertPadToConcatBase<ConvertPadToConcatPass> {
+class ConvertPadToConcatPass final : public IE::impl::ConvertPadToConcatBase<ConvertPadToConcatPass> {
 public:
     explicit ConvertPadToConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

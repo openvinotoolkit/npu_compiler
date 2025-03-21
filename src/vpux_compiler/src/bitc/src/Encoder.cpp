@@ -103,7 +103,7 @@ const std::map<uint32_t, DecoderAlgorithm> Encoder::Impl::encoder_to_decoder_map
         {0, DecoderAlgorithm::ADDPROC},         {1, DecoderAlgorithm::SIGNSHFTADDPROC},
         {2, DecoderAlgorithm::SIGNSHFTADDPROC}, {3, DecoderAlgorithm::NOPROC},
         {4, DecoderAlgorithm::SIGNSHFTPROC},    {5, DecoderAlgorithm::SIGNSHFTADDPROC},
-        {6, DecoderAlgorithm::SIGNSHFTADDBLK},  // >= NPU4 only
+        {6, DecoderAlgorithm::SIGNSHFTADDBLK},  // >= NPU40XX only
         {7, DecoderAlgorithm::BINEXPPROC},      {8, DecoderAlgorithm::BTEXPPROC}};
 
 void Encoder::Impl::verify_config(const BitCompactorConfig& config) {
@@ -136,7 +136,7 @@ void Encoder::Impl::init(const BitCompactorConfig& config, const std::vector<uin
     algorithm_encoder_[static_cast<uint32_t>(EncoderAlgorithm::NOPRDCT)] = &Encoder::Impl::noprdct;
     algorithm_encoder_[static_cast<uint32_t>(EncoderAlgorithm::NOSPRDCT)] = &Encoder::Impl::nosprdct;
     algorithm_encoder_[static_cast<uint32_t>(EncoderAlgorithm::PREVBLKPRDCT)] =
-            &Encoder::Impl::prevblkprdct;  // >= NPU4 only
+            &Encoder::Impl::prevblkprdct;  // >= NPU40XX only
     algorithm_encoder_[static_cast<uint32_t>(EncoderAlgorithm::BINCMPCT)] = &Encoder::Impl::binexpproc;
     algorithm_encoder_[static_cast<uint32_t>(EncoderAlgorithm::BTMAP)] = &Encoder::Impl::btexpproc;
 
@@ -743,7 +743,6 @@ void Encoder::Impl::pack_sparse_data(const BitCompactorConfig& config) {
 void Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<uint8_t>& in,
                            std::vector<uint8_t>& out) {
     init(config, in);
-
     if (config.bypass_compression) {
         out.resize(bit_stream_in_.source_stream_length());
         memcpy(out.data(), bit_stream_in_.get_byte_pointer(0), bit_stream_in_.source_stream_length());

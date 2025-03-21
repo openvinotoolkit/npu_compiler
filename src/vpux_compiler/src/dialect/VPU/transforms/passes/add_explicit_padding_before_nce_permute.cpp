@@ -3,10 +3,17 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ADDEXPLICITPADDINGBEFORENCEPERMUTE
+#define GEN_PASS_DEF_ADDEXPLICITPADDINGBEFORENCEPERMUTE
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -111,7 +118,7 @@ void insertExplicitPad(Logger& log, VPU::NCEPermuteOp origOp) {
 //
 
 class AddExplicitPaddingBeforeNCEPermutePass final :
-        public VPU::AddExplicitPaddingBeforeNCEPermuteBase<AddExplicitPaddingBeforeNCEPermutePass> {
+        public VPU::impl::AddExplicitPaddingBeforeNCEPermuteBase<AddExplicitPaddingBeforeNCEPermutePass> {
 public:
     explicit AddExplicitPaddingBeforeNCEPermutePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

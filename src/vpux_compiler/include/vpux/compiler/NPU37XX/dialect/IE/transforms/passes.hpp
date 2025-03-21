@@ -7,6 +7,11 @@
 
 #include "vpux/compiler/NPU37XX/core/pipelines_options.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/utils/core/logger.hpp"
+
+#include <mlir/Pass/PassManager.h>
+
+#include <memory>
 
 namespace vpux {
 namespace IE {
@@ -25,7 +30,6 @@ std::unique_ptr<mlir::Pass> createFusePermuteQuantizeExpandPass(Logger log = Log
 std::unique_ptr<mlir::Pass> createExpandActivationChannelsPass(const bool seOpsEnabled = false,
                                                                const bool seExperimentalOpsEnabled = false,
                                                                Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUnrollBatchPass(Logger log = Logger::global(), const bool skipUnrollBatch = false);
 std::unique_ptr<mlir::Pass> createConvertFFTToConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertSubGRUSequenceToConvPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertToMixedPrecision(const bool enableFloatInQuantWeightsMixedMode = true,
@@ -93,15 +97,12 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
             llvm::cl::desc("Lower limit on weight size for runtime dequantization"
                            "Weights smaller than the limit will be statically dequantized"),
             llvm::cl::init(524'288)};  // 512kb
+
+    BoolOption skipUnrollBatch{*this, "skip-unroll-batch", llvm::cl::desc("Skip unroll on batch dimension"),
+                               llvm::cl::init(false)};
 };
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
-
-//
-// registerIEPipelines
-//
-
-void registerIEPipelines();
 
 //
 // AdjustLayout
@@ -116,16 +117,11 @@ std::unique_ptr<mlir::Pass> createFuseReordersPass(Logger log = Logger::global()
 std::unique_ptr<mlir::Pass> createFuseStaticScalePass(Logger log = Logger::global(), bool moveScaleBeforeConcat = true);
 
 //
-// Generated
+// Registration
 //
 
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerIEPipelines();
+void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace IE

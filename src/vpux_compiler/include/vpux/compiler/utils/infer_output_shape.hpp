@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include "vpux/utils/core/array_ref.hpp"
@@ -19,7 +19,7 @@ struct ShapeInfo {
 
     static ShapeInfo fromNDType(NDTypeInterface type) {
         // NB: empty bounds means that the shape is static
-        const auto boundVals = [&type] {
+        auto boundVals = [&type] {
             const auto boundedType = mlir::dyn_cast<BoundedTypeInterface>(type);
             // TODO(E#141756): we should fail cast if the type is not bounded
             if (boundedType != nullptr) {
@@ -31,7 +31,7 @@ struct ShapeInfo {
             return SmallVector<int64_t>{};
         }();
 
-        return ShapeInfo{to_small_vector(type.getShape()), boundVals};
+        return ShapeInfo{to_small_vector(type.getShape()), std::move(boundVals)};
     }
 };
 

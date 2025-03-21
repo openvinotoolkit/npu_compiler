@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-compression-scheme %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK:  func.func @SparseConvWeights([[ARG0:%.+]]: memref<1x16x64x64xf16, #NHWC>, [[ARG1:%.+]]: memref<1x32x64x64xf16, #NHWC>) -> memref<1x32x64x64xf16, #NHWC>

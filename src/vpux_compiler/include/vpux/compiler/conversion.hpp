@@ -10,7 +10,7 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/IERT/ops.hpp"  // E#106904: IERT doesn't have a dialect header
+#include "vpux/compiler/dialect/IERT/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/utils/dry_run_utils.hpp"
 #include "vpux/compiler/dialect/VPUASM/dialect.hpp"
@@ -28,9 +28,12 @@
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/Bufferization/IR/Bufferization.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
+#include <mlir/Dialect/Index/IR/IndexDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinOps.h>
 
 #include <memory>
@@ -76,9 +79,15 @@ std::unique_ptr<mlir::Pass> createInPlaceBufferizationAnalyzePass();
 std::unique_ptr<mlir::Pass> createAdjustDynamicOpsBeforeBufferizationPass();
 std::unique_ptr<mlir::Pass> createAddBuffersForNetResults(Logger log = Logger::global());
 
-std::unique_ptr<mlir::Pass> createConvertSWLayers2AffinePass(Logger log = Logger::global());
+//
+// ShaveCodeGen
+//
+namespace ShaveCodeGen {
+void buildLowerSwLayers2LinalgPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
+
+std::unique_ptr<mlir::Pass> createConvertEltwiseLayers2MathPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertAffine2LLVMPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertIERT2VPUIPPass(Logger log = Logger::global());
+}  // namespace ShaveCodeGen
 
 // ELF back-end lowerings
 std::unique_ptr<mlir::Pass> createConvertVPUIP2VPUMI37XXPass(Logger log = Logger::global());
@@ -96,21 +105,10 @@ std::unique_ptr<mlir::Pass> createConvertVPUIPDPU2NPUReg40XXPass(
 std::unique_ptr<mlir::Pass> createConvertVPUASM2NPUReg40XXPass(Logger log = Logger::global(), bool enableWLM = false);
 
 //
-// registerConversionPipelines
+// Registration
 //
 
 void registerConversionPipelines();
-
-//
-// Generated
-//
-
-#define GEN_PASS_CLASSES
-#include <vpux/compiler/conversion/passes.hpp.inc>
-#undef GEN_PASS_CLASSES
-
-#define GEN_PASS_REGISTRATION
-#include <vpux/compiler/conversion/passes.hpp.inc>
-#undef GEN_PASS_REGISTRATION
+void registerConversionPasses();
 
 }  // namespace vpux

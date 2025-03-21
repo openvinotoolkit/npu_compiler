@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -77,13 +77,14 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "dequantize",
                                                                  "activation_mish",
                                                                  "dynamic_dequantize",
-                                                                 "rms_norm"};
+                                                                 "rms_norm",
+                                                                 "rope"};
 
 const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1", "lstm_cell", "lstm_sequence"};
 
 const SmallVector<std::string_view> SW_KERNELS_SUPPORTING_SHAVE_BALANCING = {
-        "softmax",          "eltwise_mul", "activation_sin", "activation_cos", "activation_swish",
-        "activation_clamp", "eltwise_min", "eltwise_max",    "round_fp16",     "activation_exp"};
+        "softmax",     "eltwise_mul", "activation_sin", "activation_cos", "activation_swish", "activation_clamp",
+        "eltwise_min", "eltwise_max", "round_fp16",     "activation_exp", "prelu_fp16"};
 
 const SmallVector<StringLiteral> SW_KERNELS_LAYOUT_AGNOSTIC = {
         "activation_swish", "activation_gelu",    "activation_hswish", "activation_hardsigmoid",
@@ -143,7 +144,8 @@ SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp);
 
 mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, mlir::StringRef builtInFunctionName,
                                           const ArrayRef<mlir::Type> inputTypes, mlir::StringRef kernelEntryName,
-                                          mlir::StringRef kernelSourceFileName, const vpux::Logger& log);
+                                          mlir::StringRef kernelSourceFileName, mlir::StringRef layerName,
+                                          const vpux::Logger& log);
 
 mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInterface origOp,
                                           ArrayRef<mlir::Value> operands, ArrayRef<mlir::Value> results,
@@ -152,7 +154,8 @@ mlir::SymbolRefAttr createBuiltInFunction(mlir::ModuleOp module, VPU::LayerOpInt
 void createRuntimeKernelDefinition(mlir::ModuleOp module, const Logger& log, vpux::VPU::ArchKind arch);
 
 void initSwKernel(vpux::VPUIP::SwKernelOp swKernelOp, mlir::ValueRange inputs, mlir::ValueRange outputBuffs,
-                  mlir::ArrayRef<mlir::Attribute> args, const vpux::Logger& log);
+                  mlir::ArrayRef<mlir::Attribute> args, const vpux::Logger& log,
+                  VPUIP::SwKernelRun swKernelRunOp = nullptr);
 
 void initSwKernel(VPUIP::SwKernelOp swKernelOp, VPUIP::SwKernelRun swKernelRunOp, const vpux::Logger& log);
 

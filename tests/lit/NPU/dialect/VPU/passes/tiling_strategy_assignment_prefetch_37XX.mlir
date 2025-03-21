@@ -1107,13 +1107,13 @@ func.func @SplitSelectEltwiseSw(%arg0: tensor<1x10x256x256xf16>, %arg1: tensor<1
 
 // -----
 
-// CHECK-LABEL: @SplitAndEltwiseSw
+// CHECK-LABEL: @SplitAddEltwiseSw
 // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x10x256x256xf16>, [[INPUT_1:%arg[0-9]]]: tensor<1x10x256x256xf16>) -> tensor<1x10x256x256xf16>
-func.func @SplitAndEltwiseSw(%arg0: tensor<1x10x256x256xf16>, %arg1: tensor<1x10x256x256xf16>) -> tensor<1x10x256x256xf16> {
-    %0 = VPU.And(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x10x256x256xf16>, tensor<1x10x256x256xf16> -> tensor<1x10x256x256xf16>
+func.func @SplitAddEltwiseSw(%arg0: tensor<1x10x256x256xf16>, %arg1: tensor<1x10x256x256xf16>) -> tensor<1x10x256x256xf16> {
+    %0 = VPU.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x10x256x256xf16>, tensor<1x10x256x256xf16> -> tensor<1x10x256x256xf16>
     return %0 : tensor<1x10x256x256xf16>
 
-    // CHECK:       [[OUTPUT:%.+]] = VPU.And([[INPUT_0]], [[INPUT_1]]) {
+    // CHECK:       [[OUTPUT:%.+]] = VPU.Add([[INPUT_0]], [[INPUT_1]]) {
     // CHECK-SAME:  auto_broadcast = #IE.auto_broadcast_type<NUMPY>, tilingStrategy = [1, 1, 2, 1]} : tensor<1x10x256x256xf16>, tensor<1x10x256x256xf16> -> tensor<1x10x256x256xf16>
 
     // CHECK:       return [[OUTPUT]] : tensor<1x10x256x256xf16>
@@ -1167,11 +1167,11 @@ func.func @SplitReduceSum(%arg0: tensor<1x12x368x480xf16>) -> tensor<1x1x368x480
 // CHECK-LABEL: @SplitTopK
 // CHECK-SAME:      [[INPUT_0:%arg[0-9]]]: tensor<1x5x512x512xf16>) -> (tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>)
 func.func @SplitTopK(%arg0: tensor<1x5x512x512xf16>) -> (tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>) {
-    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x512xf16> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
+    %output_values, %target_shape = VPU.TopK(%arg0) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>} : tensor<1x5x512x512xf16> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
     %0 = VPU.Convert(%output_values) {dstElemType = f32} : tensor<1x1x512x512xf16> -> tensor<1x1x512x512xf32>
     return %0, %target_shape : tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>
 
-    // CHECK: [[OUTPUT_VALUE:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT_0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>, tilingStrategy = [1, 1, 3, 1]} : tensor<1x5x512x512xf16> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
+    // CHECK: [[OUTPUT_VALUE:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK([[INPUT_0]]) {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>, tilingStrategy = [1, 1, 3, 1]} : tensor<1x5x512x512xf16> -> tensor<1x1x512x512xf16>, tensor<1x1x512x512xsi32>
     // CHECK: [[OUTPUT_VALUE_CONV:%.+]] = VPU.Convert([[OUTPUT_VALUE]]) {dstElemType = f32} : tensor<1x1x512x512xf16> -> tensor<1x1x512x512xf32>
     // CHECK: return [[OUTPUT_VALUE_CONV]], [[TARGET_SHAPE]] : tensor<1x1x512x512xf32>, tensor<1x1x512x512xsi32>
 }
@@ -1488,4 +1488,23 @@ func.func @PermuteOpWithHugeInputSize(%arg0: tensor<1x4x2048x336xf16>) -> tensor
     //CHECK:                  tensor<1x4x2048x336xf16, {order = #NHWC}>
 
     //CHECK: return [[RET]] : tensor<1x4x2048x336xf16, {order = #NHWC}>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @PReLUSOH_TileOverH
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x256x64x64xf16>)
+func.func @PReLUSOH_TileOverH(%arg0: tensor<1x256x64x64xf16>) -> tensor<1x256x64x64xf16> {
+    %cst = const.Declare tensor<1x256x1x1xf16> = dense<-1.000000e+01> : tensor<1x256x1x1xf16>
+    %0 = VPU.PRelu(%arg0, %cst) {
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+        : tensor<1x256x64x64xf16>, tensor<1x256x1x1xf16> -> tensor<1x256x64x64xf16>
+    return %0 : tensor<1x256x64x64xf16>
+
+    // CHECK:      [[CST:%.+]] = const.Declare tensor<1x256x1x1xf16> = dense<-1.000000e+01> : tensor<1x256x1x1xf16>
+    // CHECK:      [[OUTPUT:%.+]] = VPU.PRelu([[INPUT]], [[CST]]) {
+    // CHECK-SAME:    multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
+    // CHECK-SAME:    tilingStrategy = [1, 1, 2, 1]
+
+    // CHECK:      return [[OUTPUT]] : tensor<1x256x64x64xf16>
 }

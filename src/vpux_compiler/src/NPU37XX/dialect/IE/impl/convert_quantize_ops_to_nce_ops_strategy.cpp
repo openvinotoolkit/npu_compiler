@@ -6,6 +6,7 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/convert_quantize_ops_to_nce_ops_strategy.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_quantize_ops_to_nce_ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 
@@ -301,7 +302,7 @@ void ConvertQuantizeOpsToNceOpsStrategy::prepareEltwise(mlir::ConversionTarget& 
     toEltwiseTarget.addDynamicallyLegalOp<IE::DequantizeOp>([&](IE::DequantizeOp dequantizeOp) {
         return IE::isLegalDequantizeOp(dequantizeOp) || hasConstProducer(dequantizeOp);
     });
-    toEltwiseTarget.addLegalOp<IE::AndOp>();
+
     toEltwiseTarget.addLegalOp<IE::AddOp>();
     toEltwiseTarget.addLegalOp<IE::QuantizeCastOp>();
 

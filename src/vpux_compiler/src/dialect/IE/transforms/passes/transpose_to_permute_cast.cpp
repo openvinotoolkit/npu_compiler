@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_TRANSPOSETOPERMUTECAST
+#define GEN_PASS_DEF_TRANSPOSETOPERMUTECAST
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -15,7 +22,7 @@ namespace {
 // TransposeToPermuteCast
 //
 
-class TransposeToPermuteCast final : public IE::TransposeToPermuteCastBase<TransposeToPermuteCast> {
+class TransposeToPermuteCast final : public IE::impl::TransposeToPermuteCastBase<TransposeToPermuteCast> {
 public:
     explicit TransposeToPermuteCast(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

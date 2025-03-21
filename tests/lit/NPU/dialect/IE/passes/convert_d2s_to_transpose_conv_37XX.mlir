@@ -9,9 +9,9 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: func.func @ConvertD2SToTransConvBS2
+// CHECK-LABEL: func.func @DepthToSpaceWithConversionBS2
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x64x3x3xf16>)
-func.func @ConvertD2SToTransConvBS2(%input: tensor<1x64x3x3xf16>) -> tensor<1x16x6x6xf16> {
+func.func @DepthToSpaceWithConversionBS2(%input: tensor<1x64x3x3xf16>) -> tensor<1x16x6x6xf16> {
     %d2s = IE.DepthToSpace(%input) {
         block_size = 2 : i64,
         mode = #IE.depth_to_space_mode<DEPTH_FIRST>
@@ -46,9 +46,9 @@ func.func @ConvertD2SToTransConvBS2(%input: tensor<1x64x3x3xf16>) -> tensor<1x16
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: func.func @ConvertD2SToTransConvBS3
+// CHECK-LABEL: func.func @DepthToSpaceWithConversionBS3
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x144x3x3xf16>)
-func.func @ConvertD2SToTransConvBS3(%input: tensor<1x144x3x3xf16>) -> tensor<1x16x9x9xf16> {
+func.func @DepthToSpaceWithConversionBS3(%input: tensor<1x144x3x3xf16>) -> tensor<1x16x9x9xf16> {
     %d2s = IE.DepthToSpace(%input) {
         block_size = 3 : i64,
         mode = #IE.depth_to_space_mode<DEPTH_FIRST>
@@ -80,12 +80,12 @@ func.func @ConvertD2SToTransConvBS3(%input: tensor<1x144x3x3xf16>) -> tensor<1x1
 
 // -----
 
-#NCHW = affine_map < (d0, d1, d2, d3)->(d0, d1, d2, d3)>
-#NHWC = affine_map < (d0, d1, d2, d3)->(d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: func.func @NotConvertD2SIfNoBenefit
+// CHECK-LABEL: func.func @DepthToSpaceWithoutConversionBS4
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x16x180x270xf16>)
-func.func @NotConvertD2SIfNoBenefit(%input : tensor<1x16x180x270xf16>)->tensor<1x1x720x1080xf16> {
+func.func @DepthToSpaceWithoutConversionBS4(%input : tensor<1x16x180x270xf16>) -> tensor<1x1x720x1080xf16> {
     %d2s = IE.DepthToSpace(%input) {
         block_size = 4 : i64,
         mode = #IE.depth_to_space_mode<DEPTH_FIRST>

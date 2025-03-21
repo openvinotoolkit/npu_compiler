@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -53,11 +53,11 @@ size_t vpux::ELF::math::lcm(size_t a, size_t b) {
 
 size_t vpux::ELF::getOffsetOfSymRef(ELF::SymbolReferenceMap& symRefMap, mlir::SymbolRefAttr symRef) {
     auto referencedOp = symRefMap.lookupSymbol(symRef);
-    auto wrappableOp = mlir::dyn_cast<ELF::WrappableOpInterface>(referencedOp);
+    auto binaryOp = mlir::dyn_cast<ELF::BinaryOpInterface>(referencedOp);
 
-    VPUX_THROW_UNLESS(wrappableOp, "The relocInfo can't be retrieved for a non-binaryOpIf type reference");
+    VPUX_THROW_UNLESS(binaryOp, "The relocInfo can't be retrieved for a non-binaryOpIf type reference");
 
-    return wrappableOp.getMemoryOffset();
+    return binaryOp.getMemoryOffset();
 }
 
 vpux::ELF::MainOp vpux::ELF::getElfMainOp(mlir::ModuleOp moduleOp) {
@@ -150,7 +150,8 @@ namespace {
 const std::unordered_map<VPU::ArchKind, elf::platform::ArchKind> vpuToElfArchEnumMap = {
         {VPU::ArchKind::UNKNOWN, elf::platform::ArchKind::UNKNOWN},
         {VPU::ArchKind::NPU37XX, elf::platform::ArchKind::VPUX37XX},
-        {VPU::ArchKind::NPU40XX, elf::platform::ArchKind::VPUX40XX}};
+        {VPU::ArchKind::NPU40XX, elf::platform::ArchKind::VPUX40XX},
+};
 }  // namespace
 
 elf::platform::ArchKind vpux::ELF::mapVpuArchKindToElfArchKind(const VPU::ArchKind& archKind) {
@@ -204,14 +205,10 @@ mlir::SymbolRefAttr vpux::ELF::moveOpToSection(mlir::Operation* op, SectionMappe
     auto signature = *maybeSignature;
 
     auto createSection = [&](const ELF::SectionSignature& signature, bool memFootprint, size_t opAling) {
-        // Only enforce LCM alignment in case of sections that get allocated
-        auto secAlignReq = ELF::bitEnumContainsAll(signature.getFlags(), ELF::SectionFlagsAttr::SHF_ALLOC)
-                                   ? ELF::math::lcm(elf::VPU_SH_ADDR_ALIGN_FOR_VPU, opAling)
-                                   : opAling;
         if (memFootprint) {
             auto sec = builder.create<ELF::DataSectionOp>(builder.getUnknownLoc(),
                                                           signature.getName(),  // llvm::StringRef secName
-                                                          secAlignReq,          // int64_t secAddrAlign
+                                                          opAling,              // int64_t secAddrAlign
                                                           signature.getType(),  // ELFVPUX40XX secType
                                                           signature.getFlags()  // ELFVPUX40XX secFlags
             );
@@ -220,7 +217,7 @@ mlir::SymbolRefAttr vpux::ELF::moveOpToSection(mlir::Operation* op, SectionMappe
         } else {
             auto sec = builder.create<ELF::LogicalSectionOp>(builder.getUnknownLoc(),
                                                              signature.getName(),  // llvm::StringRef secName
-                                                             secAlignReq,          // int64_t secAddrAlign
+                                                             opAling,              // int64_t secAddrAlign
                                                              signature.getType(),  // ELFVPUX40XX secType
                                                              signature.getFlags()  // ELFVPUX40XX secFlags
             );
@@ -237,10 +234,7 @@ mlir::SymbolRefAttr vpux::ELF::moveOpToSection(mlir::Operation* op, SectionMappe
         op->moveAfter(&sectionBlock->back());
     } else {
         auto hasMemFootprint = wrapOp.hasMemoryFootprint();
-        const auto arch = VPU::getArch(wrapOp.getOperation());
-        auto opAddrAling = wrapOp.getAlignmentRequirements(arch);
-
-        auto secInterface = createSection(signature, hasMemFootprint, opAddrAling);
+        auto secInterface = createSection(signature, hasMemFootprint, VPUX_DEFAULT_ALIGNMENT);
         mlir::Block* sectionBlock = secInterface.getBlock();
         op->moveBefore(sectionBlock, sectionBlock->end());
 

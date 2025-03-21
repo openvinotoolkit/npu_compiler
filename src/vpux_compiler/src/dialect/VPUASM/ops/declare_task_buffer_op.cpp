@@ -14,11 +14,7 @@ using namespace vpux;
 // DeclareTaskBufferOp
 //
 
-void VPUASM::DeclareTaskBufferOp::serialize(elf::writer::BinaryDataSection<uint8_t>&) {
-    return;
-}
-
-size_t VPUASM::DeclareTaskBufferOp::getBinarySize(VPU::ArchKind /*arch*/) {
+size_t VPUASM::DeclareTaskBufferOp::getBinarySize([[maybe_unused]] VPU::ArchKind arch) {
     switch (getTaskType()) {
     case VPURegMapped::TaskType::DMA:
         return sizeof(npu40xx::nn_public::VpuDMATask);
@@ -34,7 +30,6 @@ size_t VPUASM::DeclareTaskBufferOp::getBinarySize(VPU::ArchKind /*arch*/) {
         return sizeof(npu40xx::nn_public::VpuMediaTask);
     default:
         VPUX_THROW("Invalid task type for DeclareTaskBufferOp {0}", *this);
-        return 0;
     }
 }
 

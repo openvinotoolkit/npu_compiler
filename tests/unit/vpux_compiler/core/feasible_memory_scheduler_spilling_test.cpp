@@ -10,13 +10,12 @@
 #include "vpux/compiler/core/feasible_memory_scheduler_spilling.hpp"
 #include "vpux/compiler/core/linear_scan_handler.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/utils/hw_settings.hpp"
-#include "vpux/utils/core/string_ref.hpp"
 
 #include "common/utils.hpp"
 
 #include <mlir/Dialect/Async/IR/Async.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/IR/Visitors.h>
@@ -100,13 +99,8 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForI
     });
     ASSERT_TRUE(nceOp != nullptr);
 
-    auto rootsInput1 = aliasesInfo.getRoots(nceOp.getInput());
-    auto rootsInput2 = aliasesInfo.getRoots(nceOp.getWeights());
-    ASSERT_TRUE(rootsInput1.size() == 1);
-    ASSERT_TRUE(rootsInput2.size() == 1);
-
-    auto buf1Spilled = *rootsInput1.begin();
-    auto buf2 = *rootsInput2.begin();
+    auto buf1Spilled = aliasesInfo.getRoot(nceOp.getInput());
+    auto buf2 = aliasesInfo.getRoot(nceOp.getWeights());
 
     // Required components needed to construct FeasibleMemorySchedulerSpilling object
     const auto memKind = VPU::MemoryKind::CMX_NN;

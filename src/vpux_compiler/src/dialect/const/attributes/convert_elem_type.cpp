@@ -80,3 +80,12 @@ Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content&
     // TODO: Support generic transformation
     VPUX_THROW("Unsupported conversion: {0} -> {1}", inElementType, outElementType);
 }
+
+//
+// ConvertElemTypeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ConvertElemTypeAttr::getStableHashValue() const {
+    const auto type = getElemType();
+    return llvm::hash_combine(getMnemonic(), formatv("{0}", type).str());
+}

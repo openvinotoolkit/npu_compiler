@@ -113,6 +113,11 @@ static inline uint32_t getNumElem(const struct MemRefData& buff) {
     return n;
 }
 
+static inline uint32_t getNumElem4D(const MemRefData& buff) {
+    uint32_t* pDims = (uint32_t*)(buff.dimsAddr);
+    return pDims[0] * pDims[1] * pDims[2] * pDims[3];
+}
+
 static inline uint32_t getBpp(uint32_t type) {
     uint32_t bpp = 0;
     switch (type) {

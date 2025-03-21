@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/utils/core/func_ref.hpp"
 #include "vpux/utils/core/logger.hpp"
@@ -47,12 +47,6 @@ constexpr int64_t VPU_SPATIAL_ALIGNMENT = 4;
 constexpr std::array<int64_t, 3> DEPTHWISE_WORKLOAD_SIZES{16, 32, 64};
 
 //
-// Precision checks
-//
-
-bool isPrecisionSupported(ArchKind arch, mlir::ValueRange vals, LogCb logCb = globalLogCb);
-
-//
 // Attributes checks
 //
 
@@ -63,12 +57,12 @@ bool isAttrsSupported(mlir::Operation* op, int64_t KY, int64_t KX, int64_t SY, i
 // Activation type checks
 //
 
-bool isAligned(vpux::NDTypeInterface type, int64_t alignment, ArchKind arch, LogCb logCb);
+bool isAligned(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb);
 
 int64_t getAlignment(mlir::Type elemType);
 
-bool isInputActTypeSupported(ArchKind arch, vpux::NDTypeInterface type, int64_t alignment,
-                             bool supportsInputActCompression = false, LogCb logCb = globalLogCb);
+bool isInputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, bool supportsInputActCompression = false,
+                             LogCb logCb = globalLogCb);
 bool isOutputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, LogCb logCb = globalLogCb);
 
 //
@@ -93,12 +87,6 @@ bool verifyPads(int64_t KY, int64_t KX, int64_t padTop, int64_t padBottom, int64
 bool checkLayouts(mlir::TypeRange operandTypes, mlir::TypeRange resultTypes, const VPU::ArchKind& arch,
                   const unsigned numInputOperands, LogCb logCb);
 
-//
-// Check if given architecture supports NCE tasks in superdense mode
-//
-
-bool isSuperdenseSupported(const VPU::ArchKind arch);
-
 mlir::LogicalResult isSupported(mlir::Operation* op, Logger log = Logger::global());
 
 //
@@ -118,7 +106,7 @@ mlir::LogicalResult verifyPoolCMX(mlir::Location loc, mlir::ModuleOp module, vpu
 // Check if given architecture supports Elementwise multiply operation
 //
 
-bool isElementwiseMultiplySupported(const VPU::ArchKind arch);
+bool isEltwiseMultiplySubtractSupported(const VPU::ArchKind arch);
 
 }  // namespace NCEInvariant
 

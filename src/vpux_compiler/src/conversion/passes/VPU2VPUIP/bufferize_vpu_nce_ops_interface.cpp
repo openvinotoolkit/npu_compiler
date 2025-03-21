@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -169,8 +170,10 @@ mlir::Value createNCEClusterTask(mlir::OpBuilder& rewriter, mlir::Location loc, 
 
     auto nceClusterTask = rewriter.create<VPUIP::NCEClusterTaskOp>(
             loc, inputData, inputSparsityMap, inputSETable, weightsData, weightsSparsityMap, weightsTable,
-            /*sprLookupTable=*/nullptr, inputData, inputSparsityMap, inputSETable, outputBuffData,
-            outputBuffSparsityMap, outputBuffData, outputBuffSparsityMap, /*profiling_data=*/nullptr,
+            /*weight_table_data_ptr=*/nullptr, /*weight_table_sp_ptr=*/nullptr, /*weight_table_scale=*/nullptr,
+            /*weight_table_bias=*/nullptr, /*weight_zero_points=*/nullptr,
+            /*sprLookupTable=*/nullptr, /*palletLookupTable=*/nullptr, inputData, inputSparsityMap, inputSETable,
+            outputBuffData, outputBuffSparsityMap, outputBuffData, outputBuffSparsityMap, /*profiling_data=*/nullptr,
             /*max_per_xy=*/nullptr, /*min_per_xy=*/nullptr, /*min_max_per_tensor=*/mlir::ValueRange(), taskType,
             kernelSizeAttr, kernelStridesAttr, kernelPaddingAttr,
             /*is_continued=*/nullptr, cmSpPattern,
@@ -204,20 +207,19 @@ bool isSuperdenseOp(mlir::Operation* nceOp) {
     const auto outputOrder = outType.getDimsOrder();
     const auto outputShape = outType.getShape();
     const auto outElemType = outType.getElementType();
-    const auto arch = VPU::getArch(nceOp);
 
     // Check output shape for each cluster
     if (auto distributedTensorType = outType.dyn_cast<VPU::DistributedTensorType>()) {
         auto tiledComputeShapes = distributedTensorType.getPerClusterComputeShapes();
         for (auto& computeShape : tiledComputeShapes) {
-            if (VPU::NCESparsity::isSuperdenseRequired(arch, outputOrder, computeShape, outElemType)) {
+            if (VPU::NCESparsity::isSuperdenseRequired(outputOrder, computeShape, outElemType)) {
                 return true;
             }
         }
         return false;
     }
 
-    return VPU::NCESparsity::isSuperdenseRequired(arch, outputOrder, outputShape, outElemType);
+    return VPU::NCESparsity::isSuperdenseRequired(outputOrder, outputShape, outElemType);
 }
 
 VPU::PPEAttr composePpeAttr(const VPU::PPEAttr ppeAttr) {
@@ -230,13 +232,13 @@ VPU::PPEAttr composePpeAttr(const VPU::PPEAttr ppeAttr) {
 
     const auto& scaleAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterScale>();
     const auto& fpPreluAlphaAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterFpPreluAlpha>();
-    const auto fpPreluAlpha = fpPreluAlphaAdapter.getFpPreluAlpha(ppeAttr);
+    auto fpPreluAlpha = fpPreluAlphaAdapter.getFpPreluAlpha(ppeAttr);
     const auto hasNonNeutralAlpha = llvm::any_of(fpPreluAlpha, [&](const auto a) {
         return !isDoubleEqual(a, 1.0);
     });
 
     // if non-neutral pRelu alpha is set, move it to scale and set pRelu alpha to neutral
-    const auto oldScale = hasNonNeutralAlpha ? fpPreluAlpha : scaleAdapter.getScale(ppeAttr);
+    const auto oldScale = hasNonNeutralAlpha ? std::move(fpPreluAlpha) : scaleAdapter.getScale(ppeAttr);
     if (hasNonNeutralAlpha) {
         composedAttr = fpPreluAlphaAdapter.updateFpPreluAlpha(composedAttr, {1.0});
     }
@@ -253,8 +255,7 @@ SmallVector<int64_t> calculateWCHShape(ArrayRef<int64_t> shape) {
     const int64_t tensorSizeZ = shape[Dims4D::Act::W.ind()];
     const int64_t tensorSizeY = shape[Dims4D::Act::C.ind()];
     const int64_t tensorSizeX = shape[Dims4D::Act::H.ind()];
-    const SmallVector<int64_t> targetShape = {shape[Dims4D::Act::N.ind()], tensorSizeZ, tensorSizeY, tensorSizeX};
-    return targetShape;
+    return {shape[Dims4D::Act::N.ind()], tensorSizeZ, tensorSizeY, tensorSizeX};
 }
 
 }  // namespace
@@ -599,12 +600,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
     // Create NCE per-cluster Operation
     //
 
-    /* To do: split based on cases when other Reduce operations are added*/
-    auto nceTaskType = VPUIP::NCETaskType::REDUCEMEAN;
-    if (origOp.getOpType() != VPU::ReduceType::MEAN) {
-        return mlir::failure();
-    }
-
+    auto nceTaskType = VPU::configureNCEReduceTaskType(origOp);
     auto dpuCostAttr = origOp->hasAttr(DPUCost) ? origOp->getAttr(DPUCost) : nullptr;
 
     log.nest().trace("Creating VPUIP::NCEClusterTaskOp");

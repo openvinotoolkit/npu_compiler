@@ -6,12 +6,20 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEPERMUTEQUANTIZE
+#define GEN_PASS_DEF_FUSEPERMUTEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -216,7 +224,7 @@ bool FusePermuteQuantizeBase::isCompatibleWithDPU(mlir::Type addInput, mlir::Typ
 // FusePermuteQuantizePass
 //
 
-class FusePermuteQuantizePass final : public IE::FusePermuteQuantizeBase<FusePermuteQuantizePass> {
+class FusePermuteQuantizePass final : public IE::impl::FusePermuteQuantizeBase<FusePermuteQuantizePass> {
 public:
     explicit FusePermuteQuantizePass(const bool dpuOnly, Logger log): _dpuOnly(dpuOnly), _log(log) {
         _log.setName(Base::getArgumentName());

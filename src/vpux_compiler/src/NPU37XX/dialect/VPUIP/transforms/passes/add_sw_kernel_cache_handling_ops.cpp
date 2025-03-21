@@ -12,6 +12,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPUIP::arch37xx {
+#define GEN_PASS_DECL_ADDSWKERNELCACHEHANDLINGOPS
+#define GEN_PASS_DEF_ADDSWKERNELCACHEHANDLINGOPS
+#include "vpux/compiler/NPU37XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch37xx
+
 using namespace vpux;
 
 constexpr StringLiteral vpuTaskTypeAttrName{"VPU.task_type"};
@@ -121,7 +127,7 @@ bool isCacheFlushNeeded(ArrayRef<mlir::Operation*> users) {
 //
 
 class AddSwKernelCacheHandlingOpsPass final :
-        public VPUIP::arch37xx::AddSwKernelCacheHandlingOpsBase<AddSwKernelCacheHandlingOpsPass> {
+        public VPUIP::arch37xx::impl::AddSwKernelCacheHandlingOpsBase<AddSwKernelCacheHandlingOpsPass> {
 public:
     explicit AddSwKernelCacheHandlingOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

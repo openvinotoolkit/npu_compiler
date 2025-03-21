@@ -15,7 +15,6 @@
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/DialectImplementation.h>
 #include <vpux/utils/core/logger.hpp>
-
 using namespace vpux;
 
 //
@@ -28,8 +27,8 @@ mlir::LogicalResult vpux::Const::BitPackAttr::verify(FuncRef<mlir::InFlightDiagn
         return printTo(emitError(), "Got NULL 'width' in 'BitPackAttr'");
     }
 
-    if (width.getValue() != 4) {
-        return printTo(emitError(), "BitPackAttr does not support any bitwidth except for 4 at this point.");
+    if (width.getInt() > 6) {
+        return printTo(emitError(), "BitPackAttr supports only 1-6 sub-byte bit widths.");
     }
 
     return mlir::success();
@@ -126,15 +125,50 @@ bool vpux::Const::BitPackAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeI
 }
 
 //
+// Pack sub-byte values in LSB format. (Values are continuous)
+// e.g. for 3-bit width: 0b00000x2x1x0, 0b00000y2y1y0, 0b00000z2z1z0
+//   packed values ->  0bz1z0y2y1y0x2x1x0, 0b0000000z2
+//
+
+uint8_t* packSubByteLSB(const vpux::Const::details::ContentRange<unsigned char> input, uint8_t* packedBuffer,
+                        uint8_t bitWidth) {
+    auto packedIdx = 0;
+    auto bitPosition = 0;
+    uint8_t currentByte = 0;
+    auto size = input.size();
+    for (size_t idx = 0; idx < size; idx++) {
+        auto value = static_cast<uint8_t>(input[idx]);
+        auto leftOverBits = 8 - bitPosition;
+        if (bitWidth <= leftOverBits) {
+            currentByte |= (value << bitPosition);
+            bitPosition += bitWidth;
+        } else {
+            currentByte |= (value << bitPosition);
+            packedBuffer[packedIdx] = currentByte;
+            packedIdx++;
+
+            currentByte = 0;
+            bitPosition = 0;
+            currentByte |= (value >> leftOverBits);
+            bitPosition += bitWidth - leftOverBits;
+        }
+    }
+    if (bitPosition > 0) {
+        packedBuffer[packedIdx] = currentByte;
+        packedIdx++;
+    }
+    return packedBuffer;
+}
+
+//
 // BitPackAttr::transform
 //
 
 Const::Content vpux::Const::BitPackAttr::transform(vpux::Const::Content& input) const {
     VPUX_THROW_WHEN(input.isSplat(), "Bit pack does not support splat inputs.");
     const auto widthParam = getWidth().getInt();
-    VPUX_THROW_UNLESS(widthParam == 4, "Bit pack does not support any bitwidth except for 4 at this point.");
+    VPUX_THROW_UNLESS(widthParam < 7, "Bit pack does not support bit widths greater than 6.");
     const auto inBuf = input.getValues<uint8_t>();
-    VPUX_THROW_UNLESS((inBuf.size() % 2) == 0, "Storage buffer size is odd, which is unexpected for 4 bit packing.");
     const auto outputType = inferOutputType(input.getType());
     const Byte outputByteSize = outputType.getTotalAllocSize();
     const size_t tempBufferSize = outputByteSize.count();
@@ -143,13 +177,39 @@ Const::Content vpux::Const::BitPackAttr::transform(vpux::Const::Content& input) 
 
     auto outBuf = output.getRawTempBuf();
     auto outBlobPtr = reinterpret_cast<uint8_t*>(outBuf.data());
-    for (size_t idx = 0; idx < inBuf.size(); idx += 2) {
-        const auto lsn = static_cast<uint8_t>(inBuf[idx + 0] & 0x0f);
-        const auto msn = static_cast<uint8_t>(inBuf[idx + 1] & 0x0f);
-        const auto byte = static_cast<uint8_t>((msn << 4) + lsn);
-        outBlobPtr[idx / 2] = byte;
+    if (widthParam == 1) {
+        for (size_t idx = 0; idx < inBuf.size(); idx += 8) {
+            const auto bit1 = static_cast<uint8_t>(inBuf[idx + 0] & 0x01);
+            const auto bit2 = static_cast<uint8_t>(inBuf[idx + 1] & 0x01);
+            const auto bit3 = static_cast<uint8_t>(inBuf[idx + 2] & 0x01);
+            const auto bit4 = static_cast<uint8_t>(inBuf[idx + 3] & 0x01);
+            const auto bit5 = static_cast<uint8_t>(inBuf[idx + 4] & 0x01);
+            const auto bit6 = static_cast<uint8_t>(inBuf[idx + 5] & 0x01);
+            const auto bit7 = static_cast<uint8_t>(inBuf[idx + 6] & 0x01);
+            const auto bit8 = static_cast<uint8_t>(inBuf[idx + 7] & 0x01);
+            const auto byte = static_cast<uint8_t>((bit8 << 7) + (bit7 << 6) + (bit6 << 5) + (bit5 << 4) + (bit4 << 3) +
+                                                   (bit3 << 2) + (bit2 << 1) + bit1);
+            outBlobPtr[idx / 8] = byte;
+        }
+    } else if (widthParam == 2) {
+        for (size_t idx = 0; idx < inBuf.size(); idx += 4) {
+            const auto bits12 = static_cast<uint8_t>(inBuf[idx + 0] & 0x03);
+            const auto bits34 = static_cast<uint8_t>(inBuf[idx + 1] & 0x03);
+            const auto bits56 = static_cast<uint8_t>(inBuf[idx + 2] & 0x03);
+            const auto bits78 = static_cast<uint8_t>(inBuf[idx + 3] & 0x03);
+            const auto byte = static_cast<uint8_t>((bits78 << 6) + (bits56 << 4) + (bits34 << 2) + bits12);
+            outBlobPtr[idx / 4] = byte;
+        }
+    } else if (widthParam == 4) {
+        for (size_t idx = 0; idx < inBuf.size(); idx += 2) {
+            const auto lsn = static_cast<uint8_t>(inBuf[idx + 0] & 0x0f);
+            const auto msn = static_cast<uint8_t>(inBuf[idx + 1] & 0x0f);
+            const auto byte = static_cast<uint8_t>((msn << 4) + lsn);
+            outBlobPtr[idx / 2] = byte;
+        }
+    } else {
+        outBlobPtr = packSubByteLSB(inBuf, outBlobPtr, widthParam);
     }
-
     return output;
 }
 
@@ -159,4 +219,13 @@ Const::Content vpux::Const::BitPackAttr::transform(vpux::Const::Content& input) 
 
 Const::details::PositionRequirement vpux::Const::BitPackAttr::getPositionRequirement() const {
     return Const::details::PositionRequirement::LAST;
+}
+
+//
+// BitPackAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::BitPackAttr::getStableHashValue() const {
+    const auto width = getWidth().getValue();
+    return llvm::hash_combine(getMnemonic(), width);
 }

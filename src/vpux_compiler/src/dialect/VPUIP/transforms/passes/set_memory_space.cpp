@@ -3,10 +3,19 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_SETMEMORYSPACE
+#define GEN_PASS_DEF_SETMEMORYSPACE
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -16,7 +25,7 @@ namespace {
 // SetMemorySpacePass
 //
 
-class SetMemorySpacePass final : public VPUIP::SetMemorySpaceBase<SetMemorySpacePass> {
+class SetMemorySpacePass final : public VPUIP::impl::SetMemorySpaceBase<SetMemorySpacePass> {
 public:
     SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, Logger log);
 

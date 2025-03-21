@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -10,6 +11,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/range.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_LOOPOUTLINER
+#define GEN_PASS_DEF_LOOPOUTLINER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -19,7 +26,7 @@ namespace {
 // LoopOutliner
 //
 
-class LoopOutliner final : public IE::LoopOutlinerBase<LoopOutliner> {
+class LoopOutliner final : public IE::impl::LoopOutlinerBase<LoopOutliner> {
 public:
     explicit LoopOutliner(Logger log): _log(std::move(log)) {
         _log.setName("loop-outliner");

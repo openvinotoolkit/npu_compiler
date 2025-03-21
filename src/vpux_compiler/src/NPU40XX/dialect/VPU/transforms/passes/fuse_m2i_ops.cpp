@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
@@ -17,6 +18,12 @@
 #include "vpux/utils/core/enums.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPU::arch40xx {
+#define GEN_PASS_DECL_FUSEM2IOPS
+#define GEN_PASS_DEF_FUSEM2IOPS
+#include "vpux/compiler/NPU40XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch40xx
 
 using namespace vpux;
 using namespace VPU;
@@ -624,7 +631,7 @@ public:
 // FuseM2IOpsPass
 //
 
-class FuseM2IOpsPass final : public VPU::arch40xx::FuseM2IOpsBase<FuseM2IOpsPass> {
+class FuseM2IOpsPass final : public VPU::arch40xx::impl::FuseM2IOpsBase<FuseM2IOpsPass> {
 public:
     explicit FuseM2IOpsPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

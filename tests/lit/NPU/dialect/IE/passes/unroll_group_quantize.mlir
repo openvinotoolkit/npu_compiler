@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-group-quantize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @UnrollHighValues
 func.func @UnrollHighValues(%arg0: tensor<1x2x16x32xf16>) -> tensor<1x2x16x32xf16> {
     %IN_LOW = const.Declare tensor<1x1x1x1xf16> = dense<-1.280000e+02> : tensor<1x1x1x1xf16>

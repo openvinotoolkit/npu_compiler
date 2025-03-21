@@ -8,6 +8,14 @@
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferize_vpu_nce_ops_interface.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+
+namespace vpux {
+#define GEN_PASS_DECL_ONESHOTBUFFERIZEVPU2VPUIP
+#define GEN_PASS_DEF_ONESHOTBUFFERIZEVPU2VPUIP
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 
 namespace {
@@ -25,7 +33,7 @@ void removeBufferizationAttributes(mlir::Operation* op) {
 // OneshotBufferizeVPU2VPUIPPass
 //
 
-class OneShotBufferizeVPU2VPUIPPass final : public OneShotBufferizeVPU2VPUIPBase<OneShotBufferizeVPU2VPUIPPass> {
+class OneShotBufferizeVPU2VPUIPPass final : public impl::OneShotBufferizeVPU2VPUIPBase<OneShotBufferizeVPU2VPUIPPass> {
 private:
     void safeRunOnModule() final;
 };

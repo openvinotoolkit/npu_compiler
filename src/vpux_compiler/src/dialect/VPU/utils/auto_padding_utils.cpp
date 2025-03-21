@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
-#include <llvm/ADT/TypeSwitch.h>
-#include <algorithm>
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
-#include "vpux/utils/core/error.hpp"
+
+#include <llvm/ADT/TypeSwitch.h>
 
 using namespace vpux;
 
@@ -65,8 +65,30 @@ bool VPU::hasOnlyInPadding(mlir::ModuleOp module) {
     return !VPU::hasAutoPaddingODU(module) && VPU::hasAutoPaddingIDU(module);
 }
 
-bool VPU::canAutopadOutput(mlir::Operation* op) {
-    auto type = op->getResult(0).getType().template cast<vpux::NDTypeInterface>();
-    auto isODUSupported = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(op) != nullptr ? true : false;
-    return isODUSupported && outputCompatibleWithAutoPad(type) && hasAutoPaddingODU(getModuleOp(op));
+bool VPU::hasOnlyDirectSWConsumers(mlir::Operation* op) {
+    auto userOps = op->getResult(0).getUsers();
+
+    for (auto user : userOps) {
+        if (VPU::NCEInvariant::isSupported(user).succeeded() || IE::isPureViewOp(user)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool VPU::canAutopadOutput(mlir::Operation* op, std::optional<vpux::NDTypeInterface> optType) {
+    vpux::NDTypeInterface outputType;
+    if (optType.has_value()) {
+        outputType = optType.value();
+    } else {
+        outputType = op->getResult(0).getType().template cast<vpux::NDTypeInterface>();
+    }
+
+    const auto inputShape = getShape(op->getOperand(0));
+    // Temporary check because ensure_nce_ops_size creates
+    // eltwise ops with less than 16 channels when IC exceeds this limit
+    const auto doesICfit = inputShape[Dims4D::Act::C] <= VPU::NCEInvariant::VPU_DIMENSION_LIMIT ? true : false;
+
+    return doesICfit && outputCompatibleWithAutoPad(outputType) && hasAutoPaddingODU(getModuleOp(op));
 }

@@ -37,14 +37,16 @@ struct TaskInfo {
     std::string layer_type;
     enum class ExecType { NONE, DPU, SW, DMA, M2I };
     ExecType exec_type;
+    uint32_t clusterId;
+    bool isSubtask;  // DPU variant
     uint64_t start_time_ns;
     uint64_t duration_ns;
-    uint32_t total_cycles = 0;
-    uint32_t stall_cycles = 0;
+    uint32_t total_cycles;
+    uint32_t stall_cycles;
     struct stall_counters {
-        uint32_t lsu0_stalls = 0;
-        uint32_t lsu1_stalls = 0;
-        uint32_t instruction_stalls = 0;
+        uint32_t lsu0_stalls;
+        uint32_t lsu1_stalls;
+        uint32_t instruction_stalls;
     } stall_counters;
 };
 
@@ -61,6 +63,8 @@ struct ProfInfo {
     std::vector<LayerInfo> layers;
     FreqInfo dpuFreq;
 };
+
+const char* to_string(FreqStatus);
 
 template <typename T>
 bool profilingTaskStartTimeComparator(const T& a, const T& b) {

@@ -4,11 +4,19 @@
 //
 
 #include <stack>
+#include <unordered_set>
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/utils/core/format.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_DEBATCHER
+#define GEN_PASS_DEF_DEBATCHER
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -105,7 +113,12 @@ struct DefaultOpConverter : public OpConverter {
         for (auto result : opResults) {
             int64_t batchDenominator = inOperands[0].from[Dims4D::Act::N] / inOperands[0].to[Dims4D::Act::N];
             auto resultShape = Shape{vpux::getShape(result).raw()};
-            resultShape[Dims4D::Act::N] /= batchDenominator;
+            // Prevents dimension N from becoming 0 (fractional division by batchDenominator)
+            if (resultShape[Dims4D::Act::N] >= batchDenominator) {
+                VPUX_THROW_WHEN(resultShape[Dims4D::Act::N] % batchDenominator != 0,
+                                "Cannot divide N dimension by {0} for result: {1}", batchDenominator, result);
+                resultShape[Dims4D::Act::N] /= batchDenominator;
+            }
             inOutResults[result] = std::move(resultShape);
         }
     }
@@ -208,59 +221,161 @@ private:
     Logger _log;
 };
 
-struct SDBroadcastConstantForceRewriteDebatchingConverter : public OpConverter {
-    SDBroadcastConstantForceRewriteDebatchingConverter(Logger& log): _log(log) {
+struct DimensionLimiterConverter : public OpConverter {
+    // This converter is used to limit the expansion of N (batch) dimension of the constant value with respect to the
+    // result shape. Currently only supported on BroadcastOp.
+    // Details in BroadcastOp implementation below.
+    DimensionLimiterConverter(Logger& log): _log(log) {
     }
 
     bool isApplicable(mlir::Operation* op) const override {
-        if (!mlir::isa<IE::BroadcastOp>(op)) {
+        // Currently only applies to BroadcastOp
+        if (mlir::isa<IE::BroadcastOp>(op)) {
+            return true;
+        } else {
             return false;
         }
-        // StableDiffusion comprises "an adverse `IE::Broadcast`" operations, which
-        // artificially promotes N=1 input nonbatched tensors into N!=1.
-        // The amount of such enlargement depends on a constant backed in IR.
-        // This adverse behavior was discovered during "manual" network inspection.
-        // As we didn't expect facing this situation that such pervaded changes in IR will be required,
-        // and do not have strong idea at the moment whether we should empower
-        // this DebatcherPass to allow making such intrusive changes in a constant definitions
-        // on a regular part of this algorithm, we decided to employ "a hotfix" which is supposed
-        // to turn this amendmend on once "extraArgs" has been passed through compilation options.
-        // So, the further steps here is substitute a constant value from 2 to 1, which automatially
-        // revokes `IE::Broadcast` result promotion from N=2 to N=1
-        auto bcastOperands = op->getOperands();
-        auto bcastResults = op->getResults();
-        const auto inOperandShape = vpux::getShape(bcastOperands[0]);
-        const auto outResultShape = vpux::getShape(bcastResults[0]);
-        if (bcastOperands.size() == 2 && inOperandShape[Dims4D::Act::N] == 1 && outResultShape[Dims4D::Act::N] != 1) {
-            auto constDeclareOp = bcastOperands[1].getDefiningOp<Const::DeclareOp>();
-            if (constDeclareOp) {
-                return true;
+    }
+
+    template <typename T>
+    void setConstValuesToNDim(vpux::Const::DeclareOp origConstDeclareOp, const mlir::RankedTensorType scaleShape,
+                              const vpux::Const::Content& origConstContent,
+                              const detail::ConversionDescription operandChange) const {
+        // When BroadcastOp is encountered, there are two cases (assume the operands are Const, and BroadcastOp result
+        // shape should be (1,)):
+        // - Case 1: Operand 0 shape needs to be modified
+        //      - Operand 0: shape(3,) value[2, 2, 2]
+        //      - Operand 1: shape(1,) value[1]
+        //      - Result:    shape(3,) value[2, 2, 2]
+        //          - Solution: Operand 0 shape needs to be limited to shape(1,) value[2], so results will be shape(1,)
+        // - Case 2: Operand 1 shape needs to be modified
+        //      - Operand 0: shape(1,) value[2]
+        //      - Operand 1: shape(1,) value[3]
+        //      - Result:    shape(3,) value[2, 2, 2]
+        //          - Solution: Operand 1 value needs to be change to value[1], so results will be shape(1,)
+        //                      (based on OpenVINO broadcasting rules)
+        auto origConstVal = origConstContent.getValues<T>();
+        SmallVector<T> scaleValue(origConstVal);
+
+        // Checks that the values are consistent across all batches
+        // Consistent Tensor (batch size 3)
+        //      Input scale value = [1, 2, 3, 1, 2, 3, 1, 2, 3]
+        //      Spltting based on span size -> [1, 2, 3], [1, 2, 3], [1, 2, 3]
+        //                                  -> All batches are consistent
+        // Non consistent Tensor (batch size 3)
+        //      Input scale value = [1, 2, 3, 4, 5, 6, 1, 2, 3]
+        //      Spltting based on span size -> [1, 2, 3], [4, 5, 6], [1, 2, 3]
+        //                                  -> 2nd batch is not consistent
+        bool isConsistent = true;
+        size_t batchSize = operandChange.to[Dims4D::Act::N];
+        size_t spanSize = scaleValue.size() / batchSize;
+        for (size_t batchIndex = 1; batchIndex < batchSize; ++batchIndex) {
+            // Compare the span of scaleValue for the current batch with the first batch
+            if (memcmp(scaleValue.data(), scaleValue.data() + batchIndex * spanSize, spanSize * sizeof(T)) != 0) {
+                isConsistent = false;
+                break;
             }
         }
-        return false;
-    }
 
-    void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>&) const override {
-        auto bcastOperands = op->getOperands();
-        auto constDeclareOp = bcastOperands[1].getDefiningOp<Const::DeclareOp>();
-        mlir::OpBuilder builder(constDeclareOp);
-        auto constType = vpux::getSInt32Type(builder.getContext());
-        const auto scaleShape = mlir::RankedTensorType::get(getShape(bcastOperands[1]), constType);
-        SmallVector<int32_t> scaleValue(1);
-        scaleValue[0] = 1;
-        auto newScaleConstantOperand =
-                Const::createConst(builder, constDeclareOp.getLoc(), scaleShape, ArrayRef(scaleValue));
-        bcastOperands[1].replaceAllUsesWith(newScaleConstantOperand);
-    }
+        if (isConsistent) {
+            // Handling scaleValue size not the same as result (arg.to) total size
+            // Truncate scaleValue to match arg.to's total size (likely only affects operand 0 will have different shape
+            // as arg.to) Else, change constant scale value to match arg.to's N dimension
+            if (scaleValue.size() != static_cast<size_t>(operandChange.to.totalSize())) {
+                scaleValue.resize(operandChange.to.totalSize());
+                _log.trace("[DimLimiter] - BroadcastOp | Truncated scale value to match arg.to's total size: {0}",
+                           scaleValue.size());
+            } else if (operandChange.from.totalSize() != operandChange.to.totalSize()) {
+                // Change constant scale value to match arg.to's N dimension
+                scaleValue[0] = operandChange.to[Dims4D::Act::N];
+                _log.trace("[DimLimiter] - BroadcastOp | Changing constant value to match arg.to's N dimension: {0}",
+                           scaleValue[0]);
+            }
 
-    void refineResults(mlir::Operation* op, const std::vector<ConversionDescription>&,
-                       DenseMap<mlir::OpResult, Shape>& inOutResults) const override {
-        auto opResults = op->getResults();
-        for (auto result : opResults) {
-            auto resultShape = Shape{vpux::getShape(result).raw()};
-            resultShape[Dims4D::Act::N] = 1;
-            inOutResults[result] = std::move(resultShape);
+            // Create the constant
+            mlir::OpBuilder builder(origConstDeclareOp);
+            auto newScaleConstantOperand =
+                    Const::createConst(builder, origConstDeclareOp.getLoc(), scaleShape, ArrayRef(scaleValue));
+            _log.trace("[DimLimiter] - BroadcastOp | New Scale Constant Operand: {0}", newScaleConstantOperand);
+            origConstDeclareOp.replaceAllUsesWith(newScaleConstantOperand);
+        } else {
+            VPUX_THROW("Const values are not all the same or are not consistent: Values : {0}", scaleValue);
         }
+    }
+
+    void apply(mlir::Operation* op, const std::vector<detail::ConversionDescription>& inOperands) const override {
+        VPUX_THROW_UNLESS(op->getResults().size() == inOperands.size(),
+                          "Op results size mismatch with inOperands size, expected: {0}, got: {1}",
+                          op->getResults().size(), inOperands.size());
+
+        // Currently only BroadcastOp is supported
+        if (mlir::isa<IE::BroadcastOp>(op)) {
+            broadcastConstModifier(op, inOperands);
+        } else {
+            VPUX_THROW("Unsupported 'DimensionLimiterConverter' for \"{0}\"", op->getName());
+        }
+    }
+
+    void broadcastConstModifier(mlir::Operation* op,
+                                const std::vector<detail::ConversionDescription>& inOperands) const {
+        // Modifies values / limits shape of Const from influencing the result shape of BroadcastOp
+        // Mainly encountered when debatching, when inferred result shape did not match the calculated shape, and
+        // traversing up the IR.
+        auto arg = inOperands[0];
+        // Guard clause to ensure we only rewrite constant if BroadcastOp shape has changed through inOperands
+        if (arg.from == arg.to) {
+            return;
+        }
+        _log.trace("[DimLimiter] - BroadcastOp | Result change From: {0} To: {1}", arg.from, arg.to);
+
+        // Get a list of Const operands
+        std::list<int> constOperandIndices;
+        for (unsigned int operandIndex = 0; operandIndex < op->getNumOperands(); ++operandIndex) {
+            auto operand = op->getOperand(operandIndex);
+            if (auto constDeclareOp = operand.getDefiningOp<Const::DeclareOp>()) {
+                // For Operand 0, if the operand shape and the arg.to shape is the same, skip adding to the list
+                auto operandShape = getShape(operand);
+                if (operandIndex == 0 && operandShape == arg.to) {
+                    continue;
+                }
+                // Save the operand's index if its defining op is a Const::DeclareOp
+                constOperandIndices.push_back(operandIndex);
+            }
+        }
+        _log.trace("[DimLimiter] - BroadcastOp | Const Operand Indices: {0}", constOperandIndices);
+
+        for (auto constOperandIndex : constOperandIndices) {
+            auto origConstDeclareOp = op->getOperand(constOperandIndex).getDefiningOp<Const::DeclareOp>();
+            // mlir::OpBuilder builder(origConstDeclareOp);
+
+            // 1. Get original constant data type
+            auto constType = op->getOperand(constOperandIndex).getType().cast<NDTypeInterface>().getElementType();
+
+            // 2. Set to debatched shape, 'arg.to', following data type of the original constant
+            const auto scaleShape =
+                    mlir::RankedTensorType::get(ArrayRef(arg.to.raw().data(), arg.to.raw().size()),  // Shape
+                                                constType);                                          // Data type
+            _log.trace("[DimLimiter] - BroadcastOp | Const Type: {0}, Scale Shape: {1}", constType, scaleShape);
+
+            // 3. Set the correct data
+            auto origConstContent = origConstDeclareOp.getContent();
+
+            if (constType.isF32()) {
+                setConstValuesToNDim<float>(origConstDeclareOp, scaleShape, origConstContent, arg);
+            } else if (constType.isF64()) {
+                setConstValuesToNDim<double>(origConstDeclareOp, scaleShape, origConstContent, arg);
+            } else if (constType.isInteger(32)) {
+                setConstValuesToNDim<int32_t>(origConstDeclareOp, scaleShape, origConstContent, arg);
+            } else {
+                VPUX_THROW("[DimLimiter] - BroadcastOp | Unsupported constant data type: {0}", constType);
+            }
+        }
+    }
+
+    void refineResults(mlir::Operation*, const std::vector<ConversionDescription>&,
+                       DenseMap<mlir::OpResult, Shape>&) const override {
+        // Does nothing
+        return;
     }
 
 private:
@@ -272,6 +387,7 @@ struct OpCastVisitor {
         converters.push_back(std::make_unique<DefaultOpConverter>(log));
         converters.push_back(std::make_unique<ShapeValueAttrOpConverter>(log));
         converters.push_back(std::make_unique<SizesAttrOpConverter>(log));
+        converters.push_back(std::make_unique<DimensionLimiterConverter>(log));
     }
 
     template <class Converter, class... Args>
@@ -279,9 +395,23 @@ struct OpCastVisitor {
         converters.push_back(std::make_unique<Converter>(_log, std::forward<Args>(args)...));
     }
 
+    DenseMap<mlir::OpResult, Shape> runConverters(mlir::Operation* op,
+                                                  std::vector<detail::ConversionDescription> operationArguments) {
+        DenseMap<mlir::OpResult, Shape> deductedResultShapes;
+        for (const auto& c : converters) {
+            if (c->isApplicable(op)) {
+                c->apply(op, operationArguments);
+                c->refineResults(op, operationArguments, deductedResultShapes);
+            }
+        }
+        return deductedResultShapes;
+    }
+
     DenseMap<mlir::OpResult, Shape> visit(
             mlir::Operation* op, const std::list<mlir::Value>& operands,
-            const DenseMap<mlir::Value, detail::ConversionDescription>& operandsConversionDescription) {
+            DenseMap<mlir::Value, detail::ConversionDescription>& operandsConversionDescription) {
+        // NOTE: operands = operandsToDebatch
+        // NOTE: operandsConversionDescription = debatchedOperandStorage
         VPUX_THROW_UNLESS(op != nullptr, "Empty operation");
         std::vector<detail::ConversionDescription> operationArguments;
         operationArguments.reserve(operands.size());
@@ -293,17 +423,35 @@ struct OpCastVisitor {
             operationArguments.push_back(operandsConversionDescription.at(operand));
         }
 
-        // apply conversion for the operation if applicable
         DenseMap<mlir::OpResult, Shape> deductedResultShapes;
-        for (const auto& c : converters) {
-            if (c->isApplicable(op)) {
-                c->apply(op, operationArguments);
-                c->refineResults(op, operationArguments, deductedResultShapes);
-            }
+        SmallVector<mlir::Type> predictedResultTypes;
+        if (mlir::isa<vpux::IE::ReshapeOp, vpux::IE::AffineReshapeOp>(op)) {
+            // If operation is AffineReshape, get predicted shape first
+            // -- In AffineReshape, result shape is calculated based on shape_value attribute
+            // -- Running converters first will alter shape_value attribute
+            // -- The inferred shape will not be reflective on the input operand in AffineReshape
+            // -- Effectively, this means the inferred result shape is the correct shape, but the
+            //    input operand shape is wrong
+            predictedResultTypes = getPredictedResult(op);
+            deductedResultShapes = this->runConverters(op, std::move(operationArguments));
+        } else {
+            deductedResultShapes = this->runConverters(op, std::move(operationArguments));
+            predictedResultTypes = getPredictedResult(op);
         }
 
-        // check deducted resultOp against predicted if exist
-        auto predictedResultTypes = getPredictedResult(op);
+        // Lambda function to check if we can debatch the operand
+        // Checking is based on operandsConversionDescription
+        auto needDowncast =
+                [&](const mlir::Value& operand,
+                    const llvm::DenseMap<mlir::Value, ConversionDescription>& operandsConversionDescription) -> bool {
+            if (auto it = operandsConversionDescription.find(operand);
+                it == operandsConversionDescription.end() || it->second.from == it->second.to) {
+                // Operand is not in the list, or 'from' and 'to' are the same, we can safely debatch it
+                return true;
+            }
+            return false;
+        };
+
         if (!predictedResultTypes.empty()) {
             for (auto resultPair : zip(deductedResultShapes, predictedResultTypes)) {
                 auto [opResult, calculatedShape] = std::get<0>(resultPair);
@@ -312,9 +460,61 @@ struct OpCastVisitor {
                 VPUX_THROW_UNLESS(predictedResultType != nullptr,
                                   "predictedResultType has non vpux::NDTypeInterface type '{0}'",
                                   std::get<1>(resultPair));
-                VPUX_THROW_UNLESS(predictedResultType.getShape() == calculatedShape,
-                                  "Unexpected opResult shape for op: {0}, calculated: {1}, predicted: {2}",
-                                  op->getName(), calculatedShape, predictedResultType.getShape());
+
+                unsigned numOperands = op->getNumOperands();
+                unsigned operandIndex = 0;
+
+                // Continuously modify the IR tree until the calculated shape is equal to the predicted shape
+                while (predictedResultType.getShape() != calculatedShape && operandIndex < numOperands) {
+                    // Initialize as empty (as input on next visit call), to be filled with operands that needs to be
+                    // debatched from the defining Operation
+                    std::list<mlir::Value> definingOpOperandsToDebatch;
+                    auto oneOperand = op->getOperand(operandIndex);
+                    _log.trace("Predicted shape: {0}, Calculated shape: {1}, Operand Index: {2}",
+                               predictedResultType.getShape(), calculatedShape, operandIndex);
+
+                    if (needDowncast(oneOperand, operandsConversionDescription)) {
+                        // If we need to debatch the operand, add it to nonDebatchedOperands
+                        auto currentOperandShape = Shape{vpux::getShape(oneOperand).raw()};
+                        auto correctOperandShape = currentOperandShape;
+                        int64_t batchDenominator =
+                                predictedResultType.getShape()[Dims4D::Act::N] / calculatedShape[Dims4D::Act::N];
+                        if (correctOperandShape[Dims4D::Act::N] >= batchDenominator) {
+                            VPUX_THROW_WHEN(correctOperandShape[Dims4D::Act::N] % batchDenominator != 0,
+                                            "Cannot divide N dimension by {0} for operand: {1}", batchDenominator,
+                                            oneOperand);
+                            correctOperandShape[Dims4D::Act::N] /= batchDenominator;
+                        }
+
+                        auto downcastedType = getDowncastedTypeIfApplicable(oneOperand, correctOperandShape);
+                        _log.trace("Current Shape: {0}, Correct Shape: {1}, Downcasted Type: {2}", currentOperandShape,
+                                   correctOperandShape, downcastedType.downcastedType);
+                        if (downcastedType.isDowncasted) {
+                            auto downcastedOperandShape =
+                                    downcastedType.downcastedType.cast<vpux::NDTypeInterface>().getShape();
+                            // Set the downcast type as new operand shape
+                            oneOperand.setType(downcastedType.downcastedType);
+
+                            mlir::Operation* operandDefiningOp = oneOperand.getDefiningOp();
+                            if (operandDefiningOp == nullptr) {
+                                continue;
+                            }
+                            definingOpOperandsToDebatch.push_back(oneOperand);
+
+                            // Add the debatched operand into operandsConversionDescription (to be used in next visit
+                            // call)
+                            operandsConversionDescription[oneOperand] = detail::ConversionDescription{
+                                    downcastedType.originalShape, Shape(downcastedOperandShape)};
+
+                            // Visit the operandDefiningOp of the operand that we just downcasted
+                            this->visit(operandDefiningOp, definingOpOperandsToDebatch, operandsConversionDescription);
+                            predictedResultTypes = getPredictedResult(op);
+                            predictedResultType = predictedResultTypes[0].dyn_cast<vpux::NDTypeInterface>();
+                        }
+                    }
+                    // Go to the next operand in the operation
+                    operandIndex++;
+                }
             }
         }
         return deductedResultShapes;
@@ -343,22 +543,22 @@ private:
 // DebatcherPass
 //
 
-class DebatcherPass final : public IE::DebatcherBase<DebatcherPass> {
+class DebatcherPass final : public IE::impl::DebatcherBase<DebatcherPass> {
 public:
-    explicit DebatcherPass(Logger log) {
+    explicit DebatcherPass(const DebatcherOptions& options, Logger log) {
         Base::initLogger(log, Base::getArgumentName());
+        Base::copyOptionValuesFrom(options);
+        _log.debug("Create {0}", getName());
     }
 
-    mlir::LogicalResult delegateInitializeOptions(StringRef extraArgs);
+    mlir::LogicalResult initializeOptions(StringRef options) final;
 
 private:
-    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
     void safeRunOnFunc() final;
 };
 
-mlir::LogicalResult DebatcherPass::initialize(mlir::MLIRContext* ctx) {
-    _log.trace("start initializing of {0}", getName());
-    if (mlir::failed(Base::initialize(ctx))) {
+mlir::LogicalResult DebatcherPass::initializeOptions(StringRef options) {
+    if (mlir::failed(Base::initializeOptions(options))) {
         return mlir::failure();
     }
     _log.trace("{0}: {1}", extraArgs.getArgStr(), extraArgs.getValue());
@@ -422,13 +622,15 @@ void DebatcherPass::safeRunOnFunc() {
     auto ctx = module.getContext();
     auto mainArgs = main.getArguments();
     _log.trace("Enforce cast for `main` arguments count: {0} ", mainArgs.size());
-    llvm::for_each(mainArgs, [&builder, &debatchedOperandStorage, &opResultsToDebatch, this](auto& arg) {
+    bool needDebatch = false;
+    llvm::for_each(mainArgs, [&needDebatch, &builder, &debatchedOperandStorage, &opResultsToDebatch, this](auto& arg) {
         auto descr = detail::getDowncastedTypeIfApplicable(arg, opResultsToDebatch[arg]);
         if (!descr.isDowncasted) {
             // UnrealizedConversionCastOp doesn't distinguish whether a type is same.
             // skip it explicitly if type hasn't been changed
             return;
         }
+        needDebatch = true;
         builder.setInsertionPointAfterValue(arg);
         auto unrealized_cast =
                 builder.create<mlir::UnrealizedConversionCastOp>(arg.getLoc(), descr.downcastedType, arg);
@@ -443,11 +645,12 @@ void DebatcherPass::safeRunOnFunc() {
                                                                  opResultsToDebatch[arg]};
     });
 
+    if (needDebatch) {
+        setCompileMethodDebatch(module);
+    }
     _log.trace("Walk through `main` region and debatch all operations");
     detail::OpCastVisitor transformation(_log);
-    if (extraArgs.getValue() == "unet_hotfix") {
-        transformation.addConverter<detail::SDBroadcastConstantForceRewriteDebatchingConverter>();
-    }
+
     main.walk([this, &activationOperations, &debatchedOperandStorage, &opResultsToDebatch,
                &transformation](mlir::Operation* op) {
         // Do not debatch non-activation operations
@@ -522,25 +725,16 @@ void DebatcherPass::safeRunOnFunc() {
         }
     });
 }
-
-mlir::LogicalResult DebatcherPass::delegateInitializeOptions(StringRef extraArgs) {
-    return Base::initializeOptions(printToString("{0}={1}", this->extraArgs.getArgStr(), extraArgs));
-}
 }  // namespace
 
 //
 // createDebatcherPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createDebatcherPass(Logger log) {
-    return std::make_unique<DebatcherPass>(log);
+std::unique_ptr<mlir::Pass> vpux::IE::createDebatcherPass(const vpux::DebatcherOptions& options, Logger log) {
+    return std::make_unique<DebatcherPass>(options, log);
 }
 
-std::unique_ptr<mlir::Pass> vpux::IE::createAndInitDebatcherPass(StringRef extraArgs, Logger log) {
-    auto pass = vpux::IE::createDebatcherPass(log);
-    if (mlir::failed(static_cast<DebatcherPass*>(pass.get())->delegateInitializeOptions(extraArgs))) {
-        VPUX_THROW("Incorrect option used for \"{0}\" pass initialization: {1}", pass->getName(), extraArgs);
-    }
-
-    return pass;
+std::unique_ptr<mlir::Pass> vpux::IE::createDebatcherPass(Logger log) {
+    return createDebatcherPass(vpux::DebatcherOptions{}, log);
 }

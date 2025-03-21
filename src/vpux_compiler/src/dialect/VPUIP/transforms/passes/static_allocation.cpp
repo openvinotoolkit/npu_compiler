@@ -31,6 +31,12 @@
 #include <mlir/IR/Value.h>
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_STATICALLOCATION
+#define GEN_PASS_DEF_STATICALLOCATION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -100,7 +106,7 @@ mlir::LogicalResult AllocRewrite<ConcreteAllocOp>::matchAndRewrite(ConcreteAlloc
 // StaticAllocationPass
 //
 
-class StaticAllocationPass final : public VPUIP::StaticAllocationBase<StaticAllocationPass> {
+class StaticAllocationPass final : public VPUIP::impl::StaticAllocationBase<StaticAllocationPass> {
 public:
     StaticAllocationPass(VPUIP::MemKindCreateFunc memKindCb, Logger log);
 

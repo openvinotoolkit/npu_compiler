@@ -9,6 +9,12 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_PROPAGATEPERMUTECASTTHROUGHDEQUANTIZE
+#define GEN_PASS_DEF_PROPAGATEPERMUTECASTTHROUGHDEQUANTIZE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -75,7 +81,7 @@ mlir::LogicalResult PermuteCastRewriter::matchAndRewrite(IE::PermuteCastOp origO
 //
 
 class PropagatePermuteCastThroughDequantizePass final :
-        public vpux::IE::PropagatePermuteCastThroughDequantizeBase<PropagatePermuteCastThroughDequantizePass> {
+        public vpux::IE::impl::PropagatePermuteCastThroughDequantizeBase<PropagatePermuteCastThroughDequantizePass> {
 public:
     explicit PropagatePermuteCastThroughDequantizePass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

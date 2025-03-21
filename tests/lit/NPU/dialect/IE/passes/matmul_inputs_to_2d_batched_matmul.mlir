@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --matmul-inputs-to-2d="enable-grouped-matmul=true" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @MatMulInputsTo2dNotConverted
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<6x2x512xf32>
 func.func @MatMulInputsTo2dNotConverted(%arg0: tensor<6x2x512xf32>) -> tensor<6x2x40xf32> {
@@ -48,9 +47,9 @@ func.func @MatMul4dInputs4dWeightsTo2dNotConverted(%arg0: tensor<3x2x10x3xf32>, 
 }
 
 // -----
-// CHECK-LABEL: @MatMul4dInputs4dWeightsTo2dDontFitCmx
+// CHECK-LABEL: @MatMul4dInputs4dWeightsTo2dTooBigPerGroup
 // CHECK-SAME:  [[ARG0:%.+]]: tensor<1x2x4000x4000xf32>, [[ARG1:%.+]]: tensor<1x2x3000x4000xf32>
-func.func @MatMul4dInputs4dWeightsTo2dDontFitCmx(%arg0: tensor<1x2x4000x4000xf32>, %arg1: tensor<1x2x3000x4000xf32>) -> tensor<1x2x4000x3000xf32> {
+func.func @MatMul4dInputs4dWeightsTo2dTooBigPerGroup(%arg0: tensor<1x2x4000x4000xf32>, %arg1: tensor<1x2x3000x4000xf32>) -> tensor<1x2x4000x3000xf32> {
     %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x2x4000x4000xf32>, tensor<1x2x3000x4000xf32> -> tensor<1x2x4000x3000xf32>
 
     return %0 : tensor<1x2x4000x3000xf32>
@@ -73,6 +72,40 @@ func.func @MatMul4dInputs4dWeightsTo2dDontFitCmx(%arg0: tensor<1x2x4000x4000xf32
     // CHECK: [[RESHAPE4:%.*]] = IE.AffineReshape([[CONCAT]])
     // CHECK-SAME{LITERAL}:  {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 2, 4000, 3000]} : tensor<8000x3000xf32> -> tensor<1x2x4000x3000xf32>
     // CHECK: return [[RESHAPE4]] : tensor<1x2x4000x3000xf32>
+}
+
+// -----
+// CHECK-LABEL: @MatMul4dInputs4dWeightsTo2dSmallOutputPerGroup
+// CHECK-SAME:  [[ARG0:%.+]]: tensor<1x6x300x400xf32>, [[ARG1:%.+]]: tensor<1x6x300x400xf32>
+func.func @MatMul4dInputs4dWeightsTo2dSmallOutputPerGroup(%arg0:  tensor<1x6x300x400xf32>, %arg1: tensor<1x6x300x400xf32>) ->  tensor<1x6x300x300xf32> {
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x300x400xf32>, tensor<1x6x300x400xf32> -> tensor<1x6x300x300xf32>
+
+    return %0 : tensor<1x6x300x300xf32>
+
+    // CHECK:   [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[ARG1]]) {transpose_b} : tensor<1x6x300x400xf32>, tensor<1x6x300x400xf32> -> tensor<1x6x300x300xf32>
+    // CHECK:   return [[MATMUL]] : tensor<1x6x300x300xf32>
+}
+
+// -----
+// CHECK-LABEL: @MatMul4dInputs4dWeightsTo2dBigOutputPerGroup
+// CHECK-SAME:  [[ARG0:%.+]]:  tensor<1x6x300x400xf32>, [[ARG1:%.+]]: tensor<1x6x400x400xf32>
+func.func @MatMul4dInputs4dWeightsTo2dBigOutputPerGroup(%arg0:  tensor<1x6x300x400xf32>, %arg1: tensor<1x6x400x400xf32>) ->  tensor<1x6x300x400xf32> {
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x300x400xf32>, tensor<1x6x400x400xf32> -> tensor<1x6x300x400xf32>
+
+    return %0 : tensor<1x6x300x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:       IE.MatMul
+    // CHECK-SAME:  {transpose_b} : tensor<300x400xf32>, tensor<400x400xf32>
+    // CHECK:   IE.Concat
 }
 
 // Remaining tests are negative tests, enable-grouped-matmul=true does not prevent pass to work.

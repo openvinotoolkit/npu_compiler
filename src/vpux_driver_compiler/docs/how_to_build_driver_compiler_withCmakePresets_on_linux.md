@@ -15,6 +15,8 @@ Before you start to build Driver Compiler targets, please check the necessary co
 
 > Notice: RAM is not mandatory either. If your RAM is less than 32GB, you can compensate by reducing the number of threads during the build or by increasing the swap memory.
 
+> Notice: Ccache and Ninja are required for the build options defined in the CMake Presets. Therefore, both of these tools are necessary. If you are unable to install them, please remove and update the relevant sections in [CMakePresets.json](https://github.com/openvinotoolkit/npu_compiler/blob/develop/CMakePresets.json#L7C1-L16C19).
+
 ## Using CMakePresets to build
 
 #### Using CMakePresets to build and using NPU-Plugin as an extra module of OpenVINO
@@ -122,8 +124,6 @@ Here provides a default pre-configured CMake presets for users named: "npuCidRel
             "value": "/home/username/path/to/downloaded/tbb"
         }
     ```
-    
-    The version of TBB downloaded by [OpenVINO Project] is 2021.13.0, and you can find the version information in the [corresponding file](https://github.com/openvinotoolkit/openvino/blob/master/cmake/dependencies.cmake#L120) within [OpenVINO Project].
 
     </details>
 
@@ -142,5 +142,5 @@ Here provides a default pre-configured CMake presets for users named: "npuCidRel
 4. Currently Presets for "npuCidReleasexxx" will build the smallest size targrts of Driver Compiler. If the user wishes to build Driver Compiler and other targets, can driectly inherit "Cid" preset and enable the needed build option to self configuration presets.
 
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler
 [oneTBB Project]: https://github.com/oneapi-src/oneTBB

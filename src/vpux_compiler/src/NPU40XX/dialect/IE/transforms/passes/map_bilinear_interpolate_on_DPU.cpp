@@ -7,8 +7,15 @@
 #include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch40xx {
+#define GEN_PASS_DECL_MAPBILINEARINTERPOLATEONDPUPASS
+#define GEN_PASS_DEF_MAPBILINEARINTERPOLATEONDPUPASS
+#include "vpux/compiler/NPU40XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch40xx
 
 using namespace vpux;
 
@@ -19,7 +26,7 @@ namespace {
 //
 
 class MapBilinearInterpolateOnDPUPass final :
-        public IE::arch40xx::MapBilinearInterpolateOnDPUPassBase<MapBilinearInterpolateOnDPUPass> {
+        public IE::arch40xx::impl::MapBilinearInterpolateOnDPUPassBase<MapBilinearInterpolateOnDPUPass> {
 public:
     explicit MapBilinearInterpolateOnDPUPass(const bool interpolateAsSEOp, Logger log)
             : _interpolateAsSEOp(interpolateAsSEOp) {

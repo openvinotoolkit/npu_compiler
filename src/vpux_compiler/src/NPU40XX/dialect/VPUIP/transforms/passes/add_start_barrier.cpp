@@ -10,6 +10,12 @@
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_ADDSTARTBARRIER
+#define GEN_PASS_DEF_ADDSTARTBARRIER
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -191,7 +197,7 @@ VPURT::TaskOp createSyncDMA(mlir::OpBuilder& builder, mlir::Operation* insertPoi
     return syncDMATask->getParentOfType<VPURT::TaskOp>();
 }
 
-class AddStartBarrierPass final : public VPUIP::arch40xx::AddStartBarrierBase<AddStartBarrierPass> {
+class AddStartBarrierPass final : public VPUIP::arch40xx::impl::AddStartBarrierBase<AddStartBarrierPass> {
 public:
     explicit AddStartBarrierPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

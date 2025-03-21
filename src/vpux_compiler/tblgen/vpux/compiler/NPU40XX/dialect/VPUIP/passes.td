@@ -57,7 +57,7 @@ def ConstantDpuProfHwpBase : PassBase<"constant-dpu-prof-hwp-base", "vpux::Funct
     let summary = "Sets single NCE HWP CMX base address";
 
     let description = [{
-        In NPU37XX NCE HWP CMX base address must remain the same for all DPU tasks since
+        In NPU40XX NCE HWP CMX base address must remain the same for all DPU tasks since
         HW may capture the address from a subsequent descriptor before storing the profiling
         record for the task just completed. To prevent from such race condition NCE HWP CMX
         base address for each NCE task will be 0 and profiling slot addressing will be
@@ -204,6 +204,20 @@ def SplitDMAToBalanceLoad : PassBase<"split-dma-to-balance-load", "vpux::Functio
 }
 
 //
+// FuseSegmentedDMA
+//
+
+def FuseSegmentedDMA : PassBase<"fuse-segmented-dma", "vpux::FunctionPass"> {
+    let summary = "This pass fuse segmented DMAs, which has compatible parameters in one DMA to decrease configuration overhead";
+
+    let description = [{
+        This pass combines DMA with help of inter-cluster stride to combine them
+    }];
+
+    let constructor = "vpux::VPUIP::arch40xx::createFuseSegmentedDmaPass()";
+}
+
+//
 // LegalizeScheduleForWlmFetchDmas
 //
 
@@ -219,30 +233,52 @@ def LegalizeScheduleForWlmFetchDmas : PassBase<"legalize-schedule-for-wlm", "vpu
         dummy DMAs such we would always find DMAs during fetch task insertion while maintaining a valid schedule
     }];
 
-    let constructor = "vpux::VPUIP::arch40xx::createLegalizeScheduleForWlmFetchDmasPass()";
-
     let options = [
         Option<
-            "maxVarCountPerGroup", "max-variant-count-per-group",
-            "int", "",
-            "Number of variants in execution group"
-        >,
-        Option<
-            "maxInvarCountPerGroup", "max-invariant-count-per-group",
-            "int", "",
-            "Number of invariants in execution group"
-        >,
-        Option<
-            "maxKernelInvoCountPerGroup", "max-kernel-invo-count-per-group",
-            "int", "",
-            "Number of act shave invocation in execution group"
-        >,
-        Option<
-            "maxKernelRangeCountPerGroup", "max-kernel-range-count-per-group",
-            "int", "",
-            "Number of act shave range in execution group"
-        >,
+            "workloadManagementModeOpt", "workload-management-mode",
+            "vpux::WorkloadManagementMode", "",
+            "Setting which controls mode of WLM",
+            [{::llvm::cl::values(
+            clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "Legacy WLM"),
+            clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM with Barrier FIFO enabled")
+          )}]
+        >
     ];
+
+    let constructor = "vpux::VPUIP::arch40xx::createLegalizeScheduleForWlmFetchDmasPass()";
+}
+
+//
+// UnrollDepthToSpaceDMA
+//
+
+def UnrollDepthToSpaceDMA : PassBase<"unroll-depth-to-space-dma", "vpux::FunctionPass"> {
+    let summary = "Split DepthToSpaceDMA task with several NN DMA tasks";
+
+    let description = [{
+        This pass splits DepthToSpaceDMA tasks with several NN DMA tasks, which are functionally equivalent.
+        Each sub DepthToSpaceDMA will be converted to a NNDMA.
+        1. if input/output layout is NHWC with model block_first, number of sub DepthToSpaceDMA is same as block_size.
+        2. if input/output layout is NHWC with model depth_first, number of sub DepthToSpaceDMA is OH * OW / block_size.
+        block_size is the size of the spatial block. It is an attribution of DepthToSpace.
+    }];
+
+    let constructor = "vpux::VPUIP::arch40xx::createUnrollDepthToSpaceDMAPass()";
+}
+
+//
+// UnrollSpaceToDepthDMA
+//
+
+def UnrollSpaceToDepthDMA : PassBase<"unroll-space-to-depth-dma", "vpux::FunctionPass"> {
+    let summary = "Split SpaceToDepthDMA task with several NN DMA tasks";
+
+    let description = [{
+        This pass splits SpaceToDepthDMA tasks into several NN DMA tasks, which are functionally equivalent.
+        Each sub SpaceToDepthDMA will be converted to a NNDMA.
+    }];
+
+    let constructor = "vpux::VPUIP::arch40xx::createUnrollSpaceToDepthDMAPass()";
 }
 
 #endif

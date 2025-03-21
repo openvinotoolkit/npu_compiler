@@ -8,15 +8,15 @@
 namespace vpux::VPURegMapped::detail {
 
 std::pair<mlir::ParseResult, std::optional<elf::Version>> parseVersion(mlir::AsmParser& parser) {
-    // E#135397: parseOptionalKeyword seems to signal failed parsing
-    // even if assembly contained some keyword not equal to given one
-    // here and in other parts of descriptors parsing methods it's treated
-    // as missing keyword and "successful" parsing
-    // revisit this place, hopefully making it more robust and signal failure
-    // in case of unexpected tokens in assembly (allow only nothing or exactly
-    // given keyword)
-    if (parser.parseOptionalKeyword("requires").failed()) {
+    StringRef keyword;
+    if (parser.parseOptionalKeyword(&keyword).failed()) {
+        // No keywords found, no version specified.
         return {mlir::success(), {}};
+    }
+
+    if (keyword != "requires") {
+        parser.emitError(parser.getCurrentLocation()) << "version keyword \"" << keyword << "\", expected \"requires\"";
+        return {mlir::failure(), {}};
     }
 
     uint32_t major = 0;

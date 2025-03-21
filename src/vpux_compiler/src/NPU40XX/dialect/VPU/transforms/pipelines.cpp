@@ -3,8 +3,9 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/core/passes.hpp"
+#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -19,7 +20,8 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(VPU::arch37xx::createDecomposeMVNPass(log));
 
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.enableMCSideLoadDump,
-                                                             options.opTilingCacheThreshold, options.modelHash, log));
+                                                             options.opTilingCacheThreshold,
+                                                             options.mcOptimizationScope, options.modelHash, log));
 
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyFileLocation,
                                                   options.readStrategyFromJson, readStrategyFileLocation,
@@ -49,7 +51,8 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
                                                  const VPU::arch40xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
-    if (options.enableConcatRepeatingBlockOutlining) {
+    // TODO: E#140041 enable profiling with outlining
+    if (options.enableConcatRepeatingBlockOutlining && !options.enableProfiling) {
         pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
@@ -60,7 +63,7 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::arch37xx::createAdjustForOptimizedLayersPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
     pm.addPass(VPU::arch37xx::createSplitRealDFTOpsPass(log));
-    pm.addPass(VPU::arch37xx::createAddProposalAuxiliaryBufferPass(log));
+    pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
     pm.addPass(VPU::createAdjustLSTMCellInputsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
@@ -102,21 +105,22 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         VPU::arch40xx::buildIncrementalPipeline(pm, vpux::MCAndTilingOptionsBase(options), log);
     }
 
+    pm.addPass(VPU::createAdjustMemorySpacePass(log));
     pm.addPass(VPU::createOptimizeSharedInputCopyForConcatPass(log));
     pm.addPass(VPU::createOptimizeConcatPass(log));
-    pm.addPass(VPU::createAdjustMemorySpacePass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPU::createCMXConcatPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
-    pm.addPass(VPU::createWrapDistributedOpsInNCEClusterTiling(log));
     pm.addPass(VPU::arch40xx::createCorrectNCEWorkloadsPass(log));
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
     pm.addPass(VPU::arch40xx::createComputeNCEInputWorkloadsPass(log));
     pm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
     pm.addPass(VPU::createOutlineEntireMainContentPass(log));
+    pm.addPass(VPU::createWrapDistributedOpsInNCEClusterTiling(log));
+    pm.addPass(mlir::createCanonicalizerPass(grc));
 }
 
 void vpux::VPU::arch40xx::registerVPUPipelines() {

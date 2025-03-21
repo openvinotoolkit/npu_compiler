@@ -3,8 +3,11 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -13,9 +16,6 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
-
-#include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/core/layers.hpp"
 
 #include "vpux/compiler/utils/empty_node.hpp"
 
@@ -134,11 +134,25 @@ bool isNCEInterpolateSupported(vpux::NDTypeInterface inputType, vpux::NDTypeInte
     const auto scales = potentialScales.value();
 
     if (inputShape[Dims4D::Act::C] < 8) {
-        // Interpolate layers with fewer than 8 channels may perform better on SHAVE than on DPU #E100988
+        // Interpolate layers with fewer than 8 channels may perform better on SHAVE than on DPU #E100988.
+        // More experiments in #E156089 validated that:
+        // 1) for nearest mode with total spatial size >= 1320720 (e.g. 512x512, scale=2)
+        // DPU solution always has better performance even when channels < 8;
+        // 2) for other modes, spatial size hasn't show signficant impact.
         // A better cost model can be introduced in the future to clearly identify which scenarios
         // receive a hit in performance when executed on DPU
         logCb(formatv("Interpolate has less than than 8 channels: {0}", inputShape[Dims4D::Act::C]));
-        return false;
+        if (attr.getMode().getValue() == IE::InterpolateMode::NEAREST) {
+            // For Nearest mode, check the total spatial size to decide if it is supported
+            const auto totalSpatialSize = inputShape[Dims4D::Act::H] * inputShape[Dims4D::Act::W] +
+                                          outputShape[Dims4D::Act::H] * outputShape[Dims4D::Act::W];
+            if (totalSpatialSize < 1320720) {
+                return false;
+            }
+        } else {
+            // For other modes, directly return false
+            return false;
+        }
     }
 
     // Check for the supported modes
@@ -198,7 +212,7 @@ bool isNCEInterpolateSupported(vpux::NDTypeInterface inputType, vpux::NDTypeInte
 
     if (checkChannelAlignment) {
         if (!VPU::NCEInvariant::isInputActTypeSupported(
-                    arch, inputType, vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType()),
+                    inputType, vpux::VPU::NCEInvariant::getAlignment(inputType.getElementType()),
                     /*supportsInputActCompression=*/false) ||
             !VPU::NCEInvariant::isOutputActTypeSupported(
                     outputType, vpux::VPU::NCEInvariant::getAlignment(outputType.getElementType()))) {
@@ -257,7 +271,8 @@ TilingInfo vpux::VPU::NCEInterpolateOp::backInferTileInfo(const vpux::TileInfo& 
     inputTiling.tiles[1].shape = getShape(getWeights()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    inputTiling.tiles.push_back(VPU::getWeightsTableTile(this, outputTile));
+    inputTiling.tiles.push_back(
+            VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
 
     return inputTiling;
 }
@@ -464,22 +479,14 @@ bool vpux::VPU::NCEInterpolateOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEInterpolateOp::sparsitySupport() {
     // Super-dense mode does not support ODU sparsity
-    const auto arch = getArch(getOperation());
     const auto outputType = getOutput().getType().cast<vpux::NDTypeInterface>();
 
     auto excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::NONE);
 
-    if (VPU::NCESparsity::isSuperdenseRequired(arch, outputType.getDimsOrder(), outputType.getShape(),
+    if (VPU::NCESparsity::isSuperdenseRequired(outputType.getDimsOrder(), outputType.getShape(),
                                                outputType.getElementType())) {
         excludeMode = VPU::NCESparsity::bitwiseNot(VPU::SparsitySupport::SPARSE_OUTPUTS);
     }
 
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return NCESparsity::FULLY_SUPPORTED_SPARSITY_MODE & excludeMode;
-
-    default:
-        VPUX_THROW("Unknown sparsity support mode for {0}", arch);
-    }
+    return NCESparsity::FULLY_SUPPORTED_SPARSITY_MODE & excludeMode;
 }

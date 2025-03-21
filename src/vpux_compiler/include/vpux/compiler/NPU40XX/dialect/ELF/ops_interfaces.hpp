@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
+#include "vpux_elf/utils/version.hpp"
 
 #include "vpux/utils/core/dense_map.hpp"
 #include "vpux/utils/core/small_string.hpp"
@@ -24,6 +25,10 @@ namespace ELF {
 typedef DenseMap<mlir::Operation*, elf::writer::Section*> SectionMapType;
 // Note that this works since in our case the IR is immutable troughout the life-time of the map.
 typedef DenseMap<mlir::Operation*, elf::writer::Symbol*> SymbolMapType;
+
+constexpr auto VPUX_SHAVE_ALIGNMENT = static_cast<size_t>(Byte(1_KB).count());
+constexpr auto VPUX_DEFAULT_ALIGNMENT = static_cast<size_t>((64_Byte).count());
+constexpr auto VPUX_NO_ALIGNMENT = static_cast<size_t>((1_Byte).count());
 
 //
 // ElfSectionInterface

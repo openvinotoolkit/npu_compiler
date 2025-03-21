@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --m2i-batchnorm-fusion --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @FuseInterpMultAddTask
 func.func @FuseInterpMultAddTask(%arg0: tensor<1x3x64x64xf16>) -> tensor<1x3x256x256xf16> {
     %interp = IE.Interpolate(%arg0) {attr = #IE.Interpolate<mode = <LINEAR>, shape_calc_mode = <SIZES>, coord_mode = <HALF_PIXEL>, nearest_mode = <ROUND_PREFER_FLOOR>, antialias = false, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], cube_coeff = 0.000000e+00 : f64>, operandSegmentSizes = array<i32: 1, 0, 0, 0>, axes_attr = [2, 3], scales_attr = [0.0, 0.0], sizes_attr = [256, 256]} : tensor<1x3x64x64xf16> -> tensor<1x3x256x256xf16>

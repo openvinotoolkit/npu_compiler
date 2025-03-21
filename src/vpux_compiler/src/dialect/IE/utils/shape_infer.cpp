@@ -26,6 +26,20 @@ bool vpux::IE::isBroadcastable(int64_t d0, int64_t d1) {
     return d0 == 1 || d1 == 1 || d0 == d1;
 }
 
+mlir::OpFoldResult vpux::IE::reifyDim(mlir::OpBuilder builder, mlir::Value value, mlir::RankedTensorType type,
+                                      size_t idx, std::optional<mlir::Location> loc) {
+    if (type.isDynamicDim(idx)) {
+        return builder.createOrFold<mlir::tensor::DimOp>(loc.value_or(value.getLoc()), value, idx);
+    }
+    return builder.getIndexAttr(type.getDimSize(idx));
+}
+
+mlir::OpFoldResult vpux::IE::reifyDim(mlir::OpBuilder builder, mlir::Value value, size_t idx,
+                                      std::optional<mlir::Location> loc) {
+    auto type = mlir::dyn_cast<mlir::RankedTensorType>(value.getType());
+    return IE::reifyDim(builder, value, type, idx, loc);
+}
+
 mlir::FailureOr<SmallVector<int64_t>> vpux::IE::broadcastEltwiseShape(ArrayRef<int64_t> shape1,
                                                                       ArrayRef<int64_t> shape2,
                                                                       AutoBroadcastType broadcastType,
@@ -140,14 +154,6 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::IE::reifyMatMulTensors(ml
     const auto shape1 = type1.getShape();
     const auto shape2 = type2.getShape();
 
-    auto reifyDim = [&](mlir::Value value, mlir::RankedTensorType type, size_t idx) -> mlir::OpFoldResult {
-        if (type.isDynamicDim(idx)) {
-            return builder.createOrFold<mlir::tensor::DimOp>(loc, value, idx);
-        } else {
-            return builder.getIndexAttr(type.getDimSize(idx));
-        }
-    };
-
     // Step 1: Apply transpositions if needed
     auto getTransposedShape = [&](ArrayRef<int64_t> shape, bool transpose) {
         if (transpose && shape.size() >= 2) {
@@ -199,11 +205,9 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::IE::reifyMatMulTensors(ml
     SmallVector<mlir::OpFoldResult> outDims;
     for (size_t i = 0; i < shape1Transposed.size() - 2; ++i) {
         if (shape1Transposed[i] == 1) {
-            outDims.push_back(reifyDim(input2, type2, i));
-        } else if (shape2Transposed[i] == 1) {
-            outDims.push_back(reifyDim(input1, type1, i));
-        } else if (shape1Transposed[i] == shape2Transposed[i]) {
-            outDims.push_back(reifyDim(input1, type1, i));
+            outDims.push_back(IE::reifyDim(builder, input2, type2, i, loc));
+        } else if (shape2Transposed[i] == 1 || shape1Transposed[i] == shape2Transposed[i]) {
+            outDims.push_back(IE::reifyDim(builder, input1, type1, i, loc));
         } else {
             return errorAt(loc, "Incompatible batch dimensions: '{0}' and '{1}'", shape1Transposed[i],
                            shape2Transposed[i]);
@@ -212,10 +216,11 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::IE::reifyMatMulTensors(ml
 
     // Step 5: Determine the output matrix dimensions, taking into account transposition and rank alignment if applied
     // result H dim is equal to input1.H
-    outDims.push_back(reifyDim(input1, type1, shape1Transposed.size() - (transposeA ? 1 : 2) - alignmentAxesCnt.first));
+    outDims.push_back(IE::reifyDim(builder, input1, type1,
+                                   shape1Transposed.size() - (transposeA ? 1 : 2) - alignmentAxesCnt.first, loc));
     // result W dim is equal to input2.W
-    outDims.push_back(
-            reifyDim(input2, type2, shape2Transposed.size() - (transposeB ? 2 : 1) - alignmentAxesCnt.second));
+    outDims.push_back(IE::reifyDim(builder, input2, type2,
+                                   shape2Transposed.size() - (transposeB ? 2 : 1) - alignmentAxesCnt.second, loc));
 
     return outDims;
 }
@@ -230,27 +235,18 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::IE::reifyEltwiseTensors(m
     const auto shape1 = type1.getShape();
     const auto shape2 = type2.getShape();
 
-    auto reifyDim = [&](mlir::Value value, mlir::RankedTensorType type, size_t idx) -> mlir::OpFoldResult {
-        if (type.isDynamicDim(idx)) {
-            return builder.createOrFold<mlir::tensor::DimOp>(loc, value, idx);
-        } else {
-            return builder.getIndexAttr(type.getDimSize(idx));
-        }
-    };
-
     if (broadcastType == IE::AutoBroadcastType::NONE_OR_EXPLICIT) {
         if (shape1 != shape2) {
             return errorAt(loc, "Input shapes must be equal in case BroadcastType is NONE");
         }
 
         const auto outRank = shape1.size();
-        SmallVector<mlir::OpFoldResult> outDims(outRank);
-
-        for (auto i : irange(outRank)) {
-            auto dim = reifyDim(input1, type1, i);
-            outDims[i] = dim;
-        }
-
+        SmallVector<mlir::OpFoldResult> outDims;
+        outDims.reserve(outRank);
+        auto rankRange = irange(outRank);
+        std::transform(rankRange.begin(), rankRange.end(), std::back_inserter(outDims), [&](auto i) {
+            return IE::reifyDim(builder, input1, type1, i, loc);
+        });
         return outDims;
     } else if (broadcastType == IE::AutoBroadcastType::NUMPY) {
         const auto in1Rank = shape1.size();
@@ -271,11 +267,11 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::IE::reifyEltwiseTensors(m
             }
 
             if (in1ShapeIter == shape1.rend() || (in2ShapeIter != shape2.rend() && (*in1ShapeIter == 1))) {
-                outDims[outRank - i - 1] = reifyDim(input2, type2, in2Rank - i - 1);
+                outDims[outRank - i - 1] = IE::reifyDim(builder, input2, type2, in2Rank - i - 1, loc);
             } else {
                 VPUX_THROW_UNLESS(in1ShapeIter != shape1.rend(), "Failed to broadcast shapes: {0}, {1} at {2}", shape1,
                                   shape2, loc);
-                outDims[outRank - i - 1] = reifyDim(input1, type1, in1Rank - i - 1);
+                outDims[outRank - i - 1] = IE::reifyDim(builder, input1, type1, in1Rank - i - 1, loc);
             }
 
             if (in1ShapeIter != shape1.rend()) {

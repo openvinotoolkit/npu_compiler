@@ -51,9 +51,7 @@ TEST_P(SelectLayerTestCommon, NPU4000_SW) {
 using ov::test::SelectLayerTestCommon;
 
 namespace {
-const std::vector<ov::element::Type> inputTypes = {
-        ov::element::f16,
-};
+const std::vector<ov::element::Type> inputTypes = {ov::element::f16, ov::element::i32, ov::element::i64};
 
 const std::vector<std::vector<ov::Shape>> inShapes = {
         {{10, 2, 1, 1}, {10, 2, 1, 1}, {1, 2, 1, 1}},     {{1, 1, 1, 32}, {1, 1, 1, 1}, {1, 4, 16, 32}},

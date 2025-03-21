@@ -16,6 +16,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTBILINEARTOSTRIDEDCONCATANDCONV
+#define GEN_PASS_DEF_CONVERTBILINEARTOSTRIDEDCONCATANDCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -120,7 +126,7 @@ mlir::Value createMaxPool(mlir::Value input, mlir::Location loc, mlir::PatternRe
 //
 
 class ConvertBilinearToStridedConcatAndConvPass final :
-        public IE::ConvertBilinearToStridedConcatAndConvBase<ConvertBilinearToStridedConcatAndConvPass> {
+        public IE::impl::ConvertBilinearToStridedConcatAndConvBase<ConvertBilinearToStridedConcatAndConvPass> {
 public:
     explicit ConvertBilinearToStridedConcatAndConvPass(const bool interpolateAsSEOp, Logger log)
             : _interpolateAsSEOp(interpolateAsSEOp) {

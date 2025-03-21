@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-#include "vpux/compiler/core/attributes/tensor_attr.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/unsqueeze.hpp"
 #include "vpux/compiler/utils/attributes.hpp"

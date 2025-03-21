@@ -39,12 +39,12 @@ Driver Compiler is built with OpenVINO static runtime. To build the library and 
 
     cd /home/useraccount/workspace (Just an example, you should use your own path.)
     git clone https://github.com/openvinotoolkit/npu_compiler.git
-    cd npu_plugin
+    cd npu_compiler
     git checkout -b master origin/master (Just an example, you could use your own branch/tag/commit.)
     git submodule update --init --recursive
 
     export OPENVINO_HOME=/home/useraccount/workspace/openvino (need change to your own path)
-    export NPU_PLUGIN_HOME=/home/useraccount/workspace/npu_plugin (need change to your own path)
+    export NPU_PLUGIN_HOME=/home/useraccount/workspace/npu_compiler (need change to your own path)
     ```
     </details>
 
@@ -267,5 +267,5 @@ Driver compiler build is a static build, to get a static build of [NPU-Plugin Pr
  * [how to build static](../../../guides/how-to-build-static.md).
 
 [OpenVINO Project]: https://github.com/openvinotoolkit/openvino
-[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler.git
+[NPU-Plugin Project]: https://github.com/openvinotoolkit/npu_compiler
 [oneTBB Project]: https://github.com/oneapi-src/oneTBB

@@ -21,6 +21,8 @@ bitc::ArchType string_to_arch(const std::string& arch_type) {
         return bitc::ArchType::NPU27;
     else if (arch_type == "NPU4"s)
         return bitc::ArchType::NPU4;
+    else
+        return;
 }
 
 int check_dataset_compression(const config_map& config_test, bitc::BitCompactorConfig& config) {
@@ -28,7 +30,6 @@ int check_dataset_compression(const config_map& config_test, bitc::BitCompactorC
     uint64_t count_size_diff{};
     uint64_t count_content_diff{};
     uint64_t count_runs{};
-
     std::string decompressed_data_path = std::get<std::string>(config_test.at("decompressed_data_path"));
     const string_vector& decompressed_data_set = std::get<string_vector>(config_test.at("decompressed_data"));
     const string_vector& compressed_data_set = std::get<string_vector>(config_test.at("compressed_data"));
@@ -122,7 +123,6 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
     uint64_t count_runs{};
 
     int sparse_block_size = 0;
-
     std::string compressed_data_path = std::get<std::string>(config_test.at("compressed_data_path"));
     const string_vector& decompressed_data_set = std::get<string_vector>(config_test.at("decompressed_data"));
     const string_vector& compressed_data_set = std::get<string_vector>(config_test.at("compressed_data"));
@@ -140,7 +140,6 @@ int check_dataset_decompression(const config_map& config_test, const bitc::BitCo
             bitc::Decoder decoder{compressed_data, config};
             std::vector<uint8_t> decompressed_data_out;
             std::vector<uint8_t> bitmap;
-
 #ifdef __BITC__EN_PROFILING__
             auto start = steady_clock::now();
 #endif
@@ -224,8 +223,8 @@ int main(int argc, char* argv[]) {
 
     bitc::BitCompactorConfig config_bitc{string_to_arch(std::get<std::string>(config.at("arch_type"))),
                                          std::get<std::string>(config.at("weight_compress_enable")) == "true"s,
-                                         std::get<std::string>(config.at("mode_fp16_enable")) == "true"s,
-                                         std::get<std::string>(config.at("bypass_compression")) == "true"s};
+                                         std::get<std::string>(config.at("bypass_compression")) == "true"s,
+                                         std::get<std::string>(config.at("mode_fp16_enable")) == "true"s};
 
     return check_dataset_compression(config, config_bitc) || check_dataset_decompression(config, config_bitc);
 }

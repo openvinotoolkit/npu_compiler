@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -84,6 +84,8 @@ public:
     // @brief Modifies the fpPreluAlpha of the PPE Attribute.
     [[nodiscard]] vpux::VPU::PPEAttr updateFpPreluAlpha(vpux::VPU::PPEAttr orig,
                                                         ArrayRef<double> fpPreluAlpha) const override;
+    // @brief Checks if the fpPreluAlpha is used to apply quantization scaling through the fpPreluAlpha field.
+    [[nodiscard]] bool hasQuantScalingThroughPreluAlpha(vpux::VPU::PPEAttr orig) const override;
 
     // --- IPpeAdapterMode Implementation ---
 

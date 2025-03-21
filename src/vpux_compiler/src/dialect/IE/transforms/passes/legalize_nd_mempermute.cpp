@@ -10,6 +10,12 @@
 
 #include <map>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_LEGALIZENDMEMPERMUTE
+#define GEN_PASS_DEF_LEGALIZENDMEMPERMUTE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -34,12 +40,10 @@ permutation.
 */
 SmallVector<mlir::AffineMap> decomposeNDPermutation(ArrayRef<uint32_t> targetPerm, mlir::MLIRContext* ctx, Logger log) {
     const auto initialMap = mlir::AffineMap::getMultiDimIdentityMap(targetPerm.size(), ctx);
-    const auto initialOrder =
-            to_small_vector(DimsOrder::fromAffineMap(initialMap).toPermutation() | transformed([](Dim dim) {
-                                return checked_cast<uint32_t>(dim.ind());
-                            }));
+    auto currentOrder = to_small_vector(DimsOrder::fromAffineMap(initialMap).toPermutation() | transformed([](Dim dim) {
+                                            return checked_cast<uint32_t>(dim.ind());
+                                        }));
 
-    SmallVector<uint32_t> currentOrder = initialOrder;
     SmallVector<SmallVector<uint32_t>> decomposedOrders;
 
     while (currentOrder != targetPerm) {
@@ -128,7 +132,8 @@ private:
 
 mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origOp,
                                                           mlir::PatternRewriter& rewriter) const {
-    // Only enabled for NPU37XX, NPU40XX where Tiling for SW kernels is limited to 4D ops.
+    // Only enabled for NPU37XX, NPU40XX
+    // where Tiling for SW kernels is limited to 4D ops.
     // ToDo: Remove pass after limitation.
 
     auto inputType = origOp.getInput().getType().cast<NDTypeInterface>();
@@ -216,7 +221,7 @@ mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origO
 // LegalizeNDMemPermutePass
 //
 
-class LegalizeNDMemPermutePass final : public IE::LegalizeNDMemPermuteBase<LegalizeNDMemPermutePass> {
+class LegalizeNDMemPermutePass final : public IE::impl::LegalizeNDMemPermuteBase<LegalizeNDMemPermutePass> {
 public:
     explicit LegalizeNDMemPermutePass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

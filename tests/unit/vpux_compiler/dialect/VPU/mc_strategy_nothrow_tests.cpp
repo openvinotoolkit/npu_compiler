@@ -97,7 +97,8 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     bool enablePrefetchTiling = true;
 
     auto siblingsOpsAnalysis = vpux::VPU::SiblingOpsAnalysis(func);
-    vpux::VPU::StrategyManager strategyManager(func, tileOp.getCount(), enablePrefetchTiling, vpux::Logger::global(),
+    vpux::VPU::StrategyManager strategyManager(func, tileOp.getCount(), enablePrefetchTiling,
+                                               VPU::MCOptimizationScope::SUBGRAPH, vpux::Logger::global(),
                                                siblingsOpsAnalysis);
     EXPECT_NO_THROW(strategyManager.assignMultiClusterStrategy(true));
 }

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --adjust-dynamic-ops-before-bufferization %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #CHW = affine_map<(d0, d1, d2) -> (d0, d1, d2)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 module @Unsqueeze {

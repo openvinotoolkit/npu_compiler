@@ -588,3 +588,71 @@ VPU::DistributionInfoAttr vpux::VPU::getExplicitDistrAttrForSETable(VPU::Distrib
                                           getSETableShapesOffsets(denseDataDistribution.getMemoryOffsets(), true),
                                           denseDataDistribution.getEqualMemoryAndComputeView());
 }
+
+VPU::DistributionInfoAttr VPU::getExplicitDistrAttrForActualDataFromSparseType(mlir::Type origType) {
+    VPUX_THROW_WHEN(!mlir::isa<VPU::DistributedTypeInterface>(origType),
+                    "getExplicitDistrAttrForActualDataFromSparseType: type is not distributed");
+
+    auto ctx = origType.getContext();
+
+    auto getDistribution = [](mlir::Type componentType) -> DistributionInfoAttr {
+        if (auto distributedTensor = componentType.dyn_cast<VPU::DistributedTensorType>()) {
+            return distributedTensor.getDistribution();
+        } else if (auto distributedBuffer = componentType.dyn_cast<VPUIP::DistributedBufferType>()) {
+            return distributedBuffer.getDistribution();
+        }
+
+        VPUX_THROW("Sparse type's component is not distributed, component type = {0}", componentType);
+    };
+
+    auto patchDistributionChannels = [&](mlir::ArrayAttr data, mlir::ArrayAttr seTable) -> mlir::ArrayAttr {
+        const auto dataShapesOffsetsVec = parseIntArrayOfArrayAttr<int64_t>(data);
+        auto actualShapesOffsetsVec = parseIntArrayOfArrayAttr<int64_t>(seTable);
+
+        std::transform(dataShapesOffsetsVec.begin(), dataShapesOffsetsVec.end(), actualShapesOffsetsVec.begin(),
+                       actualShapesOffsetsVec.begin(),
+                       [](const SmallVector<int64_t>& dataShapesOffsets, SmallVector<int64_t> actualShapesOffsets) {
+                           actualShapesOffsets[Dims4D::Act::C.ind()] = dataShapesOffsets[Dims4D::Act::C.ind()];
+                           return actualShapesOffsets;
+                       });
+
+        return getIntArrayOfArray(ctx, actualShapesOffsetsVec);
+    };
+
+    mlir::Type dataType;
+    mlir::Type seTableType;
+    if (auto sparseTensorType = mlir::dyn_cast<VPU::SparseTensorType>(origType)) {
+        dataType = sparseTensorType.getData();
+        seTableType = sparseTensorType.getStorageElementTable();
+    } else if (auto sparseBufferType = mlir::dyn_cast<VPUIP::SparseBufferType>(origType)) {
+        dataType = sparseBufferType.getData();
+        seTableType = sparseBufferType.getStorageElementTable();
+    } else {
+        VPUX_THROW("Expected sparse type. Got {0}", origType);
+    }
+
+    const auto dataDistribution = getDistribution(dataType);
+
+    VPUX_THROW_WHEN(!isDistributedAttrWithExplicitShapesAndOffsets(dataDistribution),
+                    "Distribution for SparseType is not explicit, data distribution = {0}", dataDistribution);
+
+    if (seTableType == nullptr) {
+        return dataDistribution;
+    }
+
+    auto seTableDistribution = getDistribution(seTableType);
+    mlir::ArrayAttr computeShapes =
+            patchDistributionChannels(dataDistribution.getComputeShapes(), seTableDistribution.getComputeShapes());
+    mlir::ArrayAttr computeOffsets =
+            patchDistributionChannels(dataDistribution.getComputeOffsets(), seTableDistribution.getComputeOffsets());
+    mlir::ArrayAttr memoryShapes =
+            patchDistributionChannels(dataDistribution.getMemoryShapes(), seTableDistribution.getMemoryShapes());
+    mlir::ArrayAttr memoryOffsets =
+            patchDistributionChannels(dataDistribution.getMemoryOffsets(), seTableDistribution.getMemoryOffsets());
+
+    return DistributionInfoAttr::get(ctx, seTableDistribution.getMode(), seTableDistribution.getNumTiles(), nullptr,
+                                     nullptr, nullptr, seTableDistribution.getNumClusters(),
+                                     seTableDistribution.getAlignment(),
+                                     seTableDistribution.getUniformDistributedSegments(), computeShapes, computeOffsets,
+                                     memoryShapes, memoryOffsets, seTableDistribution.getEqualMemoryAndComputeView());
+}

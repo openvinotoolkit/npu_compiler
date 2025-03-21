@@ -16,7 +16,7 @@ constexpr StringLiteral cycleBegin = "cycleBegin";
 constexpr StringLiteral cycleEnd = "cycleEnd";
 
 size_t getDMACost(mlir::Value input, mlir::Value output, VPU::ArchKind archKind,
-                  std::shared_ptr<VPUNN::VPUCostModel> costModel);
+                  const std::shared_ptr<VPUNN::VPUCostModel>& costModel);
 size_t getDMACost(vpux::NDTypeInterface tensorType, VPUNN::VPUDevice vpuDevice,
                   const std::shared_ptr<VPUNN::VPUCostModel>& costModel, int64_t numDMAPorts);
 size_t getDPUCost(mlir::Operation* op);
@@ -24,7 +24,7 @@ size_t getAsyncExecuteCycleBegin(mlir::async::ExecuteOp op);
 size_t getAsyncExecuteCycleEnd(mlir::async::ExecuteOp op);
 VPUNN::DPUWorkload getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, VPU::ArchKind arch);
 size_t calculateCopyCycles(mlir::Operation* innerOp, VPU::ArchKind archKind,
-                           const std::shared_ptr<VPUNN::VPUCostModel> costModel);
+                           const std::shared_ptr<VPUNN::VPUCostModel>& costModel);
 size_t calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp, const std::shared_ptr<VPUNN::VPUCostModel>& costModel,
                                VPU::ArchKind arch);
 std::vector<std::pair<int64_t, size_t>> calculateNceVariantCycles(VPUIP::NCEClusterTaskOp nceOp,

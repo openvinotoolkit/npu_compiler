@@ -430,3 +430,14 @@ Const::Content vpux::Const::SubViewAttr::transform(vpux::Const::Content& input) 
 bool Const::SubViewAttr::supportsSubByteStorageType() const {
     return true;
 }
+
+//
+// SubViewAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::SubViewAttr::getStableHashValue() const {
+    const auto shape = parseIntArrayAttr<int64_t>(getShape());
+    const auto offset = parseIntArrayAttr<int64_t>(getOffset());
+    return llvm::hash_combine(getMnemonic(), llvm::hash_combine_range(shape.begin(), shape.end()),
+                              llvm::hash_combine_range(offset.begin(), offset.end()));
+}

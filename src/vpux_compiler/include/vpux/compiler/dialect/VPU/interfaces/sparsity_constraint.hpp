@@ -8,6 +8,7 @@
 #include <mlir/IR/Types.h>
 
 #include <memory>
+#include <utility>
 
 namespace vpux {
 namespace VPU {

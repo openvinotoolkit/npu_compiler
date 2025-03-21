@@ -13,6 +13,12 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTWEIGHTSTOU8
+#define GEN_PASS_DEF_CONVERTWEIGHTSTOU8
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -217,7 +223,7 @@ mlir::LogicalResult ConstRewriter::matchAndRewrite(Const::DeclareOp origOp, OpAd
 // ConvertWeightsToU8Pass
 //
 
-class ConvertWeightsToU8Pass final : public IE::ConvertWeightsToU8Base<ConvertWeightsToU8Pass> {
+class ConvertWeightsToU8Pass final : public IE::impl::ConvertWeightsToU8Base<ConvertWeightsToU8Pass> {
 public:
     explicit ConvertWeightsToU8Pass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

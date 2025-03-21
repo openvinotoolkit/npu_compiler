@@ -12,6 +12,12 @@
 
 #include <mlir/Transforms/DialectConversion.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTSCATTERNDUPDATETOSTRIDEDCONCAT
+#define GEN_PASS_DEF_CONVERTSCATTERNDUPDATETOSTRIDEDCONCAT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -56,7 +62,7 @@ bool isIdentityMapBetweenInputAndUpdates(Const::details::ContentRange<int64_t>& 
 }
 
 class ConvertScatterNDUpdateToStridedConcatPass final :
-        public IE::ConvertScatterNDUpdateToStridedConcatBase<ConvertScatterNDUpdateToStridedConcatPass> {
+        public IE::impl::ConvertScatterNDUpdateToStridedConcatBase<ConvertScatterNDUpdateToStridedConcatPass> {
 public:
     explicit ConvertScatterNDUpdateToStridedConcatPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch%" --unwrap-cluster-tiling  %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #C = affine_map<(d0) -> (d0)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>

@@ -6,8 +6,16 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/power_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSERMSNORM
+#define GEN_PASS_DEF_FUSERMSNORM
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -17,7 +25,7 @@ namespace {
 // FuseRMSNormPass
 //
 
-class FuseRMSNormPass final : public IE::FuseRMSNormBase<FuseRMSNormPass> {
+class FuseRMSNormPass final : public IE::impl::FuseRMSNormBase<FuseRMSNormPass> {
 public:
     explicit FuseRMSNormPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -36,8 +44,50 @@ bool compareWithTolerance(float num1, float num2, float tolerance = 0.1f) {
     return std::abs(num1 - num2) <= tolerance;
 }
 
-void isReduceSumPattern(IE::PowerOp powerOp, IE::ReduceSumOp reduceSumOp, mlir::MLIRContext& ctx,
+mlir::Operation* getPowerOp(mlir::Operation* op) {
+    // Check the case of x^2
+    auto powerOp = mlir::dyn_cast_or_null<IE::PowerOp>(op);
+    if (powerOp != nullptr && powerOp->hasOneUse()) {
+        return powerOp;
+    }
+
+    // Check the case of x*x
+    auto multiplyOp = mlir::dyn_cast_or_null<IE::MultiplyOp>(op);
+    if (multiplyOp != nullptr && multiplyOp.getInput1() == multiplyOp.getInput2() && multiplyOp->hasOneUse()) {
+        return multiplyOp;
+    }
+
+    return nullptr;
+}
+
+mlir::Operation* getSqrtAndDivideOps(mlir::Operation* op) {
+    // Check the case of 1/Sqrt(x)
+    const auto sqrtOp = mlir::dyn_cast_or_null<IE::SqrtOp>(op);
+    if (sqrtOp != nullptr && sqrtOp->hasOneUse()) {
+        const auto divideOp = mlir::dyn_cast_or_null<IE::DivideOp>(*sqrtOp->getUsers().begin());
+        if (divideOp != nullptr && divideOp->hasOneUse()) {
+            return divideOp;
+        }
+    }
+
+    // Check the case of x^(-0.5)
+    auto powerOp = mlir::dyn_cast_or_null<IE::PowerOp>(op);
+    if (powerOp != nullptr && powerOp->hasOneUse()) {
+        auto exponent = IE::getExponentSplatVal(powerOp);
+        if (exponent.has_value() && isFloatEqual(exponent.value(), -0.5)) {
+            return powerOp;
+        }
+    }
+
+    return nullptr;
+}
+
+void isReduceSumPattern(mlir::Operation* maybePowerOp, IE::ReduceSumOp reduceSumOp, mlir::MLIRContext& ctx,
                         vpux::Logger /*_log*/) {
+    auto powerOp = getPowerOp(maybePowerOp);
+    if (powerOp == nullptr) {
+        return;
+    }
     if (reduceSumOp == nullptr || !reduceSumOp->hasOneUse()) {
         return;
     }
@@ -49,7 +99,16 @@ void isReduceSumPattern(IE::PowerOp powerOp, IE::ReduceSumOp reduceSumOp, mlir::
     if (divideOp == nullptr || !divideOp->hasOneUse()) {
         return;
     }
-    auto multiplyOp = mlir::dyn_cast_or_null<IE::MultiplyOp>(*divideOp->getUsers().begin());
+    auto skipFqIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
+        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp>(op)) {
+            return op;
+        }
+        if (!op->hasOneUse()) {
+            return nullptr;
+        }
+        return *op->getUsers().begin();
+    };
+    auto multiplyOp = mlir::dyn_cast_or_null<IE::MultiplyOp>(skipFqIfPresent(*divideOp->getUsers().begin()));
     if (multiplyOp == nullptr || !multiplyOp->hasOneUse()) {
         return;
     }
@@ -63,7 +122,7 @@ void isReduceSumPattern(IE::PowerOp powerOp, IE::ReduceSumOp reduceSumOp, mlir::
         return;
     }
     auto constantValue = constantContent.getSplatValue<float>();
-    auto inputDims = getShape(powerOp.getInput1());
+    auto inputDims = getShape(powerOp->getOperand(0));
     auto inputWidth = inputDims[Dim(inputDims.size() - 1)];
     if (!compareWithTolerance(constantValue, sqrt(inputWidth))) {
         return;
@@ -74,8 +133,8 @@ void isReduceSumPattern(IE::PowerOp powerOp, IE::ReduceSumOp reduceSumOp, mlir::
     auto builder = mlir::OpBuilder(multiplyOp);
     const float weightData = 1.0f;
     const auto dataStorageType =
-            mlir::RankedTensorType::get({inputWidth}, mlir::Float32Type::get(powerOp.getContext()));
-    const auto constLoc = appendLoc(powerOp.getLoc(), "_const");
+            mlir::RankedTensorType::get({inputWidth}, mlir::Float32Type::get(powerOp->getContext()));
+    const auto constLoc = appendLoc(powerOp->getLoc(), "_const");
     gamma = Const::createConst(builder, constLoc, dataStorageType, ArrayRef(weightData));
 
     float epsilon = 0.000000001f;
@@ -111,11 +170,13 @@ void isReduceSumPattern(IE::PowerOp powerOp, IE::ReduceSumOp reduceSumOp, mlir::
 void FuseRMSNormPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-    func->walk([&](IE::PowerOp powerOp) {
-        _log.trace("Got op {0} at {1}", powerOp->getName(), powerOp->getLoc());
-        if (!powerOp->hasOneUse()) {
+    func->walk([&](mlir::Operation* op) {
+        auto powerOp = getPowerOp(op);
+        if (powerOp == nullptr) {
             return;
         }
+        _log.trace("Got PowerOp {0} at {1}", powerOp->getName(), powerOp->getLoc());
+
         // make sure the op's output has one non-one dimension
         // return the dimension size or 0
         auto getSingleDimSize = [](mlir::Operation* op) {
@@ -126,7 +187,7 @@ void FuseRMSNormPass::safeRunOnFunc() {
             }
             return outputShape[nonOneDim.back()];
         };
-        const auto layerSize = getSingleDimSize(powerOp.getOperation());
+        const auto layerSize = getSingleDimSize(powerOp);
         if (layerSize == 0) {
             _log.nest().trace("PowerOp does not have one single non-one dim");
             return;
@@ -155,20 +216,17 @@ void FuseRMSNormPass::safeRunOnFunc() {
             _log.trace("use default epsilon value");
         }
 
-        const auto sqrtOp = mlir::dyn_cast_or_null<IE::SqrtOp>(*addOp->getUsers().begin());
-        if (sqrtOp == nullptr || !sqrtOp->hasOneUse()) {
-            return;
-        }
-        const auto divideOp = mlir::dyn_cast_or_null<IE::DivideOp>(*sqrtOp->getUsers().begin());
-        if (divideOp == nullptr || !divideOp->hasOneUse()) {
+        const auto divideOp = getSqrtAndDivideOps(*addOp->getUsers().begin());
+        if (divideOp == nullptr) {
             return;
         }
         auto multiplyOp1 = mlir::dyn_cast_or_null<IE::MultiplyOp>(*divideOp->getUsers().begin());
         if (multiplyOp1 == nullptr || !multiplyOp1->hasOneUse() || getSingleDimSize(multiplyOp1) != layerSize) {
             return;
         }
+
         auto multiplyOp2 = mlir::dyn_cast_or_null<IE::MultiplyOp>(*multiplyOp1->getUsers().begin());
-        auto headOp = powerOp.getOperation();
+        auto headOp = powerOp;
         auto convertOp2 = mlir::dyn_cast_or_null<IE::ConvertOp>(*multiplyOp1->getUsers().begin());
         auto convertOp1 = mlir::dyn_cast_or_null<IE::ConvertOp>(powerOp->getOperand(0).getDefiningOp());
         if (multiplyOp2 == nullptr) {
@@ -199,7 +257,7 @@ void FuseRMSNormPass::safeRunOnFunc() {
             auto gammaDims = getShape(gamma);
             auto gammaWidth = gammaDims[Dim(gammaDims.size() - 1)];
 
-            auto inputDims = getShape(powerOp.getInput1());
+            auto inputDims = getShape(powerOp->getOperand(0));
             auto inputWidth = inputDims[Dim(inputDims.size() - 1)];
 
             // Gamma should have only one non-one dimension, and the width should be the same as the input width

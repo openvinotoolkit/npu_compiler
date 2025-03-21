@@ -172,3 +172,30 @@ module @executors {
         // CHECK-SAME:          tilingStrategy = [1, 10, 1, 1]
     }
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
+
+// CHECK-LABEL: @SplitNCEMaxPoolOverW
+// CHECK-SAME:      [[INPUT:%arg[0-9]]]: tensor<1x128x1024x28xf16, {order = #NHWC}>)
+func.func @SplitNCEMaxPoolOverW(%arg0: tensor<1x128x1024x28xf16, {order = #NHWC}>) -> tensor<1x128x1024x28xf16, {order = #NWHC}> {
+    %0 = VPU.NCE.MaxPool(%arg0) {
+        kernel_size = [1, 1],
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEStub<>,
+        strides = [1, 1]
+    } -> tensor<1x128x1024x28xf16, {order = #NWHC}>
+
+    return %0 : tensor<1x128x1024x28xf16, {order = #NWHC}>
+
+    // Tiling strategies [1, 4, 1, 1] and [1, 1, 1, 4] have the same VPUNN cost
+    // Choose [1, 1, 1, 4] for better DMA benefits
+
+    // CHECK:       [[MAXPOOL:%.+]] = VPU.NCE.MaxPool([[INPUT]]) {
+    // CHECK-SAME:      tilingStrategy = [1, 1, 1, 4]
+
+    // CHECK:       return [[MAXPOOL]] : tensor<1x128x1024x28xf16, {order = #NWHC}>
+}

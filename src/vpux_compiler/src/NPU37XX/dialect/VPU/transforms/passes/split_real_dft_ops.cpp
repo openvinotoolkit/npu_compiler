@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -16,6 +17,12 @@
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
+
+namespace vpux::VPU::arch37xx {
+#define GEN_PASS_DECL_SPLITREALDFTOPS
+#define GEN_PASS_DEF_SPLITREALDFTOPS
+#include "vpux/compiler/NPU37XX/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU::arch37xx
 
 using namespace vpux;
 
@@ -202,7 +209,7 @@ mlir::LogicalResult SplitIRDFTToComponents::matchAndRewrite(VPU::IRDFTOp origOp,
 // SplitRealDFTOpsPass
 //
 
-class SplitRealDFTOpsPass final : public VPU::arch37xx::SplitRealDFTOpsBase<SplitRealDFTOpsPass> {
+class SplitRealDFTOpsPass final : public VPU::arch37xx::impl::SplitRealDFTOpsBase<SplitRealDFTOpsPass> {
 public:
     explicit SplitRealDFTOpsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

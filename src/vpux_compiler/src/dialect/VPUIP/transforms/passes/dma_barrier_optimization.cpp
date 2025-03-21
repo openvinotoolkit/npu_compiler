@@ -10,6 +10,12 @@
 
 #include <llvm/ADT/SetOperations.h>
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_DMABARRIEROPTIMIZATION
+#define GEN_PASS_DEF_DMABARRIEROPTIMIZATION
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 namespace {
 
@@ -301,7 +307,7 @@ void mergeBarriers(BarrierInfo& barrierInfo, ArrayRef<BarrierInfo::TaskSet> orig
 //  DMABarrierOptimizationPass
 //
 
-class DMABarrierOptimizationPass final : public VPUIP::DMABarrierOptimizationBase<DMABarrierOptimizationPass> {
+class DMABarrierOptimizationPass final : public VPUIP::impl::DMABarrierOptimizationBase<DMABarrierOptimizationPass> {
 public:
     explicit DMABarrierOptimizationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -315,10 +321,10 @@ private:
 void DMABarrierOptimizationPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& barrierInfo = getAnalysis<BarrierInfo>();
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, true);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 
     barrierInfo.optimizeBarriers(/* checkValidSlotCount */ false, _considerTaskFifoDependency);
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
 
     if (_considerTaskFifoDependency) {
         barrierInfo.buildTaskQueueTypeMap();
@@ -335,7 +341,7 @@ void DMABarrierOptimizationPass::safeRunOnFunc() {
     mergeBarriers(barrierInfo, origWaitBarriersMap);
     removeRedundantDependencies(barrierInfo, _considerTaskFifoDependency, _log);
 
-    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo);
+    VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);

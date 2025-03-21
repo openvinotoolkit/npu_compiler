@@ -123,16 +123,19 @@ Const::DeclareOp ConstantFusing::getConstAndDma(mlir::Value constant, mlir::Oper
     }
 
     if (auto* op = source.getDefiningOp()) {
-        constDeclareOp = mlir::dyn_cast<VPUIP::LayerOpInterface>(op).getInputs()[0].getDefiningOp<Const::DeclareOp>();
-
-        while (constDeclareOp == nullptr) {
-            op = mlir::dyn_cast<VPUIP::LayerOpInterface>(op).getInputs()[0].getDefiningOp();
-            VPUX_THROW_UNLESS(op != nullptr, "Next CopyOp or NNDMAOp as source operation expected");
-
-            constDeclareOp =
-                    mlir::dyn_cast<VPUIP::LayerOpInterface>(op).getInputs()[0].getDefiningOp<Const::DeclareOp>();
+        if (auto layerOp = mlir::dyn_cast<VPUIP::LayerOpInterface>(op)) {
+            constDeclareOp = layerOp.getInputs()[0].getDefiningOp<Const::DeclareOp>();
+            while (constDeclareOp == nullptr) {
+                op = layerOp.getInputs()[0].getDefiningOp();
+                VPUX_THROW_UNLESS(op != nullptr, "Next CopyOp or NNDMAOp as source operation expected");
+                layerOp = mlir::dyn_cast<VPUIP::LayerOpInterface>(op);
+                if (layerOp == nullptr) {
+                    break;
+                }
+                constDeclareOp = layerOp.getInputs()[0].getDefiningOp<Const::DeclareOp>();
+            }
+            *constOp = op;
         }
-        *constOp = op;
     }
 
     return constDeclareOp;

@@ -5,9 +5,9 @@
 
 #pragma once
 
-#include "vpux/compiler/utils/options.hpp"
 #include "vpux/utils/core/logger.hpp"
 #include "vpux/utils/core/small_vector.hpp"
+#include "vpux/utils/core/string_ref.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/BuiltinOps.h>
@@ -24,7 +24,7 @@ namespace vpux {
 //
 // Default threshold for number of virtual barriers for workload management optimization
 //
-#define VIRTUAL_BARRIER_THRESHOLD_WLM 3000
+#define VIRTUAL_BARRIER_THRESHOLD_WLM 10000
 
 //
 // Default threshold for number of clustered op for op tiling cache optimization

@@ -4,8 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --adjust-lstmcell-inputs %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX
-#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+// REQUIRES: arch-NPU37XX || arch-NPU40XX#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 // CHECK-LABEL: @adjustLstmCellInputOrderTest
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x1x1x64xf16>, [[INPUT1:%.+]]: tensor<1x1x1x128xf16>, [[INPUT2:%.+]]: tensor<1x1x1x128xf16>

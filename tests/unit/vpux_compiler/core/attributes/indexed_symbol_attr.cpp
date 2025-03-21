@@ -5,16 +5,14 @@
 
 //
 
-#include "vpux/compiler/core/attributes/indexed_symbol_attr.hpp"
 #include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-#include "vpux/compiler/init.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include "common/utils.hpp"
 
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Parser/Parser.h>
 

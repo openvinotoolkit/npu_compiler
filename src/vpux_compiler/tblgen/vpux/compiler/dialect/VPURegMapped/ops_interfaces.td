@@ -123,4 +123,43 @@ def VPURegMapped_TaskOpInterface : OpInterface<"TaskOpInterface"> {
     ];
 }
 
+//
+// RegFieldVersion
+//
+
+def VPURegMapped_RegFieldVersion : OpInterface<"RegFieldVersion"> {
+    let description = "Interface for the ELF nnrt version";
+    let cppNamespace = "vpux::VPURegMapped";
+
+    let methods = [
+        InterfaceMethod<
+            "Get descriptor version from this op.",
+            "elf::Version",
+            "getVersion", (ins), [{}],
+            /*defaultImplementation=*/[{
+                auto returnVersion = $_op.getDescriptor().getRegMapped().getDescriptorVersion();
+                VPUX_THROW_UNLESS(returnVersion.has_value(), "Descriptor does not have version attached.");
+                return returnVersion.value();
+            }]
+        >,
+    ];
+}
+
+//
+// SerializedVersionInterface
+//
+
+def VPURegMapped_SerializedVersionInterface : OpInterface<"SerializedVersionInterface"> {
+    let description = "Update version info inside ops that contain that info";
+    let cppNamespace = "vpux::VPURegMapped";
+
+    let methods = [
+        InterfaceMethod<
+            "Set new version for the current op.",
+            "void",
+            "setVersion", (ins "const elf::Version&":$version), [{}]
+        >,
+    ];
+}
+
 #endif

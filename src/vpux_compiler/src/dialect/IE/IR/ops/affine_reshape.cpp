@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
+#include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/types.hpp"
@@ -38,15 +39,15 @@ mlir::LogicalResult vpux::IE::AffineReshapeOp::inferReturnTypeComponents(
     const auto inOrder = DimsOrder::fromValue(input);
 
     const auto outputLayout =
-            vpux::VPU::inferAffineReshapeOutputLayout(inOrder.toPermutation(), affineReshape.getDimMapping());
-    if (mlir::failed(outputLayout)) {
+            Const::inferAffineReshapeOutputLayout(inOrder.toPermutation(), affineReshape.getDimMapping());
+    if (!outputLayout.has_value()) {
         return mlir::failure();
     }
 
     const auto outDesc = vpux::getTensorAttr(ctx, outputLayout.value(), ndInType.getMemSpace());
 
     const auto elemTypeInferResult = inferElemTypeAffineReshape(affineReshape, ndInType.getElementType());
-    if (mlir::failed(elemTypeInferResult)) {
+    if (!elemTypeInferResult.has_value()) {
         inferredReturnShapes.emplace_back(outShape, ndInType.getElementType(), outDesc);
     } else {
         inferredReturnShapes.emplace_back(outShape, elemTypeInferResult.value(), outDesc);

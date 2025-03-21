@@ -5,10 +5,14 @@
 
 #pragma once
 
-#include "vpux/compiler/core/attributes/tensor_attr.hpp"
+#include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
+#include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
+
+void setCompileMethodDebatch(mlir::ModuleOp module);
+bool hasCompileMethodDebatch(mlir::ModuleOp module);
 
 //
 // Generated

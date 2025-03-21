@@ -10,6 +10,12 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_COMPUTEHALOREGIONFORDPUTASKOP
+#define GEN_PASS_DEF_COMPUTEHALOREGIONFORDPUTASKOP
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 using namespace VPUIP;
 
@@ -224,7 +230,7 @@ void computeHaloRegion(NCEClusterTaskOp nceOp, DPUTaskOp dpuTaskOp,
 //
 
 class ComputeHaloRegionForDPUTaskOpPass final :
-        public VPUIP::arch40xx::ComputeHaloRegionForDPUTaskOpBase<ComputeHaloRegionForDPUTaskOpPass> {
+        public VPUIP::arch40xx::impl::ComputeHaloRegionForDPUTaskOpBase<ComputeHaloRegionForDPUTaskOpPass> {
 public:
     explicit ComputeHaloRegionForDPUTaskOpPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

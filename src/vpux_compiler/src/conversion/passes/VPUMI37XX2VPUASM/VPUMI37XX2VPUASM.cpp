@@ -30,6 +30,12 @@
 
 #include <mlir/IR/IRMapping.h>
 
+namespace vpux {
+#define GEN_PASS_DECL_CONVERTVPUMI37XX2VPUASM
+#define GEN_PASS_DEF_CONVERTVPUMI37XX2VPUASM
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
+
 using namespace vpux;
 using namespace vpumi37xx2vpuasm;
 
@@ -39,7 +45,7 @@ namespace {
 // ConvertVPUMI37XX2VPUASMPass
 //
 
-class ConvertVPUMI37XX2VPUASMPass final : public ConvertVPUMI37XX2VPUASMBase<ConvertVPUMI37XX2VPUASMPass> {
+class ConvertVPUMI37XX2VPUASMPass final : public impl::ConvertVPUMI37XX2VPUASMBase<ConvertVPUMI37XX2VPUASMPass> {
 public:
     explicit ConvertVPUMI37XX2VPUASMPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

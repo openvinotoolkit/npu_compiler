@@ -13,6 +13,5 @@ mlir::LogicalResult verifyODUCfgOp(VPUIPDPU::ODUCfgOp op);
 
 void registerDPUExpandOpInterfaces(mlir::DialectRegistry& registry);
 void registerVerifiersOpInterfaces(mlir::DialectRegistry& registry);
-void registerLowerToRegistersInterfaces(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::VPUIPDPU::arch40xx

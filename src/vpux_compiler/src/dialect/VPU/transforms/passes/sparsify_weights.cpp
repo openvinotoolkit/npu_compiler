@@ -3,18 +3,29 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/sparsity_strategy.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
+#include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <llvm/Support/ThreadPool.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_SPARSIFYWEIGHTS
+#define GEN_PASS_DEF_SPARSIFYWEIGHTS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -24,13 +35,16 @@ namespace {
 // SparsifyWeightsPass
 //
 
-class SparsifyWeightsPass final : public VPU::SparsifyWeightsBase<SparsifyWeightsPass> {
+class SparsifyWeightsPass final : public VPU::impl::SparsifyWeightsBase<SparsifyWeightsPass> {
 public:
     explicit SparsifyWeightsPass(VPU::WeightsSparsityHeuristic heuristic, std::optional<double> manualThreshold,
-                                 int64_t largeConstThreshold, Logger log)
+                                 int64_t largeConstThreshold, int64_t computeOpThreshold, bool enableWeightSwizzling,
+                                 Logger log)
             : _heuristic(heuristic),
               _manualThreshold(manualThreshold),
-              _largeConstThreshold(checkThreshold(largeConstThreshold)) {
+              _largeConstThreshold(checkThreshold(largeConstThreshold)),
+              _computeOpThreshold(computeOpThreshold),
+              _enableWeightSwizzling(enableWeightSwizzling) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -47,6 +61,8 @@ private:
     std::optional<double> _manualThreshold;
     const Byte _largeConstThreshold;
     const Byte _tinyConstThreshold = Byte(1024);
+    const int64_t _computeOpThreshold = 350;
+    const bool _enableWeightSwizzling = true;
 };
 
 //
@@ -66,17 +82,48 @@ int64_t getSizeInfo(Const::DeclareOp& origOp) {
     return maximumSize;
 }
 
+int64_t getSizeInfo(mlir::Value input, mlir::Value output) {
+    const auto inSize = mlir::cast<NDTypeInterface>(input.getType()).getTotalAllocSize().count();
+    const auto outSize = mlir::cast<NDTypeInterface>(output.getType()).getTotalAllocSize().count();
+    return inSize + outSize;
+}
+
 void SparsifyWeightsPass::safeRunOnFunc() {
     using namespace VPU::NCESparsity;
 
     auto func = getOperation();
-    auto module = getOperation();
     auto& ctx = getContext();
+
+    // fragmentation prevention config
+    int64_t numTiles = 0;
+    int64_t minWeightsSize = 0;
+    int64_t smallOpThreshold = 0;
+
+    const auto computeOpCount = static_cast<int64_t>(to_small_vector(func.getOps<VPU::ClusteredOpInterface>()).size());
+    // fragmentation likely only with longer execution series
+    // experimental number for minimum number of compute operations where fragmentation is likely
+    const auto fragmentationPossible = computeOpCount > _computeOpThreshold && _enableWeightSwizzling;
+
+    if (fragmentationPossible) {
+        // update config for fragmentation
+        auto module = getModuleOp(func);
+        auto tileOp = IE::getTileExecutor(module);
+        numTiles = tileOp.getCount();
+
+        // for cases with weight swizzling enabled the address is aligned to a value
+        // with weights sparsity both weights and sparsity map will need to be aligned
+        // increasing fragmentation likelihood with small aligned constants
+        // avoid increasing size more than 4X
+        minWeightsSize = getAddressAlignmentForSwizzling(vpux::SWIZZLING_KEY_5, VPU::getArch(func)) / 4;
+
+        // experimental number for small ops which do not suffer from fragmentation
+        smallOpThreshold = 2560;
+    }
 
     std::unique_ptr<BaseWeightsSparsityStrategy> enablementStrategy;
     if (_heuristic == VPU::WeightsSparsityHeuristic::CMX) {
         _log.trace("Using CMX-based heuristic");
-        const Byte availableCMX = VPU::getTotalCMXSize(module);
+        const Byte availableCMX = VPU::getTotalCMXSize(func);
         enablementStrategy = std::make_unique<CMXConsumptionBasedWeightsSparsityStrategy>(
                 availableCMX, CMX_BASED_STRATEGY_DEFAULT_INTERVALS, _manualThreshold);
     } else if (_heuristic == VPU::WeightsSparsityHeuristic::RATIO) {
@@ -126,6 +173,21 @@ void SparsifyWeightsPass::safeRunOnFunc() {
         if (weightsOp == nullptr) {
             innerLog.trace("Expected weights parent to be constant, but got '{0}'", weights.getDefiningOp()->getName());
             return;
+        }
+
+        if (fragmentationPossible && numTiles > 0) {
+            const auto weightsOpSize = getSizeInfo(weightsOp);
+            const auto activationSize = getSizeInfo(nceOp->getOperand(0), nceOp->getResult(0));
+            if (weightsOpSize > smallOpThreshold && activationSize > smallOpThreshold &&
+                weightsOpSize > activationSize) {
+                // weight bound operation above "small" threshold
+                if (weightsOpSize / numTiles <= minWeightsSize) {
+                    // possible fragmentation with swizzling
+                    innerLog.trace("Weight bound compute op '{0}' at '{1}' does not satisfy minWeightsSize",
+                                   sparsifiableOp->getName(), sparsifiableOp->getLoc());
+                    return;
+                }
+            }
         }
 
         if (mlir::isa<vpux::VPU::NCECompressConvolutionOp>(sparsifiableOp)) {
@@ -309,6 +371,9 @@ void SparsifyWeightsPass::safeRunOnFunc() {
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createSparsifyWeightsPass(VPU::WeightsSparsityHeuristic heuristic,
                                                                  std::optional<double> manualThreshold,
-                                                                 int64_t largeConstThreshold, Logger log) {
-    return std::make_unique<SparsifyWeightsPass>(heuristic, manualThreshold, largeConstThreshold, log);
+                                                                 int64_t largeConstThreshold,
+                                                                 int64_t computeOpThreshold, bool enableWeightSwizzling,
+                                                                 Logger log) {
+    return std::make_unique<SparsifyWeightsPass>(heuristic, manualThreshold, largeConstThreshold, computeOpThreshold,
+                                                 enableWeightSwizzling, log);
 }

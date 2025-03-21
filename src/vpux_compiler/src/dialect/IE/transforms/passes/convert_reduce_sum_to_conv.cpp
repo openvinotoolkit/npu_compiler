@@ -6,9 +6,16 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTREDUCESUMTOCONV
+#define GEN_PASS_DEF_CONVERTREDUCESUMTOCONV
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -184,7 +191,7 @@ mlir::LogicalResult ReduceSumToConvRewriter::matchAndRewrite(IE::ReduceSumOp ori
 // ConvertReduceSumToConvPass
 //
 
-class ConvertReduceSumToConvPass final : public IE::ConvertReduceSumToConvBase<ConvertReduceSumToConvPass> {
+class ConvertReduceSumToConvPass final : public IE::impl::ConvertReduceSumToConvBase<ConvertReduceSumToConvPass> {
 public:
     explicit ConvertReduceSumToConvPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

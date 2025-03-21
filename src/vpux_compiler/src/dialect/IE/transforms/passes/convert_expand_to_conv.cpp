@@ -8,9 +8,16 @@
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTEXPANDTOCONVPASS
+#define GEN_PASS_DEF_CONVERTEXPANDTOCONVPASS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -667,7 +674,7 @@ mlir::LogicalResult DPUExpandRewriter::matchAndRewrite(IE::ExpandOp origOp, mlir
 // ConvertExpandToConvPass
 //
 
-class ConvertExpandToConvPass final : public IE::ConvertExpandToConvPassBase<ConvertExpandToConvPass> {
+class ConvertExpandToConvPass final : public IE::impl::ConvertExpandToConvPassBase<ConvertExpandToConvPass> {
 public:
     explicit ConvertExpandToConvPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

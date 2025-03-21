@@ -177,13 +177,13 @@ mlir::LogicalResult VPUIP::SparseBufferType::verify(llvm::function_ref<::mlir::I
 //
 
 ShapeRef VPUIP::SparseBufferType::getShape() const {
-    const auto data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
-    return data.getShape();
+    const auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getShape();
 }
 
 MemShape VPUIP::SparseBufferType::getMemShape() const {
-    const auto data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
-    return data.getMemShape();
+    const auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getMemShape();
 }
 
 bool VPUIP::SparseBufferType::hasRank() const {
@@ -200,13 +200,13 @@ int64_t VPUIP::SparseBufferType::getNumElements() const {
     if (getSparsityCompression() != nullptr) {
         return getSparsityCompression().getTotalNumElems();
     }
-    const auto data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
-    return data.getNumElements();
+    const auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getNumElements();
 }
 
 mlir::Type VPUIP::SparseBufferType::getElementType() const {
-    const auto data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
-    return data.getElementType();
+    const auto data = VPU::getEffectiveSparseOutputType(*this);
+    return mlir::cast<NDTypeInterface>(data).getElementType();
 }
 
 DimsOrder VPUIP::SparseBufferType::getDimsOrder() const {
@@ -228,7 +228,7 @@ Strides VPUIP::SparseBufferType::getStrides() const {
     auto data = getData().cast<NDTypeInterface>();
     if (getSeAttr() != nullptr) {
         // If SEAttr is set then return effective shape, srides are compact
-        data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
+        data = mlir::cast<NDTypeInterface>(VPU::getEffectiveSparseOutputType(*this));
     }
     return data.getStrides();
 }
@@ -237,7 +237,7 @@ MemStrides VPUIP::SparseBufferType::getMemStrides() const {
     auto data = getData().cast<NDTypeInterface>();
     if (getSeAttr() != nullptr) {
         // If SEAttr is set then return effective shape, srides are compact
-        data = VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this);
+        data = mlir::cast<NDTypeInterface>(VPU::getEffectiveSparseOutputType(*this));
     }
     return data.getMemStrides();
 }
@@ -375,7 +375,7 @@ NDTypeInterface VPUIP::SparseBufferType::changeStrides(StridesRef strides) const
         // non compact strides for now
         const auto compact = StrideReqs::compact(ndData.getRank());
         const auto effectiveData =
-                VPU::getEffectiveSparseOutputType<VPUIP::SparseBufferType>(*this).changeStrides(strides);
+                mlir::cast<NDTypeInterface>(VPU::getEffectiveSparseOutputType(*this)).changeStrides(strides);
         VPUX_THROW_WHEN(compact.checkStrides(effectiveData) == false,
                         "If SEAttr is set then then only compact input supported, got {0}", effectiveData);
     } else {

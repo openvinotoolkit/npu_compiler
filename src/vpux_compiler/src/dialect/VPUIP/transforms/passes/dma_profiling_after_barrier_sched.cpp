@@ -14,6 +14,12 @@
 #include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_DMATASKPROFILINGAFTERBARRIERSCHED
+#define GEN_PASS_DEF_DMATASKPROFILINGAFTERBARRIERSCHED
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -23,7 +29,7 @@ namespace {
 //
 
 class DMATaskProfilingAfterBarrierSchedPass final :
-        public VPUIP::DMATaskProfilingAfterBarrierSchedBase<DMATaskProfilingAfterBarrierSchedPass> {
+        public VPUIP::impl::DMATaskProfilingAfterBarrierSchedBase<DMATaskProfilingAfterBarrierSchedPass> {
 public:
     explicit DMATaskProfilingAfterBarrierSchedPass(DMAProfilingMode dmaProfilingMode, Logger log)
             : _profilingMode(dmaProfilingMode),

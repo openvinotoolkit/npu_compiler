@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 #include "vpux/utils/core/func_ref.hpp"
 
@@ -101,4 +102,13 @@ Const::Content vpux::Const::TransposeAttr::transform(vpux::Const::Content& input
     const auto memPerm = inPerm.compose(getOrder().getValue());
 
     return Const::details::memPermuteTransformation(input, outType, memPerm);
+}
+
+//
+// TransposeAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::TransposeAttr::getStableHashValue() const {
+    const auto order = DimsOrder::fromAffineMap(getOrder().getValue());
+    return llvm::hash_combine(getMnemonic(), order.code());
 }

@@ -1,10 +1,13 @@
 //
-// Copyright (C) 2024 Intel Corporation.
+// Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 #include "vpux/compiler/NPU40XX/dialect/IE/impl/d2s_to_transposed_conv_verifier.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+
+#include <vpux/compiler/utils/error.hpp>
+#include <vpux/utils/core/error.hpp>
 
 using namespace vpux::IE::arch40xx;
 
@@ -12,14 +15,33 @@ using namespace vpux::IE::arch40xx;
 // D2SToTransposedConvVerifier
 //
 
-// If not converted to TransposedConv, D2S is implemented by DMA on NPU40XX, it's
-// more efficient to convert to TransposedConv if with relatively
-// a big output channel (it's 8 from experiment result), see E#125463
-constexpr int64_t BENEFICIAL_OUTPUT_CHANNEL_NUM = 8;
-bool D2SToTransposedConvVerifier::isBeneficialConversion(IE::DepthToSpaceOp d2sOp) const {
-    auto outputType = d2sOp.getOutput().getType().cast<NDTypeInterface>();
-    auto outputShape = outputType.getShape();
-    auto outputChannels = outputShape[Dims4D::Act::C];
+// For more information on heuristic, see:
+// - E#125463
+// - E#113159
 
-    return outputChannels >= BENEFICIAL_OUTPUT_CHANNEL_NUM;
+constexpr int64_t BENEFICIAL_INPUT_CHANNEL_MAX = 256;
+
+mlir::LogicalResult D2SToTransposedConvVerifier::isBeneficialConversion(Logger log, mlir::PatternRewriter& rewriter,
+                                                                        IE::DepthToSpaceOp d2sOp) const {
+    if (d2sOp.getBlockSize() >= 4) {
+        return matchFailed(log, rewriter, d2sOp, "mapping D2S to DPU is not benefical: blockSize({0}) >= 4",
+                           d2sOp.getBlockSize());  // Better to map larger block size to DMA.
+    }
+
+    if (d2sOp.getMode() == IE::DepthToSpaceMode::BLOCKS_FIRST) {
+        return matchFailed(
+                log, rewriter, d2sOp,
+                "mapping D2S to DPU is not benefical: mode == BLOCKS_FIRST");  //  Better to map BLOCKS_FIRST to DMA.
+    }
+
+    auto inputType = d2sOp.getInput().getType().cast<NDTypeInterface>();
+    auto inputShape = inputType.getShape();
+    auto inputChannels = inputShape[Dims4D::Act::C];
+
+    if (inputChannels > BENEFICIAL_INPUT_CHANNEL_MAX) {
+        return matchFailed(log, rewriter, d2sOp, "mapping D2S to DPU is not benefical: inputChannels({1}) > {2}",
+                           inputChannels, BENEFICIAL_INPUT_CHANNEL_MAX);
+    }
+
+    return mlir::success();  // Is efficient to map to DPU.
 }

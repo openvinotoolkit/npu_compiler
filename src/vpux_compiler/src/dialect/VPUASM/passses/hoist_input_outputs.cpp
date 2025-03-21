@@ -4,13 +4,26 @@
 //
 
 #include <mlir/Transforms/DialectConversion.h>
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUASM/dialect.hpp"
+#include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
+#include "vpux/compiler/dialect/VPUASM/types.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::VPUASM {
+#define GEN_PASS_DECL_HOISTINPUTOUTPUTS
+#define GEN_PASS_DEF_HOISTINPUTOUTPUTS
+#include "vpux/compiler/dialect/VPUASM/passes.hpp.inc"
+}  // namespace vpux::VPUASM
 
 using namespace vpux;
 
 namespace {
 
-class HoistInputOutputsPass final : public VPUASM::HoistInputOutputsBase<HoistInputOutputsPass> {
+class HoistInputOutputsPass final : public VPUASM::impl::HoistInputOutputsBase<HoistInputOutputsPass> {
 public:
     explicit HoistInputOutputsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

@@ -8,28 +8,20 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/PatternMatch.h>
 
-#include "vpux/compiler/dialect/IERT/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/task.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux {
 namespace VPUIP {
-
-constexpr int64_t DMA_MAX_NUMBER_PLANES = 256;
-constexpr int64_t PER_PERMUTE_MAX_DMA_NUMBER = 8;
-constexpr int64_t PERMUTE_DMA_MAX_LENGTH = 256;
 
 // Replace permute with DMA
 std::optional<Shape> getPermuteDMAInputShape(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap memPerm,
                                              vpux::Logger log);
 std::optional<Shape> getPermuteDMAOutputShape(NDTypeInterface inType, NDTypeInterface outType, mlir::AffineMap memPerm,
                                               vpux::Logger log);
-std::optional<SmallVector<Shape>> getPermuteDMASubInputShapes(NDTypeInterface inType, NDTypeInterface outType,
-                                                              mlir::AffineMap memPerm, int64_t dmaPortCount,
-                                                              vpux::Logger log);
+std::optional<SmallVector<Shape>> getPermuteDMASubInputShapes(VPU::ArchKind arch, NDTypeInterface inType,
+                                                              NDTypeInterface outType, mlir::AffineMap memPerm,
+                                                              int64_t dmaPortCount, vpux::Logger log);
 SmallVector<vpux::Shape> getPermuteDMASubOutputShapes(SmallVector<vpux::Shape> subInputShapes,
                                                       vpux::NDTypeInterface inType, vpux::NDTypeInterface outType,
                                                       mlir::AffineMap memPerm);
@@ -55,7 +47,6 @@ bool doesPermuteDMATileDimSupportWrapInCluster(vpux::NDTypeInterface inputType, 
                                                mlir::AffineMap memPerm,
                                                VPUIP::DistributedBufferType distributedOutputType, vpux::Logger log);
 
-bool isCombineAtFront(ShapeRef shape, DimsOrder order);
 std::optional<mlir::AffineMap> getMemPermFromSwKernel(VPUIP::SwKernelOp swKernelTask);
 bool isMemPermSwKernel(VPUIP::SwKernelOp swKernelTask);
 
@@ -86,7 +77,7 @@ std::optional<VPUIP::PerAxisTileAttr> getPerAxisTileSwKernelAttr(VPUIP::SwKernel
 std::pair<vpux::Shape, vpux::Shape> getPerAxisTileDMAMergedShape(vpux::NDTypeInterface inType,
                                                                  vpux::NDTypeInterface outType, int64_t axis,
                                                                  int64_t tiles);
-SmallVector<vpux::Shape> getPerAxisTileDMASubShapes(vpux::ShapeRef shape);
+SmallVector<vpux::Shape> getPerAxisTileDMASubShapes(VPU::ArchKind arch, vpux::ShapeRef shape);
 
 // Public interface
 bool doesSWLayerFitIntoCMX(mlir::Operation* op, vpux::Logger log);

@@ -17,7 +17,7 @@ namespace ov {
 namespace test {
 
 class DftLayerTestCommon : public DFTLayerTest, virtual public VpuOv2LayerTest {
-    // C#125993
+    // C-125993
     // Reduce resolution of ov::float16 data generation to prevent NaN values
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         inputs.clear();

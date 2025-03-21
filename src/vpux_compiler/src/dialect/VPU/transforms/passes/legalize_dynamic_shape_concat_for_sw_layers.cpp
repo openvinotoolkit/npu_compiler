@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_LEGALIZEDYNAMICSHAPECONCATFORSWLAYERS
+#define GEN_PASS_DEF_LEGALIZEDYNAMICSHAPECONCATFORSWLAYERS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -60,7 +67,7 @@ mlir::LogicalResult ConcatViewRewriter::matchAndRewrite(VPU::ConcatOp origOp, ml
 }
 
 class LegalizeDynamicShapeConcatForSWLayers final :
-        public LegalizeDynamicShapeConcatForSWLayersBase<LegalizeDynamicShapeConcatForSWLayers> {
+        public VPU::impl::LegalizeDynamicShapeConcatForSWLayersBase<LegalizeDynamicShapeConcatForSWLayers> {
 public:
     explicit LegalizeDynamicShapeConcatForSWLayers(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

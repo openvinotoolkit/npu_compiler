@@ -22,8 +22,7 @@ void propagateElemTypeDownForReorderOp(ReorderOp reorder, LayerDataInfo<mlir::Ty
 void propagateElemTypeDownForTransposeOp(TransposeOp transpose, LayerDataInfo<mlir::Type>& info);
 void propagateElemTypeUpForExpandDilatedOp(ExpandDilatedOp expandDilated, LayerDataInfo<mlir::Type>& info);
 
-mlir::FailureOr<mlir::Type> inferElemTypeAffineReshape(AffineReshapeOpAdaptor affineReshapeOp,
-                                                       mlir::Type inputElemType);
+std::optional<mlir::Type> inferElemTypeAffineReshape(AffineReshapeOpAdaptor affineReshapeOp, mlir::Type inputElemType);
 mlir::FailureOr<mlir::Type> inferOutElemTypeWithAxis(ArrayRef<mlir::Type> elemTypes, IE::ConcatOpAdaptor concat,
                                                      LogCb logCb = emptyLogCb);
 mlir::FailureOr<mlir::Type> inferOutElemTypeWithOffsets(ArrayRef<mlir::Type> elemTypes, IE::ConcatOpAdaptor concat,

@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/factories/fuse_quantized_ops_strategy_getter.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEQUANTIZEDOPS
+#define GEN_PASS_DEF_FUSEQUANTIZEDOPS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 namespace vpux {
 
@@ -13,7 +20,7 @@ namespace vpux {
 // FuseQuantizedOpsPass
 //
 
-class FuseQuantizedOpsPass final : public IE::FuseQuantizedOpsBase<FuseQuantizedOpsPass> {
+class FuseQuantizedOpsPass final : public IE::impl::FuseQuantizedOpsBase<FuseQuantizedOpsPass> {
 public:
     explicit FuseQuantizedOpsPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _seOpsEnabled(seOpsEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled) {

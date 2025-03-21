@@ -8,6 +8,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_DILATEDCONVCONVERT
+#define GEN_PASS_DEF_DILATEDCONVCONVERT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -220,7 +226,7 @@ mlir::LogicalResult DilatedConvConverter<ConvType>::matchAndRewrite(ConvType con
 // DilatedConvConvertPass
 //
 
-class DilatedConvConvertPass final : public IE::DilatedConvConvertBase<DilatedConvConvertPass> {
+class DilatedConvConvertPass final : public IE::impl::DilatedConvConvertBase<DilatedConvConvertPass> {
 public:
     explicit DilatedConvConvertPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

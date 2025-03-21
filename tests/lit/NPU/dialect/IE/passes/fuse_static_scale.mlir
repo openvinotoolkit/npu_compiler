@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --fuse-static-scale --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL: @FuseMultiplyToConvolutionSimple
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<512x96x1x1xf16>, [[ARG1:%.+]]: tensor<512x96x1x1xf16>)
 // CHECK-SAME:  -> tensor<512x512x1x1xf16>

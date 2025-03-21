@@ -1,11 +1,10 @@
 //
-// Copyright (C) 2022-2023 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-to-mixed-precision %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
 
 func.func @MixedPrecisionConv(%arg0: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1xf16> {
@@ -202,17 +201,16 @@ func.func @AvoidMixedPrecisionAvgPoolPerAxisWithPostOp(%arg0: tensor<1x16x3x3xf1
 
 // -----
 
-!qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128}>
+!qElemType = !quant.uniform<u8:f16, 0.956:128>
 
-// CHECK-LABEL: @AvoidMixedPrecisionMaxPoolPerAxisWithPostOp
+// CHECK-LABEL: @AvoidMixedPrecisionMaxPool
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x3x3xf16>)
-func.func @AvoidMixedPrecisionMaxPoolPerAxisWithPostOp(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3x!qElemType> {
+func.func @AvoidMixedPrecisionMaxPool(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3x!qElemType> {
     %maxPool = IE.MaxPool(%arg0) {
         kernel_size = [1, 1],
         pads_begin = [0, 0],
         pads_end = [0, 0],
         rounding_type = #IE.rounding_type<FLOOR>,
-        post_op = #IE.PostOp<name = "IE.LeakyRelu", attrs = {negative_slope = 2.500000e-01 : f64}>,
         strides = [1, 1]
     } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
 
@@ -222,10 +220,9 @@ func.func @AvoidMixedPrecisionMaxPoolPerAxisWithPostOp(%arg0: tensor<1x16x3x3xf1
 
     return %quantize : tensor<1x16x3x3x!qElemType>
 
-    // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[ARG0]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], post_op = #IE.PostOp<name = "IE.LeakyRelu", attrs = {negative_slope = 2.500000e-01 : f64}>, rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+    // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[ARG0]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
     // CHECK: [[QUANTIZE:%.+]] = IE.Quantize([[MAXPOOL]]) {dstElemType = !qElemType} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
     // CHECK: return [[QUANTIZE]] : tensor<1x16x3x3x!qElemType>
-
 }
 
 // -----
@@ -294,25 +291,6 @@ func.func @MixedPrecisionConvForOutputShape(%arg0: tensor<1x16x3x3xf16>) -> tens
 
   //CHECK: [[VAL1:%.+]] = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
   //CHECK: [[VAL2:%.+]] = IE.Convolution([[VAL1]], [[VAL0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x3x3x!qElemType>, tensor<16x16x1x1x!qElemType> -> tensor<1x16x3x3xf16>
-  //CHECK: return [[VAL2]]
-}
-
-// -----
-
-!qElemType = !quant.uniform<u8:f16, 0.57450980392156858>
-
-// TODO: #67754
-
-// CHECK-LABEL: @MixedPrecisionMaxPoolForOutputShape
-func.func @MixedPrecisionMaxPoolForOutputShape(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16xf16> {
-  %1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x3x16x16xf16> -> tensor<1x3x16x16x!qElemType>
-  %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x3x16x16x!qElemType> -> tensor<1x3x16x16xf16>
-  %3 = IE.MaxPool(%2) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3x16x16xf16> -> tensor<1x3x16x16xf16>
-  return %3 : tensor<1x3x16x16xf16>
-
-  //CHECK: [[VAL0:%.+]] = IE.Quantize(%arg0)
-  //CHECK: [[VAL1:%.+]] = IE.Dequantize([[VAL0]])
-  //CHECK: [[VAL2:%.+]] = IE.MaxPool([[VAL1]])
   //CHECK: return [[VAL2]]
 }
 
@@ -912,4 +890,26 @@ func.func @AvoidMixedPrecisionForInvalidApproximation(%arg0: tensor<1x1x256x256x
     //CHECK: [[VAL1:%.+]] = IE.Quantize([[VAL0]]) {dstElemType = !qElemType} : tensor<1x1x256x256xf16> -> tensor<1x1x256x256x!qElemType>
 
     //CHECK: return [[VAL1]] : tensor<1x1x256x256x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+
+func.func @MixedPrecisionGroupMatmul(%arg0: tensor<1x8x1x64xf16>) -> tensor<1x8x1x128xf16> {
+  %1 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x8x1x64xf16> -> tensor<1x8x1x64x!qElemType>
+  %2 = IE.Dequantize(%1) {dstElemType = f16} : tensor<1x8x1x64x!qElemType> -> tensor<1x8x1x64xf16>
+  %weights = const.Declare tensor<1x8x128x64x!qElemType> = dense<1.0> : tensor<1x8x128x64xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+  %3 = IE.Dequantize(%weights) {dstElemType = f16} : tensor<1x8x128x64x!qElemType> -> tensor<1x8x128x64xf16>
+  %4 = IE.MatMul(%2, %3) {transpose_b} : tensor<1x8x1x64xf16>, tensor<1x8x128x64xf16> -> tensor<1x8x1x128xf16>
+
+  return %4 : tensor<1x8x1x128xf16>
+
+  //CHECK: [[VAL0:%.+]] = const.Declare tensor<1x8x128x64x!qElemType> =
+  //CHECK-SAME:                 dense<1.000000e+00> : tensor<1x8x128x64xf16>,
+  //CHECK-SAME:                 [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+
+  //CHECK: [[VAL1:%.+]] = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x8x1x64xf16> -> tensor<1x8x1x64x!qElemType>
+  //CHECK: [[VAL2:%.+]] = IE.MatMul([[VAL1]], [[VAL0]]) {transpose_b} : tensor<1x8x1x64x!qElemType>, tensor<1x8x128x64x!qElemType> -> tensor<1x8x1x128xf16>
+  //CHECK: return [[VAL2]]
 }

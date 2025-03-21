@@ -5,8 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
 

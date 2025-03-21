@@ -123,6 +123,15 @@ mlir::LogicalResult vpux::VPURT::DeclareBufferOp::verify() {
         if (type.getMemSpace().getIndex().has_value() || maybeSectionIndex.has_value()) {
             return errorAt(op, "Output type with DDR memory space cannot have section index");
         }
+    } else if (getSection() == VPURT::BufferSection::FunctionInput ||
+               getSection() == VPURT::BufferSection::FunctionOutput) {
+        if (type.getMemSpace() == nullptr) {
+            return errorAt(op, "Output type must have DDR memory space");
+        }
+
+        if (!maybeSectionIndex.has_value()) {
+            return errorAt(op, "Output type of FunctionInput/FunctionOutput must have a section index");
+        }
     }
 
     return mlir::success();

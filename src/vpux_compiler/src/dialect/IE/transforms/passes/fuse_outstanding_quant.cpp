@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/transforms/factories/fuse_outstanding_quant_strategy_getter.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_FUSEOUTSTANDINGQUANT
+#define GEN_PASS_DEF_FUSEOUTSTANDINGQUANT
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 namespace vpux {
 
@@ -13,7 +20,7 @@ namespace vpux {
 // FuseOutstandingQuantPass
 //
 
-class FuseOutstandingQuantPass final : public IE::FuseOutstandingQuantBase<FuseOutstandingQuantPass> {
+class FuseOutstandingQuantPass final : public IE::impl::FuseOutstandingQuantBase<FuseOutstandingQuantPass> {
 public:
     explicit FuseOutstandingQuantPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

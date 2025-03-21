@@ -11,6 +11,12 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_DECOMPOSELSTMCELL
+#define GEN_PASS_DEF_DECOMPOSELSTMCELL
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -41,7 +47,7 @@ mlir::LogicalResult LSTMCellRewriter::matchAndRewrite(IE::LSTMCellOp lstmCell, m
     mlir::Value newInput = lstmCell.getInputData();
     if (lstmCell.getWeights()) {
         newInput = rewriter.create<IE::MatMulOp>(takeOpLoc(lstmCell, "in_mul"), lstmCell.getInputData(),
-                                                 lstmCell.getWeights(), false, true);
+                                                 lstmCell.getWeights(), false, true, nullptr);
     }
 
     if (lstmCell.getBiases()) {
@@ -53,7 +59,7 @@ mlir::LogicalResult LSTMCellRewriter::matchAndRewrite(IE::LSTMCellOp lstmCell, m
 
     const mlir::Value matMulHiddenState =
             rewriter.create<IE::MatMulOp>(takeOpLoc(lstmCell, "mul_hid"), lstmCell.getInitialHiddenState(),
-                                          lstmCell.getRecurrenceWeights(), false, true);
+                                          lstmCell.getRecurrenceWeights(), false, true, nullptr);
 
     const mlir::Value lstmGatesInput = rewriter.create<IE::AddOp>(
             takeOpLoc(lstmCell, "gates"), newInput, matMulHiddenState,
@@ -69,7 +75,7 @@ mlir::LogicalResult LSTMCellRewriter::matchAndRewrite(IE::LSTMCellOp lstmCell, m
 // DecomposeLSTMCellPass
 //
 
-class DecomposeLSTMCellPass final : public IE::DecomposeLSTMCellBase<DecomposeLSTMCellPass> {
+class DecomposeLSTMCellPass final : public IE::impl::DecomposeLSTMCellBase<DecomposeLSTMCellPass> {
 public:
     explicit DecomposeLSTMCellPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());

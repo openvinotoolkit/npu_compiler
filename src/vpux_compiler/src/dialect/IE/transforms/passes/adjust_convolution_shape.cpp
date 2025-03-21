@@ -6,8 +6,8 @@
 #include <mlir/Support/LogicalResult.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
@@ -19,6 +19,12 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_ADJUSTCONVOLUTIONSHAPE
+#define GEN_PASS_DEF_ADJUSTCONVOLUTIONSHAPE
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 namespace {
 
@@ -66,7 +72,7 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
     }
     // Don't need to consider bias, the function not change the output shape.
 
-    const auto strides = Shape(parseIntArrayAttr<int64_t>(convOp.getStrides()));
+    auto strides = Shape(parseIntArrayAttr<int64_t>(convOp.getStrides()));
     const auto strideX = strides[Dims4D::Strides::X];
     const auto strideY = strides[Dims4D::Strides::Y];
 
@@ -106,7 +112,7 @@ mlir::LogicalResult FoldConvStrideKernel::matchAndRewrite(IE::ConvolutionOp conv
     auto newFilter = rewriter.create<Const::DeclareOp>(convOp.getLoc(), cstContentAttrFilter.getType(),
                                                        std::move(cstContentAttrFilter));
 
-    auto newStride = strides;
+    auto newStride = std::move(strides);
     newStride[Dims4D::Strides::X] = 1;
     rewriter.replaceOpWithNewOp<IE::ConvolutionOp>(
             convOp, convOp.getType(), inputShapeCastOp, newFilter, convOp.getBias(),
@@ -299,7 +305,7 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     auto outNDInterface = convOp.getOutput().getType().dyn_cast<vpux::NDTypeInterface>();
     auto outDimOrder = outNDInterface.getDimsOrder();
     const auto ctx = rewriter.getContext();
-    const auto strides = Shape(parseIntArrayAttr<int64_t>(convOp.getStrides()));
+    auto strides = Shape(parseIntArrayAttr<int64_t>(convOp.getStrides()));
 
     const auto adjustConvShapeParameters =
             getAdjustConvShapeParameters(convOp, convOp.getFilter(), Shape(outNDInterface.getShape()), _log);
@@ -378,7 +384,7 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
     padEVect[Dims4D::PadsEnd::Right.ind()] = padEnd[Dims4D::PadsEnd::Right] > 0 ? 1 : 0;
 
     // New Stride
-    auto newStride = strides;
+    auto newStride = std::move(strides);
     newStride[Dims4D::Strides::X] = 1;
 
     auto newBias = reshapeBias(rewriter, convOp.getBias(), newOutputShape);
@@ -422,7 +428,7 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
 // AdjustConvolutionShapePass
 //
 
-class AdjustConvolutionShapePass final : public IE::AdjustConvolutionShapeBase<AdjustConvolutionShapePass> {
+class AdjustConvolutionShapePass final : public IE::impl::AdjustConvolutionShapeBase<AdjustConvolutionShapePass> {
 public:
     explicit AdjustConvolutionShapePass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

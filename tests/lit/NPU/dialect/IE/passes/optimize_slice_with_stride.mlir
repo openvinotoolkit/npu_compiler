@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-slice-with-stride %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ConvertSliceToConvFromConvert
@@ -529,4 +528,45 @@ func.func @SkipInsertIdentityConvOptimizeSliceConcat(%arg0: tensor<1x1024x32x32x
     // CHECK-DAG:   [[CONCAT:%.+]] = IE.Concat([[SLICE]], [[CST_0]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 1023, 0, 0]]} : tensor<1x1023x32x32xf16, {order = #NHWC}>, tensor<1x1x32x32xf16, {order = #NHWC}> -> tensor<1x1024x32x32xf16, {order = #NHWC}>
 
     // CHECK:   return [[CONCAT]] : tensor<1x1024x32x32xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 0.040966219060561235:139>
+
+// CHECK-LABEL: @NoConvOptimizeSliceConcatQuant
+// CHECK-SAME:        [[INPUT0:%arg[0-9]]]: tensor<1x32x64x64x!qElemType, {order = #NHWC}>
+func.func @NoConvOptimizeSliceConcatQuant(%arg0: tensor<1x32x64x64x!qElemType, {order = #NHWC}>) -> tensor<1x32x64x64x!qElemType, {order = #NHWC}> {
+    %CST_0 = const.Declare tensor<1x4x64x64x!qElemType, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x4x64x64xf32>, [#const.CastElemType<f16>, #const.Quantize<!qElemType>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    %SLICE = IE.Slice %arg0 [0, 0, 0, 0] [1, 28, 64, 64] : tensor<1x32x64x64x!qElemType, {order = #NHWC}> to tensor<1x28x64x64x!qElemType, {order = #NHWC}>
+    %CONCAT = IE.Concat(%SLICE, %CST_0) {static_offsets = [[0, 0, 0, 0], [0, 28, 0, 0]]} : tensor<1x28x64x64x!qElemType, {order = #NHWC}>, tensor<1x4x64x64x!qElemType, {order = #NHWC}> -> tensor<1x32x64x64x!qElemType, {order = #NHWC}>
+
+    return %CONCAT : tensor<1x32x64x64x!qElemType, {order = #NHWC}>
+
+    // CHECK-DAG:   [[CST_0:%.+]] = const.Declare tensor<1x4x64x64x!qElemType, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x4x64x64xf32>, [#const.CastElemType<f16>, #const.Quantize<!qElemType>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+    // CHECK-DAG:   [[SLICE:%.+]] = IE.Slice [[INPUT0]] [0, 0, 0, 0] [1, 28, 64, 64] : tensor<1x32x64x64x!qElemType, {order = #NHWC}> to tensor<1x28x64x64x!qElemType, {order = #NHWC}>
+    // CHECK-DAG:   [[CONCAT:%.+]] = IE.Concat([[SLICE]], [[CST_0]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 28, 0, 0]]} : tensor<1x28x64x64x!qElemType, {order = #NHWC}>, tensor<1x4x64x64x!qElemType, {order = #NHWC}> -> tensor<1x32x64x64x!qElemType, {order = #NHWC}>
+
+    // CHECK:   return [[CONCAT]] : tensor<1x32x64x64x!qElemType, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NoConvOptimizeSliceConcatForBlockArgument
+// CHECK-SAME:        [[INPUT0:%arg[0-9]]]: tensor<1x32x64x64xf16, {order = #NHWC}>
+func.func @NoConvOptimizeSliceConcatForBlockArgument(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) -> tensor<1x32x64x64xf16, {order = #NHWC}> {
+    %CST_0 = const.Declare tensor<1x4x64x64xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x4x64x64xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %SLICE = IE.Slice %arg0 [0, 0, 0, 0] [1, 28, 64, 64] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x28x64x64xf16, {order = #NHWC}>
+    %CONCAT = IE.Concat(%SLICE, %CST_0) {static_offsets = [[0, 0, 0, 0], [0, 28, 0, 0]]} : tensor<1x28x64x64xf16, {order = #NHWC}>, tensor<1x4x64x64xf16, {order = #NHWC}> -> tensor<1x32x64x64xf16, {order = #NHWC}>
+
+    return %CONCAT : tensor<1x32x64x64xf16, {order = #NHWC}>
+
+    // CHECK-DAG:   [[CST_0:%.+]] = const.Declare tensor<1x4x64x64xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x4x64x64xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    // CHECK-DAG:   [[SLICE:%.+]] = IE.Slice %arg0 [0, 0, 0, 0] [1, 28, 64, 64] : tensor<1x32x64x64xf16, {order = #NHWC}> to tensor<1x28x64x64xf16, {order = #NHWC}>
+    // CHECK-DAG:   [[CONCAT:%.+]] = IE.Concat([[SLICE]], [[CST_0]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 28, 0, 0]]} : tensor<1x28x64x64xf16, {order = #NHWC}>, tensor<1x4x64x64xf16, {order = #NHWC}> -> tensor<1x32x64x64xf16, {order = #NHWC}>
+
+    // CHECK:   return [[CONCAT]] : tensor<1x32x64x64xf16, {order = #NHWC}>
 }

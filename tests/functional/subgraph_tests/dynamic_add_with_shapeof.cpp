@@ -94,9 +94,15 @@ protected:
 };
 
 TEST_P(DynamicAddWithShapeOfNPUTest, NPU3720_HW) {
-    abs_threshold = std::numeric_limits<float>::epsilon();
+    abs_threshold = 0.0f;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
+}
+
+TEST_P(DynamicAddWithShapeOfNPUTest, NPU4000_HW) {
+    abs_threshold = 0.0f;
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
 }
 
 const std::vector<ov::element::Type> inputPrecision = {ov::element::i64};

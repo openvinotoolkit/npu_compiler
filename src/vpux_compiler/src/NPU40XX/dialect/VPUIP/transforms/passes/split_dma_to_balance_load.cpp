@@ -10,9 +10,16 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_SPLITDMATOBALANCELOAD
+#define GEN_PASS_DEF_SPLITDMATOBALANCELOAD
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
 
 using namespace vpux;
 
@@ -259,7 +266,7 @@ void splitDmaIntoParts(VPURT::TaskOp taskOp, int64_t numDmaPorts, mlir::OpBuilde
 // SplitDMAToBalanceLoad
 //
 
-class SplitDMAToBalanceLoad final : public VPUIP::arch40xx::SplitDMAToBalanceLoadBase<SplitDMAToBalanceLoad> {
+class SplitDMAToBalanceLoad final : public VPUIP::arch40xx::impl::SplitDMAToBalanceLoadBase<SplitDMAToBalanceLoad> {
 public:
     explicit SplitDMAToBalanceLoad(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

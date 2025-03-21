@@ -28,6 +28,7 @@
 
 #include <ov_ops/nms_ie_internal.hpp>
 #include <ov_ops/rms.hpp>
+#include <ov_ops/rotary_positional_embeddings.hpp>
 
 // Utils
 #include "vpux/compiler/utils/range_bound.hpp"
@@ -188,6 +189,8 @@ private:
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset2::ROIPooling>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::PSROIPooling>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::v9::ROIAlign>& origNode);
+    void parseNode(mlir::OpBuilder& builder,
+                   const std::shared_ptr<ov::opset6::ExperimentalDetectronROIFeatureExtractor>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::StridedSlice>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::PRelu>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Swish>& origNode);
@@ -256,14 +259,15 @@ private:
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Range>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset3::NonZero>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::internal::RMS>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::op::internal::RoPE>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset14::Inverse>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::DeformableConvolution>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::VariadicSplit>& origNode);
 
     SmallVector<mlir::Value> getInputs(const OrigNodePtr& node);
     void addOutputs(const OrigNodePtr& node, mlir::Operation* op);
     mlir::Location createLocation(const OrigNodePtr& node);
 
-    static SmallVector<int64_t> importShape(const ov::PartialShape& shape);
     mlir::RankedTensorType importTensor(const ov::PartialShape& shape, const ov::element::Type& elemType);
     IE::AutoBroadcastTypeAttr importBroadcastType(ov::op::AutoBroadcastType bType);
     IE::BroadcastTypeAttr importBroadcastMode(ov::op::BroadcastType bType);
@@ -278,6 +282,8 @@ private:
     IE::ReverseModeAttr importReverseMode(const ov::op::v1::Reverse::Mode mode);
     IE::InterpolateAttr importInterpolateAttrs(const ov::opset4::Interpolate::InterpolateAttrs& val);
     IE::DetectionOutputAttr importDetectionOutputAttrs(const ov::op::v0::DetectionOutput::Attributes& val);
+    IE::ExperimentalDetectronROIFeatureExtractorAttr importExpDetectronROIFeatureExtractAttrs(
+            const ov::op::v6::ExperimentalDetectronROIFeatureExtractor::Attributes& val);
     IE::ROIPoolingMethodAttr importROIPoolingMethod(const std::string& method);
     IE::PSROIPoolingModeAttr importPSROIPoolingMode(const std::string& mode);
     IE::ROIAlignMethodAttr importROIAlignMethod(const ov::op::v9::ROIAlign::PoolingMode& mode);

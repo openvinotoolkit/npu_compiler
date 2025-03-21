@@ -13,6 +13,12 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_FUSELASTCOPY
+#define GEN_PASS_DEF_FUSELASTCOPY
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
+
 using namespace vpux;
 
 namespace {
@@ -208,7 +214,7 @@ void fuseLastCopy(VPUIP::CopyOp copyOp, const AliasesInfo& aliasesInfo, Logger l
 // FuseLastCopy
 //
 
-class FuseLastCopyPass final : public VPUIP::FuseLastCopyBase<FuseLastCopyPass> {
+class FuseLastCopyPass final : public VPUIP::impl::FuseLastCopyBase<FuseLastCopyPass> {
 public:
     explicit FuseLastCopyPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

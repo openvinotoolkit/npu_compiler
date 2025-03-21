@@ -10,14 +10,8 @@ using namespace vpux;
 
 namespace vpux::IE {
 
-std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> createConvertQuantizeOpsToNceOpsStrategy(VPU::ArchKind arch) {
-    switch (arch) {
-    case VPU::ArchKind::NPU37XX:
-    case VPU::ArchKind::NPU40XX:
-        return std::make_unique<IE::arch37xx::ConvertQuantizeOpsToNceOpsStrategy>();
-    default:
-        VPUX_THROW("Arch '{0}' is not supported", arch);
-    }
+std::unique_ptr<IConvertQuantizeOpsToNceOpsStrategy> createConvertQuantizeOpsToNceOpsStrategy() {
+    return std::make_unique<IE::arch37xx::ConvertQuantizeOpsToNceOpsStrategy>();
 }
 
 }  // namespace vpux::IE

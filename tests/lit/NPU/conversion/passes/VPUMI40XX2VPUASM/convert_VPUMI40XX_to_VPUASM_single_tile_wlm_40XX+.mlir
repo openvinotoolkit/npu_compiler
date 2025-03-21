@@ -3,9 +3,8 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
-// RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUMI40XX-to-VPUASM="enable-partial-workload-management=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --vpu-arch=%arch% --convert-VPUMI40XX-to-VPUASM="workload-management-enable=true" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
   IE.ExecutorResource 1 of @DMA_NN
@@ -146,7 +145,7 @@ module @Convolution attributes {VPU.arch = #VPU.arch_kind<NPU40XX>, VPU.compilat
     %35 = VPUMI40XX.NNDMA {is_out_of_order, port = 0 : i64} inputs(%cst : memref<1x1x1x4864xui8>) outputs(%13 : memref<1x1x1x4864xui8, [@CMX_NN, 0]>) previousDMA(%34 : !VPURegMapped.Index<0:0:3>) updates(%20 : !VPURegMapped.Index<0:0:2>) start_after(3) clean_after(2) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:4>
     %36 = VPUMI40XX.NNDMA {port = 0 : i64} inputs(%12 : memref<1x16x14x14xf16, [@CMX_NN, 0]>) outputs(%7 : memref<1x16x14x14xf16, @DDR>) waits(%21 : !VPURegMapped.Index<0:0:3>) updates(%22 : !VPURegMapped.Index<0:0:4>) start_after(5) clean_after(4) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:0>
     %37 = VPURegMapped.Enqueue at(%18 : !VPURegMapped.Index<0:0:0>) (%25 -> %25 : <0:0:0> -> <0:0:0>) -> !VPURegMapped.Index<0:0:0> {taskType = #VPURegMapped.task_type<DPUVariant>}
-    %38 = VPURegMapped.Enqueue previousTaskIdx(%37 : !VPURegMapped.Index<0:0:0>) at(%18 : !VPURegMapped.Index<0:0:0>) (%26 -> %26 : <0:0:1> -> <0:0:1>) -> !VPURegMapped.Index<0:0:1> {taskType = #VPURegMapped.task_type<DPUVariant>}
+    %38 = VPURegMapped.Enqueue previousTaskIdx(%37 : !VPURegMapped.Index<0:0:0>) at(%18 : !VPURegMapped.Index<0:0:0>) previousTaskIdxOnSameBarrier(%37 : !VPURegMapped.Index<0:0:0>) (%26 -> %26 : <0:0:1> -> <0:0:1>) -> !VPURegMapped.Index<0:0:1> {taskType = #VPURegMapped.task_type<DPUVariant>}
     %39 = VPUMI40XX.Bootstrap inputs(%18 : <0:0:0>) -> !VPURegMapped.Index<0:0:0>
     %40 = VPUMI40XX.Bootstrap inputs(%19 : <0:0:1>) -> !VPURegMapped.Index<0:0:1>
     %41 = VPUMI40XX.Bootstrap inputs(%20 : <0:0:2>) -> !VPURegMapped.Index<0:0:2>
@@ -166,7 +165,7 @@ module @Convolution attributes {VPU.arch = #VPU.arch_kind<NPU40XX>, VPU.compilat
 //CHECK: VPUASM.ManagedBarrier @ConfigureBarrier_0_2 idx(!VPURegMapped.Index<0:0:2>)
 //CHECK: VPUASM.ManagedBarrier @ConfigureBarrier_0_3 idx(!VPURegMapped.Index<0:0:3>)
 //CHECK: VPUASM.ManagedBarrier @ConfigureBarrier_0_4 idx(!VPURegMapped.Index<0:0:4>)
-//CHECK: VPUASM.WorkItem @[[Enqueue0:.*]] idx(!VPURegMapped.Index<0:0:0>) real_task_index(!VPURegMapped.Index<0:0:0>) task_type(<DPUVariant>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_DPUVariant_0_0_0) task_count(1)
+//CHECK: VPUASM.WorkItem @[[Enqueue0:.*]] idx(!VPURegMapped.Index<0:0:0>) real_task_index(!VPURegMapped.Index<0:0:0>) next_workitem_idx(!VPURegMapped.Index<0:0:1>) task_type(<DPUVariant>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_DPUVariant_0_0_0) task_count(1)
 //CHECK: VPUASM.WorkItem @[[Enqueue1:.*]] idx(!VPURegMapped.Index<0:0:1>) real_task_index(!VPURegMapped.Index<0:0:1>) task_type(<DPUVariant>) first_task(@program.metadata.cmx::@DeclareTaskBuffer_DPUVariant_0_0_1) task_count(1)
 
 //CHECK: VPUASM.Bootstrap @Bootstrap_0_0 {barrier_id = 0 : ui32}

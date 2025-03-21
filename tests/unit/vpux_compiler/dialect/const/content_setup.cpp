@@ -5,6 +5,7 @@
 
 #include "common/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
@@ -153,7 +154,7 @@ public:
     }
 
     void checkFuseAttr(Const::TransformAttrInterface actualTransformation) {
-        auto actualFuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformation);
+        auto actualFuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformation);
         ASSERT_TRUE(actualFuse != nullptr);
     }
 
@@ -164,7 +165,7 @@ public:
                                    ArrayRef<int64_t> weightsExpectedOffset, ArrayRef<int64_t> weightsExpectedShape,
                                    bool weightsFlat, ArrayRef<int64_t> weightsReshape,
                                    ArrayRef<int64_t> weightsFlatOffset, ArrayRef<int64_t> weightsFlatShape) {
-        auto fuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformation);
+        auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformation);
         ASSERT_TRUE(fuse != nullptr);
 
         auto verifyConstant = [this](Const::ContentAttr& constant, bool isSliced, ArrayRef<int64_t> expectedOffset,
@@ -680,7 +681,8 @@ public:
                 getIntAttr(&ctx, expectedRelocateWeightsTableParams.sparsityPtr),
                 getIntArrayAttr(&ctx, expectedRelocateWeightsTableParams.offset),
                 getIntAttr(&ctx, expectedRelocateWeightsTableParams.weightsTableSize), getIntAttr(&ctx, 16),
-                expectedSparsityCompression, getIntAttr(&ctx, expectedRelocateWeightsTableParams.channelOffset));
+                expectedSparsityCompression, getIntAttr(&ctx, expectedRelocateWeightsTableParams.channelOffset),
+                getIntAttr(&ctx, 0));
     }
 };
 
@@ -848,6 +850,32 @@ TEST_F(MLIR_ContentSetupTest, FuseCastElemType) {
     checkCastElemTypeAttr(actualTransformations[0], expectedType);
 }
 
+TEST_F(MLIR_ContentSetupTest, FuseCastElemType_Quantized) {
+    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float64Type::get(&ctx));
+
+    // hide the storage type
+    auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::Float32Type::get(&ctx));
+
+    // cast to quantized type
+    const auto quantizedType = mlir::quant::UniformQuantizedType::get(0, getUInt8Type(&ctx),
+                                                                      mlir::Float32Type::get(&ctx), 0.078, 128, 0, 255);
+    contentAttrSetup = contentAttrSetup.castElemType(quantizedType);
+
+    // check casts
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    // Note: no fusing in this case
+    checkCastElemTypeAttr(actualTransformations[0], mlir::Float32Type::get(&ctx));
+    checkCastElemTypeAttr(actualTransformations[1], quantizedType);
+}
+
 //
 // MoveSubViewBefore
 //
@@ -898,6 +926,33 @@ TEST_F(MLIR_ContentSetupTest, SwapReorderAndSubView) {
 
     checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
     checkReorderAttr(actualTransformations[1], DimsOrder::WHC);
+}
+
+TEST_F(MLIR_ContentSetupTest, SwapMemPermuteAndSubView) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, getInt8Type(&ctx));
+
+    // first MemPermute
+    auto contentAttrSetup = baseContentAttrSetup.memPermute(DimsOrder::HWC, DimsOrder::CHW);
+
+    // second SubView
+    SmallVector<int64_t> initialOffset = {0, 0, 6};
+    SmallVector<int64_t> initialShape = {3, 4, 2};
+
+    contentAttrSetup = contentAttrSetup.subview(ShapeRef(initialOffset), ShapeRef(initialShape));
+
+    SmallVector<int64_t> expectedOffset = {0, 6, 0};
+    SmallVector<int64_t> expectedShape = {4, 2, 3};
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
+    checkMemPermuteAttr(actualTransformations[1], DimsOrder::HWC, DimsOrder::CHW);
 }
 
 TEST_F(MLIR_ContentSetupTest, SwapTransposeAndSubView) {
@@ -1607,7 +1662,7 @@ TEST_P(MLIR_ContentSetupTest_SwapRelocateWeightsTableAndSubView, SwapRelocateWei
     auto contentAttrSetup = baseContentAttrSetup.relocateWeightsTablePointers(
             _relocateWeightsTableParams.weightsPtr, _relocateWeightsTableParams.sparsityPtr,
             ShapeRef(_relocateWeightsTableParams.offset), _relocateWeightsTableParams.weightsTableSize,
-            /* weightsElemBitSize = */ 16, _inSparsityCompression, _relocateWeightsTableParams.channelOffset);
+            /* weightsElemBitSize = */ 16, _inSparsityCompression, _relocateWeightsTableParams.channelOffset, 0);
 
     // second SubView
     contentAttrSetup = contentAttrSetup.subview(ShapeRef(_subViewParams.offset), ShapeRef(_subViewParams.shape));
@@ -1664,7 +1719,8 @@ TEST_F(MLIR_ContentSetupTest, DoNotSwapRelocateWeightsTableAndSubView) {
     auto channelOffset = 0;
 
     auto contentAttrSetup = baseContentAttrSetup.relocateWeightsTablePointers(
-            weightsPtr, sparsityPtr, ShapeRef(offsets), weightsTableSize, weightsElemBitSize, nullptr, channelOffset);
+            weightsPtr, sparsityPtr, ShapeRef(offsets), weightsTableSize, weightsElemBitSize, nullptr, channelOffset,
+            0);
 
     // second SubView
     SmallVector<int64_t> offset = {3, 0, 0, 0};
@@ -1679,7 +1735,7 @@ TEST_F(MLIR_ContentSetupTest, DoNotSwapRelocateWeightsTableAndSubView) {
     auto expectedRelocateWeightsTableAttr = Const::RelocateWeightsTableAttr::get(
             getIntArrayAttr(&ctx, ArrayRef(weightsPtr)), getIntAttr(&ctx, sparsityPtr),
             getIntArrayAttr(&ctx, ArrayRef(offsets)), getIntAttr(&ctx, weightsTableSize),
-            getIntAttr(&ctx, weightsElemBitSize), nullptr, getIntAttr(&ctx, channelOffset));
+            getIntAttr(&ctx, weightsElemBitSize), nullptr, getIntAttr(&ctx, channelOffset), getIntAttr(&ctx, 0));
 
     checkRelocateWeightsTableAttr(actualTransformations[0], expectedRelocateWeightsTableAttr);
     checkSubViewAttr(actualTransformations[1], offset, shape);
@@ -1740,8 +1796,9 @@ TEST_F(MLIR_ContentSetupTest, MoveRelocateWeightsTableIntoFuse) {
     auto channelOffset = 0;
 
     // RelocateWT
-    contentAttrSetup = contentAttrSetup.relocateWeightsTablePointers(
-            weightsPtr, sparsityPtr, ShapeRef(offsets), weightsTableSize, weightsElemBitSize, nullptr, channelOffset);
+    contentAttrSetup =
+            contentAttrSetup.relocateWeightsTablePointers(weightsPtr, sparsityPtr, ShapeRef(offsets), weightsTableSize,
+                                                          weightsElemBitSize, nullptr, channelOffset, 0);
 
     // Fuse + RelocateWT should be fused into one Fuse transformation
     auto actualTransformations = contentAttrSetup.getTransformations();
@@ -1749,7 +1806,7 @@ TEST_F(MLIR_ContentSetupTest, MoveRelocateWeightsTableIntoFuse) {
     checkFuseAttr(actualTransformations[0]);
 
     // The resulting Fuses' weightsTable should have one transformation
-    auto actualFuseAttr = mlir::cast<Const::FuseAttr>(actualTransformations[0]);
+    auto actualFuseAttr = mlir::cast<Const::FuseWeightsAttr>(actualTransformations[0]);
     auto actualWT = actualFuseAttr.getWeightsTable();
     auto wtTransformations = actualWT.getTransformations();
     ASSERT_TRUE(wtTransformations.size() == 1);
@@ -1757,7 +1814,7 @@ TEST_F(MLIR_ContentSetupTest, MoveRelocateWeightsTableIntoFuse) {
     auto expectedRelocateWeightsTableAttr = Const::RelocateWeightsTableAttr::get(
             getIntArrayAttr(&ctx, ArrayRef(weightsPtr)), getIntAttr(&ctx, sparsityPtr),
             getIntArrayAttr(&ctx, ArrayRef(offsets)), getIntAttr(&ctx, weightsTableSize),
-            getIntAttr(&ctx, weightsElemBitSize), nullptr, getIntAttr(&ctx, channelOffset));
+            getIntAttr(&ctx, weightsElemBitSize), nullptr, getIntAttr(&ctx, channelOffset), getIntAttr(&ctx, 0));
 
     checkRelocateWeightsTableAttr(wtTransformations[0], expectedRelocateWeightsTableAttr);
 }
@@ -1855,7 +1912,7 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseSubByteWeights) {
     auto actualTransformations = fusedWithSubView.getTransformations();
     EXPECT_EQ(actualTransformations.size(), 1);
 
-    auto fuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformations[0]);
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
     ASSERT_TRUE(fuse != nullptr);
 
     auto actualWeights = fuse.getWeights();
@@ -1882,7 +1939,7 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseDontMoveSparse) {
 
     auto actualTransformations = fusedConstantWithSubView.getTransformations();
     EXPECT_EQ(actualTransformations.size(), 2);
-    auto fuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformations[0]);
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
     EXPECT_NE(fuse, nullptr);
     checkSubViewAttr(actualTransformations[1], {0, 0, 0, 0}, {1, 1, 1, 7});
 }
@@ -1903,9 +1960,27 @@ TEST_F(MLIR_ContentSetupTest, MoveSubViewIntoFuseDontMoveUnsupportedShape) {
 
     auto actualTransformations = fusedConstantWithSubView.getTransformations();
     EXPECT_EQ(actualTransformations.size(), 2);
-    auto fuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformations[0]);
+    auto fuse = mlir::dyn_cast<Const::FuseWeightsAttr>(actualTransformations[0]);
     EXPECT_NE(fuse, nullptr);
     checkSubViewAttr(actualTransformations[1], {0, 0, 0, 0}, {1, 1, 1, 7});
+}
+
+TEST_F(MLIR_ContentSetupTest, FuseConstants) {
+    auto tensorType = getInt8Type(&ctx);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1}, tensorType);
+
+    auto cst1 = getContentAttr<uint8_t>(ArrayRef<int64_t>{4, 1, 1, 1}, tensorType, SmallVector<uint8_t>{1, 2, 3, 4});
+    auto cst2 = getContentAttr<uint8_t>(ArrayRef<int64_t>{2, 1, 1, 1}, tensorType, SmallVector<uint8_t>{5, 6});
+
+    auto fusedType = mlir::RankedTensorType::get({6, 1, 1, 1}, tensorType);
+    std::vector<Const::ContentAttr> constants{cst1, cst2};
+    auto fusedConstantSetup = baseContentAttrSetup.fuse(fusedType, constants);
+
+    auto actualTransformations = fusedConstantSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 1);
+    auto fuse = mlir::dyn_cast<Const::FuseAttr>(actualTransformations[0]);
+    EXPECT_NE(fuse, nullptr);
 }
 
 TEST_F(MLIR_ContentSetupTest, FuseReorderAndMemPermute) {
@@ -1998,4 +2073,48 @@ TEST_F(MLIR_ContentSetupTest, DoNotFoldTrivialMemPerm) {
     EXPECT_EQ(actualTransformations.size(), 1);
 
     checkMemPermuteAttr(actualTransformations[0], DimsOrder::HWC, DimsOrder::HWC);
+}
+
+TEST_F(MLIR_ContentSetupTest, FoldTranspose) {
+    const int64_t IC = 4;
+    const int64_t IH = 6;
+    const int64_t IW = 8;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, getInt8Type(&ctx));
+
+    auto contentAttrSetup = baseContentAttrSetup.transpose(DimsOrder::CHW);
+
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 0);
+}
+
+TEST_F(MLIR_ContentSetupTest, DoNotFoldTrivialTranspose) {
+    const int64_t IC = 2;
+    const int64_t IH = 1;
+    const int64_t IW = 1;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, getInt8Type(&ctx));
+
+    auto contentAttrSetup = baseContentAttrSetup.transpose(DimsOrder::HWC);
+
+    // we cannot fold transpose since type is changed
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 1);
+
+    checkTransposeAttr(actualTransformations[0], DimsOrder::HWC);
+}
+
+TEST_F(MLIR_ContentSetupTest, DoNotFoldTypePreservingTranspose) {
+    const int64_t IC = 2;
+    const int64_t IH = 2;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH}, getInt8Type(&ctx));
+
+    auto contentAttrSetup = baseContentAttrSetup.transpose(DimsOrder::CN);
+
+    // we cannot fold transpose since the permutation is not identity
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 1);
+
+    checkTransposeAttr(actualTransformations[0], DimsOrder::CN);
 }

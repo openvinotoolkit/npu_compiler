@@ -214,29 +214,6 @@ def ExpandActivationChannels : PassBase<"expand-activation-channels", "vpux::Fun
 }
 
 //
-// UnrollBatch
-//
-
-def UnrollBatch : PassBase<"unroll-batch", "vpux::FunctionPass"> {
-    let summary = "Split inputs of NCE tasks when their batch size is greater than 1";
-
-    let description = [{
-        This pass splits inputs of NCE tasks by batch.
-
-        For example:
-        * `FullyConnected` input with 2x64 geometry will be split by two inputs with 1x64 dimensions.
-        * `Convolution` input 3x16x32x64 will be split into three 1x16x32x64 inputs.
-        Resulting tensors go to corresponding operations and the outputs are concatenated.
-    }];
-
-    let constructor = "vpux::IE::arch37xx::createUnrollBatchPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
 // ConvertFFTToConv
 //
 

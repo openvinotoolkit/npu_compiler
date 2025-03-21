@@ -28,13 +28,13 @@ struct RepeatingBlocksOptions : mlir::PassPipelineOptions<RepeatingBlocksOptions
             llvm::cl::init(vpux::RepeatingBlocksOptions::WEIGHTS_AS_INPUTS_DEFAULT)};
 };
 
-struct RepeatingBlocksSeparateFunctionsOptions : mlir::PassPipelineOptions<RepeatingBlocksOptions> {
-    vpux::IntOption minOpsInBlock{*this, "min-ops-in-block",
-                                  llvm::cl::desc("Minimum number of operations allowed per block"),
-                                  ::llvm::cl::init(vpux::RepeatingBlocksOptions::MIN_OPS_IN_BLOCK_DEFAULT)};
-    vpux::IntOption maxNumIterations{*this, "max-num-iterations",
-                                     llvm::cl::desc("Maximum number of iterations to find a solution"),
-                                     llvm::cl::init(vpux::RepeatingBlocksOptions::MAX_NUM_ITERATIONS_DEFAULT)};
+struct RepeatingBlocksSeparateFunctionsOptions : mlir::PassPipelineOptions<RepeatingBlocksSeparateFunctionsOptions> {
+    vpux::IntOption minOpsInBlock{
+            *this, "min-ops-in-block", llvm::cl::desc("Minimum number of operations allowed per block"),
+            ::llvm::cl::init(vpux::RepeatingBlocksSeparateFunctionsOptions::MIN_OPS_IN_BLOCK_DEFAULT)};
+    vpux::IntOption maxNumIterations{
+            *this, "max-num-iterations", llvm::cl::desc("Maximum number of iterations to find a solution"),
+            llvm::cl::init(vpux::RepeatingBlocksSeparateFunctionsOptions::MAX_NUM_ITERATIONS_DEFAULT)};
 };
 
 struct BatchingOptions : mlir::PassPipelineOptions<BatchingOptions> {};

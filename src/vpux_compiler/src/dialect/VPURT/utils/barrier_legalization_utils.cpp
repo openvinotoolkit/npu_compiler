@@ -156,8 +156,10 @@ bool VPURT::verifyOneWaitBarrierPerTask(mlir::func::FuncOp funcOp, Logger log) {
 // order tasks and barriers in IR to match that order - required for virtual to physical barrier mapping
 // orderByConsumption = false, barriers are ordered based on first producer, orderByConsumption = true: barriers are
 // ordered based on consumer
-void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo,
+void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, Logger log,
                                            bool orderByConsumption) {
+    log.trace("Ordering tasks and barriers");
+    log = log.nest();
     barrierInfo.updateIR();
 
     auto taskOpQueues = VPURT::getTaskOpQueues(funcOp, barrierInfo);
@@ -175,6 +177,8 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
         for (const auto& updateBarrier : updateBarriers) {
             auto barrierOp = barrierInfo.getBarrierOpAtIndex(updateBarrier);
             barrierInfo.removeProducer(barrierOp, readyOp);
+            log.trace("Decrement producer count for barrier '{0}' to '{1}'", updateBarrier,
+                      barrierInfo.getBarrierProducers(updateBarrier).size());
 
             // Order the barrier by producer to WA hang issue in runtime
             // TODO: E#109198 find the root cause of runtime hang
@@ -190,6 +194,7 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
                     newBarrierOrder.push_back(updateBarrier);
                 }
                 barrierInfo.resetBarrier(barrierOp);
+                log.trace("Reset barrier '{0}'", updateBarrier);
             }
         }
     };
@@ -201,6 +206,7 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
         VPUX_THROW_WHEN(readyOps.empty(), "Failed to simulate execution");
 
         for (auto& readyOp : readyOps) {
+            log.trace("Task '{0}' is ready", readyOp);
             // tasks will be ordered by order of becoming ready
             newTaskOpOrder.push_back(readyOp);
             removeBarrierProducer(readyOp);
@@ -232,18 +238,15 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
         if (prevTaskOp != nullptr) {
             taskOp->moveAfter(prevTaskOp);
         } else {
-            auto declareBufferOps = to_small_vector(funcOp.getOps<VPURT::DeclareBufferOp>());
-            if (declareBufferOps.empty()) {
-                auto barrierOps = to_small_vector(funcOp.getOps<VPURT::BarrierOpInterface>());
-                if (!barrierOps.empty()) {
-                    taskOp->moveAfter(barrierOps.back());
-                } else {
-                    auto& block = funcOp.getBody().front();
-                    taskOp->moveBefore(&block, block.begin());
-                }
-            } else {
-                taskOp->moveAfter(declareBufferOps.back());
-            }
+            // Start inserting tasks by placing them after the last task
+            // This way reordering of tasks will not depend on placement of
+            // declare ops in the IR which can happen to be in between of some taskOps.
+            // Without that reordering could cause operand dominance issues
+            // e.g. taskOp dependent on some declare op is placed before it
+            auto taskOps = funcOp.getOps<VPURT::TaskOp>();
+            auto lastTaskOpIt = taskOps.begin();
+            std::advance(lastTaskOpIt, std::distance(taskOps.begin(), taskOps.end()) - 1);
+            taskOp->moveAfter(*lastTaskOpIt);
         }
         prevTaskOp = taskOp;
     }
@@ -272,6 +275,7 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
     if (finalBarOp != nullptr && prevBarrier != finalBarOp) {
         finalBarOp->moveAfter(prevBarrier);
     }
+    log = log.unnest();
 
     // regenerate barrier info based on new order
     barrierInfo = vpux::BarrierInfo{funcOp};

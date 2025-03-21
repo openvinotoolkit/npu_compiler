@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --debatcher %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 // CHECK-LABEL: @SingleInputSingleOutputBatched
 func.func @SingleInputSingleOutputBatched(%arg: tensor<3x3x62x62xf32>) -> tensor<3x48x60x60xf32> {
     %cst = const.Declare tensor<48x3x3x3xf32> = dense<1.0> : tensor<48x3x3x3xf32>

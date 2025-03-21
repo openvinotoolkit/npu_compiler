@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUMI37XX_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_VPUMI37XX_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPUMI37XX/dialect.td"
 
 //
@@ -76,26 +76,5 @@ def VPUMI37XX_PPELayerType :
 }
 
 def VPUMI37XX_PPELayerTypeAttr : VPUMI37XX_EnumAttr<VPUMI37XX_PPELayerType, "ppe_layer_type">;
-
-//
-// MPEMode
-//
-
-def VPUMI37XX_MPEMode :
-    VPUMI37XX_I64EnumAttr<
-        "MPEMode",
-        "MPE Mode",
-        [
-            I64EnumAttrCase<"VECTOR",       0>,
-            I64EnumAttrCase<"MATRIX",       1>,
-            I64EnumAttrCase<"VECTOR_FP16",  2>,
-            I64EnumAttrCase<"CUBOID_16x16", 3>,
-            I64EnumAttrCase<"CUBOID_8x16",  4>,
-            I64EnumAttrCase<"NOP",          5>
-        ]
-    > {
-}
-
-def VPUMI37XX_MPEModeAttr : VPUMI37XX_EnumAttr<VPUMI37XX_MPEMode, "mpe_mode">;
 
 #endif

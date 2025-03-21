@@ -77,11 +77,14 @@ StrategyCost LayerVPUNNCost::getSpillingTypeCost(vpux::NDTypeInterface type,
     return cost;
 }
 
-StrategyCost LayerVPUNNCost::getSpillingWriteCost(
+SmallVector<StrategyCost> LayerVPUNNCost::getSpillingWriteCostsForAllTiles(
         mlir::Operation* operation, const VPUNNCostParameters& parameters,
-        std::function<vpux::NDTypeInterface(const TileInfo&)> getOutputType /*nullptr*/) const {
-    StrategyCost writeCost = 0;
+        std::function<vpux::NDTypeInterface(const TileInfo&)> getOutputType) const {
+    if (VPU::isPureViewOp(operation)) {
+        return {0};
+    }
 
+    SmallVector<StrategyCost> spillWriteCosts;
     if (getOutputType == nullptr) {
         getOutputType = [&](const auto& tileInfo) {
             auto outputType = mlir::cast<NDTypeInterface>(operation->getResult(0).getType());
@@ -96,19 +99,77 @@ StrategyCost LayerVPUNNCost::getSpillingWriteCost(
         };
     }
 
-    if (!VPU::isPureViewOp(operation)) {
-        auto outputType = mlir::cast<NDTypeInterface>(operation->getResult(0).getType());
+    auto outputType = mlir::cast<NDTypeInterface>(operation->getResult(0).getType());
 
-        const auto tiling =
-                parameters._tiling.empty() ? OutputTiling({TileInfo(outputType.getShape())}) : parameters._tiling;
-        writeCost = std::accumulate(std::begin(tiling), std::end(tiling), writeCost,
-                                    [&](StrategyCost cost, auto& tileInfo) {
-                                        auto tiledType = getOutputType(tileInfo);
-                                        return cost + getSpillingTypeCost(tiledType, tiling[0].axis);
-                                    });
+    const auto tiling =
+            parameters._tiling.empty() ? OutputTiling({TileInfo(outputType.getShape())}) : parameters._tiling;
+    spillWriteCosts.reserve(tiling.size());
+    for (const auto& tileInfo : tiling) {
+        auto tiledType = getOutputType(tileInfo);
+        spillWriteCosts.emplace_back(getSpillingTypeCost(tiledType, tiling[0].axis));
+    }
+    return spillWriteCosts;
+}
+
+StrategyCost LayerVPUNNCost::getSpillingWriteCost(
+        mlir::Operation* operation, const VPUNNCostParameters& parameters,
+        std::function<vpux::NDTypeInterface(const TileInfo&)> getOutputType /*nullptr*/) const {
+    auto spillingWriteCosts = getSpillingWriteCostsForAllTiles(operation, parameters, std::move(getOutputType));
+    auto writeCost =
+            std::accumulate(spillingWriteCosts.begin(), spillingWriteCosts.end(), 0, std::plus<StrategyCost>());
+    return writeCost;
+}
+
+SmallVector<StrategyCost> LayerVPUNNCost::getSpillingReadCostsForAllTiles(
+        mlir::Operation* operation, const VPUNNCostParameters& parameters, mlir::Operation* parentOp,
+        std::function<bool(mlir::Value value)> findOperand,
+        std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType) const {
+    VPUX_THROW_WHEN(parentOp == nullptr && findOperand == nullptr,
+                    "Either parent operation or functor for operands must be passed");
+
+    if (VPU::isPureViewOp(operation)) {
+        return {0};
     }
 
-    return writeCost;
+    SmallVector<StrategyCost> spillReadCosts;
+    if (findOperand == nullptr) {
+        findOperand = [&](auto value) {
+            auto operation = value.getDefiningOp();
+            while (operation != nullptr) {
+                if (operation == parentOp) {
+                    return true;
+                } else if (VPU::isPureViewOp(operation)) {
+                    operation = operation->getOperand(0).getDefiningOp();
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        };
+    }
+
+    const auto operandItr = llvm::find_if(operation->getOperands(), std::move(findOperand));
+    VPUX_THROW_WHEN(operandItr == operation->getOperands().end(),
+                    "Operation {0} has no common tensors with operation {1}", *parentOp, *operation);
+    const size_t operandInd = std::distance(operation->getOperands().begin(), operandItr);
+    const auto childTiling = parameters._tiling.empty() ? OutputTiling({TileInfo(getShape(operation->getResult(0)))})
+                                                        : parameters._tiling;
+
+    MultiClusterStrategySetter mcSetter(operation, parameters._strategy);
+
+    if (getOperandType == nullptr) {
+        getOperandType = [&](const auto& tileInfo) {
+            auto tiling = getTileTypes(operation, tileInfo);
+            return tiling[operandInd];
+        };
+    }
+
+    spillReadCosts.reserve(childTiling.size());
+    for (const auto& tileInfo : childTiling) {
+        const auto childOperandsTiling = getOperandType(tileInfo);
+        spillReadCosts.emplace_back(getSpillingTypeCost(childOperandsTiling, tileInfo.axis));
+    }
+    return spillReadCosts;
 }
 
 StrategyCost LayerVPUNNCost::getSpillingReadCost(
@@ -126,52 +187,9 @@ StrategyCost LayerVPUNNCost::getSpillingReadCost(
         mlir::Operation* operation, const VPUNNCostParameters& parameters, mlir::Operation* parentOp /*nullptr*/,
         std::function<bool(mlir::Value value)> findOperand /*nullptr*/,
         std::function<vpux::NDTypeInterface(const TileInfo&)> getOperandType /*nullptr*/) const {
-    StrategyCost readCost = 0;
-
-    VPUX_THROW_WHEN(parentOp == nullptr && findOperand == nullptr,
-                    "Either parent operation or functor for operands must be passed");
-
-    if (!VPU::isPureViewOp(operation)) {
-        if (findOperand == nullptr) {
-            findOperand = [&](auto value) {
-                auto operation = value.getDefiningOp();
-                while (operation != nullptr) {
-                    if (operation == parentOp) {
-                        return true;
-                    } else if (VPU::isPureViewOp(operation)) {
-                        operation = operation->getOperand(0).getDefiningOp();
-                        continue;
-                    }
-                    return false;
-                }
-                return false;
-            };
-        }
-
-        const auto operandItr = llvm::find_if(operation->getOperands(), std::move(findOperand));
-        VPUX_THROW_WHEN(operandItr == operation->getOperands().end(),
-                        "Operation {0} has no common tensors with operation {1}", *parentOp, *operation);
-        const size_t operandInd = std::distance(operation->getOperands().begin(), operandItr);
-        const auto childTiling = parameters._tiling.empty()
-                                         ? OutputTiling({TileInfo(getShape(operation->getResult(0)))})
-                                         : parameters._tiling;
-
-        MultiClusterStrategySetter mcSetter(operation, parameters._strategy);
-
-        if (getOperandType == nullptr) {
-            getOperandType = [&](const auto& tileInfo) {
-                auto tiling = getTileTypes(operation, tileInfo);
-                return tiling[operandInd];
-            };
-        }
-
-        readCost = std::accumulate(std::begin(childTiling), std::end(childTiling), readCost,
-                                   [&](StrategyCost cost, auto& tileInfo) {
-                                       const auto childOperandsTiling = getOperandType(tileInfo);
-                                       return cost + getSpillingTypeCost(childOperandsTiling, tileInfo.axis);
-                                   });
-    }
-
+    auto spillReadCost = getSpillingReadCostsForAllTiles(operation, parameters, parentOp, std::move(findOperand),
+                                                         std::move(getOperandType));
+    auto readCost = std::accumulate(spillReadCost.begin(), spillReadCost.end(), 0, std::plus<StrategyCost>());
     return readCost;
 }
 
@@ -211,7 +229,14 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
     // According to the VPUNN API definition,
     //      when prefetching is false, the returned cost is the sum of DPU + weights DMA
     //      when prefetching is true, the returned cost is just DPU because it considers the weights are prefetched
-    const auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _numShaveActs, true);
+    auto distributionMode = DistributionMode::NONE;
+    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(nceOp.getOperation());
+    if (clusteredOp != nullptr) {
+        auto outputType = clusteredOp->getResult(0).getType().cast<NDTypeInterface>();
+        distributionMode = getOutputTensorDistributionMode(clusteredOp, costParams.layerStrategy, outputType);
+    }
+    const auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch, _numShaveActs,
+                                                        true, distributionMode);
     auto vpunnLayerDPUCosts = getDPUCostForNCEOp(nceOp, parameters._strategy, parameters._tiling, costParams,
                                                  vpunnStrategy, _vpunnCostModel, _log);
     _log.trace("VPUNN DPU layer costs {0}", vpunnLayerDPUCosts);
@@ -282,8 +307,14 @@ StrategyCost LayerVPUNNCost::getSWLayerCost(VPU::SWOpInterface swOp, const VPUNN
         if (!vpunnLayer) {
             fullCost += getSimpleLayerCost(outputTiledType, parameters);
         } else {
-            auto vpunnStrategy =
-                    VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _numShaveActs, false);
+            auto distributionMode = DistributionMode::NONE;
+            auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(swOp.getOperation());
+            if (clusteredOp != nullptr) {
+                distributionMode = getOutputTensorDistributionMode(clusteredOp, parameters._strategy, outputTiledType);
+            }
+
+            auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch,
+                                                          _numShaveActs, false, distributionMode);
             fullCost += _vpunnCostModel->Layer(*vpunnLayer, vpunnStrategy);
         }
     }

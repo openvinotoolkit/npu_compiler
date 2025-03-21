@@ -4,10 +4,11 @@
 //
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/core/type_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
@@ -20,6 +21,12 @@
 
 #include <utility>
 #include <vpux/utils/core/error.hpp>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_ADJUSTLSTMCELLINPUTS
+#define GEN_PASS_DEF_ADJUSTLSTMCELLINPUTS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 
@@ -90,7 +97,7 @@ mlir::LogicalResult AdjustLSTMCellInputs::matchAndRewrite(VPU::LSTMCellOp lstmCe
     return mlir::success();
 };
 
-class AdjustLSTMCellInputsPass final : public VPU::AdjustLSTMCellInputsBase<AdjustLSTMCellInputsPass> {
+class AdjustLSTMCellInputsPass final : public VPU::impl::AdjustLSTMCellInputsBase<AdjustLSTMCellInputsPass> {
 public:
     explicit AdjustLSTMCellInputsPass(Logger log) {
         Base::initLogger(std::move(log), Base::getArgumentName());

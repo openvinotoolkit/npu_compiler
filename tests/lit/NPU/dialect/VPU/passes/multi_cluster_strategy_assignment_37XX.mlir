@@ -1617,13 +1617,13 @@ func.func @AssignSOHForLayerWithLargeActivation(%arg0: tensor<1x64x250x250xf16, 
 // CHECK-LABEL: @AssignSOHForLayerWithTopK
 func.func @AssignSOHForLayerWithTopK(%arg0: tensor<1x151x513x513xf16>) -> tensor<1x1x513x513xsi32> {
     %output_values, %target_shape = VPU.TopK(%arg0)
-        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+        {axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
             : tensor<1x151x513x513xf16> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     return %target_shape : tensor<1x1x513x513xsi32>
 
     //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0)
     //CHECK-SAME:        axis = 1 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
     //CHECK-SAME:        : tensor<1x151x513x513xf16> -> tensor<1x1x513x513xf16>, tensor<1x1x513x513xsi32>
     //CHECK:        return [[TARGET_SHAPE]] : tensor<1x1x513x513xsi32>
 }
@@ -1633,13 +1633,13 @@ func.func @AssignSOHForLayerWithTopK(%arg0: tensor<1x151x513x513xf16>) -> tensor
 // CHECK-LABEL: @AssignSOKForLayerWithTopK
 func.func @AssignSOKForLayerWithTopK(%arg0: tensor<1x151x1x513xf16>) -> tensor<1x151x1x1xsi32> {
     %output_values, %target_shape = VPU.TopK(%arg0)
-        {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, sort = #IE.topk_sort_type<SORT_INDICES>}
+        {axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
             : tensor<1x151x1x513xf16> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
     return %target_shape : tensor<1x151x1x1xsi32>
 
     //CHECK:        [[OUTPUT_VALUES:%.+]], [[TARGET_SHAPE:%.+]] = VPU.TopK(%arg0)
     //CHECK-SAME:        axis = 3 : i64, element_type = si32, k_value = 1 : i64, mode = #IE.topk_mode<MAX>,
-    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, sort = #IE.topk_sort_type<SORT_INDICES>}
+    //CHECK-SAME:        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 0, 0>, sort = #IE.topk_sort_type<SORT_INDICES>}
     //CHECK-SAME:        : tensor<1x151x1x513xf16> -> tensor<1x151x1x1xf16>, tensor<1x151x1x1xsi32>
     //CHECK:        return [[TARGET_SHAPE]] : tensor<1x151x1x1xsi32>
 }

@@ -13,8 +13,9 @@
 
 #include <cmath>
 
-namespace vpux {
-NDTypeInterface Const::ScalarMultInverseAttr::inferOutputType(NDTypeInterface input) const {
+using namespace vpux;
+
+NDTypeInterface vpux::Const::ScalarMultInverseAttr::inferOutputType(NDTypeInterface input) const {
     return input;
 }
 
@@ -22,7 +23,7 @@ bool vpux::Const::ScalarMultInverseAttr::inferOutputSplat(bool inputIsSplat, vpu
     return inputIsSplat;
 }
 
-Const::Content Const::ScalarMultInverseAttr::transform(Const::Content& input) const {
+Const::Content vpux::Const::ScalarMultInverseAttr::transform(Const::Content& input) const {
     auto output =
             Const::Content::allocTempBuffer(inferOutputType(input.getType()), mlir::Float32Type::get(getContext()),
                                             inferOutputSplat(input.isSplat(), input.getType()));
@@ -37,4 +38,10 @@ Const::Content Const::ScalarMultInverseAttr::transform(Const::Content& input) co
     return output;
 }
 
-}  // namespace vpux
+//
+// ScalarMultInverseAttr::getStableHashValue
+//
+
+llvm::hash_code vpux::Const::ScalarMultInverseAttr::getStableHashValue() const {
+    return llvm::hash_combine(getMnemonic());
+}

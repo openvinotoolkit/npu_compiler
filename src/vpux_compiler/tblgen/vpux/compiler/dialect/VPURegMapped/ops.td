@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPUREGMAPPED_OPS
 #define VPUX_COMPILER_DIALECT_VPUREGMAPPED_OPS
 
-include "vpux/compiler/core/ops_interfaces.td"
+include "vpux/compiler/dialect/core/ops_interfaces.td"
 include "vpux/compiler/dialect/VPURegMapped/dialect.td"
 include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.td"
 include "vpux/compiler/dialect/VPURegMapped/attributes.td"
@@ -93,7 +93,11 @@ def VPURegMapped_FetchTaskOp:
         VPURegMapped_IndexType:$primary_start,
         VPURegMapped_IndexType:$primary_end,
         Optional<VPURegMapped_IndexType>:$secondary_start,
-        Optional<VPURegMapped_IndexType>:$secondary_end
+        Optional<VPURegMapped_IndexType>:$secondary_end,
+        OptionalAttr<VPURegMapped_TaskTypeAttr>:$associated_task_type,
+        OptionalAttr<UI64Attr>:$associated_tile_index,
+        OptionalAttr<UI64Attr>:$associated_execution_group_index
+
     );
 
     let results = (outs
@@ -135,6 +139,7 @@ def VPURegMapped_EnqueueOp:
         let arguments = (ins
             Optional<VPURegMapped_IndexType>:$previousTaskIdx,
             Optional<VPURegMapped_IndexType>:$barrier,
+            Optional<VPURegMapped_IndexType>:$previousTaskIdxOnSameBarrier,
             VPURegMapped_TaskTypeAttr:$taskType,
             VPURegMapped_IndexType:$start,
             VPURegMapped_IndexType:$end
@@ -147,6 +152,7 @@ def VPURegMapped_EnqueueOp:
         let assemblyFormat = [{
             (`previousTaskIdx` `(` $previousTaskIdx^ `:` type($previousTaskIdx) `)` )?
             (`at` `(` $barrier^ `:` type($barrier) `)`)?
+            (`previousTaskIdxOnSameBarrier` `(` $previousTaskIdxOnSameBarrier^ `:` type($previousTaskIdxOnSameBarrier) `)` )?
             `(` $start `->` $end `:` type($start) `->` type($end) `)`
             `->` type(results)
 

@@ -9,6 +9,12 @@
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
+namespace vpux::VPUIP::arch40xx {
+#define GEN_PASS_DECL_DMAOUTOFORDEROPTIMIZATION
+#define GEN_PASS_DEF_DMAOUTOFORDEROPTIMIZATION
+#include "vpux/compiler/NPU40XX/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -18,7 +24,7 @@ namespace {
 //
 
 class DMAOutOfOrderOptimizationPass final :
-        public VPUIP::arch40xx::DMAOutOfOrderOptimizationBase<DMAOutOfOrderOptimizationPass> {
+        public VPUIP::arch40xx::impl::DMAOutOfOrderOptimizationBase<DMAOutOfOrderOptimizationPass> {
 public:
     explicit DMAOutOfOrderOptimizationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

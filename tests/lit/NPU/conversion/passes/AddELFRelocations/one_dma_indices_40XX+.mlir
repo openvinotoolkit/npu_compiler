@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --vpu-arch=%arch% --split-input-file --convert-VPUASM-to-NPUReg40XX --create-elf-relocations %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @OneDMAWithoutAttributes attributes {VPU.arch = #VPU.arch_kind<NPU40XX>} {
   IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
     IE.ExecutorResource 1 of @DPU

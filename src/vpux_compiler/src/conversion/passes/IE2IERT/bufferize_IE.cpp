@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/conversion.hpp"
 
-#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
@@ -15,13 +14,18 @@
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
-#include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/range.hpp"
 
 #include <mlir/Dialect/Bufferization/Transforms/Bufferize.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 #include <llvm/ADT/TypeSwitch.h>
+
+namespace vpux {
+#define GEN_PASS_DECL_BUFFERIZEIE
+#define GEN_PASS_DEF_BUFFERIZEIE
+#include "vpux/compiler/conversion/passes.hpp.inc"
+}  // namespace vpux
 
 using namespace vpux;
 
@@ -821,8 +825,7 @@ mlir::Operation* createRTLayer(IE::MultiplyOp origOp, ArrayRef<mlir::Value> allB
 
 mlir::Operation* createRTLayer(IE::AndOp origOp, ArrayRef<mlir::Value> allBufs, mlir::OpBuilder& b) {
     IERT::AndOp::Adaptor newOp(allBufs);
-    return b.create<IERT::AndOp>(origOp.getLoc(), newOp.getInput1(), newOp.getInput2(), newOp.getOutputBuff(),
-                                 origOp.getPostOpAttr());
+    return b.create<IERT::AndOp>(origOp.getLoc(), newOp.getInput1(), newOp.getInput2(), newOp.getOutputBuff());
 }
 
 mlir::Operation* createRTLayer(IE::DivideOp origOp, ArrayRef<mlir::Value> allBufs, mlir::OpBuilder& b) {
@@ -1600,7 +1603,7 @@ mlir::LogicalResult LayerRewrite::matchAndRewrite(mlir::Operation* origOp, Array
 // BufferizeIEPass
 //
 
-class BufferizeIEPass final : public BufferizeIEBase<BufferizeIEPass> {
+class BufferizeIEPass final : public impl::BufferizeIEBase<BufferizeIEPass> {
 public:
     explicit BufferizeIEPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

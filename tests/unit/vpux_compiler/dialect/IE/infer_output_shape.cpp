@@ -6,6 +6,7 @@
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/init.hpp"
 
 #include <mlir/IR/BuiltinTypeInterfaces.h>
@@ -447,3 +448,66 @@ std::vector<InferTransposedGroupConvBackpropData> inferTransposedGroupConvBackpr
 
 INSTANTIATE_TEST_SUITE_P(TransposedGroupConvBackpropData, InferTransposedGroupConvBackpropDataTests,
                          testing::ValuesIn(inferTransposedGroupConvBackpropData));
+
+struct ReifyDimTestData {
+    std::vector<int64_t> shape;
+    std::vector<int64_t> bounds;
+};
+
+class ReifyDimTests : public testing::TestWithParam<ReifyDimTestData> {};
+
+TEST_P(ReifyDimTests, ReifyDimTest) {
+    mlir::MLIRContext context(vpux::createDialectRegistry());
+    context.loadDialect<mlir::func::FuncDialect>();
+    context.loadDialect<IE::IEDialect>();
+
+    mlir::OpBuilder builder(&context);
+
+    auto loc = builder.getUnknownLoc();
+
+    const auto params = GetParam();
+
+    EXPECT_EQ(params.shape.size(), params.bounds.size());
+
+    auto rank = params.shape.size();
+
+    auto order = DimsOrder::fromNumDims(rank);
+    const auto desc = vpux::getTensorAttr(
+            order.toAffineMap(&context), vpux::IndexedSymbolAttr::get(&context, stringifyEnum(VPU::MemoryKind::CMX_NN)),
+            getIntArrayAttr(&context, params.bounds));
+    auto inType = mlir::RankedTensorType::get(params.shape, builder.getF16Type(), desc);
+
+    auto funcType = builder.getFunctionType({inType}, {});
+    auto func = builder.create<mlir::func::FuncOp>(loc, "TestFunc", funcType);
+    auto& entryBlock = *func.addEntryBlock();
+
+    builder.setInsertionPointToStart(&entryBlock);
+
+    auto inArg = entryBlock.getArgument(0);
+
+    for (auto i : irange(rank)) {
+        auto result = IE::reifyDim(builder, inArg, i);
+        if (params.shape[i] == mlir::ShapedType::kDynamic) {
+            EXPECT_TRUE(result.is<mlir::Value>());
+            EXPECT_TRUE(mlir::isa<mlir::tensor::DimOp>(result.get<mlir::Value>().getDefiningOp()));
+            auto dimOp = mlir::cast<mlir::tensor::DimOp>(result.get<mlir::Value>().getDefiningOp());
+            EXPECT_TRUE(dimOp.getConstantIndex().has_value());
+            EXPECT_EQ(dimOp.getConstantIndex().value(), i);
+        } else {
+            EXPECT_TRUE(result.is<mlir::Attribute>());
+            EXPECT_TRUE(result.get<mlir::Attribute>().isa<mlir::IntegerAttr>());
+            EXPECT_EQ(result.get<mlir::Attribute>().cast<mlir::IntegerAttr>().getInt(), params.shape[i]);
+        }
+    }
+    builder.create<mlir::func::ReturnOp>(loc);
+}
+
+std::vector<ReifyDimTestData> reifyDimData = {
+        {{mlir::ShapedType::kDynamic, 23, 30, 10}, {2048, 23, 30, 10}},
+        {{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, 30, 10}, {2048, 23, 30, 10}},
+        {{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, 10}, {2048, 23, 30, 10}},
+        {{mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic,
+          mlir::ShapedType::kDynamic},
+         {2048, 23, 30, 10}}};
+
+INSTANTIATE_TEST_SUITE_P(ReifyDim, ReifyDimTests, testing::ValuesIn(reifyDimData));

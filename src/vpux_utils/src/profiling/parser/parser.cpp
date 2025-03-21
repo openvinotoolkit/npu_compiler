@@ -159,14 +159,13 @@ RawProfilingRecords parseDmaSwTaskProfiling(
 }
 
 bool hasExtendedActShaveRecord(TargetDevice device) {
-    switch (device) {
-    case TargetDevice::TargetDevice_VPUX37XX:
-        return false;
-    case TargetDevice::TargetDevice_VPUX40XX:
+    if (device >= TargetDevice::TargetDevice_VPUX40XX) {
         return true;
-    default:
-        VPUX_THROW("TargetDevice {0} is not supported ", EnumNameTargetDevice(device));
     }
+    if (device == TargetDevice::TargetDevice_VPUX37XX) {
+        return false;
+    }
+    VPUX_THROW("TargetDevice {0} is not supported ", EnumNameTargetDevice(device));
 }
 
 RawProfilingRecords parseActShaveTaskProfiling(
@@ -198,7 +197,7 @@ RawProfilingRecords parseActShaveTaskProfiling(
             record = std::make_shared<RawProfilingACTRecord>(outputShave, taskMeta, currentPos);
         }
         record->checkDataOrDie();
-        rawRecords.push_back(record);
+        rawRecords.push_back(std::move(record));
     }
     VPUX_THROW_UNLESS(foundActShaveTasks == shaveTaskList->size(), "All ActShave tasks should be profiled");
     return rawRecords;
@@ -227,14 +226,13 @@ RawProfilingRecords parseM2ITaskProfiling(
 }
 
 size_t getDpuRecordSize(TargetDevice device) {
-    switch (device) {
-    case TargetDevice::TargetDevice_VPUX40XX:
+    if (device >= TargetDevice::TargetDevice_VPUX40XX) {
         return sizeof(HwpDpuIduOduData_t);
-    case TargetDevice::TargetDevice_VPUX37XX:
-        return sizeof(HwpDpu27Mode0Data_t);
-    default:
-        VPUX_THROW("TargetDevice {0} is not supported ", EnumNameTargetDevice(device));
     }
+    if (device == TargetDevice::TargetDevice_VPUX37XX) {
+        return sizeof(HwpDpu27Mode0Data_t);
+    }
+    VPUX_THROW("TargetDevice {0} is not supported ", EnumNameTargetDevice(device));
 }
 
 struct DpuMetaComparator {
@@ -273,7 +271,7 @@ RawProfilingRecords parseDPUTaskProfiling(
             if (variantId < taskMeta->numVariants()) {
                 const auto inClusterIndex = currentPos - clusterBeginning;
                 VPUX_THROW_WHEN(currentPos >= outputLen / recordSize, "Profiling index is out of range");
-                if (device == TargetDevice::TargetDevice_VPUX40XX) {
+                if (device >= TargetDevice::TargetDevice_VPUX40XX) {
                     const HwpDpuIduOduData_t dpuTimings =
                             reinterpret_cast<const HwpDpuIduOduData_t*>(output)[currentPos];
                     const auto taskWloadId = taskMeta->workloadIds()->Get(variantId);
@@ -353,7 +351,7 @@ RawProfilingData parseProfilingTaskLists(const RawDataLayout& sections, TargetDe
         }
         case ExecutorType::WORKPOINT: {
             const auto isWorkpointAccessible =
-                    device == TargetDevice::TargetDevice_VPUX37XX || device == TargetDevice::TargetDevice_VPUX40XX;
+                    device == TargetDevice::TargetDevice_VPUX37XX || device >= TargetDevice::TargetDevice_VPUX40XX;
             if (isWorkpointAccessible && length != 0) {
                 rawProfData.workpoints = getWorkpointData(profData + offset, length, offset);
             }
@@ -402,12 +400,12 @@ RawProfilingRecords makeFakeDpuInvariants(const RawProfilingRecords& variants) {
     RawProfilingRecords invariants;
 
     // Grouping of variants into one invariant
-    std::multimap<std::pair<std::string, size_t>, RawProfilingRecordPtr> groupedClustersInfo;
+    std::multimap<std::pair<uint32_t, size_t>, RawProfilingRecordPtr> groupedClustersInfo;
     for (const auto& task : variants) {
         const auto clusteredTask = std::dynamic_pointer_cast<RawProfilingDPURecord>(task);
         VPUX_THROW_WHEN(clusteredTask == nullptr, "Expected cluster task");
         const auto clusterId = clusteredTask->getClusterId();
-        const auto key = std::make_pair(task->getOriginalName(), clusterId);
+        const auto key = std::make_pair(clusteredTask->getTaskId(), clusterId);
         groupedClustersInfo.insert(std::make_pair(key, task));
     }
 
@@ -415,7 +413,7 @@ RawProfilingRecords makeFakeDpuInvariants(const RawProfilingRecords& variants) {
     while (it != groupedClustersInfo.cend()) {
         RawProfilingRecords variants;
         const auto groupingKey = it->first;
-        std::string name = groupingKey.first;
+        std::string name = it->second->getOriginalName();
 
         while (it != groupedClustersInfo.cend() && it->first == groupingKey) {
             variants.push_back(it->second);
@@ -486,8 +484,6 @@ std::vector<TaskInfo> convertRawTasksToTaskInfo(const RawProfilingData& rawTasks
             dma2dpuOffset = earliestDmaNs.has_value() ? 0 : -static_cast<int64_t>(earliestTaskNs);
         }
         adjustZeroPoint(dpuTaskInfo, dma2dpuOffset, earliestDmaNs);
-        // Order DPU tasks by time to make tests more stable
-        std::sort(dpuTaskInfo.begin(), dpuTaskInfo.end(), profilingTaskStartTimeComparator<TaskInfo>);
     }
 
     if (!swTaskInfo.empty()) {
@@ -535,12 +531,12 @@ RawData getRawProfilingTasks(const uint8_t* blobData, size_t blobSize, const uin
     log.trace("Using target device {0}", EnumNameTargetDevice(device));
 
     const auto profilingBufferMeta = profilingDataSchema->profilingBuffer();
-    const auto sections = getRawDataLayoutFB(profilingBufferMeta, profSize);
+    auto sections = getRawDataLayoutFB(profilingBufferMeta, profSize);
 
     RawProfilingData rawProfData =
             parseProfilingTaskLists(sections, device, profData, profilingDataSchema, log, ignoreSanitizationErrors);
 
-    return {sections, std::move(rawProfData), device};
+    return {std::move(sections), std::move(rawProfData), device};
 }
 
 ProfInfo getProfInfo(const uint8_t* blobData, size_t blobSize, const uint8_t* profData, size_t profSize,

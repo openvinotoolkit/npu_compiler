@@ -5,10 +5,17 @@
 
 #include "vpux/compiler/dialect/IE/transforms/passes/expand_activation_channels.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_EXPANDACTIVATIONCHANNELS
+#define GEN_PASS_DEF_EXPANDACTIVATIONCHANNELS
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -19,7 +26,7 @@ namespace {
 //
 
 class ExpandActivationChannelsPass final :
-        public IE::arch37xx::ExpandActivationChannelsBase<ExpandActivationChannelsPass> {
+        public IE::arch37xx::impl::ExpandActivationChannelsBase<ExpandActivationChannelsPass> {
 public:
     explicit ExpandActivationChannelsPass(const bool seOpsEnabled, const bool seExperimentalOpsEnabled, Logger log)
             : _seOpsEnabled(seOpsEnabled), _seExperimentalOpsEnabled(seExperimentalOpsEnabled) {
@@ -77,7 +84,7 @@ void ExpandActivationChannelsPass::safeRunOnFunc() {
     target.markUnknownOpDynamicallyLegal(isLegal);
     target.addLegalOp<Const::DeclareOp>();
     target.addLegalOp<IE::ExpandOp, IE::SliceOp>();
-    target.addLegalOp<IE::MultiplyOp, IE::SubtractOp, IE::AndOp>();
+    target.addLegalOp<IE::MultiplyOp, IE::SubtractOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<IE::MaxPoolRewriter>(&ctx, _log);

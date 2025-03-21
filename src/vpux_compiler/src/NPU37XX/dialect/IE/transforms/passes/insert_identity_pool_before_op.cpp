@@ -5,12 +5,20 @@
 
 #include "vpux/compiler/dialect/IE/transforms/passes/insert_identity_pool_before_op.hpp"
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_INSERTIDENTITYPOOLBEFOREOP
+#define GEN_PASS_DEF_INSERTIDENTITYPOOLBEFOREOP
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -96,7 +104,7 @@ mlir::Operation* insertMaxPool(mlir::Operation* concreteOp, mlir::PatternRewrite
 //
 
 class InsertIdentityPoolBeforeOpPass final :
-        public IE::arch37xx::InsertIdentityPoolBeforeOpBase<InsertIdentityPoolBeforeOpPass> {
+        public IE::arch37xx::impl::InsertIdentityPoolBeforeOpBase<InsertIdentityPoolBeforeOpPass> {
 public:
     explicit InsertIdentityPoolBeforeOpPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

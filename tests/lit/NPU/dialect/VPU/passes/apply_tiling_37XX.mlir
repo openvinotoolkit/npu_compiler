@@ -145,22 +145,22 @@ func.func @SplitSEDepthConvolutionAlignedOnChannels(%arg0: tensor<1x1024x65x65xf
     return %9 : tensor<1x1024x32x32xf16>
 
     // CHECK:       [[SPARSE_SLICE0:%.+]] = VPU.Slice [[ARG]]
-    // CHECK-SAME:      [0, 768, 1, 1] [1, 256, 64, 64] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x256x64x64xf16, {order = #NHWC}>
+    // CHECK-SAME:      [0, 768, 0, 0] [1, 256, 65, 65] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x256x65x65xf16, {order = #NHWC}>
     // CHECK:       [[SPARSE_TENSOR0:%.+]] = VPU.GroupSparseTensor([[SPARSE_SLICE0]],
-    // CHECK-SAME:      dataSizes = [1, 256, 64, 64], offsets = [], sizes = [1, 256, 32, 32]>} ->
-    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x256x64x64xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x32x32xi1
+    // CHECK-SAME:      dataSizes = [1, 256, 63, 63], offsets = [], sizes = [1, 256, 32, 32]>} ->
+    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x256x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x256x32x32xi1
 
     // CHECK:       [[SPARSE_SLICE1:%.+]] = VPU.Slice [[ARG]]
-    // CHECK-SAME:      [0, 384, 1, 1] [1, 384, 64, 64] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x384x64x64xf16, {order = #NHWC}>
+    // CHECK-SAME:      [0, 384, 0, 0] [1, 384, 65, 65] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x384x65x65xf16, {order = #NHWC}>
     // CHECK:       [[SPARSE_TENSOR1:%.+]] = VPU.GroupSparseTensor([[SPARSE_SLICE1]],
-    // CHECK-SAME:      dataSizes = [1, 384, 64, 64], offsets = [], sizes = [1, 384, 32, 32]>} ->
-    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x384x64x64xf16, {order = #NHWC}>, sparsity_map=tensor<1x384x32x32xi1
+    // CHECK-SAME:      dataSizes = [1, 384, 63, 63], offsets = [], sizes = [1, 384, 32, 32]>} ->
+    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x384x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x384x32x32xi1
 
     // CHECK:       [[SPARSE_SLICE2:%.+]] = VPU.Slice [[ARG]]
-    // CHECK-SAME:      [0, 0, 1, 1] [1, 384, 64, 64] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x384x64x64xf16, {order = #NHWC}>
+    // CHECK-SAME:      [0, 0, 0, 0] [1, 384, 65, 65] : tensor<1x1024x65x65xf16, {order = #NHWC}> to tensor<1x384x65x65xf16, {order = #NHWC}>
     // CHECK:       [[SPARSE_TENSOR2:%.+]] = VPU.GroupSparseTensor([[SPARSE_SLICE2]],
-    // CHECK-SAME:      dataSizes = [1, 384, 64, 64], offsets = [], sizes = [1, 384, 32, 32]>} ->
-    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x384x64x64xf16, {order = #NHWC}>, sparsity_map=tensor<1x384x32x32xi1
+    // CHECK-SAME:      dataSizes = [1, 384, 63, 63], offsets = [], sizes = [1, 384, 32, 32]>} ->
+    // CHECK-SAME:      !VPU.SparseTensor<data=tensor<1x384x65x65xf16, {order = #NHWC}>, sparsity_map=tensor<1x384x32x32xi1
 
     // CHECK:       [[DCONV0:%.+]] = VPU.NCE.DepthConvolution([[SPARSE_TENSOR2]]
     // CHECK-SAME:      -> tensor<1x384x32x32xf16>

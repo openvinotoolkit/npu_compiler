@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 // CHECK-LABEL:  func.func @DynamicFQWeights
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x3x16x16xf16>)
 func.func @DynamicFQWeights(%input: tensor<1x3x16x16xf16>) -> tensor<1x3x16x16xf16> {

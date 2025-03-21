@@ -3,9 +3,16 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#include "vpux/compiler/dialect/ELFNPU37XX/dialect.hpp"
+#include "vpux/compiler/dialect/ELFNPU37XX/ops.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
-#include "vpux/compiler/utils/adjust_layout_utils.hpp"
-#include "vpux/compiler/utils/logging.hpp"
+#include "vpux/compiler/utils/passes.hpp"
+
+namespace vpux::ELFNPU37XX {
+#define GEN_PASS_DECL_REMOVEEMPTYELFSECTIONS
+#define GEN_PASS_DEF_REMOVEEMPTYELFSECTIONS
+#include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp.inc"
+}  // namespace vpux::ELFNPU37XX
 
 using namespace vpux;
 
@@ -27,7 +34,7 @@ void recursivelyErase(mlir::Operation* operation) {
     return;
 }
 
-class RemoveEmptyELFSectionsPass : public ELFNPU37XX::RemoveEmptyELFSectionsBase<RemoveEmptyELFSectionsPass> {
+class RemoveEmptyELFSectionsPass : public ELFNPU37XX::impl::RemoveEmptyELFSectionsBase<RemoveEmptyELFSectionsPass> {
 public:
     explicit RemoveEmptyELFSectionsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

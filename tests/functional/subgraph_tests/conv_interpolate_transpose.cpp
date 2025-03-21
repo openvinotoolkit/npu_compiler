@@ -97,7 +97,6 @@ TEST_P(ConvInterpolateTransposeTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
-
 const std::vector<ConvInterpolateTransposeTestParams> cSzParams = {{1},  {3},  {4},  {7},  {8}, {9},
                                                                    {16}, {21}, {32}, {33}, {64}};
 

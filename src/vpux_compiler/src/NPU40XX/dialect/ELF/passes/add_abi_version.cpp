@@ -5,6 +5,12 @@
 #include <cstdint>
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 
+namespace vpux::ELF::arch40xx {
+#define GEN_PASS_DECL_ADDABIVERSION
+#define GEN_PASS_DEF_ADDABIVERSION
+#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp.inc"
+}  // namespace vpux::ELF::arch40xx
+
 using namespace vpux;
 
 namespace {
@@ -12,7 +18,7 @@ namespace {
 // AddABIVersionPass
 //
 
-class AddABIVersionPass : public ELF::AddABIVersionBase<AddABIVersionPass> {
+class AddABIVersionPass : public ELF::arch40xx::impl::AddABIVersionBase<AddABIVersionPass> {
 public:
     AddABIVersionPass(Logger log, uint32_t versionMajor, uint32_t versionMinor, uint32_t versionPatch)
             : _versionMajor(versionMajor), _versionMinor(versionMinor), _versionPatch(versionPatch) {

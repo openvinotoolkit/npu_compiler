@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values=true" --split-input-file -inline %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
-
 module @CallChain {
     IE.TileResource 6 of @NCE at 1.700000e+03 MHz
 
@@ -50,7 +49,7 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
       %57 = VPUIP.NNDMA {port = 0 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_0_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @cmx_declare_buffer(%farg0, %farg1) {debatched = [0, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @cmx_declare_buffer(%farg0, %farg1) {debatched = [0, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
 
     VPURT.Task waits(%call_0_barrier_done : !VPURT.Barrier) updates(%farg0_barrier_done : !VPURT.Barrier) {
@@ -61,7 +60,7 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
       %57 = VPUIP.NNDMA {port = 1 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_1_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @cmx_declare_buffer(%farg0, %farg1) {debatched = [1, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @cmx_declare_buffer(%farg0, %farg1) {debatched = [1, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     return %arg0 : tensor<2x3x64x64xf16>
 
@@ -98,8 +97,8 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
 module @DoNotReorderCMX {
     // Unlike the previous case, no CMX reordering is done here.
     // The transformation by reordering CMX numbers is performing on a function call
-    // which has "debatched = [<partitioning>]" attribute. Since a "partitioning"
-    // is undetermined due to the attribute absence, no any reordering is expected
+    // which has both "debatched = [<partitioning>]" and "reordering = 1" attributes.
+    // As no "reordering" attribute is injected, no any reordering is expected
     IE.TileResource 2 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @cmx_declare_buffer
@@ -190,7 +189,7 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
-module @HaloTest {
+module @HaloCMXPartitioningForReorderingTest {
     IE.TileResource 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @cmx_iti_buffer
@@ -298,7 +297,7 @@ func.func @cmx_iti_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x6
       %57 = VPUIP.NNDMA {port = 0 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_0_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @cmx_iti_buffer(%farg0, %farg1) {debatched = [0, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @cmx_iti_buffer(%farg0, %farg1) {debatched = [0, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
 
     VPURT.Task waits(%call_0_barrier_done : !VPURT.Barrier) updates(%farg0_barrier_done : !VPURT.Barrier) {
@@ -309,7 +308,7 @@ func.func @cmx_iti_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x6
       %57 = VPUIP.NNDMA {port = 1 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_1_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @cmx_iti_buffer(%farg0, %farg1) {debatched = [1, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @cmx_iti_buffer(%farg0, %farg1) {debatched = [1, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     return %arg0 : tensor<2x3x64x64xf16>
 
@@ -468,7 +467,7 @@ func.func @cmx_iti_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x6
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
-module @DDROffsetFromModuleTest {
+module @DDROffsetFromModuleForReorderingTest {
     IE.TileResource 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @ddr_decl_buffer
@@ -511,7 +510,7 @@ func.func @ddr_decl_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x
       %57 = VPUIP.NNDMA {port = 0 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_0_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @ddr_decl_buffer(%farg0, %farg1) {debatched = [0, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @ddr_decl_buffer(%farg0, %farg1) {debatched = [0, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
 
     VPURT.Task waits(%call_0_barrier_done : !VPURT.Barrier) updates(%farg0_barrier_done : !VPURT.Barrier) {
@@ -522,7 +521,7 @@ func.func @ddr_decl_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x
       %57 = VPUIP.NNDMA {port = 1 : i64} inputs(%filler1 : memref<1x3x64x64xf16, @DDR>) outputs(%farg1 : memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     VPURT.Task waits(%farg0_barrier_done, %farg1_barrier_done : !VPURT.Barrier, !VPURT.Barrier) updates(%call_1_barrier_done : !VPURT.Barrier) {
-      %57 = func.call @ddr_decl_buffer(%farg0, %farg1) {debatched = [1, 2]} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
+      %57 = func.call @ddr_decl_buffer(%farg0, %farg1) {debatched = [1, 2], reordering = 1} : (memref<1x3x64x64xf16, @DDR>, memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR>
     }
     return %arg0 : tensor<2x3x64x64xf16>
 

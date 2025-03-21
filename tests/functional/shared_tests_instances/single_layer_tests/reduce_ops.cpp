@@ -77,6 +77,13 @@ class ReduceLayerTest_FP32 : public ReduceLayerTestCommon {
     }
 };
 
+// ChannelAxis Reduce Test for DPU support
+class ReduceLayerTest_ChannelAxis_HW_FP16 : public ReduceLayerTestCommon {
+    void configure_model() override {
+        VpuOv2LayerTest::configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "enable-is-reduce-supported=false enable-auto-padding-odu=false";
+    }
+};
 /// FP16 SW/HW
 TEST_P(ReduceLayerTest_HW_FP16, NPU3720) {
     VpuOv2LayerTest::setDefaultHardwareMode();
@@ -183,6 +190,14 @@ const auto paramsHWFP16 = testing::Combine(
         testing::Values(DEVICE_NPU));
 
 //
+// FP16 HW
+const auto channelAxisHWFP16 = testing::Combine(
+        testing::ValuesIn(decltype(axes){{1}}), testing::Values(OpType::VECTOR), testing::ValuesIn(keepDims),
+        testing::Values(ReductionType::Mean, ReductionType::Sum), testing::ValuesIn(modelTypes),
+        testing::Values(std::vector<size_t>{1, 16, 32, 32}, std::vector<size_t>{1, 4, 32, 32}),
+        testing::Values(DEVICE_NPU));
+
+//
 // FP32
 const auto paramsFP32 = testing::Combine(
         testing::ValuesIn(decltype(axes){{2, 3}}), testing::Values(OpType::VECTOR), testing::ValuesIn(keepDims),
@@ -213,5 +228,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_ReduceAllAxis, ReduceLayerTest_SW_FP16, paramsRed
 
 // FP32 HW and SW
 INSTANTIATE_TEST_SUITE_P(smoke_Reduce_FP32, ReduceLayerTest_FP32, paramsFP32, ReduceLayerTest_FP32::getTestCaseName);
+
+// ChannelAxis Reduce test for DPU support
+INSTANTIATE_TEST_SUITE_P(smoke_reduce_axis, ReduceLayerTest_ChannelAxis_HW_FP16, channelAxisHWFP16,
+                         ReduceLayerTest_ChannelAxis_HW_FP16::getTestCaseName);
 
 }  // namespace

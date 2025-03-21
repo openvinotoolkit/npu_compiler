@@ -1,5 +1,5 @@
 //
-// Copyright (C) 2022-2024 Intel Corporation.
+// Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
 
@@ -10,10 +10,8 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attr_interfaces.hpp"
 #include "vpux/utils/core/array_ref.hpp"
-#include "vpux/utils/core/format.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 #include "vpux/utils/core/mem_size.hpp"
-#include "vpux/utils/core/optional.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
@@ -22,6 +20,8 @@
 #include <mlir/Interfaces/SideEffectInterfaces.h>
 
 #include <llvm/Support/FormatVariadic.h>
+
+#include <optional>
 
 namespace vpux {
 namespace VPU {
@@ -116,7 +116,7 @@ double getDMABandwidth(ArchKind arch, VPU::RevisionID rev);
  * @param arch
  * @return return NCE troughtput in MOPS (millions of operations per second)
  */
-double getNCEThroughput(ArchKind arch);
+double getNCEThroughput();
 
 Byte getTotalCMXSize(mlir::Operation* op);
 Byte getTotalCMXSize(mlir::ModuleOp module);

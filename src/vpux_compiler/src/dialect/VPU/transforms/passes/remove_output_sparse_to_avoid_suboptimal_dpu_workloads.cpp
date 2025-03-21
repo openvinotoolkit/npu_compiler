@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/core/tiling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -11,28 +12,40 @@
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+namespace vpux::VPU {
+#define GEN_PASS_DECL_REMOVEOUTPUTSPARSETOAVOIDSUBOPTIMALDPUWORKLOADSPASS
+#define GEN_PASS_DEF_REMOVEOUTPUTSPARSETOAVOIDSUBOPTIMALDPUWORKLOADSPASS
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
+
 using namespace vpux;
 
 namespace {
 
 void removeOutputSparse(VPU::NCEOpInterface nceOp, Logger log) {
-    if (!VPU::shouldRemoveOutputSparsity(nceOp)) {
+    auto removeSparsityFlag = VPU::shouldRemoveOutputSparsity(nceOp);
+    if (removeSparsityFlag != VPU::SparsityRemovalFlag::Success) {
+        log.trace("{0} at {1}: keeping output sparsity, reason={2}", nceOp->getName(), nceOp->getLoc(),
+                  removeSparsityFlag);
         return;
     }
+    log.trace("{0} at {1}: removing output sparsity", nceOp->getName(), nceOp->getLoc());
 
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(nceOp.getOperation());
-    const auto outputTensorType = clusteredOp->getResult(0).getType().cast<vpux::NDTypeInterface>();
-    const auto sparseOutputType = outputTensorType.dyn_cast<VPU::SparseTensorType>();
+    const auto dataType = clusteredOp->getResult(0).getType();
 
     auto recursivelyRemoveSparseOutput = [&](VPU::ClusteredOpInterface clusteredOp) -> void {
-        clusteredOp->getResult(0).setType(sparseOutputType.getData());
+        clusteredOp->getResult(0).setType(dataType);
         log.nest().trace("Remove output sparsity for op {0} at {1}", clusteredOp->getName(), clusteredOp->getLoc());
 
         auto users = to_small_vector(clusteredOp->getUsers());
         while (!users.empty()) {
             auto currentOp = users.back();
             users.pop_back();
-            if (mlir::isa_and_nonnull<vpux::VPU::ViewLikeOpInterface, VPU::UnrolledTypeOp>(currentOp)) {
+            if (auto unrolledTypeOp = mlir::dyn_cast_or_null<VPU::UnrolledTypeOp>(currentOp)) {
+                auto nextOps = to_small_vector(unrolledTypeOp->getUsers());
+                users.insert(users.end(), nextOps.begin(), nextOps.end());
+            } else if (mlir::isa_and_nonnull<vpux::VPU::ViewLikeOpInterface>(currentOp)) {
                 vpux::inferReturnTypes(currentOp, vpux::InferShapedTypeMode::ALL);
                 auto nextOps = to_small_vector(currentOp->getUsers());
                 users.insert(users.end(), nextOps.begin(), nextOps.end());
@@ -47,18 +60,15 @@ void removeOutputSparse(VPU::NCEOpInterface nceOp, Logger log) {
 // RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass
 //
 class RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass final :
-        public VPU::RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPassBase<
+        public VPU::impl::RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPassBase<
                 RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass> {
 public:
-    explicit RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass(Logger log): _log(log) {
+    explicit RemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 //

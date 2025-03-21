@@ -82,7 +82,7 @@ void ELF::RelocManager::createRelocations(mlir::Operation* op, ELF::RelocationIn
     auto offset = relocInfo.offset;
 
     if (relocInfo.isOffsetRelative) {
-        auto baseBinaryOp = mlir::cast<ELF::WrappableOpInterface>(op);
+        auto baseBinaryOp = mlir::cast<ELF::BinaryOpInterface>(op);
         offset += baseBinaryOp.getMemoryOffset();
     }
 

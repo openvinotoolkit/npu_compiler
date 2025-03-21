@@ -6,7 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_NPUReg40XX_ATTRIBUTES
 #define VPUX_COMPILER_DIALECT_NPUReg40XX_ATTRIBUTES
 
-include "vpux/compiler/core/attributes.td"
+include "vpux/compiler/dialect/core/attributes.td"
 include "vpux/compiler/dialect/VPURegMapped/attr_interfaces.td"
 include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.td"
 
@@ -61,5 +61,13 @@ def ActKernelInvocationDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "
 def ActKernelRangeDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuActKernelRange", "VpuActKernelRange"> {}
 
 def M2IDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuMediaTask", "VpuMediaTask"> {}
+
+def ConfigureBarrierDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuBarrierCountConfig", "VpuBarrierCountConfig"> {}
+
+def TaskBarrierMapDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuTaskBarrierMap", "VpuTaskBarrierMap"> {}
+
+def ManagedMappedInferenceDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::VpuManagedMappedInference", "VpuManagedMappedInference"> {}
+
+def WorkItemDescriptorAttr : DescriptorAttrBase<NPUReg40XX_Dialect, "vpux::NPUReg40XX::Descriptors::WorkItem", "WorkItem"> {}
 
 #endif  // VPUX_COMPILER_DIALECT_NPUReg40XX_ATTRIBUTES

@@ -13,6 +13,12 @@
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/PatternMatch.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTDYNAMICELTWISEWITHSHAPEOF
+#define GEN_PASS_DEF_OPTDYNAMICELTWISEWITHSHAPEOF
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -151,7 +157,7 @@ mlir::LogicalResult OptDynamicEltwiseWithShapeOf::matchAndRewrite(IE::ShapeOfOp 
 //
 
 class OptDynamicEltwiseWithShapeOfPass final :
-        public IE::OptDynamicEltwiseWithShapeOfBase<OptDynamicEltwiseWithShapeOfPass> {
+        public IE::impl::OptDynamicEltwiseWithShapeOfBase<OptDynamicEltwiseWithShapeOfPass> {
 public:
     explicit OptDynamicEltwiseWithShapeOfPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

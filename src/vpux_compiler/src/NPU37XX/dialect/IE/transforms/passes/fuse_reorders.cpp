@@ -4,8 +4,17 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops.hpp"
+#include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+namespace vpux::IE::arch37xx {
+#define GEN_PASS_DECL_FUSEREORDERSPASS
+#define GEN_PASS_DEF_FUSEREORDERSPASS
+#include "vpux/compiler/NPU37XX/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE::arch37xx
 
 using namespace vpux;
 
@@ -107,7 +116,7 @@ mlir::LogicalResult ReorderRewriter::matchAndRewrite(IE::ReorderOp origOp, mlir:
 // FuseReordersPass
 //
 
-class FuseReordersPass final : public IE::arch37xx::FuseReordersPassBase<FuseReordersPass> {
+class FuseReordersPass final : public IE::arch37xx::impl::FuseReordersPassBase<FuseReordersPass> {
 public:
     explicit FuseReordersPass(Logger log): _log(log) {
         _log.setName(Base::getArgumentName());

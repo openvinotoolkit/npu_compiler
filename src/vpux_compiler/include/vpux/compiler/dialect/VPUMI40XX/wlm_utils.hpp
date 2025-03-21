@@ -79,6 +79,26 @@ struct HwQueueType {
 
 void setBarrierIDs(mlir::MLIRContext* ctx, mlir::func::FuncOp funcOp);
 
+//
+// Log Fetch Tasks
+//
+
+struct FetchTaskDetails {
+    size_t tileIndex;
+    size_t taskIndex;
+    size_t dmaWithBarriers;
+    size_t barrierIdx;
+    size_t primaryStart;
+    size_t primaryEnd;
+    size_t secondaryStart;
+    size_t secondaryEnd;
+    std::string taskType;
+    size_t executionGroup;
+};
+
+VPUMI40XX::NNDMAOp getPreviousDMAWithBarriers(VPURegMapped::TaskOpInterface taskOpInterface);
+void logFetchOpsDetails(mlir::func::FuncOp netFunc, Logger log);
+
 }  // namespace VPUMI40XX
 }  // namespace vpux
 

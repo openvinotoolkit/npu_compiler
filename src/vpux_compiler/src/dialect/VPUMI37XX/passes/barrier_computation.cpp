@@ -2,14 +2,24 @@
 // Copyright (C) 2022 Intel Corporation.
 // SPDX-License-Identifier: Apache 2.0
 //
-
-#include <mlir/Transforms/DialectConversion.h>
-#include <vector>
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUMI37XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/utils.hpp"
+#include "vpux/compiler/utils/passes.hpp"
 
 #include <npu_37xx_nnrt.hpp>
+
+#include <mlir/IR/MLIRContext.h>
+#include <mlir/IR/Operation.h>
+
+#include <vector>
+
+namespace vpux::VPUMI37XX {
+#define GEN_PASS_DECL_BARRIERCOMPUTATION
+#define GEN_PASS_DEF_BARRIERCOMPUTATION
+#include "vpux/compiler/dialect/VPUMI37XX/passes.hpp.inc"
+}  // namespace vpux::VPUMI37XX
 
 using namespace vpux;
 using namespace npu37xx;
@@ -265,7 +275,7 @@ void simulateBarriers(const std::vector<nn_public::VpuBarrierCountConfig>& barri
     updateCleanAfterField(acts);
 }
 
-class BarrierComputationPass final : public VPUMI37XX::BarrierComputationBase<BarrierComputationPass> {
+class BarrierComputationPass final : public VPUMI37XX::impl::BarrierComputationBase<BarrierComputationPass> {
 public:
     explicit BarrierComputationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());

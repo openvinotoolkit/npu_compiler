@@ -106,6 +106,12 @@ def VPU_SEAttrInterface : AttrInterface<"SEAttr"> {
         >,
 
         InterfaceMethod<[{
+            Infers input tile shape and offset based on the output tile shape and offset and input shape}],
+            "std::pair<vpux::Shape, vpux::Shape>", "inferInputTileShapeAndOffset",
+            (ins "vpux::ShapeRef":$outputTileOffset, "vpux::ShapeRef":$outputTileShape, "vpux::ShapeRef":$inputShape)
+        >,
+
+        InterfaceMethod<[{
             Computes the Storage Element offsets for the given input data after applying
             the transformation represented by the current attribute.
 

@@ -6,6 +6,8 @@
 #pragma once
 
 #include "intel_npu/icompiler.hpp"
+
+#include "vpux/compiler/version.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 
 namespace vpux {
@@ -55,6 +57,8 @@ struct NetworkDescriptionView {
 
 class CompilerImpl final : public intel_npu::ICompiler {
 public:
+    CompilerImpl();
+
     uint32_t getSupportedOpsetVersion() const;
 
     // Mutable model variant for direct use with deserialized model in VCL
@@ -72,6 +76,11 @@ public:
     std::vector<ov::ProfilingInfo> process_profiling_output(const std::vector<uint8_t>& profData,
                                                             const std::vector<uint8_t>& network,
                                                             const intel_npu::Config& config) const final;
+
+    uint32_t get_version() const final {
+        return ICOMPILER_MAKE_VERSION(NPU_COMPILER_VERSION_MAJOR, NPU_COMPILER_VERSION_MINOR);
+    };
+
     // CiD-specific methods
 
     NetworkDescriptionView compile(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,

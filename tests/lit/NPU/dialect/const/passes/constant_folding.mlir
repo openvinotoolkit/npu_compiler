@@ -5,7 +5,6 @@
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --constant-folding --mlir-print-elementsattrs-with-hex-if-larger=-1 %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
-
 !qElemType = !quant.uniform<u8:f16, 0.0039215686274509803>
 #YXOI = affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)>
 
@@ -569,7 +568,7 @@ func.func @RelocateFoldUnfusedConstantSingleCluster() -> (memref<5x1x1x4xsi32>, 
         [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=80 : i64, weightsElemBitSize=16 : i64>]
     %subview_relocate = const.Declare memref<2x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[2, 4, 4, 4]]], [[[3, 6, 5, 5]]], [[[4, 8, 6, 6]]], [[[5, 10, 7, 7]]]]> : tensor<5x1x1x4xsi32>,
         [#const.SubView<[2, 0, 0, 0], [2, 1, 1, 4]>,
-         #const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=2 : i64>]
+         #const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=2 : i64, originalOC=0 : i64>]
     return %relocate, %subview_relocate : memref<5x1x1x4xsi32>, memref<2x1x1x4xsi32>
 
     // CHECK:               [[RELOCATE:%.+]] = const.Declare memref<5x1x1x4xsi32>
@@ -597,7 +596,7 @@ func.func @RelocateFoldUnfusedMultiCluster() -> (memref<4x1x1x4xsi32>, memref<2x
         [#const.RelocateWeightsTable<weightsPtr=[10, 20], sparsityPtr=5 : i64, offsets=[0, 2], weightsTableSize=64 : i64, weightsElemBitSize=16 : i64>]
     %subview_relocate = const.Declare memref<2x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[2, 4, 4, 4]]], [[[3, 6, 5, 5]]], [[[4, 8, 6, 6]]]]> : tensor<4x1x1x4xsi32>,
         [#const.SubView<[2, 0, 0, 0], [2, 1, 1, 4]>,
-         #const.RelocateWeightsTable<weightsPtr=[20], sparsityPtr=5 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64>]
+         #const.RelocateWeightsTable<weightsPtr=[20], sparsityPtr=5 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=0 : i64>]
     return %relocate, %subview_relocate : memref<4x1x1x4xsi32>, memref<2x1x1x4xsi32>
 
     // CHECK:               [[RELOCATE:%.+]] = const.Declare memref<4x1x1x4xsi32>
@@ -612,11 +611,63 @@ func.func @RelocateWithSparsityAndNon0ChannelOffsetFoldSingleCluster() -> memref
     // weightPtrStep = 20, sparsityPtrStep = 2
     %relocate = const.Declare memref<5x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[21, 4, 4, 4]]], [[[41, 6, 5, 5]]], [[[61, 8, 6, 6]]], [[[81, 10, 7, 7]]]]> : tensor<5x1x1x4xsi32>,
         [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=80 : i64, weightsElemBitSize=16 : i64,
-        weightsCompression=#VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<24> : tensor<10xi64>, alignment = 16 : i64>, channelOffset=5 : i64>]
+        weightsCompression=#VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<24> : tensor<10xi64>, alignment = 16 : i64>, channelOffset=5 : i64, originalOC=0 : i64>]
     return %relocate : memref<5x1x1x4xsi32>
 
     // CHECK:                   const.Declare memref<5x1x1x4xsi32>
     // CHECK-SAME{LITERAL}:     dense<[[[[250, 25, 3, 3]]], [[[298, 27, 4, 4]]], [[[346, 29, 5, 5]]], [[[394, 31, 6, 6]]], [[[442, 33, 7, 7]]]]>
+}
+
+// -----
+
+func.func @DuplicationRelocateWithSparsityAndNon0ChannelOffsetFoldSingleCluster() -> memref<5x1x1x4xsi32> {
+    // weightPtrStep = 20, sparsityPtrStep = 2
+    %relocate = const.Declare memref<5x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[21, 4, 4, 4]]], [[[41, 6, 5, 5]]], [[[61, 8, 6, 6]]], [[[81, 10, 7, 7]]]]> : tensor<5x1x1x4xsi32>,
+        [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=80 : i64, weightsElemBitSize=16 : i64,
+        weightsCompression=#VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<24> : tensor<10xi64>, alignment = 16 : i64>, originalOC=3 : i64>]
+    return %relocate : memref<5x1x1x4xsi32>
+
+    // CHECK:                   const.Declare memref<5x1x1x4xsi32>
+    // CHECK-SAME{LITERAL}:     dense<[[[[10, 15, 3, 3]]], [[[58, 17, 4, 4]]], [[[106, 19, 5, 5]]], [[[10, 15, 6, 6]]], [[[10, 15, 7, 7]]]]>
+}
+
+// -----
+
+func.func @DuplicationOffsetRelocateWithSparsityAndNon0ChannelOffsetFoldSingleCluster() -> memref<4x1x1x4xsi32> {
+    // weightPtrStep = 20, sparsityPtrStep = 2
+    %relocate = const.Declare memref<4x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[21, 4, 4, 4]]], [[[41, 6, 5, 5]]], [[[61, 8, 6, 6]]]]> : tensor<4x1x1x4xsi32>,
+        [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=15 : i64, offsets=[0], weightsTableSize=64 : i64, weightsElemBitSize=16 : i64,
+        weightsCompression=#VPUIP.SparsityCompressionAttr<axis = 0 : i64, numElems = dense<24> : tensor<10xi64>, alignment = 16 : i64>, channelOffset=1 : i64, originalOC=3 : i64>]
+    return %relocate : memref<4x1x1x4xsi32>
+
+    // CHECK:                   const.Declare memref<4x1x1x4xsi32>
+    // CHECK-SAME{LITERAL}:     dense<[[[[58, 17, 3, 3]]], [[[106, 19, 4, 4]]], [[[10, 15, 5, 5]]], [[[10, 15, 6, 6]]]]>
+}
+
+// -----
+
+func.func @RelocateFoldMultiClusterSliced1OrigChannel() -> memref<4x1x1x4xsi32> {
+    %relocate = const.Declare memref<4x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[2, 4, 4, 4]]], [[[3, 6, 5, 5]]], [[[4, 8, 6, 6]]]]> : tensor<4x1x1x4xsi32>,
+        [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=5 : i64, offsets=[0], weightsTableSize=64 : i64, weightsElemBitSize=16 : i64, originalOC = 1 : i64>]
+    return %relocate : memref<4x1x1x4xsi32>
+
+    // CHECK:               [[RELOCATE:%.+]] = const.Declare memref<4x1x1x4xsi32>
+    // CHECK-SAME{LITERAL}:    dense<[[[[10, 5, 3, 3]]], [[[10, 5, 4, 4]]], [[[10, 5, 5, 5]]], [[[10, 5, 6, 6]]]]>
+}
+
+// -----
+
+func.func @RelocateFoldSingleClusterSliced1OrigChannel() -> (memref<2x1x1x4xsi32>, memref<2x1x1x4xsi32>) {
+    %relocate_lower = const.Declare memref<2x1x1x4xsi32> = dense<[[[[1, 2, 3, 3]]], [[[2, 4, 4, 4]]]]> : tensor<2x1x1x4xsi32>,
+        [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=5 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64, originalOC=1 : i64>]
+    %relocate_upper = const.Declare memref<2x1x1x4xsi32> = dense<[[[[3, 6, 5, 5]]], [[[4, 8, 6, 6]]]]> : tensor<2x1x1x4xsi32>,
+        [#const.RelocateWeightsTable<weightsPtr=[10], sparsityPtr=5 : i64, offsets=[0], weightsTableSize=32 : i64, weightsElemBitSize=16 : i64, channelOffset=2 : i64, originalOC=1 : i64>]
+    return %relocate_lower, %relocate_upper : memref<2x1x1x4xsi32>, memref<2x1x1x4xsi32>
+
+    // CHECK:               [[RELOCATE_LOWER:%.+]] = const.Declare memref<2x1x1x4xsi32>
+    // CHECK-SAME{LITERAL}:    dense<[[[[10, 5, 3, 3]]], [[[10, 5, 4, 4]]]]>
+    // CHECK:               [[RELOCATE_UPPER:%.+]] = const.Declare memref<2x1x1x4xsi32>
+    // CHECK-SAME{LITERAL}:     dense<[[[[10, 5, 5, 5]]], [[[10, 5, 6, 6]]]]>
 }
 
 // -----
@@ -626,7 +677,7 @@ func.func @RelocateWithSparsityAndNon0ChannelOffsetFoldSingleCluster() -> memref
 
 func.func @FoldSplatFusedConstant() -> memref<1x1x1x288xui8> {
     %cst = const.Declare memref<1x1x1x288xui8> =  dense<1> : tensor<16x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x288xui8>,
+        [#const.FuseWeights<tensor<1x1x1x288xui8>,
             weightsTable=<dense<1> : tensor<16x1x1x4xsi32>>,
             weights=<dense<1.000000e+00> : tensor<16x1x1x4xf16>, [#const.CastElemType<si4>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>
         ]
@@ -644,7 +695,7 @@ func.func @FoldSplatFusedConstant() -> memref<1x1x1x288xui8> {
 
 func.func @FoldFusedSignedQuantizedWeightsMixedPrecision() -> memref<1x1x1x512xui8> {
     %cst = const.Declare memref<1x1x1x512xui8> = dense<[[[[0, 0, 1006699012, 0]]], [[[16, 0, 1006699012, 0]]], [[[32, 0, 1006699012, 0]]], [[[48, 0, 1006699012, 0]]], [[[64, 0, 1006699012, 0]]], [[[80, 0, 1006699012, 0]]], [[[96, 0, 1006699012, 0]]], [[[112, 0, 1006699012, 0]]], [[[128, 0, 1006699012, 0]]], [[[144, 0, 1006699012, 0]]], [[[160, 0, 1006699012, 0]]], [[[176, 0, 1006699012, 0]]], [[[192, 0, 1006699012, 0]]], [[[208, 0, 1006699012, 0]]], [[[224, 0, 1006699012, 0]]], [[[240, 0, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x512xui8>,
+        [#const.FuseWeights<tensor<1x1x1x512xui8>,
             weightsTable=<dense<[[[[0, 0, 1006699012, 0]]], [[[16, 0, 1006699012, 0]]], [[[32, 0, 1006699012, 0]]], [[[48, 0, 1006699012, 0]]], [[[64, 0, 1006699012, 0]]], [[[80, 0, 1006699012, 0]]], [[[96, 0, 1006699012, 0]]], [[[112, 0, 1006699012, 0]]], [[[128, 0, 1006699012, 0]]], [[[144, 0, 1006699012, 0]]], [[[160, 0, 1006699012, 0]]], [[[176, 0, 1006699012, 0]]], [[[192, 0, 1006699012, 0]]], [[[208, 0, 1006699012, 0]]], [[[224, 0, 1006699012, 0]]], [[[240, 0, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>>,
             weights=<dense<[[[[-1.000000e+01]], [[-1.659180e+00]], [[9.945310e+00]], [[4.406250e+00]], [[8.648430e+00]], [[-1.000000e+01]], [[-7.437500e+00]], [[-3.953130e+00]], [[9.984370e+00]], [[-7.066400e+00]], [[-5.277340e+00]], [[-8.156250e+00]], [[-2.068360e+00]], [[-6.273440e+00]], [[-2.242190e+00]], [[-3.087890e+00]]], [[[3.394530e+00]], [[-2.064450e+00]], [[8.710930e+00]], [[7.763670e-01]], [[6.925780e+00]], [[-1.616210e+00]], [[-3.734380e+00]], [[3.705080e+00]], [[4.909670e-01]], [[-5.910150e+00]], [[-1.130860e+00]], [[7.562500e+00]], [[-5.410150e+00]], [[-9.453120e+00]], [[6.884770e-01]], [[3.410160e+00]]], [[[8.281250e+00]], [[-1.654300e+00]], [[-8.559570e-01]], [[1.173830e+00]], [[-1.385740e+00]], [[-7.191400e+00]], [[8.781250e+00]], [[-6.039060e+00]], [[5.566400e+00]], [[6.015630e+00]], [[4.320310e+00]], [[9.367180e+00]], [[6.054690e+00]], [[-3.732420e+00]], [[-8.140630e+00]], [[3.845700e+00]]], [[[3.630370e-01]], [[7.527340e+00]], [[7.300780e+00]], [[7.890630e+00]], [[6.582030e+00]], [[-8.296880e+00]], [[6.593750e+00]], [[-9.218750e+00]], [[-4.539060e+00]], [[-6.601560e+00]], [[-8.812500e+00]], [[7.562500e+00]], [[3.410160e+00]], [[-8.031250e+00]], [[1.861330e+00]], [[-1.578130e+00]]], [[[3.433590e+00]], [[9.156250e+00]], [[-1.764650e+00]], [[6.630860e-01]], [[-6.050780e+00]], [[3.837890e+00]], [[-4.207030e+00]], [[-3.689450e+00]], [[-7.156250e+00]], [[3.730470e+00]], [[5.667960e+00]], [[6.691400e+00]], [[-1.749020e+00]], [[-9.632810e+00]], [[-9.320310e+00]], [[5.003910e+00]]], [[[2.480470e+00]], [[9.773430e+00]], [[3.212890e+00]], [[4.964840e+00]], [[-4.031250e+00]], [[-4.390630e+00]], [[-1.077150e+00]], [[5.785150e+00]], [[-5.558590e+00]], [[-7.933590e+00]], [[-8.531250e+00]], [[-1.041990e+00]], [[-6.152340e-01]], [[8.171880e+00]], [[-8.078130e+00]], [[-4.128910e+00]]], [[[8.070310e+00]], [[-4.246090e+00]], [[-7.609380e+00]], [[-7.398430e+00]], [[4.960940e-01]], [[-9.609370e+00]], [[-8.328130e+00]], [[3.576170e+00]], [[8.335930e+00]], [[-5.765630e+00]], [[8.210930e+00]], [[-4.687500e+00]], [[-4.019530e+00]], [[-1.685790e-01]], [[1.687500e+00]], [[-8.929680e+00]]], [[[1.318360e+00]], [[1.482420e+00]], [[2.279300e+00]], [[-7.066400e+00]], [[9.132810e+00]], [[1.786130e+00]], [[-4.781250e+00]], [[3.996090e+00]], [[-5.378900e+00]], [[-7.953130e+00]], [[6.689450e-01]], [[-1.718750e+00]], [[9.000000e+00]], [[3.888670e+00]], [[-1.387940e-01]], [[-1.716800e+00]]], [[[8.120110e-01]], [[-9.000000e+00]], [[5.308590e+00]], [[7.177730e-01]], [[-9.093750e+00]], [[3.275390e+00]], [[-7.199210e+00]], [[2.978520e-01]], [[5.847650e+00]], [[8.890620e+00]], [[-9.406250e+00]], [[1.731450e+00]], [[7.664060e+00]], [[8.070310e+00]], [[8.159170e-01]], [[-7.250000e+00]]], [[[-1.040040e+00]], [[-7.214840e+00]], [[7.843750e+00]], [[6.148440e+00]], [[-2.449220e+00]], [[-2.046880e+00]], [[7.685550e-01]], [[-6.691400e+00]], [[3.046880e+00]], [[8.546870e+00]], [[-2.775390e+00]], [[-3.044920e+00]], [[1.419920e+00]], [[5.015630e+00]], [[2.755860e+00]], [[4.519530e+00]]], [[[-7.472650e+00]], [[7.667960e+00]], [[3.804690e+00]], [[2.472660e+00]], [[2.955080e+00]], [[5.019530e+00]], [[-2.921880e+00]], [[-3.021480e+00]], [[5.265630e+00]], [[-4.601560e+00]], [[-2.869140e+00]], [[7.917960e+00]], [[5.054690e+00]], [[-1.438480e+00]], [[7.625000e+00]], [[9.296870e+00]]], [[[-9.765620e+00]], [[3.269530e+00]], [[-3.781130e-02]], [[2.433590e+00]], [[-8.523430e+00]], [[-7.707030e+00]], [[5.738280e+00]], [[8.992180e+00]], [[-8.718750e+00]], [[-1.001950e+00]], [[-2.894530e+00]], [[1.567380e+00]], [[8.835930e+00]], [[-1.836910e+00]], [[-2.404300e+00]], [[-5.257810e+00]]], [[[5.257810e+00]], [[8.070310e+00]], [[5.433590e+00]], [[1.473630e+00]], [[-3.972660e+00]], [[-9.945310e+00]], [[5.453130e+00]], [[2.343750e+00]], [[-6.941400e+00]], [[-3.466800e+00]], [[1.572270e+00]], [[5.410150e-01]], [[-9.820310e+00]], [[7.718750e+00]], [[4.179690e+00]], [[-2.855470e+00]]], [[[-5.874020e-01]], [[8.171880e+00]], [[5.292970e+00]], [[2.466800e+00]], [[-6.523440e-01]], [[-9.679680e+00]], [[-4.621090e+00]], [[8.585930e+00]], [[6.632810e+00]], [[3.818360e+00]], [[1.026370e+00]], [[9.945310e+00]], [[-8.601560e+00]], [[-6.554690e+00]], [[-5.502930e-01]], [[-7.257810e+00]]], [[[4.855470e+00]], [[8.648430e+00]], [[-6.160150e+00]], [[3.935550e+00]], [[-7.138670e-01]], [[-8.679680e+00]], [[-5.394530e+00]], [[5.109380e+00]], [[1.649170e-01]], [[5.078130e+00]], [[-5.828130e+00]], [[8.460930e+00]], [[-9.015620e+00]], [[4.230470e+00]], [[3.771970e-01]], [[-7.515630e+00]]], [[[-6.554690e+00]], [[-9.601560e+00]], [[-2.074220e+00]], [[-9.476560e+00]], [[-7.851560e+00]], [[-9.437500e+00]], [[1.961670e-01]], [[-5.074220e+00]], [[-7.957030e+00]], [[7.199210e+00]], [[-4.226560e+00]], [[7.768550e-01]], [[-5.363280e+00]], [[1.056640e+00]], [[9.351560e+00]], [[1.000000e+01]]]]> : tensor<16x16x1x1xf16>, [#const.CastElemType<si8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]>>
         ]
@@ -659,7 +710,7 @@ func.func @FoldFusedSignedQuantizedWeightsMixedPrecision() -> memref<1x1x1x512xu
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 func.func @FoldFusedWeightWithMajorityOfF16Type() -> memref<1x1x1x384xf16> {
     %cst = const.Declare memref<1x1x1x384xf16> = dense<[[[[0, 0, 1006699012, 0]]], [[[16, 0, 1006699012, 0]]], [[[32, 0, 1006699012, 0]]], [[[48, 0, 1006699012, 0]]], [[[64, 0, 1006699012, 0]]], [[[80, 0, 1006699012, 0]]], [[[96, 0, 1006699012, 0]]], [[[112, 0, 1006699012, 0]]], [[[128, 0, 1006699012, 0]]], [[[144, 0, 1006699012, 0]]], [[[160, 0, 1006699012, 0]]], [[[176, 0, 1006699012, 0]]], [[[192, 0, 1006699012, 0]]], [[[208, 0, 1006699012, 0]]], [[[224, 0, 1006699012, 0]]], [[[240, 0, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>,
-        [#const.Fuse<tensor<1x1x1x384xf16>,
+        [#const.FuseWeights<tensor<1x1x1x384xf16>,
             weightsTable=<dense<[[[[0, 0, 1006699012, 0]]], [[[16, 0, 1006699012, 0]]], [[[32, 0, 1006699012, 0]]], [[[48, 0, 1006699012, 0]]], [[[64, 0, 1006699012, 0]]], [[[80, 0, 1006699012, 0]]], [[[96, 0, 1006699012, 0]]], [[[112, 0, 1006699012, 0]]], [[[128, 0, 1006699012, 0]]], [[[144, 0, 1006699012, 0]]], [[[160, 0, 1006699012, 0]]], [[[176, 0, 1006699012, 0]]], [[[192, 0, 1006699012, 0]]], [[[208, 0, 1006699012, 0]]], [[[224, 0, 1006699012, 0]]], [[[240, 0, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>>,
             weights=<dense<1.000000e+00> : tensor<16x16x1x1xf16>, [#const.Reorder<#NHWC>]>>
         ]

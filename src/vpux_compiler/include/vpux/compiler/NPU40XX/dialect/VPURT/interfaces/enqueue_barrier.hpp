@@ -68,7 +68,15 @@ private:
     // Use 1 in case barrier FIFO mode is not enabled
     static constexpr int64_t BARRIER_FIFO_SIZE = 4;
 
-    const size_t _barrierFifoDepth;
+    // Depth of check for barrier dependencies of previous instances of same physical
+    // barriers. Theoretically this could be equal to size of barrier FIFO but because
+    // of how runtime processes barrier refilling in the FIFOs and how new barrier
+    // consumption events can happen during this process, this depth needs to be 1 less
+    // than FIFO size so that we guarantee that there is always 1 barrier config left in
+    // case WI was marked ready before needed barriers it depends on were updated. This additional
+    // barrier in the FIFO gives us protection against such scenarios.
+    // If barrier FIFO is not to be used this should be equal to 1
+    size_t _barrierDepthCheck;
 
     // For each barrier index store index of barrier with same PID
     // If there is no value set it means barrier is the first one to use given PID
@@ -77,22 +85,16 @@ private:
     // Default size of DMA FIFO handling outstanding independent DMA enqueues
     static constexpr int64_t DMA_OUTSTANDING_TRANSACTIONS = 64;
     // Configured DMA FIFO size. For testing purpose it might be lower
-    const size_t _dmaFifoDepth;
+    size_t _dmaFifoDepth;
 
     // Flag indicating if optimization for merging conecutive enqueues should be performed
-    const bool _optimizeAndMergeEnqFlag;
+    bool _optimizeAndMergeEnqFlag;
 
     Logger _log;
 
     // For each task index store index of barrier at which it should be enqueued
     // If not barrier is set it means task can be enqueued at bootstrap
     SmallVector<std::optional<size_t>> _tasksEnqBar;
-
-    // Indicate if during enqueuement algorithm should also verify if enqueues
-    // would be possible to be ordered to guarantee task HW FIFO order and WorkItem
-    // placement in adjacent way for the same barrier
-    // TODO: To be turned off/removed once E#144867 is merged
-    constexpr static bool performEnqueueOrderingCheck = true;
 
     // Internal class to manage access and rebuild of BarrierInfo task control map
     // It will store up to cache size number of instance of task control map

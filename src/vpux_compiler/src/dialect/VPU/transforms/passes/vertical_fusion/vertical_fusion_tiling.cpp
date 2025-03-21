@@ -4,12 +4,21 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 
+#include <mlir/Dialect/Linalg/IR/Linalg.h>
+#include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/IR/IRMapping.h>
+
+namespace vpux::VPU {
+#define GEN_PASS_DECL_VFTILING
+#define GEN_PASS_DEF_VFTILING
+#include "vpux/compiler/dialect/VPU/passes.hpp.inc"
+}  // namespace vpux::VPU
 
 using namespace vpux;
 using namespace VPU;
@@ -341,7 +350,7 @@ mlir::LogicalResult VerticalFusionTilingRewriter::matchAndRewrite(VPU::VerticalF
 // VfTilingPass
 //
 
-class VfTilingPass final : public VfTilingBase<VfTilingPass> {
+class VfTilingPass final : public VPU::impl::VfTilingBase<VfTilingPass> {
 public:
     explicit VfTilingPass(bool enableVerticalFusionPipelining, Logger log)
             : _enableVerticalFusionPipelining(enableVerticalFusionPipelining) {
@@ -380,6 +389,9 @@ void VfTilingPass::safeRunOnFunc() {
     target.addIllegalOp<VPU::VerticalFusionOp>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
+    target.addLegalDialect<mlir::linalg::LinalgDialect>();
+    target.addLegalDialect<mlir::math::MathDialect>();
+
     target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
     mlir::RewritePatternSet patterns(&ctx);

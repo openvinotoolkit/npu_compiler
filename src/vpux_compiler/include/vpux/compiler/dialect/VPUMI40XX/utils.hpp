@@ -3,16 +3,13 @@
 // SPDX-License-Identifier: Apache 2.0
 //
 
+#pragma once
+
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops_interfaces.hpp"
 
 namespace vpux {
 namespace VPUMI40XX {
-
-static constexpr size_t NNRT_API_UD2024_44_MAJOR_VERSION = 11;
-static constexpr size_t NNRT_API_UD2024_44_MINOR_VERSION = 4;
-static constexpr size_t NNRT_API_UD2024_44_PATCH_VERSION = 10;
-
 enum class DmaNnSrcType { DDR, CMX_NN, Count };
 
 //

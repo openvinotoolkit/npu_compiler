@@ -24,6 +24,12 @@
 #include <mlir/Support/LLVM.h>
 #include <mlir/Support/LogicalResult.h>
 
+namespace vpux::IE {
+#define GEN_PASS_DECL_LEGALIZEREIFYRESULTSHAPESRESIDUALS
+#define GEN_PASS_DEF_LEGALIZEREIFYRESULTSHAPESRESIDUALS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
+
 using namespace vpux;
 
 namespace {
@@ -220,7 +226,7 @@ public:
 //
 
 class LegalizeReifyResultShapesResiduals final :
-        public IE::LegalizeReifyResultShapesResidualsBase<LegalizeReifyResultShapesResiduals> {
+        public IE::impl::LegalizeReifyResultShapesResidualsBase<LegalizeReifyResultShapesResiduals> {
 public:
     explicit LegalizeReifyResultShapesResiduals(Logger log): _log(std::move(log)) {
         _log.setName(Base::getArgumentName());
