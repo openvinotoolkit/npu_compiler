@@ -291,8 +291,11 @@ RawProfilingRecords parseDPUTaskProfiling(
                     record = std::make_shared<RawProfilingDPUHW27Record>(dpuTimings, taskMeta, variantId, currentPos,
                                                                          inClusterIndex);
                 }
-                record->checkDataOrDie();
-                rawRecords.push_back(record);
+                // Check if record is initialized before using it
+                if (record != nullptr) {
+                    record->checkDataOrDie();
+                    rawRecords.push_back(record);
+                }
             }
             // continue increment of currentPos to walk over non-used data
             ++currentPos;
