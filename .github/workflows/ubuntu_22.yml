@@ -1,0 +1,22 @@
+name: Linux (Ubuntu 22.04)
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: mlir-linux-${{ github.event_name }}-${{ github.ref_name }}-ubuntu-22
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  BuildMLIR:
+    name: Build MLIR and Test
+    uses: ./.github/workflows/job_build_test_mlir_linux.yml
+    with:
+      build-runner: 'ubuntu-22.04-16-cores'
+      test-runner: 'ubuntu-22.04-8-cores'
+      run-tests: true

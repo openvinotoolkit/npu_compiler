@@ -1,11 +1,38 @@
-name: Linux Build MLIR and Unit tests
+name: Linux MLIR
 on:
   workflow_call:
     inputs:
-      runner:
-        description: 'Machine on which the tests would run'
+      build-runner:
+        description: 'Machine on which the builds will run'
         type: string
         required: true
+      test-runner:
+        description: 'Machine on which the tests will run'
+        type: string
+        required: false
+      openvino-cmake-options:
+        description: 'A string of options passed to OpenVINO CMake'
+        type: string
+        required: false
+      npu-cmake-options:
+        description: 'A string of options passed to NPU Compiler CMake'
+        type: string
+        required: false
+      run-tests:
+        description: 'Whether to run NPU Compiler tests'
+        type: boolean
+        required: false
+        default: false
+      run-unit-tests:
+        description: 'Whether to run NPU Compiler unit tests'
+        type: boolean
+        required: false
+        default: true
+      run-lit-tests:
+        description: 'Whether to run NPU Compiler LIT tests'
+        type: boolean
+        required: false
+        default: true
 
 permissions: read-all
 
@@ -14,9 +41,9 @@ env:
 
 jobs:
   Build:
-    name: Build MLIR and Unit tests
+    name: Build
+    runs-on: ${{ inputs.build-runner }}
     timeout-minutes: 240
-    runs-on: ${{ inputs.runner }}
     defaults:
       run:
         shell: bash
@@ -25,9 +52,10 @@ jobs:
       CMAKE_BUILD_TYPE: 'Release'
       OPENVINO_REPO: ./openvino
       NPU_COMPILER_REPO: ./npu_compiler
-      OPENVINO_INSTALL_DIR: ./openvino_install
       OPENVINO_BUILD_DIR: ./openvino_build
       NPU_COMPILER_BUILD_DIR: ./npu_compiler_build
+      OPENVINO_INSTALL_DIR: ./openvino_install
+      OPENVINO_DEV_PACKAGE_DIR: ./openvino_dev_package
     steps:
       - name: Clone NPU Compiler
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -67,12 +95,22 @@ jobs:
           python3 -m pip install -r ${OPENVINO_REPO}/src/frontends/tensorflow_lite/tests/requirements.txt
           python3 -m pip install -r ${OPENVINO_REPO}/src/frontends/paddle/tests/requirements.txt
 
+      - name: Prepare environment
+        run: |
+          if [[ "${{ inputs.run-tests }}" == "true" ]]; then
+            echo "ENABLE_TESTS_FLAG=ON" >> $GITHUB_ENV
+          else
+            echo "ENABLE_TESTS_FLAG=OFF" >> $GITHUB_ENV
+          fi
+
       - name: CMake configure - OpenVINO
         run: |
           cmake \
+            ${{ inputs.openvino-cmake-options }} \
+            -G "Ninja Multi-Config" \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
             -DENABLE_LTO=OFF \
-            -DENABLE_TESTS=ON \
+            -DENABLE_TESTS=${{ env.ENABLE_TESTS_FLAG }} \
             -DENABLE_INTEL_CPU=ON \
             -DENABLE_INTEL_GPU=ON \
             -DENABLE_INTEL_NPU=ON \
@@ -110,13 +148,17 @@ jobs:
           cmake --install ${OPENVINO_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR}
           cmake --install ${OPENVINO_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR} --component python_wheels
           cmake --install ${OPENVINO_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR} --component tests
+          cmake --install ${OPENVINO_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR} --component developer_package
 
       - name: CMake configure - NPU Compiler
         run: |
           cmake \
+            ${{ inputs.npu-cmake-options }} \
+            -G "Ninja Multi-Config" \
             -DCMAKE_BUILD_TYPE=${{ env.CMAKE_BUILD_TYPE }} \
-            -DOpenVINODeveloperPackage_DIR=$(realpath ${OPENVINO_BUILD_DIR}) \
-            -DENABLE_TESTS=ON \
+            -DOpenVINO_DIR=$(realpath ${OPENVINO_INSTALL_DIR})/runtime/cmake \
+            -DOpenVINODeveloperPackage_DIR=$(realpath ${OPENVINO_INSTALL_DIR})/developer_package/cmake \
+            -DENABLE_TESTS=${{ env.ENABLE_TESTS_FLAG }} \
             -DENABLE_DEVELOPER_BUILD=OFF \
             -DENABLE_MLIR_COMPILER=ON \
             -DBUILD_COMPILER_FOR_DRIVER=OFF \
@@ -134,15 +176,43 @@ jobs:
           cmake --install ${NPU_COMPILER_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR}
           cmake --install ${NPU_COMPILER_BUILD_DIR} --config ${{ env.CMAKE_BUILD_TYPE }} --prefix ${OPENVINO_INSTALL_DIR} --component tests
 
+      - name: Upload artifacts
+        id: save_artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-output-${{ github.sha }}
+          path: ${{ env.OPENVINO_INSTALL_DIR }}
+
+  Test:
+    name: Unit Tests
+    needs: Build
+    if: ${{ inputs.run-tests }}
+    runs-on: ${{ inputs.test-runner }}
+    timeout-minutes: 240
+    env:
+      OPENVINO_INSTALL_DIR: ./openvino_install
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: build-output-${{ github.sha }}
+          path: ${{ env.OPENVINO_INSTALL_DIR }}
+
       - name: Run OV NPU Unit tests
+        if: ${{ inputs.run-unit-tests }}
         run: |
           ${OPENVINO_INSTALL_DIR}/tests/ov_npu_unit_tests
 
       - name: Run NPU Unit tests
+        if: ${{ inputs.run-unit-tests }}
         run: |
           ${OPENVINO_INSTALL_DIR}/tests/npuUnitTests
 
       - name: Run NPU LIT tests
+        if: ${{ inputs.run-lit-tests }}
         run: |
           export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/prof_parser
           export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/npu-loader

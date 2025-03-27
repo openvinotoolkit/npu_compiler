@@ -7,14 +7,16 @@ on:
       - develop
 
 concurrency:
-  group: ${{ github.event_name == 'push' && github.run_id || github.ref }}-ubuntu-24
+  group: mlir-linux-${{ github.event_name }}-${{ github.ref_name }}-ubuntu-24
   cancel-in-progress: true
 
 permissions: read-all
 
 jobs:
-  BuildMLIR:
-    name: Build MLIR and Test
-    uses: ./.github/workflows/job_build_and_test_linux.yml
+  MLIR:
+    name: MLIR
+    uses: ./.github/workflows/job_build_test_mlir_linux.yml
     with:
-      runner: 'ubuntu-latest-32-cores'
+      build-runner: 'ubuntu-latest-64-cores'
+      test-runner: 'ubuntu-latest-8-cores'
+      run-tests: false
