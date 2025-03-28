@@ -87,7 +87,7 @@ jobs:
   Build:
     name: Build
     needs: Cache
-    if: needs.Cache.outputs.cache-hit != 'true'
+    if: ${{ always() && needs.Cache.outputs.cache-hit != 'true' }}
     runs-on: ${{ inputs.build-runner }}
     timeout-minutes: 240
     env:
