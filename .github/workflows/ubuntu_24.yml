@@ -17,6 +17,9 @@ jobs:
     name: MLIR
     uses: ./.github/workflows/job_build_test_mlir_linux.yml
     with:
-      build-runner: 'ubuntu-latest-64-cores'
+      os: 'ubuntu_24_04'
+      build-runner: 'ubuntu-latest-32-cores'
       test-runner: 'ubuntu-latest-8-cores'
       run-tests: false
+      build-cache: true
+      build-cache-key-suffix: pr_${{ github.event.number }}_cache_test

@@ -13,10 +13,13 @@ concurrency:
 permissions: read-all
 
 jobs:
-  BuildMLIR:
-    name: Build MLIR and Test
+  MLIR:
+    name: MLIR
     uses: ./.github/workflows/job_build_test_mlir_linux.yml
     with:
+      os: 'ubuntu_22_04'
       build-runner: 'ubuntu-22.04-16-cores'
       test-runner: 'ubuntu-22.04-8-cores'
       run-tests: true
+      build-cache: true
+      build-cache-key-suffix: pr_${{ github.event.number }}_cache_test
