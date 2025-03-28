@@ -1,0 +1,136 @@
+name: Linux MLIR Test
+on:
+  workflow_call:
+    inputs:
+      test-runner:
+        description: 'Machine on which the tests will run'
+        type: string
+        required: false
+      openvino-install-artifact:
+        description: 'OpenVINO/NPU build package name to be downloaded for tests'
+        type: string
+        required: true
+        default: false
+      run-unit-tests:
+        description: 'Whether to run NPU Compiler unit tests'
+        type: boolean
+        required: false
+        default: false
+      run-lit-tests:
+        description: 'Whether to run NPU Compiler LIT tests'
+        type: boolean
+        required: false
+        default: false
+      run-compilation-tests:
+        description: 'Whether to run NPU Compiler compile_tool tests suites'
+        type: boolean
+        required: false
+        default: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions: read-all
+
+env:
+  OPENVINO_INSTALL_DIR: ./openvino_install
+
+jobs:
+  UnitTests:
+    name: Unit Tests
+    if: ${{ inputs.run-unit-tests || inputs.run-lit-tests }}
+    runs-on: ${{ inputs.test-runner }}
+    timeout-minutes: 60
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.openvino-install-artifact }}
+          path: ${{ env.OPENVINO_INSTALL_DIR }}
+
+      - name: Prepare environment
+        run: |
+          chmod +x ${OPENVINO_INSTALL_DIR}/setupvars.sh
+
+      - name: Run OV NPU Unit tests
+        if: ${{ inputs.run-unit-tests }}
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          chmod +x ${OPENVINO_INSTALL_DIR}/tests/ov_npu_unit_tests
+          ${OPENVINO_INSTALL_DIR}/tests/ov_npu_unit_tests
+
+      - name: Run NPU Unit tests
+        if: ${{ inputs.run-unit-tests }}
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          chmod +x ${OPENVINO_INSTALL_DIR}/tests/npuUnitTests
+          ${OPENVINO_INSTALL_DIR}/tests/npuUnitTests
+
+      - name: Run NPU37XX LIT tests
+        if: ${{ inputs.run-lit-tests }}
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/prof_parser
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/npu-loader
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/npu-lsp-server
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/vpux-opt
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/vpux-translate
+          cd ${OPENVINO_INSTALL_DIR}/tests/lit-tests
+          python3 ./lit-tool/lit.py -v --param arch=NPU37XX NPU/NPU
+
+      - name: Run NPU40XX LIT tests
+        if: ${{ inputs.run-lit-tests }}
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/prof_parser
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/npu-loader
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/npu-lsp-server
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/vpux-opt
+          export PATH=$PATH:${OPENVINO_INSTALL_DIR}/tools/vpux-translate
+          cd ${OPENVINO_INSTALL_DIR}/tests/lit-tests
+          python3 ./lit-tool/lit.py -v --param arch=NPU40XX NPU/NPU
+
+  CompilationTests:
+    name: Compilation tests
+    if: ${{ inputs.run-compilation-tests }}
+    runs-on: ${{ inputs.test-runner }}
+    timeout-minutes: 60
+    env:
+      MODELS_DIR: ./models
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.openvino-install-artifact }}
+          path: ${{ env.OPENVINO_INSTALL_DIR }}
+
+      - name: Prepare environment
+        run: |
+          chmod +x ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          chmod +x ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool
+          echo "NPU_COMPILER_TYPE MLIR" > common_compilation_config.conf
+
+      - name: Install huggingface_hub
+        run: |
+          python3 -m pip install huggingface_hub
+
+      - name: Download model
+        run: |
+          from huggingface_hub import snapshot_download
+          snapshot_download(repo_id="Qdrant/resnet50-onnx", local_dir="${{ env.MODELS_DIR }}/resnet50-onnx")
+          snapshot_download(repo_id="onnx-community/mobilenet_v2_1.0_224", local_dir="${{ env.MODELS_DIR }}/mobilenet_v2_1.0_224")
+        shell: python
+
+      - name: Compile resnet50-onnx
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool -m ${MODELS_DIR}/resnet50-onnx/model.onnx -d NPU.3720 -log_level LOG_INFO -il NCHW -iml NCHW -ol NC -oml NC -c common_compilation_config.conf
+          ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool -m ${MODELS_DIR}/resnet50-onnx/model.onnx -d NPU.4000 -log_level LOG_INFO -il NCHW -iml NCHW -ol NC -oml NC -c common_compilation_config.conf
+
+      - name: Compile mobilenet_v2_1.0_224
+        run: |
+          source ${OPENVINO_INSTALL_DIR}/setupvars.sh
+          ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool -m ${MODELS_DIR}/mobilenet_v2_1.0_224/onnx/model_fp16.onnx -d NPU.4000 -log_level LOG_INFO -il NCHW -iml NCHW -ol NC -oml NC -c common_compilation_config.conf
+          ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool -m ${MODELS_DIR}/mobilenet_v2_1.0_224/onnx/model_int8.onnx -d NPU.4000 -log_level LOG_INFO -il NCHW -iml NCHW -ol NC -oml NC -c common_compilation_config.conf
+          ${OPENVINO_INSTALL_DIR}/tools/compile_tool/compile_tool -m ${MODELS_DIR}/mobilenet_v2_1.0_224/onnx/quantized.onnx -d NPU.4000 -log_level LOG_INFO -il NCHW -iml NCHW -ol NC -oml NC -c common_compilation_config.conf
