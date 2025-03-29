@@ -4,7 +4,8 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" %s | FileCheck %s
-// REQUIRES: arch-NPU40XX#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// REQUIRES: arch-NPU40XX
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 !InputDistributed = !VPUIP.DistributedBuffer<
     1x32x16x16xf16, #NHWC, @CMX_NN, {

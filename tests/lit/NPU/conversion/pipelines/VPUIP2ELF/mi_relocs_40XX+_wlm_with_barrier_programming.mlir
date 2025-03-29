@@ -4,7 +4,8 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --lower-VPUIP-to-ELF="workload-management-mode=PWLM_V1_BARRIER_FIFO"  %s | FileCheck %s
-// REQUIRES: arch-NPU40XX//
+// REQUIRES: arch-NPU40XX
+//
 
 module @Test {
 

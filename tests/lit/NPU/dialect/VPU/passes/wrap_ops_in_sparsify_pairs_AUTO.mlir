@@ -4,7 +4,8 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --wrap-ops-in-sparsify-pairs="enable-activation-sparsity-mode=auto" %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// REQUIRES: arch-NPU37XX || arch-NPU40XX
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 #loc0 = loc(unknown)
 module @main {

@@ -4,7 +4,8 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --propagate-quantize-dequantize %s | FileCheck %s
-// REQUIRES: arch-NPU37XX || arch-NPU40XX!qElemType = !quant.uniform<u8:f16, 0.0016544117647058823>
+// REQUIRES: arch-NPU37XX || arch-NPU40XX
+!qElemType = !quant.uniform<u8:f16, 0.0016544117647058823>
 
 // CHECK-LABEL: @PropagateDequantReshape
 func.func @PropagateDequantReshape(%arg0: tensor<1x256x!qElemType>) -> tensor<1x256x1x1xf16> {
