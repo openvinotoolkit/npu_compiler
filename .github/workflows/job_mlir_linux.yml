@@ -121,8 +121,8 @@ jobs:
     with:
       os: ${{ inputs.os }}
       build-runner: ${{ inputs.build-runner }}
-      openvino-organization: ${{ needs.Dependencies.outputs.ov_org }}
-      openvino-commit: ${{ needs.Dependencies.outputs.ov_sha }}
+      openvino-organization: ${{ needs.Dependencies.outputs.openvino_org }}
+      openvino-commit: ${{ needs.Dependencies.outputs.openvino_sha }}
       openvino-cmake-options: ${{ inputs.openvino-cmake-options }}
       npu-cmake-options: ${{ inputs.npu-cmake-options }}
       build-cache: ${{ inputs.build-cache }}
