@@ -518,7 +518,7 @@ public:
                     convertBytesToReadableSize(compressedF16constantsAfterCompression_),
                     (double)compressedF16constantsAfterCompression_ / compressedF16constantsBeforeCompression_ * 100);
         }
-        if (compressedConstantsCounter_ - compressedF16constantsCounter_ > 0) {
+        if (compressedConstantsCounter_ > compressedF16constantsCounter_) {
             log.nest().info(
                     "Int8 - count: {0}, size: {1}, compressed size: {2}, ({3}%)",
                     compressedConstantsCounter_ - compressedF16constantsCounter_,

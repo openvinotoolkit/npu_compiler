@@ -756,7 +756,8 @@ void Encoder::Impl::encode(const BitCompactorConfig& config, const std::vector<u
     const auto last_block_elements{input_bytes - (input_blocks << 6)};
     uint32_t last_block{static_cast<uint32_t>(last_block_elements > 0u)};
 
-    std::vector<AlgorithmParam> block_params(input_blocks * ALGORITHMS);
+    std::size_t total_blocks = static_cast<std::size_t>(input_blocks) * static_cast<std::size_t>(ALGORITHMS);
+    std::vector<AlgorithmParam> block_params(total_blocks);
     std::vector<BitStream> block_stream(input_blocks + last_block);
 
     if (config.mode_fp16_enable) {
