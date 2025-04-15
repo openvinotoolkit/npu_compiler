@@ -160,7 +160,7 @@ SmallVector<int64_t> inferOutputShapeWithScalesMode(ShapeRef inputShape, ArrayRe
     auto scalesIter = scalesVal.begin();
     for (const auto& axis : axesVal) {
         outputShape[axis] =
-                static_cast<int64_t>(floor(static_cast<StorageType>(*scalesIter++) * inputShape[Dim(axis)]));
+                static_cast<int64_t>(floor(static_cast<StorageType>(*scalesIter++) * static_cast<double>(inputShape[Dim(axis)])));
         log.trace("Infer Scales mode at axis {0}: {1} -> {2}", axis, inputShape[Dim(axis)], outputShape[axis]);
     }
     return outputShape;

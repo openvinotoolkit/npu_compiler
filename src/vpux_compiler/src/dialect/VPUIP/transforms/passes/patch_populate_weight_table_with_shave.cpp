@@ -157,7 +157,7 @@ void PatchPopulateWeightTableWithShavePass::patchShaveForPopulateWeightTable(VPU
             const auto offsetsAttr = subView.getStaticOffsets();
             auto offsets = parseIntArrayAttr<int32_t>(offsetsAttr);
             _log.trace("offset {0}", offsets);
-            swKernelRunOffsets.push_back(offsets[0] * weightAddressOffset);
+            swKernelRunOffsets.push_back(static_cast<int64_t>(offsets[0]) * static_cast<int64_t>(weightAddressOffset));
         } else {
             swKernelRunOffsets.push_back(0);
         }
