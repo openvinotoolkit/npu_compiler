@@ -3,13 +3,13 @@
 	url = https://github.com/google/flatbuffers.git
 [submodule "thirdparty/elf"]
 	path = thirdparty/elf
-	url = https://github.com/openvinotoolkit/npu_plugin_elf.git
+	url = https://github.com/DariaMityagina/vpux_plugin_elf.git
 [submodule "thirdparty/llvm-project"]
 	path = thirdparty/llvm-project
 	url = https://github.com/intel/npu-plugin-llvm.git
 [submodule "thirdparty/vpucostmodel"]
 	path = thirdparty/vpucostmodel
-	url = https://github.com/intel/npu-nn-cost-model.git
+	url = https://github.com/DariaMityagina/npu-nn-cost-model.git
 [submodule "thirdparty/yaml-cpp"]
 	path = thirdparty/yaml-cpp
 	url = https://github.com/jbeder/yaml-cpp
