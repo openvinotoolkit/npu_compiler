@@ -241,6 +241,7 @@ endif()
 
 # Note not included in OpenVINOTargets export!
 
+
 if(BUILD_SHARED_LIBS)
 install(TARGETS ${TARGET_NAME}
         ARCHIVE DESTINATION ${OV_CPACK_ARCHIVEDIR} COMPONENT ${VPUX_INTERNAL_COMPONENT}
