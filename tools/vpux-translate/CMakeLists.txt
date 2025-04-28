@@ -16,5 +16,4 @@ add_tool_target(
          openvino::npu_al
          npu_elf
          npu_mlir_compiler_static
-         npu_translate_utils_static
 )

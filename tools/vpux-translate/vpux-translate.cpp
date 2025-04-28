@@ -12,7 +12,6 @@
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/interfaces_registry.hpp"
 #include "vpux/compiler/tools/options.hpp"
-#include "vpux/hwtest/hwtest.hpp"
 
 #include "vpux/utils/core/format.hpp"
 
@@ -267,8 +266,6 @@ int main(int argc, char* argv[]) {
             interfacesRegistry->registerInterfaces(registry);
         };
         mlir::TranslateToMLIRRegistration("import-IE", "Translate OV IR to IE dialect", importIE, dialectRegistration);
-        mlir::TranslateToMLIRRegistration("import-HWTEST", "Translate PSS test case described by config.json to blob",
-                                          importHWTEST, dialectRegistration);
         mlir::TranslateToMLIRRegistration("import-ELF", "Translate blob to ELF dialect", importELF,
                                           dialectRegistration);
 
