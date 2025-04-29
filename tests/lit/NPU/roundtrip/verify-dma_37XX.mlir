@@ -14,7 +14,7 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @mainModule {
-  net.NetworkInfo entryPoint : @dma_src_dst_all_with_stride inputsInfo : {
+  IE.CNNNetwork entryPoint : @dma_src_dst_all_with_stride inputsInfo : {
     DataInfo "input_0" : tensor<1x3x31x53xf16>
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x3x31x53xf16>

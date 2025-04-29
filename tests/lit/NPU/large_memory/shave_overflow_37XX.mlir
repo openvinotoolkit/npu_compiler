@@ -11,7 +11,7 @@ module @Test attributes {VPU.arch = #VPU.arch_kind<NPU37XX>, VPU.compilationMode
   }
   IE.ExecutorResource 2 of @DMA_NN
   IE.MemoryResource 4194304000 bytes of @DDR {VPU.bandwidth = 8 : i64, VPU.derateFactor = 6.000000e-01 : f64}
-  net.NetworkInfo entryPoint : @main inputsInfo : {
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "Input" : tensor<1x1024xui8>
   } outputsInfo : {
     DataInfo "Output" : tensor<1x1024xui8>

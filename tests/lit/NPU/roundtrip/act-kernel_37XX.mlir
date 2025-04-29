@@ -17,7 +17,7 @@ module @Test attributes {VPU.arch = #VPU.arch_kind<NPU37XX>, VPU.compilationMode
     IE.ExecutorResource 1 of @SHAVE_ACT
     IE.ExecutorResource 1 of @DPU
   }
-  net.NetworkInfo entryPoint : @main inputsInfo : {
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x1000xf16>
   } outputsInfo : {
     DataInfo "hswish" : tensor<1x1000xf16>

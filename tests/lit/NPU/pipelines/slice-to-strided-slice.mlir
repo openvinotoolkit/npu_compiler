@@ -8,7 +8,7 @@
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK: module @"Slice-8" {
-// CHECK:   net.NetworkInfo entryPoint : @main inputsInfo : {
+// CHECK:   IE.CNNNetwork entryPoint : @main inputsInfo : {
 // CHECK:       DataInfo "Parameter_52" : tensor<16xf16>
 // CHECK:   } outputsInfo : {
 // CHECK:   DataInfo "Slice_57" friendlyName = "Result_58" : tensor<8xf16>

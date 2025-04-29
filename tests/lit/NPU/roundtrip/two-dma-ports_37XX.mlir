@@ -12,7 +12,7 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @mainModule {
-  net.NetworkInfo entryPoint : @race_condition_dma_f16_f16 inputsInfo : {
+  IE.CNNNetwork entryPoint : @race_condition_dma_f16_f16 inputsInfo : {
     DataInfo "input_0" : tensor<1x16x16x16xf16>
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x16x16x16xf16>

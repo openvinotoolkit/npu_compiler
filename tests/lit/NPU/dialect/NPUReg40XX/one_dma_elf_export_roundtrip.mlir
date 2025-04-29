@@ -18,7 +18,7 @@ module @Test attributes {VPU.arch = #VPU.arch_kind<NPU40XX>, VPU.compilationMode
   IE.ExecutorResource 1 of @M2I
   IE.ExecutorResource 2 of @DMA_NN
   IE.MemoryResource 4194304000 bytes of @DDR {VPU.bandwidth = 64 : i64, VPU.derateFactor = 6.000000e-01 : f64}
-  net.NetworkInfo entryPoint : @main inputsInfo : {
+  IE.CNNNetwork entryPoint : @main inputsInfo : {
     DataInfo "Input" : tensor<1x1024x!quantileFloatType>
   } outputsInfo : {
     DataInfo "Output" : tensor<1x1024x!quantileFloatType>
@@ -31,16 +31,16 @@ module @Test attributes {VPU.arch = #VPU.arch_kind<NPU40XX>, VPU.compilationMode
   }
   func.func @main() {
     ELF.Main @ELFMain {
-      ELF.CreateLogicalSection @data.BuffersIO.DMA aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_DMA") secLocation(<DDR>) {
+      ELF.CreateLogicalSection @data.BuffersIO.DMA aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_DMA") {
         VPUASM.DeclareBuffer @DeclareBufferDMA !VPUASM.Buffer< "DDR"[0] <0> : memref<1x128x1024x!quantileFloatType, @DDR> :  swizzling(0)>
       }
-      ELF.CreateLogicalSection @data.BuffersIO.LEON aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|SHF_EXECINSTR") secLocation(<DDR>) {
+      ELF.CreateLogicalSection @data.BuffersIO.LEON aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|SHF_EXECINSTR") {
         VPUASM.DeclareBuffer @DeclareBufferLEON !VPUASM.Buffer< "DDR"[0] <0> : memref<1x128x1024x!quantileFloatType, @DDR> :  swizzling(0)>
       }
-      ELF.CreateLogicalSection @data.BuffersIO.SHAVE aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE") secLocation(<DDR>) {
+      ELF.CreateLogicalSection @data.BuffersIO.SHAVE aligned(1) secType(SHT_NOBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE") {
         VPUASM.DeclareBuffer @DeclareBufferSHAVE !VPUASM.Buffer< "DDR"[0] <0> : memref<2560x1024x1024x!quantileFloatType, @DDR> :  swizzling(0)>
       }
-      ELF.CreateMetadataSection @MetadataSection aligned(8) secFlags("SHF_NONE")  {
+      ELF.CreateMetadataSection @MetadataSection aligned(8) secFlags("SHF_NONE") {
         VPUASM.NetworkMetadata @NetworkMetadata
       }
     }

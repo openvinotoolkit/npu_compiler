@@ -14,7 +14,7 @@ module @Test {
 
 IE.TileResource 1 of @NCE
 
-net.NetworkInfo
+IE.CNNNetwork
     entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1000xf32>

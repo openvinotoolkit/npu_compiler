@@ -8,7 +8,7 @@
 // REQUIRES: arch-NPU37XX
 
 // CHECK: module @Function_0 {
-// CHECK:   net.NetworkInfo entryPoint : @main inputsInfo : {
+// CHECK:   IE.CNNNetwork entryPoint : @main inputsInfo : {
 // CHECK:     DataInfo "Parameter_68" tensorNames = ["Parameter_68"] : tensor<1x18x3xf32>
 // CHECK:   } outputsInfo : {
 // CHECK:     DataInfo "Relu_70" friendlyName = "Result_72" tensorNames = ["Relu_70"] : tensor<1x18x3xf32>
