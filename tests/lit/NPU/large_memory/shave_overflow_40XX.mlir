@@ -1,3 +1,8 @@
+//
+// Copyright (C) 2025 Intel Corporation.
+// SPDX-License-Identifier: Apache 2.0
+//
+
 // RUN: vpux-translate --vpu-arch=%arch% --export-ELF %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
