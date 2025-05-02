@@ -243,7 +243,7 @@ jobs:
       - name: Filter CodeQL results
         id: codeql-filtered-analyze
         if: ${{ !steps.cache-restore.outputs.cache-hit && inputs.with-codeql }}
-        uses: advanced-security/filter-sarif@bc96d9fb9338c5b48cc440b1b4d0a350b26a20db # Release 1.0
+        uses: advanced-security/filter-sarif@f3b8118a9349d88f7b1c0c488476411145b6270d # Release 1.0
         with:
           input: ${{ env.CODEQL_OUTPUTS }}/cpp.sarif
           output: ${{ env.CODEQL_OUTPUTS }}/filtered-results.sarif
