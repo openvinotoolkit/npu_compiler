@@ -108,10 +108,6 @@ charset-normalizer==3.4.2 \
     --hash=sha256:fcbe676a55d7445b22c10967bceaaf0ee69407fbe0ece4d032b6eb8d4565982a \
     --hash=sha256:fdb20a30fe1175ecabed17cbf7812f7b804b8a315a25f24678bcdf120a90077f
     # via requests
-colorama==0.4.6 \
-    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
-    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
-    # via tqdm
 coloredlogs==15.0.1 \
     --hash=sha256:612ee75c546f53e92e70049c9dbfcc18c935a2b9a53b66085ce9ef6a6e5c0934 \
     --hash=sha256:7c991aa71a4577af2f82600d8f8f3a89f936baeaf9b50a9c197da014e5bf16b0
@@ -135,9 +131,19 @@ fsspec==2025.3.2 \
     # via
     #   huggingface-hub
     #   torch
-huggingface-hub==0.30.2 \
-    --hash=sha256:68ff05969927058cfa41df4f2155d4bb48f5f54f719dd0390103eefa9b191e28 \
-    --hash=sha256:9a7897c5b6fd9dad3168a794a8998d6378210f5b9688d0dfc180b1a228dc2466
+hf-xet==1.1.3 \
+    --hash=sha256:30c575a5306f8e6fda37edb866762140a435037365eba7a17ce7bd0bc0216a8b \
+    --hash=sha256:7c1a6aa6abed1f696f8099aa9796ca04c9ee778a58728a115607de9cc4638ff1 \
+    --hash=sha256:8203f52827e3df65981984936654a5b390566336956f65765a8aa58c362bb841 \
+    --hash=sha256:a5f09b1dd24e6ff6bcedb4b0ddab2d81824098bb002cf8b4ffa780545fa348c3 \
+    --hash=sha256:b578ae5ac9c056296bb0df9d018e597c8dc6390c5266f35b5c44696003cde9f3 \
+    --hash=sha256:b788a61977fbe6b5186e66239e2a329a3f0b7e7ff50dad38984c0c74f44aeca1 \
+    --hash=sha256:c3b508b5f583a75641aebf732853deb058953370ce8184f5dabc49f803b0819b \
+    --hash=sha256:fd2da210856444a34aad8ada2fc12f70dabed7cc20f37e90754d1d9b43bc0534
+    # via huggingface-hub
+huggingface-hub==0.32.4 \
+    --hash=sha256:37abf8826b38d971f60d3625229221c36e53fe58060286db9baf619cfbf39767 \
+    --hash=sha256:f61d45cd338736f59fb0e97550b74c24ee771bcc92c05ae0766b9116abe720be
     # via
     #   -r requirements.in
     #   accelerate
@@ -472,10 +478,6 @@ py3nvml==0.2.7 \
     --hash=sha256:09ee1d04598a6e664e24465f804ce3bfe119a6fdb5362df1c168f8aa929fbd73 \
     --hash=sha256:30101170d1f51419c8d21fd8ca6cdc333a552b4f8a945c2fc7d107d77e4220dd
     # via onnxruntime-tools
-pyreadline3==3.5.4 \
-    --hash=sha256:8d57d53039a1c75adba8e50dd3d992b28143480816187ea5efbd5c78e6c885b7 \
-    --hash=sha256:eaf8e6cc3c49bcccf145fc6067ba8643d1df34d604a1ec0eccbf7a18e6d3fae6
-    # via humanfriendly
 pyyaml==6.0.2 \
     --hash=sha256:01179a4a8559ab5de078078f37e5c1a30d76bb88519906844fd7bdea1b7729ff \
     --hash=sha256:0833f8694549e586547b576dcfaba4a6b55b9e96098b36cdc7ebefe667dfed48 \
