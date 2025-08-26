@@ -6,9 +6,9 @@
 #
 --extra-index-url https://download.pytorch.org/whl/cpu
 
-accelerate==1.8.1 \
-    --hash=sha256:c47b8994498875a2b1286e945bd4d20e476956056c7941d512334f4eb44ff991 \
-    --hash=sha256:f60df931671bc4e75077b852990469d4991ce8bd3a58e72375c3c95132034db9
+accelerate==1.10.1 \
+    --hash=sha256:3621cff60b9a27ce798857ece05e2b9f56fcc71631cfb31ccf71f0359c311f11 \
+    --hash=sha256:3dea89e433420e4bfac0369cae7e36dcd6a56adfcfd38cdda145c6225eab5df8
     # via -r requirements.in
 certifi==2025.4.26 \
     --hash=sha256:0a816057ea3cdefcef70270d2c515e4506bbc954f417fa5ade2021213bb8f0c6 \
