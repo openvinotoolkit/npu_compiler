@@ -95,7 +95,7 @@ jobs:
 
       - name: Checkout versions action
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         with:
           path: ${{ env.NPU_ACTIONS_DIR }}
           sparse-checkout: |
@@ -109,7 +109,7 @@ jobs:
 
       - name: Clone OpenVINO
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         timeout-minutes: 15
         with:
           repository: ${{ steps.versions.outputs.openvino-repository }}
@@ -119,7 +119,7 @@ jobs:
 
       - name: Clone NPU Compiler
         if: ${{ !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
         timeout-minutes: 15
         with:
           path: ${{ env.NPU_COMPILER_REPO }}
