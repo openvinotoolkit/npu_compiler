@@ -52,12 +52,13 @@ vpux::NDTypeInterface vpux::Const::ReverseAttr::inferOutputType(vpux::NDTypeInte
     return input;
 }
 
-bool vpux::Const::ReverseAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::ReverseAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 
 template <typename StorageType, typename InputType>
-Const::Content reverseImpl(ArrayRef<InputType> inputValues, NDTypeInterface inputType, int64_t axis) {
+Const::Content reverseImpl(ArrayRef<InputType> inputValues, NDTypeInterface inputType, int64_t axis,
+                           bool isOutputSplat) {
     assert(inputValues.size() > 1 && "Splat case is handled outside of this function");
 
     auto inputShape = ShapeRef(inputType.getShape());
@@ -71,8 +72,7 @@ Const::Content reverseImpl(ArrayRef<InputType> inputValues, NDTypeInterface inpu
     }
 
     const auto outputType = inputType;  // Note: in reverse, input type == output type
-    auto output = Const::Content::allocTempBuffer(outputType, outputType.getElementType(),
-                                                  Const::ReverseAttr::inferOutputSplat(false, inputType));
+    auto output = Const::Content::allocTempBuffer(outputType, outputType.getElementType(), isOutputSplat);
     auto outBuf = output.getTempBuf<StorageType>();
 
     std::transform(inputValues.begin(), inputValues.end(), outBuf.begin(), [](InputType x) {
@@ -111,7 +111,8 @@ Const::Content vpux::Const::ReverseAttr::transform(vpux::Const::Content& input) 
     // Note: reverse could happen after CastElemType and in this case we must
     // perform explicit type conversion - dispatch by input element type.
     return input.read(inputElementType, [&](auto inputValues, auto dummy) {
-        return reverseImpl<decltype(dummy)>(inputValues, inputType, axis);
+        const bool isOutputSplat = inferOutputSplat(false, inputType);
+        return reverseImpl<decltype(dummy)>(inputValues, inputType, axis, isOutputSplat);
     });
 }
 

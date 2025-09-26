@@ -105,5 +105,12 @@ bool vpux::VPU::MVN1NormalizeOp::supportCycleCostCalculation() {
 void vpux::VPU::MVN1NormalizeOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                                        ::mlir::Value meanVar, ::mlir::BoolAttr across_channels,
                                        ::mlir::BoolAttr normalize_variance) {
-    build(builder, state, input.getType(), input, meanVar, across_channels, normalize_variance, {});
+    build(builder, state, input.getType(), input, meanVar, across_channels, normalize_variance, {}, {});
+}
+
+void vpux::VPU::MVN1NormalizeOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
+                                       ::mlir::Value meanVar, ::mlir::BoolAttr across_channels,
+                                       ::mlir::BoolAttr normalize_variance, ::mlir::BoolAttr high_precision_normalize) {
+    build(builder, state, input.getType(), input, meanVar, across_channels, normalize_variance,
+          high_precision_normalize, {});
 }

@@ -78,9 +78,10 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GridSampleOp::getTilingStrategy(TilingM
     tilingMode = TilingMode::ISOLATED;
     const auto tilingModeToCheck = tilingMode;
 
-    SmallVector<Dim> tileDimOrder = {Dims4D::Act::N, Dims4D::Act::C, Dims4D::Act::H, Dims4D::Act::W};
+    // Prioritize outer-most dimensions
+    auto tileDimPriority = outputType.getDimsOrder().toPermutation();
 
-    auto tileDimIter = tileDimOrder.begin();
+    auto tileDimIter = tileDimPriority.begin();
     auto dimToTile = *tileDimIter;
 
     const auto isSupportedTileSize = [op, &tilingInfo, outputShape, log](ShapeRef nTilesOnDim,
@@ -95,7 +96,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GridSampleOp::getTilingStrategy(TilingM
     while (!isSupportedTileSize(nTilesOnDimforGridSample, tilingModeToCheck)) {
         if (nTilesOnDimforGridSample[dimToTile] >= outputShape[dimToTile]) {
             dimToTile = *(++tileDimIter);
-            if (tileDimIter == tileDimOrder.end()) {
+            if (tileDimIter == tileDimPriority.end()) {
                 VPUX_THROW("Unsupported dim to tile: {0}", dimToTile);
             }
         } else {

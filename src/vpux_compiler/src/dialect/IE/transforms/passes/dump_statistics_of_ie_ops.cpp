@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/ops_interfaces.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/statistics_collection.hpp"
 
@@ -158,9 +159,9 @@ utils::OpCounterTree collectCounters(const ExternalCounterState& state) {
     roots.emplace_back(makePercentageCounter(
                                state, IE::IEDialect::getDialectNamespace().str(),
                                [&](mlir::Operation* op) {
-                                   // Note: ignore meta-info ops (e.g. IE.MemoryResource)
+                                   // Note: ignore meta-info ops (e.g. config.MemoryResource)
                                    return mlir::isa<IE::IEDialect>(op->getDialect()) &&
-                                          !op->hasTrait<IE::ResourceOpInterface::Trait>();
+                                          !op->hasTrait<config::ResourceOpInterface::Trait>();
                                },
                                /* unrecognized op handler = */ getOpName),
                        std::move(ieOps));

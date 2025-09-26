@@ -16,20 +16,20 @@ module @"resnet-320-pytorch" {
     func.func private @builtin_SoftMax(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i64, i64) attributes {VPU.kernel_code = "softmax.cpp", VPU.kernel_entry = "softmax", VPU.task_type = @COMPUTE}
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
-  IE.TileResource {activity_factor = 0.042571347270822207 : f64} 2 of @NCE at 1.850000e+03 MHz {
+  config.Resources {activity_factor = 0.042571347270822207 : f64} 2 of @NCE at 1.850000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 1024 bytes of @CMX_NN offset 1473536
+        config.MemoryResource 1024 bytes of @CMX_NN offset 1473536
       }
     }
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo {inferenceTiming = 18466 : i64} entryPoint : @main inputsInfo : {
     DataInfo "result.1" tensorNames = ["result.1"] : tensor<1x16x16x16xf16>
   } outputsInfo : {
@@ -104,10 +104,10 @@ module @"resnet-320-pytorch" {
     %684 = VPUMI40XX.DeclareKernelArgs kernel_path("softmax") -> !VPURegMapped.Index<1:0:0>
     %685 = VPUMI40XX.DeclareKernelArgs kernel_path("softmax") -> !VPURegMapped.Index<0:0:1>
     %686 = VPUMI40XX.DeclareKernelArgs kernel_path("softmax") -> !VPURegMapped.Index<1:0:1>
-    %687 = VPUMI40XX.KernelParams inputs(%669 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) outputs(%673 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params(dense<[0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : vector<88xui8>) -> !VPURegMapped.Index<0:0:0>
-    %688 = VPUMI40XX.KernelParams inputs(%670 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) outputs(%674 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) kernel_type("softmax") kernel_params(dense<[0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : vector<88xui8>) -> !VPURegMapped.Index<1:0:0>
-    %689 = VPUMI40XX.KernelParams inputs(%667 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) outputs(%671 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params(dense<[0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : vector<88xui8>) -> !VPURegMapped.Index<0:0:1>
-    %690 = VPUMI40XX.KernelParams inputs(%668 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) outputs(%672 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) kernel_type("softmax") kernel_params(dense<[0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : vector<88xui8>) -> !VPURegMapped.Index<1:0:1>
+    %687 = VPUMI40XX.KernelParams inputs(%669 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) outputs(%673 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params([0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
+    %688 = VPUMI40XX.KernelParams inputs(%670 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) outputs(%674 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) kernel_type("softmax") kernel_params([0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) -> !VPURegMapped.Index<1:0:0>
+    %689 = VPUMI40XX.KernelParams inputs(%667 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) outputs(%671 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params([0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) -> !VPURegMapped.Index<0:0:1>
+    %690 = VPUMI40XX.KernelParams inputs(%668 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) outputs(%672 : memref<1x16x49x1xf16, {order = #NHWC, strides = [1568, 1, 16, 16]}, [@CMX_NN, 1]>) kernel_type("softmax") kernel_params([0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 64, 0, 1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) -> !VPURegMapped.Index<1:0:1>
     %691 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8} <0, -1> -> !VPURegMapped.Index<0:0:0>
     %692 = VPUMI40XX.ConfigureBarrier {consumer_count = 2 : ui8, producer_count = 2 : ui8}(%691 : !VPURegMapped.Index<0:0:0>) <1, -1> -> !VPURegMapped.Index<0:0:1>
     %693 = VPUMI40XX.ConfigureBarrier {consumer_count = 2 : ui8, producer_count = 3 : ui8}(%692 : !VPURegMapped.Index<0:0:1>) <2, -1> -> !VPURegMapped.Index<0:0:2>
@@ -198,6 +198,7 @@ module @"resnet-320-pytorch" {
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %766 = VPUMI40XX.MappedInference dmas((%734, %745), (%746, %747) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) invariants(%706, %709 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%712, %715 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) actKernelRanges((%698, %771), (%700) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>)) actKernelInvocations((%702, %773), (%704) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>)) barriers(%691 : !VPURegMapped.Index<0:0:0>) workItemTasks(%749 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%759 : !VPURegMapped.Index<0:0:0>) actShaveRt(%748 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%648 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[11, 1], [1, 1]]) invariantCount([3, 3]) variantCount([3, 3]) actKernelRangesCount([[2, 2], [2, 0]]) actKernelInvocationsCount([[2, 1], [2, 0]]) mediaCount(0) barrierCount(7) workItemCount(10) bootstrapBarriersCount(7) bootsrapWorkItemsCount(4) finalBarrierId(6) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

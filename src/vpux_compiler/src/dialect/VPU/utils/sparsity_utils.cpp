@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <algorithm>
@@ -182,9 +183,20 @@ mlir::Type VPU::getEffectiveSparseOutputType(mlir::Type sparseType) {
 
     auto dataNDType = mlir::cast<NDTypeInterface>(dataType);
     auto seTableNDType = mlir::cast<NDTypeInterface>(seTableType);
-    auto outShape = Shape(seTableNDType.getShape().raw());
-    outShape[Dims4D::Act::N] = dataNDType.getShape()[Dims4D::Act::N];
-    outShape[Dims4D::Act::C] = dataNDType.getShape()[Dims4D::Act::C];
+    auto outShape = Shape(dataNDType.getShape());
+    outShape[Dims4D::Act::H] = outShape[Dims4D::Act::H] != mlir::ShapedType::kDynamic
+                                       ? seTableNDType.getShape()[Dims4D::Act::H]
+                                       : mlir::ShapedType::kDynamic;
+    outShape[Dims4D::Act::W] = outShape[Dims4D::Act::W] != mlir::ShapedType::kDynamic
+                                       ? seTableNDType.getShape()[Dims4D::Act::W]
+                                       : mlir::ShapedType::kDynamic;
+
+    if (auto boundedData = mlir::dyn_cast<Core::BoundedTensorType>(dataType)) {
+        auto bounds = SmallVector<int64_t>(boundedData.getBounds().raw());
+        bounds[Dims4D::Act::H.ind()] = seTableNDType.getShape()[Dims4D::Act::H];
+        bounds[Dims4D::Act::W.ind()] = seTableNDType.getShape()[Dims4D::Act::W];
+        dataNDType = mlir::cast<NDTypeInterface>(boundedData.changeBounds(BoundsRef(bounds)));
+    }
 
     auto distributedTypeIf = mlir::cast<VPU::DistributedTypeInterface>(sparseType);
     if (!distributedTypeIf.containsDistributedTypes()) {

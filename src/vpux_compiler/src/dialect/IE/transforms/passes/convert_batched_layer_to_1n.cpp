@@ -13,12 +13,10 @@
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -58,6 +56,25 @@ std::optional<Dim> getDimEqualsToOne(ArrayRef<mlir::Value> values) {
 bool isShapeRankEq4(mlir::Value val) {
     const auto inputShape = getShape(val);
     return inputShape.size() == 4;
+}
+
+bool isLegalConvToGroupConv(IE::ConvolutionOp op) {
+    auto inputShape = getShape(op.getInput());
+    auto filterShape = getShape(op.getFilter());
+
+    // Only convert 4D tensors with IC=1, OC=1, FC=1, and N>1
+    if (inputShape.size() != 4 || filterShape.size() != 4) {
+        return true;
+    }
+
+    const auto N = inputShape[Dims4D::Act::N];
+    const auto IC = inputShape[Dims4D::Act::C];
+    const auto H = inputShape[Dims4D::Act::H];
+    const auto W = inputShape[Dims4D::Act::W];
+    const auto OC = filterShape[Dims4D::Filter::OC];
+    const auto FC = filterShape[Dims4D::Filter::IC];
+
+    return !(IC == 1 && OC == 1 && FC == 1 && N > 1 && H > 1 && W > 1);
 }
 
 IE::TransposeOp createTransposeForLayerInput(mlir::PatternRewriter& rewriter, mlir::Value input, const Dim& dim,
@@ -283,30 +300,74 @@ protected:
 
 mlir::LogicalResult ConvLayerConverter::layerSpecificRewriter(IE::ConvolutionOp convOp,
                                                               mlir::PatternRewriter& rewriter) const {
-    if (convOp.getInput() != convOp.getFilter()) {
+    if (convOp.getInput() != convOp.getFilter() && isLegalConvToGroupConv(convOp)) {
         return mlir::failure();
     }
 
-    auto dim = getDimEqualsToOne({convOp.getInput()}).value();
-    auto inTranspose = createTransposeForLayerInput(rewriter, convOp.getInput(), dim, convOp->getLoc());
-    auto transPermAttr = inTranspose.getOrderValueAttr();
-    VPUX_THROW_WHEN(transPermAttr == nullptr, "Can not get order value from input tranpose");
-    auto output = rewriter.create<IE::ConvolutionOp>(convOp->getLoc(), inTranspose.getOutput(), convOp.getFilter(),
-                                                     convOp.getBias(), convOp.getStridesAttr(),
-                                                     convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(),
-                                                     convOp.getDilationsAttr(), convOp.getPostOpAttr(),
-                                                     convOp.getClampAttr(), convOp.getStaticScaleAttr(),
-                                                     convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr())
-                          .getOutput();
+    if (convOp.getInput() == convOp.getFilter()) {
+        auto dim = getDimEqualsToOne({convOp.getInput()}).value();
+        auto inTranspose = createTransposeForLayerInput(rewriter, convOp.getInput(), dim, convOp->getLoc());
+        auto transPermAttr = inTranspose.getOrderValueAttr();
+        VPUX_THROW_WHEN(transPermAttr == nullptr, "Can not get order value from input transpose");
+        auto output = rewriter.create<IE::ConvolutionOp>(convOp->getLoc(), inTranspose.getOutput(), convOp.getFilter(),
+                                                         convOp.getBias(), convOp.getStridesAttr(),
+                                                         convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(),
+                                                         convOp.getDilationsAttr(), convOp.getPostOpAttr(),
+                                                         convOp.getClampAttr(), convOp.getStaticScaleAttr(),
+                                                         convOp.getOutputPaddingAttr(), convOp.getInputPaddingAttr())
+                              .getOutput();
 
-    auto parentOpOutputType = mlir::cast<NDTypeInterface>(output.getType());
-    auto outElemType = mlir::cast<NDTypeInterface>(convOp.getOutput().getType()).getElementType();
-    output.getDefiningOp()->getResult(0).setType(parentOpOutputType.changeElemType(outElemType));
-    _log.trace("Insert new layer without batch: {0}", output);
-    auto outTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(convOp, output, nullptr, transPermAttr);
-    outTranspose->setLoc(appendLoc(convOp->getLoc(), "_transpose_output"));
-    _log.trace("Insert transpose {0} for output", outTranspose);
+        auto parentOpOutputType = mlir::cast<NDTypeInterface>(output.getType());
+        auto outElemType = mlir::cast<NDTypeInterface>(convOp.getOutput().getType()).getElementType();
+        output.getDefiningOp()->getResult(0).setType(parentOpOutputType.changeElemType(outElemType));
+        _log.trace("Insert new layer without batch: {0}", output);
+        auto outTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(convOp, output, nullptr, transPermAttr);
+        outTranspose->setLoc(appendLoc(convOp->getLoc(), "_transpose_output"));
+        _log.trace("Insert transpose {0} for output", outTranspose);
 
+        return mlir::success();
+    }
+
+    auto inputShape = getShape(convOp.getInput());
+    auto filterShape = getShape(convOp.getFilter());
+    auto outputShape = getShape(convOp.getOutput());
+
+    _log.trace("Converting Convolution to GroupConvolution: input {0}, filter {1}, output {2}", inputShape, filterShape,
+               outputShape);
+
+    const auto ctx = convOp->getContext();
+
+    // 1. Broadcast filter: [1, 1, KH, KW] -> [N, 1, KH, KW]
+    const auto N = inputShape[Dims4D::Act::N];
+    Shape newFilterShape = Shape(filterShape);
+    newFilterShape[Dims4D::Filter::OC] = N;
+    auto filterBroadcast =
+            IE::createBroadcast(rewriter, takeOpLoc(convOp, "filter"), convOp.getFilter(), newFilterShape);
+
+    // 2. Reshape input: [N, 1, H, W] -> [1, N, H, W]
+    Shape newInputShape = Shape(inputShape);
+    newInputShape[Dims4D::Act::N] = 1;
+    newInputShape[Dims4D::Act::C] = N;
+    auto inputReshape =
+            rewriter.create<IE::ShapeCastOp>(convOp->getLoc(), convOp.getInput(), getIntArrayAttr(ctx, newInputShape));
+
+    // 3. Create GroupConvolution with groups = N
+    Shape newOutputShape = Shape(outputShape);
+    newOutputShape[Dims4D::Act::N] = 1;
+    newOutputShape[Dims4D::Act::C] = N;
+    const auto resultType =
+            mlir::RankedTensorType::get(newOutputShape.raw(), convOp.getOutput().getType().getElementType());
+
+    auto groupConvOp = rewriter.create<IE::GroupConvolutionOp>(
+            convOp->getLoc(), resultType, inputReshape.getResult(), filterBroadcast, convOp.getBias(),
+            convOp.getStridesAttr(), convOp.getPadsBeginAttr(), convOp.getPadsEndAttr(), convOp.getDilationsAttr(),
+            getIntAttr(ctx, N), convOp.getPostOpAttr(), convOp.getClampAttr(), convOp.getOutputPaddingAttr(),
+            convOp.getInputPaddingAttr());
+
+    // 4. Reshape output back: [1, N, H', W'] -> [N, 1, H', W']
+    rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(convOp, groupConvOp.getOutput(), getIntArrayAttr(ctx, outputShape));
+
+    _log.trace("Successfully converted Convolution to GroupConvolution with {0} groups", N);
     return mlir::success();
 }
 
@@ -583,7 +644,10 @@ void ConvertBatchedLayerTo1NPass::safeRunOnFunc() {
     auto& ctx = getContext();
 
     mlir::ConversionTarget target(ctx);
-    target.addDynamicallyLegalOp<IE::ConvolutionOp>(isLegalConvOp);
+    target.addDynamicallyLegalOp<IE::ConvolutionOp>([](IE::ConvolutionOp op) {
+        return isLegalConvOp(op) && isLegalConvToGroupConv(op);
+    });
+
     target.addDynamicallyLegalOp<IE::GroupConvolutionOp>(isLegalGroupConvOp);
     target.addDynamicallyLegalOp<IE::MaxPoolOp>(isLegalPoolOp<IE::MaxPoolOp>);
     target.addDynamicallyLegalOp<IE::AvgPoolOp>(isLegalPoolOp<IE::AvgPoolOp>);

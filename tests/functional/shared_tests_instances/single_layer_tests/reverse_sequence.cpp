@@ -78,7 +78,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_ReverseSequence, ReverseSequenceLayerTestCommon,
                                             ::testing::ValuesIn(inputShapes),
                                             ::testing::ValuesIn(reversSeqLengthsVecShapes),
                                             ::testing::Values(InputLayerType::PARAMETER),
-                                            ::testing::ValuesIn(netPrecisions), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(netPrecisions),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ReverseSequenceLayerTestCommon::getTestCaseName);
 
 }  // namespace

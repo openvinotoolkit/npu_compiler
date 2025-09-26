@@ -255,7 +255,8 @@ VPUMI37XX::BlobWriter::Vector<T> vpux::VPUMI37XX::BlobWriter::createStrides(Stri
 
 template <typename T>
 VPUMI37XX::BlobWriter::Vector<T> vpux::VPUMI37XX::BlobWriter::createStrides(vpux::NDTypeInterface type) {
-    return createStrides<T>(type.getStrides(), type.getElemTypeSize());
+    const auto strides = type.getStrides();
+    return createStrides<T>(strides, type.getElemTypeSize());
 }
 
 VPUMI37XX::BlobWriter::IndirectDataReference vpux::VPUMI37XX::BlobWriter::createIndirectDataReference(

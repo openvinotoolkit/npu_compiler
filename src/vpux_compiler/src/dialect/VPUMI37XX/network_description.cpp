@@ -10,8 +10,9 @@
 #include <vpux_elf/accessor.hpp>
 #include <vpux_elf/reader.hpp>
 #include <vpux_headers/serial_metadata.hpp>
-
 #include "vpux/compiler/dialect/ELFNPU37XX/attributes.hpp"
+#include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
+#include "vpux/compiler/dialect/HostExec/params.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/network_description.hpp"
 
 #include "vpux/compiler/core/attributes/dims_order.hpp"
@@ -20,6 +21,8 @@
 #include "vpux/utils/core/enums.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
+
+#include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 
 #include <algorithm>
 
@@ -101,7 +104,8 @@ const EnumMap<elf::OVNodeType, ov::element::Type_t> mapElementTypeOV = {
  * inputs or the outputs of a network, depending on the type of the given arguments.
  */
 std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>& descriptorsFromCompiler,
-                                               const std::optional<std::vector<elf::OVNode>>& descriptorsFromIRModel) {
+                                               const std::optional<std::vector<elf::OVNode>>& descriptorsFromIRModel,
+                                               const bool areInputs) {
     std::vector<IODescriptor> convertedIODescriptors;
 
     const size_t descriptorsFromCompilerCount = descriptorsFromCompiler.size();
@@ -109,8 +113,8 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
 
     if (descriptorsFromIRModel.has_value()) {
         // In addition to the inputs/outputs found in the IR model, the compiler may also place additional I/O such as
-        // states and shape tensors. Thus, we cannot have less I/O entries originating from the compiler compared to the
-        // IR model.
+        // states, shape tensors and weights. Thus, we cannot have less I/O entries originating from the compiler
+        // compared to the IR model.
         descriptorsFromIRModelCount = descriptorsFromIRModel->size();
         VPUX_THROW_WHEN(descriptorsFromIRModelCount > descriptorsFromCompilerCount,
                         "The number of inputs/outputs extracted from the compiled model is less than the number found "
@@ -125,16 +129,16 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
         //  * nameFromCompiler
         //  * precision
         //  * shapeFromCompiler
-        //  * isStateInput/isStateOutput/isShapeTensor
+        //  * isStateInput/isStateOutput/isShapeTensor/isInitInputWeights/isInitOutputWeights/isMainInputWeights
         const elf::TensorRef& descriptorFromCompiler = descriptorsFromCompiler.at(descriptorIndex);
         convertedIODescriptor.nameFromCompiler = descriptorFromCompiler.name;
 
         // Flags will be used instead of indices for informing the type of the current entry
-        if (intel_npu::isStateInputName(convertedIODescriptor.nameFromCompiler)) {
+        if (areInputs && intel_npu::isStateInputName(convertedIODescriptor.nameFromCompiler)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::READVALUE_PREFIX.length());
             convertedIODescriptor.isStateInput = true;
-        } else if (intel_npu::isStateOutputName(convertedIODescriptor.nameFromCompiler)) {
+        } else if (!areInputs && intel_npu::isStateOutputName(convertedIODescriptor.nameFromCompiler)) {
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::ASSIGN_PREFIX.length());
             convertedIODescriptor.isStateOutput = true;
@@ -142,6 +146,18 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
             convertedIODescriptor.nameFromCompiler =
                     convertedIODescriptor.nameFromCompiler.substr(intel_npu::SHAPE_TENSOR_PREFIX.length());
             convertedIODescriptor.isShapeTensor = true;
+        } else if (areInputs && intel_npu::isInitInputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            convertedIODescriptor.nameFromCompiler =
+                    convertedIODescriptor.nameFromCompiler.substr(intel_npu::INIT_INPUT_WEIGHTS_PREFIX.length());
+            convertedIODescriptor.isInitInputWeights = true;
+        } else if (!areInputs && intel_npu::isInitOutputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            convertedIODescriptor.nameFromCompiler =
+                    convertedIODescriptor.nameFromCompiler.substr(intel_npu::INIT_OUTPUT_WEIGHTS_PREFIX.length());
+            convertedIODescriptor.isInitOutputWeights = true;
+        } else if (areInputs && intel_npu::isMainInputWeightsName(convertedIODescriptor.nameFromCompiler)) {
+            convertedIODescriptor.nameFromCompiler =
+                    convertedIODescriptor.nameFromCompiler.substr(intel_npu::MAIN_INPUT_WEIGHTS_PREFIX.length());
+            convertedIODescriptor.isMainInputWeights = true;
         }
 
         const std::vector<size_t> dataDims(descriptorFromCompiler.dimensions,
@@ -151,11 +167,13 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
         convertedIODescriptor.precision = extractPrecisionFromDType(descriptorFromCompiler.data_type);
 
         if (descriptorsFromIRModel.has_value() && descriptorIndex < descriptorsFromIRModelCount) {
-            // The states and shape tensors are appended as inputs/outputs by the compiler, the IR model cannot contain
-            // them in the parameters/results entries.
+            // The states, shape tensors or weights (if using weights separation) are appended as inputs/outputs by the
+            // compiler, the IR model cannot contain them in the parameters/results entries.
             VPUX_THROW_WHEN(convertedIODescriptor.isStateInput || convertedIODescriptor.isStateOutput ||
-                                    convertedIODescriptor.isShapeTensor,
-                            "The inputs/outputs found in the IR model cannot be states or shape tensors");
+                                    convertedIODescriptor.isShapeTensor || convertedIODescriptor.isInitInputWeights ||
+                                    convertedIODescriptor.isInitOutputWeights ||
+                                    convertedIODescriptor.isMainInputWeights,
+                            "The inputs/outputs found in the IR model cannot be states, shape tensors or weights");
 
             // From the "elf::OVNode" structure we may build the following "intel_npu::IODescriptor" fields:
             //  * nodeFriendlyName
@@ -199,6 +217,24 @@ std::vector<IODescriptor> convertIODescriptors(const std::vector<elf::TensorRef>
     return convertedIODescriptors;
 }
 
+void getNetworkMetadata(const std::shared_ptr<elf::NetworkMetadata>& metadata, NetworkMetadata& network) {
+    VPUX_THROW_UNLESS(metadata != nullptr, "METADATA NOT FOUND IN ELF");
+    network.name = metadata->mIdentification.blob_name;
+
+    OV_ITT_TASK_CHAIN(NETWORK_DESCRIPTION, itt::domains::VPUXPlugin, "getNetworkMetadata", "convertIODescriptors");
+
+    network.inputs =
+            convertIODescriptors(metadata->mNetInputs, std::optional(metadata->mOVParameters), /*areInputs=*/true);
+    network.outputs =
+            convertIODescriptors(metadata->mNetOutputs, std::optional(metadata->mOVResults), /*areInputs=*/false);
+    network.profilingOutputs = convertIODescriptors(metadata->mProfilingOutputs, std::nullopt, /*areInputs=*/false);
+
+    VPUX_THROW_UNLESS(!network.outputs.empty(), "Metadata structure does not contain info on outputs");
+
+    network.numStreams = metadata->mResourceRequirements.nn_slice_count_;
+
+    network.bindRelatedDescriptors();
+}
 }  // namespace
 
 NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(mlir::ArrayRef<uint8_t> blob) {
@@ -224,20 +260,46 @@ NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(mlir::ArrayRef<uint8_t> blob
         }
     }
 
-    VPUX_THROW_UNLESS(metadata != nullptr, "METADATA NOT FOUND IN ELF");
-    network.name = metadata->mIdentification.blob_name;
+    ::getNetworkMetadata(metadata, network);
 
-    OV_ITT_TASK_NEXT(NETWORK_DESCRIPTION, "convertIODescriptors");
+    return network;
+}
 
-    network.inputs = convertIODescriptors(metadata->mNetInputs, std::optional(metadata->mOVParameters));
-    network.outputs = convertIODescriptors(metadata->mNetOutputs, std::optional(metadata->mOVResults));
-    network.profilingOutputs = convertIODescriptors(metadata->mProfilingOutputs, std::nullopt);
+intel_npu::NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(uint8_t* serializedMetadata,
+                                                               size_t serializedMetadataSize) {
+    intel_npu::NetworkMetadata network;
 
-    VPUX_THROW_UNLESS(!network.outputs.empty(), "Metadata structure does not contain info on outputs");
+    VPUX_THROW_UNLESS(serializedMetadata, "Got NULL pointer");
 
-    network.numStreams = metadata->mResourceRequirements.nn_slice_count_;
+    auto metadata = elf::MetadataSerialization::deserialize(serializedMetadata, serializedMetadataSize);
+    ::getNetworkMetadata(metadata, network);
 
-    network.bindRelatedDescriptors();
+    return network;
+}
+
+intel_npu::NetworkMetadata vpux::VPUMI37XX::getNetworkMetadata(mlir::ModuleOp module) {
+    intel_npu::NetworkMetadata network;
+    std::shared_ptr<elf::NetworkMetadata> metadata;
+
+    auto name = mlir::StringRef(HOST_EXEC_NETWORK_METADATA_NAME);
+    auto serializedMetadataGlobalOp = module.lookupSymbol<mlir::LLVM::GlobalOp>(name);
+    VPUX_THROW_UNLESS(serializedMetadataGlobalOp, "metadata is not found in blob");
+
+    mlir::Type globalType = serializedMetadataGlobalOp.getType();
+    auto arrayType = mlir::dyn_cast<mlir::LLVM::LLVMArrayType>(globalType);
+    VPUX_THROW_UNLESS(arrayType, "Invalid metadata type");
+    uint64_t metadataSize = arrayType.getNumElements();
+    auto valueAttr = serializedMetadataGlobalOp.getValueAttr();
+
+    if (auto stringAttr = mlir::dyn_cast_or_null<mlir::StringAttr>(valueAttr)) {
+        llvm::StringRef stringRef = stringAttr.getValue();
+        const char* dataPtr = stringRef.data();
+        metadata = elf::MetadataSerialization::deserialize(reinterpret_cast<const uint8_t*>(dataPtr), metadataSize);
+    }
+
+    VPUX_THROW_UNLESS(metadata, "metadata is not found in blob");
+
+    ::getNetworkMetadata(metadata, network);
 
     return network;
 }

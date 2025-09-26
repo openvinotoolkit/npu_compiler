@@ -4,8 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
-#include "vpux/compiler/dialect/config/IR/ops.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <algorithm>

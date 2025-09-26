@@ -13,7 +13,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/IE/locations.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -404,7 +403,7 @@ bool UnrollFullyConnected::isUnrollingBeneficial(IE::FullyConnectedOp origOp, ml
     if (auto dynamicDequant = concatInputs.front().getDefiningOp<IE::DynamicDequantizeOp>()) {
         auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(dynamicDequant.getInput().getType());
         if (auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(inputType.getElementType())) {
-            if (!uniformType.isSigned() || uniformType.getStorageTypeIntegralWidth() != 4) {
+            if (uniformType.getStorageTypeIntegralWidth() != 4 && uniformType.getStorageTypeIntegralWidth() != 2) {
                 return false;
             }
         }

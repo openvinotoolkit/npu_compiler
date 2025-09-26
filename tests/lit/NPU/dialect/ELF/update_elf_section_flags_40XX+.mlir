@@ -16,7 +16,7 @@ module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
 
-  IE.TileResource 1 of @NCE at 1.700000e+03 MHz
+  config.Resources 1 of @NCE at 1.700000e+03 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Parameter_224" : tensor<64x32x32x16xf16>
   } outputsInfo : {
@@ -62,8 +62,8 @@ func.func @main() {
     // CHECK:   ELF.CreateSection @shave.params aligned(1024)
     // CHECK-SAME:    secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE")
     ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-      VPUASM.KernelParams @KernelParams_0_0 inputs([@io.NetworkInput0::@DeclareBuffer1, @buffer.Constant.0.constant::@Declare0]) outputs([@io.NetworkOutput0::@DeclareBuffer3]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("eltwise_min") kernel_params(dense_resource<__elided__> : vector<108xui8>)
-      VPUASM.KernelParams @KernelParams_0_1 inputs([]) outputs([]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("cache_op_flush_invalidate") kernel_params(dense<255> : vector<1xui8>)
+      VPUASM.KernelParams @KernelParams_0_0 inputs([@io.NetworkInput0::@DeclareBuffer1, @buffer.Constant.0.constant::@Declare0]) outputs([@io.NetworkOutput0::@DeclareBuffer3]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("eltwise_min") < {kernel_params = []}>
+      VPUASM.KernelParams @KernelParams_0_1 inputs([]) outputs([]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("cache_op_flush_invalidate") < {kernel_params = [255]}>
     }
     // CHECK:   ELF.CreateSection @program.barrier
     // CHECK-SAME:    secFlags("SHF_ALLOC|SHF_EXECINSTR")

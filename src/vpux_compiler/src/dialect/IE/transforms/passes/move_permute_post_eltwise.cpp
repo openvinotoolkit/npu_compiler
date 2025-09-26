@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -15,6 +16,7 @@
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace vpux::IE {
@@ -606,8 +608,8 @@ mlir::LogicalResult PermuteEltwiseDiffLayoutRewriter::matchAndRewrite(IE::AddOp 
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
     for (auto input : origOp->getOperands()) {
-        auto inputPermute = input.getDefiningOp<IE::MemPermuteOp>();
-        if (inputPermute == nullptr || !inputPermute->hasOneUse()) {
+        auto inputPermute = input.getDefiningOp();
+        if (!mlir::isa_and_present<IE::MemPermuteOp>(inputPermute) || !inputPermute->hasOneUse()) {
             _log.trace("Input '{0}' is not a MemPermuteOp", input);
             return mlir::failure();
         }

@@ -160,7 +160,7 @@ public:
         auto sparsityCompressionAttr = origOp.getSparsityCompression().value_or(nullptr);
         if (sparsityCompressionAttr != nullptr) {
             sparsityCompressionAttr =
-                    VPU::tileSparsityCompression(sparsityCompressionAttr, Shape(sliceOffsets), Shape(sliceSizes));
+                    VPU::tileSparsityCompression(sparsityCompressionAttr, ShapeRef(sliceOffsets), ShapeRef(sliceSizes));
         }
 
         // In case the parent operation is a constant, fold the view-like operation directly into the constant
@@ -219,7 +219,7 @@ public:
         auto newDataOffsets = Shape(sliceOffsets);
         auto newDataSizes = Shape(sliceSizes);
         if (seAttr != nullptr) {
-            seAttr = seAttr.extractTile(Shape(sliceOffsets), Shape(sliceSizes),
+            seAttr = seAttr.extractTile(ShapeRef(sliceOffsets), ShapeRef(sliceSizes),
                                         mlir::cast<NDTypeInterface>(origOp.getData().getType()).getShape(),
                                         newDataOffsets, newDataSizes);
         }
@@ -227,7 +227,7 @@ public:
 
         // SM
         auto newSparsityMapValue =
-                rewriteSparsityMap(origOp.getSparsityMap(), newDataValue, Shape(sliceOffsets), Shape(sliceSizes));
+                rewriteSparsityMap(origOp.getSparsityMap(), newDataValue, ShapeRef(sliceOffsets), ShapeRef(sliceSizes));
 
         // SETable
         mlir::Value newSETableValue = nullptr;
@@ -265,7 +265,8 @@ public:
             if (constOp == nullptr) {
                 return nullptr;
             }
-            auto newContentAttr = constOp.transformContentAttr().padWithZero(Shape(padsBegin), Shape(padsEnd)).get();
+            auto newContentAttr =
+                    constOp.transformContentAttr().padWithZero(ShapeRef(padsBegin), ShapeRef(padsEnd)).get();
             auto newConstOp =
                     rewriter.create<Const::DeclareOp>(constOp.getLoc(), newContentAttr.getType(), newContentAttr);
             return newConstOp.getOutput();
@@ -431,7 +432,7 @@ InputTiling vpux::VPU::GroupSparseTensorOp::backInferTileInfo(const vpux::TileIn
 
     auto inputTile = TileInfo(outputTile.shape, outputTile.offsets, outputTile.axis);
     if (auto seAttr = getSeAttr().value_or(nullptr)) {
-        seAttr.extractTile(outputTile.offsets, outputTile.shape, getShape(getData()), inputTile.offsets,
+        seAttr.extractTile(outputTile.offsets, outputTile.shape, getBoundedShape(getData()), inputTile.offsets,
                            inputTile.shape);
     }
 
@@ -447,7 +448,8 @@ InputTiling vpux::VPU::GroupSparseTensorOp::backInferTileInfo(const vpux::TileIn
         const auto [seTableOffsets, seTableSizes] = VPU::getUpdatedSliceOffsetsAndShapesForSETable(
                 seDepth, seTableOp.getSeSize(), outputTile.offsets.raw(), outputTile.shape.raw());
 
-        inputTiles.push_back(TileInfo(Shape(seTableSizes), Shape(seTableOffsets), Shape(seTableOffsets.size(), 1)));
+        const Shape axis(seTableOffsets.size(), 1);
+        inputTiles.push_back(TileInfo(ShapeRef(seTableSizes), ShapeRef(seTableOffsets), axis));
     }
     return InputTiling(inputTiles);
 }

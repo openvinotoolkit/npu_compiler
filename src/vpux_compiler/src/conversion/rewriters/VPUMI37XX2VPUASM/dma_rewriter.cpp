@@ -169,7 +169,7 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI37XX::NNDMAOp
             /*enable_msc*/ nullptr,
             /*act_compression_size_entry*/ nullptr, /*act_compression_sparsity_map*/ nullptr,
             /*dma_transaction*/ nullptr, descriptor,
-            /*dma_hwp_id*/ nullptr, /*tile_indexes*/ nullptr, nullptr);
+            /*dma_hwp_id*/ nullptr, /*tile_indexes*/ nullptr, /*indices*/ nullptr, /*addressing_mode*/ nullptr);
 
     rewriter.eraseOp(op);
 

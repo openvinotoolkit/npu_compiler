@@ -43,7 +43,7 @@ auto oneHotparams = [](auto onOffType) {
                               ::testing::Values(onOffType), ::testing::ValuesIn(onVal), ::testing::ValuesIn(offVal),
                               ::testing::ValuesIn(axis), ::testing::Values(ov::element::i32),
                               ::testing::ValuesIn(static_shapes_to_test_representation(inputShape)),
-                              ::testing::Values(DEVICE_NPU));
+                              ::testing::Values(test_utils::TARGET_DEVICE));
 };
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_OneHot_FP16, OneHotLayerTestCommon, oneHotparams(ov::element::f16),

@@ -101,7 +101,8 @@ def NPUReg40XX_NNDMAOp :
         SymbolRefArrayAttr:$output_buffs,
         OptionalAttr<SymbolRefAttr>:$next_link,
         OptionalAttr<SymbolRefAttr>:$act_compression_size_entry,
-        OptionalAttr<SymbolRefAttr>:$indices
+        OptionalAttr<SymbolRefAttr>:$indices,
+        OptionalAttr<VPUIP_GatherAddressingMode>:$addressing_mode
     );
 
     let skipDefaultBuilders = 1;
@@ -113,7 +114,8 @@ def NPUReg40XX_NNDMAOp :
             "mlir::ArrayAttr":$output_buffs,
             "mlir::SymbolRefAttr":$next_link,
             "mlir::SymbolRefAttr":$act_compression_size_entry,
-            "mlir::SymbolRefAttr":$indices
+            "mlir::SymbolRefAttr":$indices,
+            "VPUIP::GatherAddressingModeAttr":$addressing_mode
         )>
     ];
 }

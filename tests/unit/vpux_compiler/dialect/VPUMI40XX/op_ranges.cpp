@@ -124,15 +124,15 @@ public:
 TEST_F(MLIR_TaskRangeTest, Empty) {
     constexpr std::string_view inputIR = R"(
         module @EmptyOpRanges attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-        IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+        config.Resources 6 of @NCE at 1.700000e+03 MHz {
+            config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+            config.ExecutorResource 2 of @SHAVE_ACT
+            config.ExecutorResource 1 of @DPU
         }
-        IE.ExecutorResource 1 of @M2I
-        IE.ExecutorResource 2 of @DMA_NN
-        IE.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+        config.ExecutorResource 1 of @M2I
+        config.ExecutorResource 2 of @DMA_NN
+        config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
         net.NetworkInfo entryPoint : @main inputsInfo : {
             DataInfo "input_0" : tensor<1x2x3x4xf16>
         } outputsInfo : {
@@ -163,15 +163,15 @@ TEST_F(MLIR_TaskRangeTest, DMA) {
     constexpr std::string_view inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @MultiOpRanges attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 2 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.700000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            config.ExecutorResource 1 of @M2I
+            config.ExecutorResource 2 of @DMA_NN
+            config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             net.NetworkInfo entryPoint : @main inputsInfo : {
                 DataInfo "input_0" : tensor<1x2x3x4xf16>
             } outputsInfo : {
@@ -211,15 +211,15 @@ TEST_F(MLIR_TaskRangeTest, Shave) {
     constexpr std::string_view inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @MultiOpRanges attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 2 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.700000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            config.ExecutorResource 1 of @M2I
+            config.ExecutorResource 2 of @DMA_NN
+            config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
             net.NetworkInfo entryPoint : @main inputsInfo : {
                 DataInfo "input_0" : tensor<1x2x3x4xf16>
             } outputsInfo : {
@@ -236,7 +236,7 @@ TEST_F(MLIR_TaskRangeTest, Shave) {
                 %14 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <69632> -> !VPUIP.DistributedBuffer<1x32x32x32xf16, {order = #NHWC, strides = [32768, 1, 1024, 32]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 1, 1, 1], uniform_distributed_segments}>
                 %15 = VPURT.DeclareBuffer <CMX_NN> [0, 1] <4096> -> !VPUIP.DistributedBuffer<1x64x32x32xf16, {order = #NHWC, strides = [65536, 1, 2048, 64]}, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments}>
                 %16 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>
-                %40 = VPUMI40XX.KernelParams inputs(%0 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) kernel_type("activation_softmax") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>) -> !VPURegMapped.Index<0:0:0>
+                %40 = VPUMI40XX.KernelParams inputs(%0 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) kernel_type("activation_softmax") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
                 %41 = VPUMI40XX.DeclareKernelText kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
                 %42 = VPUMI40XX.DeclareKernelEntry kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
                 %43 = VPUMI40XX.DeclareKernelArgs kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
@@ -288,65 +288,64 @@ TEST_F(MLIR_TaskRangeTest, DPU) {
     constexpr std::string_view inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @MultiOpRanges attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 2 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
-            }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-            net.NetworkInfo entryPoint : @main inputsInfo : {
-                DataInfo "input_0" : tensor<1x2x3x4xf16>
-            } outputsInfo : {
-                DataInfo "output_0" : tensor<1x2x3x4xf16>
-            }
-            func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
-                %11 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
-                %12 = VPURT.DeclareBuffer <CMX_NN> [0] <69632> -> memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>
-                %13 = VPURT.DeclareBuffer <CMX_NN> [0] <102400> -> memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
-                %16 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>
-                %17 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <0:0:0> PPE : {
-                }
-                %18 = VPUMI40XX.DPUVariant calls(%17 : <0:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <0:0:0>
-                %19 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%17 : !VPURegMapped.Index<0:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <0:0:1> PPE : {
-                }
-                %20 = VPUMI40XX.DPUVariant previousTask(%18 : !VPURegMapped.Index<0:0:0>) calls(%19 : <0:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <0:0:1>
-                %21 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <1:0:0> PPE : {
-                }
-                %22 = VPUMI40XX.DPUVariant calls(%21 : <1:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 1 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <1:0:0>
-                %23 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%21 : !VPURegMapped.Index<1:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <1:0:1> PPE : {
-                }
-                %24 = VPUMI40XX.DPUVariant previousTask(%22 : !VPURegMapped.Index<1:0:0>) calls(%23 : <1:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 1 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <1:0:1>
-                %25 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <2:0:0> PPE : {
-                }
-                %26 = VPUMI40XX.DPUVariant calls(%25 : <2:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 2 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <2:0:0>
-                %27 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%25 : !VPURegMapped.Index<2:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <2:0:1> PPE : {
-                }
-                %28 = VPUMI40XX.DPUVariant previousTask(%26 : !VPURegMapped.Index<2:0:0>) calls(%27 : <2:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 2 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <2:0:1>
-                %29 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <3:0:0> PPE : {
-                }
-                %30 = VPUMI40XX.DPUVariant calls(%29 : <3:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 3 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <3:0:0>
-                %31 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%29 : !VPURegMapped.Index<3:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <3:0:1> PPE : {
-                }
-                %32 = VPUMI40XX.DPUVariant previousTask(%30 : !VPURegMapped.Index<3:0:0>) calls(%31 : <3:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 3 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <3:0:1>
-                %33 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <4:0:0> PPE : {
-                }
-                %34 = VPUMI40XX.DPUVariant calls(%33 : <4:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 4 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <4:0:0>
-                %35 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%33 : !VPURegMapped.Index<4:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <4:0:1> PPE : {
-                }
-                %36 = VPUMI40XX.DPUVariant previousTask(%34 : !VPURegMapped.Index<4:0:0>) calls(%35 : <4:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 4 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <4:0:1>
-                %37 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <5:0:0> PPE : {
-                }
-                %38 = VPUMI40XX.DPUVariant calls(%37 : <5:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 5 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <5:0:0>
-                %39 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%37 : !VPURegMapped.Index<5:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <5:0:1> PPE : {
-                }
-                %40 = VPUMI40XX.DPUVariant previousTask(%38 : !VPURegMapped.Index<5:0:0>) calls(%39 : <5:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 5 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <5:0:1>
-                VPUMI40XX.OpRanges types([#VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>]) begins(%17, %18, %21, %22, %25, %26, %29, %30, %33, %34, %37, %38 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>, !VPURegMapped.Index<5:0:0>) ends(%19, %20, %23, %24, %27, %28, %31, %32, %35, %36, %39, %40 : !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<1:0:1>, !VPURegMapped.Index<1:0:1>, !VPURegMapped.Index<2:0:1>, !VPURegMapped.Index<2:0:1>, !VPURegMapped.Index<3:0:1>, !VPURegMapped.Index<3:0:1>, !VPURegMapped.Index<4:0:1>, !VPURegMapped.Index<4:0:1>, !VPURegMapped.Index<5:0:1>, !VPURegMapped.Index<5:0:1>)
-            }
+        config.Resources 6 of @NCE at 1.700000e+03 MHz {
+            config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+            config.ExecutorResource 2 of @SHAVE_ACT
+            config.ExecutorResource 1 of @DPU
         }
-    )";
+        config.ExecutorResource 1 of @M2I
+        config.ExecutorResource 2 of @DMA_NN
+        config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+        net.NetworkInfo entryPoint : @main inputsInfo : {
+            DataInfo "input_0" : tensor<1x2x3x4xf16>
+        } outputsInfo : {
+            DataInfo "output_0" : tensor<1x2x3x4xf16>
+        }
+        func.func @main(%arg0: memref<1x2x3x4xf16, @DDR>, %arg1: memref<1x2x3x4xf16, @DDR>) -> memref<1x2x3x4xf16, @DDR> {
+            %11 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>
+            %12 = VPURT.DeclareBuffer <CMX_NN> [0] <69632> -> memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>
+            %13 = VPURT.DeclareBuffer <CMX_NN> [0] <102400> -> memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>
+            %16 = VPURT.DeclareBuffer <CMX_NN> [0] <4096> -> memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>
+            %17 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <0:0:0> PPE : {
+            }
+            %18 = VPUMI40XX.DPUVariant calls(%17 : <0:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <0:0:0>
+            %19 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%17 : !VPURegMapped.Index<0:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <0:0:1> PPE : {
+            }
+            %20 = VPUMI40XX.DPUVariant previousTask(%18 : !VPURegMapped.Index<0:0:0>) calls(%19 : <0:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <0:0:1>
+            %21 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <1:0:0> PPE : {
+            }
+            %22 = VPUMI40XX.DPUVariant calls(%21 : <1:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 1 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <1:0:0>
+            %23 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%21 : !VPURegMapped.Index<1:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <1:0:1> PPE : {
+            }
+            %24 = VPUMI40XX.DPUVariant previousTask(%22 : !VPURegMapped.Index<1:0:0>) calls(%23 : <1:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 1 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <1:0:1>
+            %25 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <2:0:0> PPE : {
+            }
+            %26 = VPUMI40XX.DPUVariant calls(%25 : <2:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 2 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <2:0:0>
+            %27 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%25 : !VPURegMapped.Index<2:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <2:0:1> PPE : {
+            }
+            %28 = VPUMI40XX.DPUVariant previousTask(%26 : !VPURegMapped.Index<2:0:0>) calls(%27 : <2:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 2 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <2:0:1>
+            %29 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <3:0:0> PPE : {
+            }
+            %30 = VPUMI40XX.DPUVariant calls(%29 : <3:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 3 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <3:0:0>
+            %31 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%29 : !VPURegMapped.Index<3:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <3:0:1> PPE : {
+            }
+            %32 = VPUMI40XX.DPUVariant previousTask(%30 : !VPURegMapped.Index<3:0:0>) calls(%31 : <3:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 3 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <3:0:1>
+            %33 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <4:0:0> PPE : {
+            }
+            %34 = VPUMI40XX.DPUVariant calls(%33 : <4:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 4 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <4:0:0>
+            %35 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%33 : !VPURegMapped.Index<4:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <4:0:1> PPE : {
+            }
+            %36 = VPUMI40XX.DPUVariant previousTask(%34 : !VPURegMapped.Index<4:0:0>) calls(%35 : <4:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 4 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <4:0:1>
+            %37 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <5:0:0> PPE : {
+            }
+            %38 = VPUMI40XX.DPUVariant calls(%37 : <5:0:0>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 5 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <5:0:0>
+            %39 = VPUMI40XX.DPUInvariant {clean_after = 0 : ui64, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], mpe_frequent_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, start_after = 0 : ui64} previousTask(%37 : !VPURegMapped.Index<5:0:0>) input(%12 : memref<1x32x16x32xf16, #NHWC, [@CMX_NN, 0]>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) outputs(%16 : memref<1x64x16x32xf16, #NHWC, [@CMX_NN, 0]>) -> <5:0:1> PPE : {
+            }
+            %40 = VPUMI40XX.DPUVariant previousTask(%38 : !VPURegMapped.Index<5:0:0>) calls(%39 : <5:0:1>) weights(%11 : memref<64x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) weight_table(%13 : memref<64x1x1x4xsi32, #NHWC, [@CMX_NN, 0]>) {cluster_id = 5 : ui64, end = [31, 31, 63], inEnd = [15, 15, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, nce_task_type = #VPUIP.nce_task_type<CONV>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, start = [0, 16, 0]} -> <5:0:1>
+            VPUMI40XX.OpRanges types([#VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>, #VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>]) begins(%17, %18, %21, %22, %25, %26, %29, %30, %33, %34, %37, %38 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<2:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<3:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<4:0:0>, !VPURegMapped.Index<5:0:0>, !VPURegMapped.Index<5:0:0>) ends(%19, %20, %23, %24, %27, %28, %31, %32, %35, %36, %39, %40 : !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<1:0:1>, !VPURegMapped.Index<1:0:1>, !VPURegMapped.Index<2:0:1>, !VPURegMapped.Index<2:0:1>, !VPURegMapped.Index<3:0:1>, !VPURegMapped.Index<3:0:1>, !VPURegMapped.Index<4:0:1>, !VPURegMapped.Index<4:0:1>, !VPURegMapped.Index<5:0:1>, !VPURegMapped.Index<5:0:1>)
+        }
+        })";
 
     init(inputIR);
 

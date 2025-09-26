@@ -65,7 +65,7 @@ const auto testROIAlignV9Params = testing::Combine(
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)), testing::ValuesIn(coordsShape),
         testing::ValuesIn(pooledH), testing::ValuesIn(pooledW), testing::ValuesIn(spatialScale),
         testing::ValuesIn(poolingRatio), testing::ValuesIn(poolingMode), testing::ValuesIn(alignedMode),
-        testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+        testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_ROIAlign, ROIAlignV9LayerTestCommon, testROIAlignV9Params,
                          ROIAlignV9LayerTestCommon::getTestCaseName);

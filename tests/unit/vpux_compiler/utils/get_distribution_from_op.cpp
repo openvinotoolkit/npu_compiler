@@ -55,7 +55,7 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentDuringTili
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>) -> tensor<1x144x16x16xf16, {order = #NHWC}> {
                 %cst0 = const.Declare tensor<144x144x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<144x144x1x1xf16, {order = #NHWC}>
@@ -134,7 +134,7 @@ TEST_F(MLIR_GetDistributedTypeFromSOKConcatOpTest, SOKConcatOpSmallChannelNum) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x3x32x32xf16, {order = #NHWC}>,
                             %arg1: tensor<1x3x32x32xf16, {order = #NHWC}>)
                     -> tensor<1x3x64x32xf16, {order = #NHWC}> {
@@ -178,7 +178,7 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentAfterSlice
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x128x16x16xf16, {order = #NHWC}>) -> tensor<1x64x16x16xf16, {order = #NHWC}> {
                 %cst0 = const.Declare tensor<128x128x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<128x128x1x1xf16, {order = #NHWC}>
@@ -249,7 +249,7 @@ TEST_F(MLIR_GetDistributedTypeFromOpSOKAlignmentTest, SWOpSOKAlignmentAfterSlice
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+            config.Resources 3 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x160x16x16xf16, {order = #NHWC}>) -> tensor<1x144x16x16xf16, {order = #NHWC}> {
                 %cst0 = const.Declare tensor<160x160x1x1xf16, {order = #NHWC}>
                    = dense<1.0> : tensor<160x160x1x1xf16, {order = #NHWC}>
@@ -388,7 +388,7 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
         R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>) -> tensor<1x144x16x16xf16, {order = #NHWC}>
         {
             %cst0 = const.Declare tensor<144x144x1x1xf16, {order = #NHWC}>
@@ -423,7 +423,7 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
         R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>) -> tensor<1x144x16x16xf16, {order = #NHWC}>
         {
             %cst0 = const.Declare tensor<144x144x1x1xf16, {order = #NHWC}>
@@ -458,7 +458,7 @@ std::vector<DistributedTypeFromSOKOpParams> verticalFusionWrappingParams = {
     !qElemType = !quant.uniform<i4:f16, 0.0152740478515625>
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x2048x1x1xf16, {order = #NHWC}>)
             -> (tensor<1x12288x1x1xf16, {order = #NHWC}>, tensor<1x12288x1x1xf16, {order = #NHWC}>) {
             %cst = const.Declare tensor<12288x2048x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> :
@@ -493,7 +493,7 @@ std::vector<DistributedTypeFromSOKOpParams> segmentedAvgPoolParams = {
         R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>) -> tensor<1x144x8x16xf16, {order = #NHWC}> {
             %0 = VPU.MVN(%arg0) {
                 across_channels = false, eps = 9.9999997473787516E-6 : f64,
@@ -517,7 +517,7 @@ std::vector<DistributedTypeFromSOKOpParams> segmentedAvgPoolParams = {
         R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x48x16x16xf16, {order = #NHWC}>)
             -> (tensor<1x96x8x16xf16, {order = #NHWC}>, tensor<1x96x8x16xf16, {order = #NHWC}>) {
             %0 = VPU.MVN(%arg0) {
@@ -570,7 +570,7 @@ using MLIR_GetDistributedTypeFromSwOpTest = MLIR_UnitBase;
 TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedSingleInputSWOpDuringTiling) {
     constexpr llvm::StringLiteral inputIR = R"(
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x21x513x513xf16>) -> tensor<1x21x513x513xf32> {
                 %0 = VPU.Convert(%arg0) {
                     dstElemType = f32, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeightOverlapped>}
@@ -591,8 +591,9 @@ TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedSingleInputSWOpDuringTilin
     const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 4, 1}));
     const auto numClusters = getIntAttr(&ctx, 4);
 
-    const auto outTile = vpux::TileInfo(vpux::Shape(/*shape=*/{1, 21, 257, 513}), /*offsets=*/vpux::Shape({0, 0, 0, 0}),
-                                        /*axis=*/vpux::Shape({1, 1, 2, 1}), /*isCompletedTile=*/true);
+    const auto outTile =
+            vpux::TileInfo(vpux::ShapeRef(/*shape=*/{1, 21, 257, 513}), /*offsets=*/vpux::ShapeRef({0, 0, 0, 0}),
+                           /*axis=*/vpux::ShapeRef({1, 1, 2, 1}), /*isCompletedTile=*/true);
 
     const SmallVector<SmallVector<int64_t>> expectedShapes = {{1, 21, 129, 513},
                                                               {1, 21, 128, 513},
@@ -648,7 +649,7 @@ TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedSingleInputSWOpDuringTilin
 TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedMultiInputSWOpDuringTiling) {
     constexpr llvm::StringLiteral inputIR = R"(
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x21x65x65xf16>) -> tensor<1x21x513x513xf16> {
                 %0 = VPU.Interpolate(%arg0) {
                     attr = #IE.Interpolate<
@@ -682,8 +683,9 @@ TEST_F(MLIR_GetDistributedTypeFromSwOpTest, OverlappedMultiInputSWOpDuringTiling
     const auto numTiles = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 4, 1}));
     const auto numClusters = getIntAttr(&ctx, 4);
 
-    const auto outTile = vpux::TileInfo(vpux::Shape(/*shape=*/{1, 21, 257, 513}), /*offsets=*/vpux::Shape({0, 0, 0, 0}),
-                                        /*axis=*/vpux::Shape({1, 1, 2, 1}), /*isCompletedTile=*/true);
+    const auto outTile =
+            vpux::TileInfo(vpux::ShapeRef(/*shape=*/{1, 21, 257, 513}), /*offsets=*/vpux::ShapeRef({0, 0, 0, 0}),
+                           /*axis=*/vpux::ShapeRef({1, 1, 2, 1}), /*isCompletedTile=*/true);
 
     const SmallVector<SmallVector<int64_t>> expectedShapes = {{1, 21, 18, 65},
                                                               {1, 21, 18, 65},
@@ -743,7 +745,7 @@ TEST_F(MLIR_GetDistributedTypeFromDepthwiseOpTest, MaxPoolOpWithODUPermuteToNCXX
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+            config.Resources 6 of @NCE at 1.700000e+03 MHz
             func.func @main(%arg0: tensor<1x3136x4x32xf16, {order = #NHWC}>) -> tensor<1x128x784x4xf16, {order = #NHWC}> {
                 %cst = const.Declare tensor<128x1x1x4xsi32> = dense<10> : tensor<128x1x1x4xsi32>
                 %cst_0 = const.Declare tensor<128x128x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<128x128x1x1xf16, {order = #NHWC}>

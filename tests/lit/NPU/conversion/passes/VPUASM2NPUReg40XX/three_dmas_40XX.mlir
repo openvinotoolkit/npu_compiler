@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @race_condition_dma_f16_f16 inputsInfo : {
     DataInfo "input_0" : tensor<1x16x16x16xf16>
   } outputsInfo : {

@@ -31,12 +31,13 @@ public:
     MLIR_TypeInferenceTest(const MLIR_TypeInferenceTest&) = delete;
     MLIR_TypeInferenceTest& operator=(const MLIR_TypeInferenceTest&) = delete;
 
-    mlir::Value createOperand(ArrayRef<int64_t> shape, DimsOrder order) {
+    mlir::OwningOpRef<mlir::tensor::EmptyOp> createOperand(ArrayRef<int64_t> shape, DimsOrder order) {
         return builder->create<mlir::tensor::EmptyOp>(builder->getUnknownLoc(), shape, mlir::Float32Type::get(&ctx),
                                                       getTensorAttr(&ctx, order, nullptr));
     }
 
-    mlir::Value createOperand(ArrayRef<int64_t> shape, DimsOrder order, mlir::ValueRange dynamicSizes) {
+    mlir::OwningOpRef<mlir::tensor::EmptyOp> createOperand(ArrayRef<int64_t> shape, DimsOrder order,
+                                                           mlir::ValueRange dynamicSizes) {
         return builder->create<mlir::tensor::EmptyOp>(builder->getUnknownLoc(), shape, mlir::Float32Type::get(&ctx),
                                                       dynamicSizes, getTensorAttr(&ctx, order, nullptr));
     }
@@ -63,8 +64,8 @@ TEST_F(MLIR_TypeInferenceTest, PadOp) {
     properties.mode = IE::PadModeAttr::get(&ctx, IE::PadMode::CONSTANT);
 
     SmallVector<mlir::ShapedTypeComponents> typeComponents;
-    ASSERT_TRUE(mlir::succeeded(IE::PadOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(), {operand}, {},
-                                                                     &properties, {}, typeComponents)));
+    ASSERT_TRUE(mlir::succeeded(IE::PadOp::inferReturnTypeComponents(
+            &ctx, builder->getUnknownLoc(), {operand->getResult()}, {}, &properties, {}, typeComponents)));
     ASSERT_EQ(typeComponents.size(), 1);
     SmallVector<int64_t> expectedShape{6, 2, 2, 2};
     ASSERT_EQ(typeComponents[0].getDims(), ArrayRef<int64_t>(expectedShape));
@@ -98,8 +99,9 @@ TEST_F(MLIR_TypeInferenceTest, MultiplyOp) {
         properties.auto_broadcast = IE::AutoBroadcastTypeAttr::get(&ctx, IE::AutoBroadcastType::NUMPY);
 
         SmallVector<mlir::ShapedTypeComponents> typeComponents;
-        ASSERT_TRUE(mlir::succeeded(IE::MultiplyOp::inferReturnTypeComponents(
-                &ctx, builder->getUnknownLoc(), {lhs, rhs}, {}, &properties, {}, typeComponents)));
+        ASSERT_TRUE(mlir::succeeded(IE::MultiplyOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(),
+                                                                              {lhs->getResult(), rhs->getResult()}, {},
+                                                                              &properties, {}, typeComponents)));
         ASSERT_EQ(typeComponents.size(), 1);
         ASSERT_EQ(typeComponents[0].getDims(), ArrayRef<int64_t>(expectedDims));
 
@@ -110,21 +112,22 @@ TEST_F(MLIR_TypeInferenceTest, MultiplyOp) {
 }
 
 TEST_F(MLIR_TypeInferenceTest, MultiplyOp_DynamicSecondInput) {
-    mlir::Value dyn1 = builder->create<mlir::arith::ConstantOp>(builder->getUnknownLoc(), builder->getIndexType(),
-                                                                builder->getIndexAttr(800));
-    mlir::Value dyn2 = builder->create<mlir::arith::ConstantOp>(builder->getUnknownLoc(), builder->getIndexType(),
-                                                                builder->getIndexAttr(1280));
+    mlir::OwningOpRef<mlir::arith::ConstantOp> dyn1 = builder->create<mlir::arith::ConstantOp>(
+            builder->getUnknownLoc(), builder->getIndexType(), builder->getIndexAttr(800));
+    mlir::OwningOpRef<mlir::arith::ConstantOp> dyn2 = builder->create<mlir::arith::ConstantOp>(
+            builder->getUnknownLoc(), builder->getIndexType(), builder->getIndexAttr(1280));
     auto lhs = createOperand({1, 32, 1, 1}, vpux::DimsOrder::NHWC);
 
     auto rhs = createOperand({1, 32, mlir::ShapedType::kDynamic, mlir::ShapedType::kDynamic}, vpux::DimsOrder::NHWC,
-                             {dyn1, dyn2});
+                             {dyn1->getResult(), dyn2->getResult()});
 
     IE::MultiplyOp::Properties properties{};
     properties.auto_broadcast = IE::AutoBroadcastTypeAttr::get(&ctx, IE::AutoBroadcastType::NUMPY);
 
     SmallVector<mlir::ShapedTypeComponents> typeComponents;
-    ASSERT_TRUE(mlir::succeeded(IE::MultiplyOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(), {lhs, rhs},
-                                                                          {}, &properties, {}, typeComponents)));
+    ASSERT_TRUE(mlir::succeeded(IE::MultiplyOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(),
+                                                                          {lhs->getResult(), rhs->getResult()}, {},
+                                                                          &properties, {}, typeComponents)));
 
     auto tensorAttr = mlir::dyn_cast_or_null<TensorAttr>(typeComponents[0].getAttribute());
     ASSERT_TRUE(tensorAttr != nullptr);
@@ -149,8 +152,9 @@ TEST_F(MLIR_TypeInferenceTest, DivideOp) {
         properties.auto_broadcast = IE::AutoBroadcastTypeAttr::get(&ctx, IE::AutoBroadcastType::NUMPY);
 
         SmallVector<mlir::ShapedTypeComponents> typeComponents;
-        ASSERT_TRUE(mlir::succeeded(IE::DivideOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(), {lhs, rhs},
-                                                                            {}, &properties, {}, typeComponents)));
+        ASSERT_TRUE(mlir::succeeded(IE::DivideOp::inferReturnTypeComponents(&ctx, builder->getUnknownLoc(),
+                                                                            {lhs->getResult(), rhs->getResult()}, {},
+                                                                            &properties, {}, typeComponents)));
         ASSERT_EQ(typeComponents.size(), 1);
         ASSERT_EQ(typeComponents[0].getDims(), ArrayRef<int64_t>(expectedDims));
 

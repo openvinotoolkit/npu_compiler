@@ -36,7 +36,7 @@ mlir::LogicalResult vpux::VPU::GroupConvolutionOp::inferReturnTypes(
             inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow, dataPaddingAbove, windowDilations,
             conv.getGroups(), conv.getOutputPadding().has_value());
     const auto outDesc =
-            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outShapeInfo.bounds));
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShapeInfo.bounds));
 
     const auto outputType = mlir::RankedTensorType::get(outShapeInfo.shape, inputType.getElementType(), outDesc);
     inferredReturnTypes.push_back(outputType);

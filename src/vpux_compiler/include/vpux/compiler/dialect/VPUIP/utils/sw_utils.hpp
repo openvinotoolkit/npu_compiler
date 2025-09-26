@@ -68,6 +68,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "eltwise_less",
                                                                  "eltwise_equal",
                                                                  "eltwise_not_equal",
+                                                                 "eltwise_less_equal",
                                                                  "eltwise_select",
                                                                  "eltwise_and",
                                                                  "eltwise_bitwise_or",
@@ -116,29 +117,31 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "roll",
                                                                  "reorder",
                                                                  "activation_negative",
+                                                                 "activation_softplus",
                                                                  "eltwise_logical_not",
                                                                  "cum_sum"};
 
 const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1", "lstm_cell", "lstm_sequence", "reorder"};
 
 const SmallVector<std::string_view> SW_KERNELS_SUPPORTING_SHAVE_BALANCING = {
-        "softmax",          "eltwise_mul", "activation_sin",     "activation_cos", "activation_swish",
-        "activation_clamp", "convert",     "eltwise_min",        "eltwise_max",    "round_fp16",
-        "activation_exp",   "prelu_fp16",  "eltwise_logical_not"};
+        "softmax",          "eltwise_mul",         "activation_sin",   "activation_cos",
+        "activation_swish", "activation_softplus", "activation_clamp", "convert",
+        "eltwise_min",      "eltwise_max",         "round_fp16",       "activation_exp",
+        "prelu_fp16",       "eltwise_logical_not"};
 
 const SmallVector<StringLiteral> SW_KERNELS_LAYOUT_AGNOSTIC = {
-        "activation_swish", "activation_gelu",    "activation_hswish", "activation_hardsigmoid",
-        "activation_tanh",  "activation_sigmoid", "activation_clamp",  "activation_sin",
-        "activation_cos",   "activation_exp",     "activation_abs",    "activation_log",
-        "activation_sqrt",  "hswish_fp16",        "round_fp16",        "eltwise_mul",
-        "activation_mish",  "eltwise_logical_not"};
+        "activation_swish", "activation_gelu",     "activation_hswish",  "activation_hardsigmoid",
+        "activation_tanh",  "activation_sigmoid",  "activation_clamp",   "activation_sin",
+        "activation_cos",   "activation_exp",      "activation_abs",     "activation_log",
+        "activation_sqrt",  "hswish_fp16",         "round_fp16",         "eltwise_mul",
+        "activation_mish",  "activation_softplus", "eltwise_logical_not"};
 
 // TODO: E#117136, use heuristic for tile dim
 const SmallVector<StringLiteral> SW_ACTIVATION_KERNELS = {
         "activation_swish",   "activation_gelu",  "activation_hardsigmoid", "activation_tanh",
         "activation_sigmoid", "activation_clamp", "activation_abs",         "activation_floor",
         "activation_sin",     "activation_cos",   "activation_exp",         "hswish_fp16",
-        "prelu_fp16",         "activation_mish",  "activation_negative"};
+        "prelu_fp16",         "activation_mish",  "activation_softplus",    "activation_negative"};
 
 constexpr StringLiteral SW_KERNEL_NAME_PREFIX = "builtin_";
 

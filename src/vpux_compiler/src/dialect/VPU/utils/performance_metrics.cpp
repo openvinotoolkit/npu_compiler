@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/frequency_table.hpp"
+#include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/utils/profiling/parser/freq.hpp"
@@ -62,31 +63,28 @@ SmallVector<SmallVector<uint64_t>> getBWTicks(mlir::ModuleOp module) {
                                        netInfo);
     }
 
-    // Get corresponding dpu freq (MHz) from vpunn to parse inferenceTimebyDPUCycle
     const auto arch = config::getArch(module);
-    size_t dpuBaseFreq = VPU::getDpuFrequency(arch, config::getRevisionID(module));
-    // Convert inference ticks by getProfClk
-    auto profClk = arch >= config::ArchKind::NPU40XX ? profiling::ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ
-                                                     : profiling::ProfClk37XX::PROF_CLK_DEFAULT_VALUE_MHZ;
+    const auto perfClk = VPU::getPerfClock(arch);
     auto freqTable = VPU::getFrequencyTable(arch);
     auto freqBase = freqTable().base;
     auto freqStep = freqTable().step;
-    size_t baseTicks = static_cast<double>(inferenceTimebyDPUCycle) / static_cast<double>(dpuBaseFreq) * profClk;
     for (uint32_t i = 0; i < VPU::getNumEntries(); ++i) {
-        // Scale baseTicks by different dpu freq
         auto dpuFreq = freqBase + i * freqStep;
-        auto ticksByDPUFreq = baseTicks * dpuBaseFreq / dpuFreq;
-        // Scale ticks by dma bandwidth
+        auto duration = static_cast<double>(inferenceTimebyDPUCycle) / static_cast<double>(dpuFreq);
+        auto ticksByDPUFreq = duration * perfClk;
+        // TODO: Scale ticks by dma bandwidth
         // Currently ignore bandwidth scaling, put same ticks for all bw steps
         for (uint32_t j = 0; j < VPU::getNumEntries(); ++j) {
             byBWTicks[j] = ticksByDPUFreq;
         }
-        ret.push_back(SmallVector(byBWTicks));
+        ret.push_back(byBWTicks);
     }
+    Logger::global().debug("BWTicks table: {0}, total cycle {1}, freq base {2}, step {3}, perf clock {4}", ret,
+                           inferenceTimebyDPUCycle, freqBase, freqStep, perfClk);
     return ret;
 }
 
-double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, IE::ComputeResourceOpInterface res) {
+double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, config::ComputeResourceOpInterface res) {
     // 0.5 is a recommanded default value for AF by VPUNN team
     double activityFactor = 0.5;
     const auto arch = config::getArch(module);
@@ -94,14 +92,14 @@ double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, IE::
         switch (arch) {
         case config::ArchKind::NPU37XX:
         case config::ArchKind::NPU40XX:
-            // Here we must get AF from NCE res (a TileResourceOp) as the AF attribute is attached to tile op
+            // Here we must get AF from NCE res (a ResourcesOp) as the AF attribute is attached to tile op
             if (execKind == VPU::ExecutorKind::NCE) {
-                auto NCERes = mlir::cast<IE::TileResourceOp>(res.getOperation());
+                auto NCERes = mlir::cast<config::ResourcesOp>(res.getOperation());
                 if (auto factorAttr = NCERes.getActivityFactorAttr()) {
                     activityFactor = factorAttr.getValue().convertToDouble();
                 }
             } else {
-                auto SHAVERes = mlir::cast<IE::ExecutorResourceOp>(res.getOperation());
+                auto SHAVERes = mlir::cast<config::ExecutorResourceOp>(res.getOperation());
                 if (auto factorAttr = SHAVERes.getActivityFactorAttr()) {
                     activityFactor = factorAttr.getValue().convertToDouble();
                 }

@@ -373,5 +373,5 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(::testing::Values(getFunction()),
                            ::testing::Values(std::vector<std::pair<std::vector<size_t>, std::vector<size_t>>>{
                                    {{1, 1, 128}, {1, 1, 128}}, {{128}, {128}}}),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::ValuesIn(configs())),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::ValuesIn(configs())),
         ov::test::utils::appendPlatformTypeTestName<OVInferRequestDynamicTests>);

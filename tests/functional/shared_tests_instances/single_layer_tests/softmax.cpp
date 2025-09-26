@@ -86,7 +86,7 @@ const std::vector<size_t> axis2D = {0, 1};
 const auto params2D = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes2D)), testing::ValuesIn(axis2D),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_SoftMax2D, SoftMaxLayerTestCommon, params2D, SoftMaxLayerTestCommon::getTestCaseName);
 
@@ -101,7 +101,7 @@ const std::vector<size_t> axis3D = {2};
 const auto params3D = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes3D)), testing::ValuesIn(axis3D),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_SoftMax3D, SoftMaxLayerTestCommon, params3D, SoftMaxLayerTestCommon::getTestCaseName);
 
@@ -117,7 +117,7 @@ const std::vector<size_t> axis4D = {0, 1, 2, 3};
 const auto params4D = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes4D)), testing::ValuesIn(axis4D),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_SoftMax4D, SoftMaxLayerTestCommon, params4D, SoftMaxLayerTestCommon::getTestCaseName);
 
@@ -131,14 +131,14 @@ const std::vector<size_t> axis5D = {0, 1, 2, 3, 4};
 const auto params5D = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes5D)), testing::ValuesIn(axis5D),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_SoftMax5D, SoftMaxLayerTestCommon, params5D, SoftMaxLayerTestCommon::getTestCaseName);
 
 const auto precommit_params4D = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation({{1, 2, 72, 10}})), testing::ValuesIn(axis4D),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_SoftMax4D, SoftMaxLayerTestCommon, precommit_params4D,
                          SoftMaxLayerTestCommon::getTestCaseName);
@@ -153,7 +153,7 @@ const std::vector<size_t> axis = {2};
 const auto paramsTilingCases = testing::Combine(
         testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
         testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes)), testing::ValuesIn(axis),
-        testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+        testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_TilingSoftMax, SoftMaxLayerTestCommon, paramsTilingCases,
                          SoftMaxLayerTestCommon::getTestCaseName);
@@ -171,7 +171,7 @@ const std::vector<size_t> axisDynUseCase0 = {2};
 const auto paramsDynUseCase0 =
         testing::Combine(testing::ValuesIn(modelTypes), testing::ValuesIn(inputTypes), testing::ValuesIn(outputTypes),
                          testing::ValuesIn(inShapesDynUseCase0), testing::ValuesIn(axisDynUseCase0),
-                         testing::Values(ov::test::utils::DEVICE_NPU), testing::Values(ov::test::Config{}));
+                         testing::Values(test_utils::TARGET_DEVICE), testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_SoftMax_DynUseCase0, SoftMaxLayerTestCommon, paramsDynUseCase0,
                          SoftMaxLayerTestCommon::getTestCaseName);
@@ -186,7 +186,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_SoftMax_3D_DynSmoke_Axis2, SoftMaxLayerTestCommon
                                           testing::Values(ov::element::f16),                       // Out type
                                           testing::Values(generateTestShape(32_Dyn, 32_Dyn, 64)),  // Shape
                                           testing::Values(2),                                      // Axis
-                                          testing::Values(ov::test::utils::DEVICE_NPU),
+                                          testing::Values(test_utils::TARGET_DEVICE),
                                           testing::Values(ov::test::Config{})),
                          SoftMaxLayerTestCommon::getTestCaseName);
 
@@ -197,7 +197,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_SoftMax_3D_DynSmoke_Axis1, SoftMaxLayerT
                                           testing::Values(ov::element::f16),                       // Out type
                                           testing::Values(generateTestShape(32_Dyn, 32, 64_Dyn)),  // Shape
                                           testing::Values(1),                                      // Axis
-                                          testing::Values(ov::test::utils::DEVICE_NPU),
+                                          testing::Values(test_utils::TARGET_DEVICE),
                                           testing::Values(ov::test::Config{})),
                          SoftMaxLayerTestCommon::getTestCaseName);
 
@@ -208,7 +208,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_SoftMax_3D_DynSmoke_Axis0, SoftMaxLayerT
                                           testing::Values(ov::element::f16),                       // Out type
                                           testing::Values(generateTestShape(32, 32_Dyn, 64_Dyn)),  // Shape
                                           testing::Values(0),                                      // Axis
-                                          testing::Values(ov::test::utils::DEVICE_NPU),
+                                          testing::Values(test_utils::TARGET_DEVICE),
                                           testing::Values(ov::test::Config{})),
                          SoftMaxLayerTestCommon::getTestCaseName);
 

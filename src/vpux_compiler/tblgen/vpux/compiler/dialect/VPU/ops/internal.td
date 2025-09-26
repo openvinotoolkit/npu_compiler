@@ -14,6 +14,7 @@ include "vpux/compiler/dialect/VPU/types.td"
 
 include "mlir/Dialect/Quant/QuantOpsBase.td"
 include "mlir/Interfaces/CallInterfaces.td"
+include "mlir/Interfaces/ControlFlowInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
 
 

@@ -130,7 +130,7 @@ mlir::Value createSubviewOp(NDTypeInterface outType, mlir::Value inputBuff, mlir
 // bufferize VPU::CopyOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::CopyOp origOp, VPU::CopyOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::CopyOp origOp, VPU::CopyOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUCopyOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -146,7 +146,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::CopyOp origOp, VP
 // bufferize VPU::ConvertOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConvertOp origOp, VPU::ConvertOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConvertOp origOp, VPU::ConvertOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUConvertOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -166,7 +166,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConvertOp origOp,
 // bufferize VPU::ExpandOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ExpandOp origOp, VPU::ExpandOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ExpandOp origOp, VPU::ExpandOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUExpandOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -184,7 +184,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ExpandOp origOp, 
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StridedSliceOp origOp,
-                                      VPU::StridedSliceOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::StridedSliceOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUStridedSliceOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -207,7 +207,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StridedSliceOp or
 //
 
 template <typename ConcreteOp>
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, ConcreteOp origOp, typename ConcreteOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, ConcreteOp origOp, typename ConcreteOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUReshapeOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -221,7 +221,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, ConcreteOp origOp, typ
 // bufferize VPU::SliceOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::SliceOp origOp, VPU::SliceOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::SliceOp origOp, VPU::SliceOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUSliceOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -240,7 +240,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::SliceOp origOp, V
 // bufferize VPU::SplitOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::SplitOp origOp, VPU::SplitOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::SplitOp origOp, VPU::SplitOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUSplitOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -289,7 +289,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::SplitOp origO
 
 namespace {
 
-SmallVector<mlir::Value> rewriteWithAxis(const Logger& log, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor newArgs,
+SmallVector<mlir::Value> rewriteWithAxis(const Logger& log, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor& newArgs,
                                          ArrayRef<mlir::Value> allocatedBufs, mlir::RewriterBase& rewriter) {
     SmallVector<mlir::Value> results;
     auto ctx = origOp->getContext();
@@ -343,7 +343,7 @@ SmallVector<mlir::Value> rewriteWithAxis(const Logger& log, VPU::ConcatOp origOp
     return results;
 }
 
-SmallVector<mlir::Value> rewriteWithOffsets(const Logger& log, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor newArgs,
+SmallVector<mlir::Value> rewriteWithOffsets(const Logger& log, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor& newArgs,
                                             ArrayRef<mlir::Value> allocatedBufs, mlir::RewriterBase& rewriter) {
     SmallVector<mlir::Value> results;
 
@@ -384,7 +384,7 @@ SmallVector<mlir::Value> rewriteWithOffsets(const Logger& log, VPU::ConcatOp ori
 
 }  // namespace
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConcatOp origOp, VPU::ConcatOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUConcatOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -407,7 +407,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ConcatOp origOp, 
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::PermuteCastOp origOp,
-                                      VPU::PermuteCastOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::PermuteCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUPermuteCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -423,7 +423,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::PermuteCastOp ori
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::QuantizeCastOp origOp,
-                                      VPU::QuantizeCastOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::QuantizeCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUQuantizeCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -438,7 +438,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::QuantizeCastOp or
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::DistributedCastOp origOp,
-                                      VPU::DistributedCastOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::DistributedCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUDistributedCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -452,7 +452,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::DistributedCastOp
 // bufferize VPU::M2ITaskOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::M2ITaskOp origOp, VPU::M2ITaskOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::M2ITaskOp origOp, VPU::M2ITaskOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUM2ITaskOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -506,7 +506,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::M2ITaskOp origOp,
 // bufferize VPU::StubOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StubOp origOp, VPU::StubOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StubOp origOp, VPU::StubOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUStubOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -525,7 +525,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StubOp origOp, VP
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GroupSparseTensorOp origOp,
-                                      VPU::GroupSparseTensorOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::GroupSparseTensorOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUGroupSparseTensorOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -548,7 +548,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GroupSparseTensor
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UngroupSparseTensorOp origOp,
-                                      VPU::UngroupSparseTensorOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::UngroupSparseTensorOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUUngroupSparseTensorOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -562,7 +562,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UngroupSparseTens
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StorageElementTableOp origOp,
-                                      VPU::StorageElementTableOp::Adaptor /*newArgs*/, mlir::RewriterBase& rewriter) {
+                                      VPU::StorageElementTableOp::Adaptor& /*newArgs*/, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUStorageElementTableOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -577,7 +577,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::StorageElementTab
 // bufferize VPU::ShapeCastOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeCastOp origOp, VPU::ShapeCastOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeCastOp origOp, VPU::ShapeCastOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUShapeCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -592,7 +592,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeCastOp origO
 // bufferize VPU::LayoutCastOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::LayoutCastOp origOp, VPU::LayoutCastOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::LayoutCastOp origOp, VPU::LayoutCastOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPULayoutCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -612,7 +612,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::LayoutCastOp orig
 // bufferize VPU::GatherDMAOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origOp, VPU::GatherDMAOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origOp, VPU::GatherDMAOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUGatherDMAOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -651,7 +651,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origO
 // bufferize VPU::UpsamplingOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UpsamplingOp origOp, VPU::UpsamplingOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UpsamplingOp origOp, VPU::UpsamplingOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUUpsamplingOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
@@ -668,7 +668,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::UpsamplingOp orig
 // bufferize VPU::ShapeOfOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeOfOp origOp, VPU::ShapeOfOp::Adaptor newArgs,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::ShapeOfOp origOp, VPU::ShapeOfOp::Adaptor& newArgs,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-VPUShapeOfOp", 0);
 

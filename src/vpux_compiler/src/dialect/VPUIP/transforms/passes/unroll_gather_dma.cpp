@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/unroll_dma_analysis.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
@@ -162,7 +162,7 @@ void UnrollGatherDMAPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     mlir::RewritePatternSet patterns(&ctx);

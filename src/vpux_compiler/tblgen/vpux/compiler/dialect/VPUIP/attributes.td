@@ -173,6 +173,28 @@ def VPUIP_DmaChannelType :
 }
 
 //
+// GatherAddressingMode
+//
+
+def VPUIP_GatherAddressingMode :
+        I64EnumAttr<
+            "GatherAddressingMode",
+            "Gather Addressing Mode",
+            [
+                I64EnumAttrCase<"ABSOLUTE", 0>,
+                I64EnumAttrCase<"INDEXED", 1>
+            ]
+        > {
+    let cppNamespace = "vpux::VPUIP";
+
+    let description = [{
+      Gather operation done by DMA engine can have two addressing modes:
+        - Absolute addressing
+        - Indexed addressing
+    }];
+}
+
+//
 // DPUHaloRegionAttr
 //
 
@@ -207,7 +229,6 @@ def VPUIP_HaloRegionAttr : VPUIP_Attr<"HaloRegion"> {
 
 def HaloRegionArrayAttr : TypedArrayAttrBase<VPUIP_HaloRegionAttr, "Array of Halo Regions">;
 
-
 //
 // OutwardHaloRegionAttr
 //
@@ -224,6 +245,26 @@ def VPUIP_OutwardHaloRegionAttr : AttrDef<VPUIP_Dialect,"OutwardHaloRegion",[]> 
     );
 
     let hasCustomAssemblyFormat = 1;
+}
+
+//
+// LocalRegionAttr
+//
+
+def VPUIP_LocalRegionAttr : VPUIP_Attr<"LocalRegion"> {
+    let description = [{
+        Attribute attached to NCEClusterTask operation. Represents a region that is outputted only on the local tile,
+        and only what falls into the region gets written. Output can also be fully suppressed on the local tile.
+        Used in case of SOK/SOH/SOW/SOHW transitions.
+    }];
+
+    let parameters = (ins
+        "mlir::IntegerAttr":$xStart,
+        "mlir::IntegerAttr":$xEnd,
+        "mlir::IntegerAttr":$yStart,
+        "mlir::IntegerAttr":$yEnd,
+        OptionalParameter<"mlir::UnitAttr">:$suppressOutput
+    );
 }
 
 //

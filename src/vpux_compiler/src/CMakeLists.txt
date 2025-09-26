@@ -12,6 +12,8 @@ set(VPU_COMPILER_SRC_INCLUDE_DIR
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/vpux_compiler/include>)
 set(VPU_COMPILER_BIN_INCLUDE_DIR
         $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/src/vpux_compiler/tblgen>)
+set(VPU_COMPILER_PCH_FILE
+        "${PROJECT_SOURCE_DIR}/src/vpux_compiler/src/precomp.hpp")
 
 add_subdirectory(NPU37XX)
 add_subdirectory(NPU40XX)

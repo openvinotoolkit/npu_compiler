@@ -87,23 +87,23 @@ const std::vector<std::vector<int>> indicesMC = {{1, 2, 3}, {1, 3}, {0, 2}};
 
 const auto params1D =
         testing::Combine(testing::ValuesIn(inputShapes1D), testing::ValuesIn(indices1D), testing::ValuesIn(modes),
-                         testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params2D =
         testing::Combine(testing::ValuesIn(inputShapes2D), testing::ValuesIn(indices2D), testing::ValuesIn(modes),
-                         testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params3D =
         testing::Combine(testing::ValuesIn(inputShapes3D), testing::ValuesIn(indices3D), testing::ValuesIn(modes),
-                         testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params4D =
         testing::Combine(testing::ValuesIn(inputShapes4D), testing::ValuesIn(indices4D), testing::ValuesIn(modes),
-                         testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsMC =
         testing::Combine(testing::ValuesIn(inputShapesMC), testing::ValuesIn(indicesMC), testing::ValuesIn(modes),
-                         testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const std::vector<std::vector<size_t>> inputShapesPrecommit1D = {{1}, {2}};
 const std::vector<std::vector<int>> indicesPrecommit1D = {{0}};
@@ -119,19 +119,19 @@ const std::vector<std::vector<int>> indicesPrecommit4D = {{2}, {0, 2, 3}, {0, 1,
 
 const auto paramsPrecommit1D = testing::Combine(
         testing::ValuesIn(inputShapesPrecommit1D), testing::ValuesIn(indicesPrecommit1D), testing::ValuesIn(modes),
-        testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+        testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsPrecommit2D = testing::Combine(
         testing::ValuesIn(inputShapesPrecommit2D), testing::ValuesIn(indicesPrecommit2D), testing::ValuesIn(modes),
-        testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+        testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsPrecommit3D = testing::Combine(
         testing::ValuesIn(inputShapesPrecommit3D), testing::ValuesIn(indicesPrecommit3D), testing::ValuesIn(modes),
-        testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+        testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsPrecommit4D = testing::Combine(
         testing::ValuesIn(inputShapesPrecommit4D), testing::ValuesIn(indicesPrecommit4D), testing::ValuesIn(modes),
-        testing::ValuesIn(netPrecisions), testing::Values(ov::test::utils::DEVICE_NPU));
+        testing::ValuesIn(netPrecisions), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Reverse_1D, ReverseLayerTestCommon, params1D, ReverseLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Reverse_2D, ReverseLayerTestCommon, params2D, ReverseLayerTest::getTestCaseName);

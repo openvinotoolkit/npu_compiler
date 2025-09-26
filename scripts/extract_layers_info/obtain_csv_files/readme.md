@@ -4,8 +4,8 @@ Utility "Extract Layers Info" is python3 scripts (recommended Python 3.6 or high
 information about layers in neural networks IRs. Later this information could be saved in various formats: csv, html, etc.
 Current version supports csv-files.
 
-### How to obtain cvs-files and upload them into spreadsheet
-In this scenario data about IR's layers are written to cvs-files for transformations into spreadsheet.
+### How to obtain csv-files and upload them into spreadsheet
+In this scenario data about IR's layers are written to csv-files for transformations into spreadsheet.
 During working process script shows list of directories where it finds IRs and list of corresponding csv-files.
 
 1. Goto script directory:

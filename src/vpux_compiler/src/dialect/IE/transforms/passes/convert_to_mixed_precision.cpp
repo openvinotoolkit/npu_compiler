@@ -9,11 +9,20 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/transforms/factories/convert_to_mixed_precision_getter.hpp"
+#include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/Value.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_CONVERTTOMIXEDPRECISION
+#define GEN_PASS_DEF_CONVERTTOMIXEDPRECISION
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 using namespace IE;
@@ -209,8 +218,9 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
                            "{0} is a quantization-agnostic operation, mixed precision is not supported",
                            maybeNCETask->getName());
     }
-    if (!_isPerAxesSupported && isOutputPerAxisQuant && mlir::isa<IE::AddOp, IE::AvgPoolOp>(maybeNCETask)) {
-        return matchFailed(rewriter, origOp, "IE.AvgPool and IE.Add do not support per-channel quantized output");
+    if (!_isPerAxesSupported && isOutputPerAxisQuant &&
+        mlir::isa<IE::AddOp, IE::SubtractOp, IE::MultiplyOp, IE::AvgPoolOp>(maybeNCETask)) {
+        return matchFailed(rewriter, origOp, "IE.AvgPool and Eltwise do not support per-channel quantized output");
     }
 
     auto layerWithPostOp = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(maybeNCETask);
@@ -238,4 +248,48 @@ mlir::LogicalResult QuantizeWithNCERewriter::matchAndRewrite(IE::QuantizeOp orig
     rewriter.eraseOp(maybeNCETask);
 
     return mlir::success();
+}
+
+namespace {
+
+//
+// ConvertToMixedPrecisionPass
+//
+
+class ConvertToMixedPrecisionPass final : public IE::impl::ConvertToMixedPrecisionBase<ConvertToMixedPrecisionPass> {
+public:
+    ConvertToMixedPrecisionPass(bool enableFloatInQuantWeightsMixedMode, Logger log): _log(log) {
+        this->enableFloatInQuantWeightsMixedMode = enableFloatInQuantWeightsMixedMode;
+        _log.setName(Base::getArgumentName());
+    }
+
+private:
+    void safeRunOnFunc() override;
+
+    Logger _log;
+};
+
+void ConvertToMixedPrecisionPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+    auto func = getOperation();
+
+    auto strategy = IE::createConvertToMixedPrecisionStrategy(func, enableFloatInQuantWeightsMixedMode);
+
+    mlir::RewritePatternSet patterns(&ctx);
+    strategy->addPatterns(patterns, _log);
+
+    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+    }
+}
+
+}  // namespace
+
+//
+// createConvertToMixedPrecision
+//
+
+std::unique_ptr<mlir::Pass> vpux::IE::createConvertToMixedPrecision(bool enableFloatInQuantWeightsMixedMode,
+                                                                    Logger log) {
+    return std::make_unique<ConvertToMixedPrecisionPass>(enableFloatInQuantWeightsMixedMode, log);
 }

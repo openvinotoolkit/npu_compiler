@@ -5,15 +5,17 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <queue>
 
 namespace vpux::VPUIP::arch40xx {
 #define GEN_PASS_DECL_COMPRESSSPILLDMA
@@ -144,7 +146,6 @@ private:
 
     void safeRunOnModule() final;
 
-    mlir::StringAttr _taskIndexAttrName;
     int64_t _tileCount = 0;
     int64_t _dmaCount = 0;
     int64_t _rsvdMemOffset = 0;
@@ -217,27 +218,25 @@ void CompressSpillDmaPass::adjustSpillIds(const SmallVector<VPURT::TaskOp>& task
     }
 }
 
-void CompressSpillDmaPass::initIndexAttr(mlir::MLIRContext* ctx, const SmallVector<VPURT::TaskOp>& taskOpsVec) {
-    _taskIndexAttrName = mlir::StringAttr::get(ctx, "task-index");
+void CompressSpillDmaPass::initIndexAttr(mlir::MLIRContext* /*ctx*/, const SmallVector<VPURT::TaskOp>& taskOpsVec) {
     for (size_t i = 0; i < taskOpsVec.size(); i++) {
         auto taskOp = taskOpsVec[i];
-        taskOp->setAttr(_taskIndexAttrName, getIntAttr(ctx, i));
+        taskOp.getProperties().setTaskIndex(i);
     }
 }
 
 void CompressSpillDmaPass::clearIndexAttr(const SmallVector<VPURT::TaskOp>& taskOpsVec) {
     for (size_t i = 0; i < taskOpsVec.size(); i++) {
         auto taskOp = taskOpsVec[i];
-        taskOp->removeAttr(_taskIndexAttrName);
+        taskOp.getProperties().setTaskIndex(std::nullopt);
     }
 }
 
 size_t CompressSpillDmaPass::getTaskIndex(VPURT::TaskOp taskOp) {
-    const auto attr = taskOp->getAttrOfType<mlir::IntegerAttr>(_taskIndexAttrName);
-    VPUX_THROW_UNLESS(attr != nullptr, "Get: attribute '{0}' was not set for '{1}' operation at '{2}'",
-                      _taskIndexAttrName, taskOp->getName(), taskOp->getLoc());
-
-    return static_cast<size_t>(attr.getValue().getZExtValue());
+    const auto taskIndex = taskOp.getProperties().getTaskIndex();
+    VPUX_THROW_UNLESS(taskIndex.has_value(), "Get: task index was not set for '{0}' operation at '{1}'",
+                      taskOp->getName(), taskOp->getLoc());
+    return static_cast<size_t>(taskIndex.value());
 }
 
 // Traverse IR and identify spill-write and corresponding spill-read ops
@@ -585,11 +584,11 @@ void CompressSpillDmaPass::safeRunOnModule() {
     net::NetworkInfoOp::getFromModule(module, netInfo, func);
     mlir::OpBuilder builder(&func.getBody().front().front());
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
     _tileCount = tileOp.getCount();
 
-    if (auto rsvdMem = IE::getCompressDmaReservedMemory(module, VPU::MemoryKind::CMX_NN)) {
+    if (auto rsvdMem = config::getCompressDmaReservedMemory(module, VPU::MemoryKind::CMX_NN)) {
         _rsvdMemSize = rsvdMem.getByteSize();
         VPUX_THROW_UNLESS(rsvdMem.getOffset().has_value(), "No offset setting provided");
         _rsvdMemOffset = rsvdMem.getOffset().value();
@@ -598,7 +597,7 @@ void CompressSpillDmaPass::safeRunOnModule() {
 
     _log.trace("Compressed DMAs reserved memory: offset - '{0}', size - '{1}'", _rsvdMemOffset, _rsvdMemSize);
 
-    auto dmaPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     VPUX_THROW_UNLESS(dmaPorts != nullptr, "Failed to get DMA information");
     _dmaCount = dmaPorts.getCount();
 

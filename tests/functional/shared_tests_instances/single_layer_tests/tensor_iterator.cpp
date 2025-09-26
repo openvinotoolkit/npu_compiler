@@ -39,31 +39,31 @@ const auto tensorIteratorPrecommitParams_RNN =
                            testing::ValuesIn(tiBodyTypes_RNN),                            // ti_body
                            testing::Values(ov::op::RecurrentSequenceDirection::FORWARD),  // direction
                            testing::ValuesIn(modelTypes),                                 // netPrecision
-                           testing::Values(ov::test::utils::DEVICE_NPU));                 // targetDevice
+                           testing::Values(test_utils::TARGET_DEVICE));                   // targetDevice
 
 const auto tensorIteratorPrecommitParamsAll_1 =
-        ::testing::Combine(testing::Values(false),                         // should_decompose
-                           testing::Values(2),                             // seq_lengths
-                           testing::Values(4),                             // batch
-                           testing::Values(4),                             // hidden_size
-                           testing::Values(1),                             // sequence_axis
-                           testing::ValuesIn({0.0f}),                      // clip
-                           testing::ValuesIn(tiBodyTypes),                 // ti_body
-                           testing::ValuesIn(directions),                  // direction
-                           testing::ValuesIn(modelTypes),                  // netPrecision
-                           testing::Values(ov::test::utils::DEVICE_NPU));  // targetDevice
+        ::testing::Combine(testing::Values(false),                       // should_decompose
+                           testing::Values(2),                           // seq_lengths
+                           testing::Values(4),                           // batch
+                           testing::Values(4),                           // hidden_size
+                           testing::Values(1),                           // sequence_axis
+                           testing::ValuesIn({0.0f}),                    // clip
+                           testing::ValuesIn(tiBodyTypes),               // ti_body
+                           testing::ValuesIn(directions),                // direction
+                           testing::ValuesIn(modelTypes),                // netPrecision
+                           testing::Values(test_utils::TARGET_DEVICE));  // targetDevice
 
 const auto tensorIteratorPrecommitParamsAll_2 =
-        ::testing::Combine(testing::Values(false),                         // should_decompose
-                           testing::Values(4),                             // seq_lengths
-                           testing::Values(4),                             // batch
-                           testing::Values(4),                             // hidden_size
-                           testing::Values(1),                             // sequence_axis
-                           testing::ValuesIn({0.0f}),                      // clip
-                           testing::ValuesIn(tiBodyTypes),                 // ti_body
-                           testing::ValuesIn(directions),                  // direction
-                           testing::ValuesIn(modelTypes),                  // netPrecision
-                           testing::Values(ov::test::utils::DEVICE_NPU));  // targetDevice
+        ::testing::Combine(testing::Values(false),                       // should_decompose
+                           testing::Values(4),                           // seq_lengths
+                           testing::Values(4),                           // batch
+                           testing::Values(4),                           // hidden_size
+                           testing::Values(1),                           // sequence_axis
+                           testing::ValuesIn({0.0f}),                    // clip
+                           testing::ValuesIn(tiBodyTypes),               // ti_body
+                           testing::ValuesIn(directions),                // direction
+                           testing::ValuesIn(modelTypes),                // netPrecision
+                           testing::Values(test_utils::TARGET_DEVICE));  // targetDevice
 
 // RNN Op is not supported. Tracked By Issue: [E#-117139]
 INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_precommit_TensorIterator, TensorIteratorLayerTest_NPU3720,

@@ -22,15 +22,17 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     constexpr llvm::StringLiteral inputIR = R"(
 #loc0 = loc(unknown)
     module @main attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-        IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+        config.Resources 6 of @NCE at 1.700000e+03 MHz {
+            config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+            config.ExecutorResource 2 of @SHAVE_ACT
+            config.ExecutorResource 1 of @DPU
         }
-        IE.ExecutorResource 1 of @M2I
-        IE.ExecutorResource 2 of @DMA_NN
-        IE.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+        config.Resources 1 of @global {
+            config.ExecutorResource 1 of @M2I
+            config.ExecutorResource 2 of @DMA_NN
+            config.MemoryResource 2306867200 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+        }
         func.func @main(%softmax_in: tensor<1x8x4x76xf16>,
                         %power_f16_in: tensor<1x16x256x256xf16>,
                         %power_f16_pow: tensor<1x16x1x1xf16>,
@@ -93,7 +95,7 @@ TEST_F(MLIR_VPU_ClusteringStrategyNoThrow, SWLayer_ClusteringStrategy) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    auto tileOp = IE::getTileExecutor(module.get());
+    auto tileOp = config::getTileExecutor(module.get());
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
     VPUX_THROW_UNLESS(tileOp.getCount() > 1, "Cannot assign multi-cluster strategy to single-cluster module ops");
     bool enablePrefetchTiling = true;

@@ -10,21 +10,20 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/SCF/Transforms/Patterns.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/Dialect/Utils/IndexingUtils.h>
+#include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/IR/Operation.h>
-#include <cstdint>
+#include <mlir/IR/PatternMatch.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_FINALIZECOMPUTEFUNCTIONBOUNDARIES
@@ -50,6 +49,29 @@ void updateOffsetAndSizeToMemoryOrder(mlir::Operation* origOp, mlir::Operation* 
     TensorSliceOp newExtractSliceOp = mlir::cast<TensorSliceOp>(newOp);
     newExtractSliceOp.setStaticOffsets(newOffsets);
     newExtractSliceOp.setStaticSizes(newSizes);
+}
+
+void updateTensorDimIndexToMemoryOrder(mlir::Operation* origOp, mlir::Operation* newOp,
+                                       mlir::PatternRewriter& rewriter) {
+    auto origDimOp = mlir::cast<mlir::tensor::DimOp>(origOp);
+    auto origResultType = mlir::cast<mlir::RankedTensorType>(origDimOp.getSource().getType());
+    const auto order = vpux::getOrder(origResultType);
+    auto permutation = DimsOrder::fromAffineMap(order).toPermutation();
+
+    assert(origDimOp.getConstantIndex().has_value() && "Expected constant index for tensor::DimOp");
+    const auto origDimIndex = origDimOp.getConstantIndex().value();
+    // nothing to do
+    if (origDimIndex == permutation[origDimIndex].ind()) {
+        return;
+    }
+    const auto newDimIndex = std::find(permutation.begin(), permutation.end(), Dim(origDimIndex)) - permutation.begin();
+
+    mlir::OpBuilder::InsertionGuard guard(rewriter);
+    rewriter.setInsertionPoint(newOp);
+    auto newDimIndexOp = rewriter.create<mlir::arith::ConstantIndexOp>(origDimOp.getLoc(), newDimIndex);
+
+    auto newDimOp = mlir::cast<mlir::tensor::DimOp>(newOp);
+    newDimOp.getIndexMutable().set(newDimIndexOp.getResult());
 }
 
 //
@@ -92,6 +114,8 @@ mlir::LogicalResult ConvertOpTypes::matchAndRewrite(mlir::Operation* origOp, vpu
         updateOffsetAndSizeToMemoryOrder<mlir::tensor::ExtractSliceOp>(origOp, newOp);
     } else if (mlir::isa<mlir::tensor::InsertSliceOp>(origOp)) {
         updateOffsetAndSizeToMemoryOrder<mlir::tensor::InsertSliceOp>(origOp, newOp);
+    } else if (mlir::isa<mlir::tensor::DimOp>(origOp)) {
+        updateTensorDimIndexToMemoryOrder(origOp, newOp, rewriter);
     }
 
     rewriter.replaceOp(origOp, newOp->getResults());
@@ -131,8 +155,8 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
         return type;
     });
 
-    const auto convert = [&ctx](mlir::OpBuilder& builder, mlir::RankedTensorType, mlir::ValueRange inputs,
-                                mlir::Location loc) -> mlir::Value {
+    const auto convert = [&ctx, this](mlir::OpBuilder& builder, mlir::RankedTensorType destType,
+                                      mlir::ValueRange inputs, mlir::Location loc) -> mlir::Value {
         auto newLocation = appendLoc(loc, "casted");
         auto isOutputValue = [](mlir::Value value) {
             return llvm::any_of(value.getUsers(), [](mlir::Operation* user) {
@@ -145,6 +169,8 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
 
         VPUX_THROW_UNLESS(inputs.size() == 1, "Got wrong number of inputs : {0}", inputs.size());
         auto input = inputs[0];
+
+        _log.trace("Materialization called: input={0}, destType={1}", input.getType(), destType);
 
         auto inputNdType = mlir::cast<NDTypeInterface>(input.getType());
         auto inputOrder = inputNdType.getDimsOrder();
@@ -175,19 +201,8 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
         VPUX_THROW_UNLESS(dstOrder.has_value(), "Cannot detect destination order for input '{0}'",
                           input.getDefiningOp()->getName());
 
-        const auto defaultOrder = DimsOrder::NCHW.toAffineMap(ctx);
-        if (isInputValue(input) && inputOrder.isIdentity() && dstOrder->isIdentity()) {
-            const auto tensorDesc = TensorAttr::get(ctx, mlir::AffineMapAttr::get(defaultOrder), nullptr, {}, {});
-            const auto newType =
-                    mlir::RankedTensorType::get(inputNdType.getShape(), inputNdType.getElementType(), tensorDesc);
-
-            return builder.create<Core::ReinterpretCastOp>(newLocation, newType, input);
-        }
-        if (isInputValue(input)) {
-            return builder.createOrFold<VPU::PermuteCastOp>(newLocation, input, dstOrder.value(), defaultOrder);
-        }
-        if (isOutputValue(input)) {
-            return builder.createOrFold<VPU::PermuteCastOp>(newLocation, input, dstOrder.value(), defaultOrder);
+        if (isInputValue(input) || isOutputValue(input)) {
+            return builder.createOrFold<Core::ReinterpretCastOp>(newLocation, destType, input);
         }
 
         return input;
@@ -211,6 +226,7 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
     target.addDynamicallyLegalOp<mlir::tensor::ExtractSliceOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::InsertSliceOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::EmptyOp>(isLegalOp);
+    target.addDynamicallyLegalOp<mlir::tensor::DimOp>(isLegalOp);
 
     target.addDynamicallyLegalOp<mlir::func::ReturnOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::func::CallOp>(isLegalOp);

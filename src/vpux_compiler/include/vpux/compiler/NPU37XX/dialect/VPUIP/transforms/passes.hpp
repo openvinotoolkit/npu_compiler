@@ -20,9 +20,6 @@ namespace arch37xx {
 
 std::unique_ptr<mlir::Pass> createAddSwKernelCacheHandlingOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollDistributedOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUnrollDepthToSpaceDMAPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUnrollSpaceToDepthDMAPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUnrollPermuteDMAPass(Logger log = Logger::global());
 
 //
 // Optimize copies pipeline
@@ -53,12 +50,6 @@ struct MemoryAllocationOptions final : public VPUIP::MemoryAllocationOptionsBase
 
 void buildMemoryAllocationPipeline(mlir::OpPassManager& pm, const MemoryAllocationOptions& options,
                                    Logger log = Logger::global());
-
-//
-// DMAUnrollingPipeline
-//
-
-void buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 
 //
 // DefaultHWOptions

@@ -4,10 +4,11 @@
 //
 
 #include <vpux_headers/serial_metadata.hpp>
+#include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux_headers/serial_metadata.hpp"
 
 using namespace vpux;
@@ -21,11 +22,7 @@ void vpux::VPUMI37XX::NetworkMetadataOp::serialize(elf::writer::BinaryDataSectio
     auto operation = getOperation();
     auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
 
-    auto nBarrs = VPUIP::getNumAvailableBarriers(operation);
-    metadata.mResourceRequirements.nn_barriers_ = checked_cast<uint8_t>(nBarrs);
-    metadata.mResourceRequirements.nn_slice_count_ = checked_cast<uint8_t>(VPUIP::getNumTilesUsed(mainModule));
-    metadata.mResourceRequirements.nn_slice_length_ =
-            checked_cast<uint32_t>(IE::getAvailableMemory(mainModule, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
+    vpux::ELFNPU37XX::setResourceRequirement(mainModule, metadata);
 
     auto serializedMetadata = elf::MetadataSerialization::serialize(metadata);
     binDataSection.appendData(&serializedMetadata[0], serializedMetadata.size());

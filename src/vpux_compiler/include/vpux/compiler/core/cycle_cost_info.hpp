@@ -5,12 +5,15 @@
 
 #pragma once
 
-#include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
-#include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
-
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 #include "vpux/utils/logger/logger.hpp"
+
+#include <mlir/Dialect/Func/IR/FuncOps.h>
+
+namespace VPUNN {
+class VPUCostModel;
+}  // namespace VPUNN
 
 namespace vpux {
 
@@ -76,13 +79,9 @@ public:
         return _archKind;
     }
 
-    void resetNNCacheCounter() {
-        _costModel->getPreloadedCacheCounter().reset();
-    }
+    void resetNNCacheCounter();
 
-    void printNNCacheStatistics(Logger& log) const {
-        log.info("[NN Cache statistics]  {0}", _costModel->getPreloadedCacheCounter().printString());
-    }
+    void printNNCacheStatistics(Logger& log) const;
 
 private:
     /**

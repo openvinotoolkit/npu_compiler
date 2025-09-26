@@ -13,7 +13,6 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>

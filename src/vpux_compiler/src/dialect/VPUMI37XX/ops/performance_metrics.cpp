@@ -5,9 +5,9 @@
 
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/utils/performance_metrics.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include <npu_37xx_nnrt.hpp>
 
@@ -29,14 +29,14 @@ void vpux::VPUMI37XX::PerformanceMetricsOp::serialize(elf::writer::BinaryDataSec
 
     auto operation = getOperation();
     auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
+
     // Here we must get AF from NCE res (a TileResourceOp) as the AF attribute is attached to tile op
-    mainModule.walk([&](IE::TileResourceOp res) {
-        const auto execKind = VPU::getKindValue<VPU::ExecutorKind>(res);
-        if (VPU::ExecutorKind::NCE == execKind) {
-            perf.activity_factor = VPU::getActivityFactor(execKind, mainModule, res);
-            VPUX_THROW_WHEN(perf.activity_factor == VPU::INVALID_AF, "Invalid activity factor!");
-        }
-    });
+    auto tileResources = config::getTileExecutor(mainModule);
+    const auto execKind = VPU::getKindValue<VPU::ExecutorKind>(tileResources);
+    if (VPU::ExecutorKind::NCE == execKind) {
+        perf.activity_factor = VPU::getActivityFactor(execKind, mainModule, tileResources);
+        VPUX_THROW_WHEN(perf.activity_factor == VPU::INVALID_AF, "Invalid activity factor!");
+    }
 
     auto numEntries = VPU::getNumEntries();
     auto byBWScales = VPU::getBWScales();

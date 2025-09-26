@@ -73,6 +73,9 @@ mlir::LogicalResult AdjustFakeQuant::matchAndRewrite(IE::FakeQuantizeOp fakeQuan
         return mlir::failure();
     }
 
+    if (!IE::hasStaticLowAndHighValues(fakeQuantizeOp)) {
+        return mlir::failure();
+    }
     const auto inLowValue = IE::getConst(fakeQuantizeOp.getInputLow().getDefiningOp<Const::DeclareOp>())[0];
     const auto inHighValue = IE::getConst(fakeQuantizeOp.getInputHigh().getDefiningOp<Const::DeclareOp>())[0];
     const auto outLowValue = IE::getConst(fakeQuantizeOp.getOutputLow().getDefiningOp<Const::DeclareOp>())[0];

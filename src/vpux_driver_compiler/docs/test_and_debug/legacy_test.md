@@ -15,6 +15,8 @@ General usage:
 
 ### Explanation for Configuration
 
+I/O Layouts and Precisions are no longer mandatory for all models under current VCL API. For **IRv10** models users are still allowed to pass different I/O Layouts & IO Precisions to override (For example, forcing a IRv10 FP32 model to run in FP16) the original settings. However, passing different I/O Layouts and I/O Precisions will **not override default values for all IRv11** models.
+
 For example, a configuration for googlenet-v1 for legacy usage is as follows:
 ```sh
 --inputs_precisions="input:fp16"

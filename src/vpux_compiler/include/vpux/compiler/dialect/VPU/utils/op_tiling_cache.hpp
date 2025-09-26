@@ -8,10 +8,12 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
-#include <vpu/layer.h>
-#include <vpu_layer_strategy.h>
-
 #include <atomic>
+#include <mutex>
+namespace VPUNN {
+struct VPULayerStrategy;
+struct DPULayer;
+}  // namespace VPUNN
 
 namespace vpux::VPU {
 class DistributionInfo;
@@ -71,6 +73,8 @@ public:
 
     std::optional<uint32_t> getVPUNNLayerCost(llvm::hash_code layerHash);
 
+    std::optional<SmallVector<DimArr>> getValidPermutations(llvm::hash_code opHash);
+
     void updateOutputTiling(const llvm::hash_code opHash, mlir::Operation* op, const OutputTilingCacheItem& outputTile);
 
     void updateOpDPUCost(llvm::hash_code opHash, ArrayRef<uint32_t> cost);
@@ -78,6 +82,8 @@ public:
     void updateVPUNNLayerCost(llvm::hash_code layerHash, uint32_t cost);
 
     void updatePerClusterShape(llvm::hash_code shapeHash, const PerClusterShapeCacheItem& perClusterShape);
+
+    void updateValidPermutations(llvm::hash_code opHash, const SmallVector<DimArr>& validPermutations);
 
     bool isCacheSupported();
 
@@ -95,11 +101,13 @@ private:
     std::mutex _dpuMutex;
     std::mutex _vpunnLayerMutex;
     std::mutex _perClusterShapeMutex;
+    std::mutex _validPermutationsMutex;
     DenseMap<llvm::hash_code, std::optional<NTilesOnDim>> _tilingCache;
     DenseMap<llvm::hash_code, std::optional<llvm::hash_code>> _opHashToInputOutputModeHash;
     DenseMap<llvm::hash_code, SmallVector<uint32_t>> _opDpuCostCache;
     DenseMap<llvm::hash_code, uint32_t> _vpunnLayerCostCache;
     DenseMap<llvm::hash_code, PerClusterShapeCacheItem> _perClusterShapeCache;
+    DenseMap<llvm::hash_code, SmallVector<DimArr>> _validPermutationsCache;
 
     bool _enableCache{false};
 
@@ -114,6 +122,9 @@ private:
 
     std::atomic<uint64_t> _perClusterShapeHitCount{0};
     std::atomic<uint64_t> _perClusterShapeAccessCount{0};
+
+    std::atomic<uint64_t> _validPermutationsHitCount{0};
+    std::atomic<uint64_t> _validPermutationsAccessCount{0};
 };
 }  // namespace VPU
 }  // namespace vpux

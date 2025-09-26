@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -188,8 +187,8 @@ void VFCase::addCMXWriteSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costF
                     if (previousOp->hasAttr(tilingStrategy)) {
                         auto prevOpStrategy = parseIntArrayAttr<int64_t>(
                                 mlir::cast<mlir::ArrayAttr>(previousOp->getAttr(tilingStrategy)));
-                        auto tiles =
-                                fillDividedTiles(previousOp, Shape(prevOpStrategy), getShape(previousOp->getResult(0)));
+                        auto tiles = fillDividedTiles(previousOp, ShapeRef(prevOpStrategy),
+                                                      getShape(previousOp->getResult(0)));
                         VPUX_THROW_WHEN(mlir::failed(tiles) || tiles.value().empty(),
                                         "Cannot get tiles {0} for the operation in VF {1}", prevOpStrategy, previousOp);
                         prevOpTiling = tiles.value();

@@ -26,18 +26,6 @@ using namespace vpux;
 
 void PipelineRegistry40XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
-            "ShaveCodeGen", "Compile both from IE to VPUIP for VPU40XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
-                                                             config::CompilationMode::ShaveCodeGen, options};
-                auto createPipelineStartegy = [&](config::CompilationMode) {
-                    return createDialectPipelineStrategy40XX<DefaultHWOptions40XX>(&initCompilerOptions, &options);
-                };
-                ShaveCodeGenStrategy factory(createPipelineStartegy, Logger::global());
-                factory.buildPipeline(pm);
-            });
-
-    mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "reference-sw-mode", "Compile IE Network in Reference Software mode (SW only execution) for VPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
                 VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
@@ -93,8 +81,9 @@ void PipelineRegistry40XX::registerPipelines() {
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
                 VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
                                                              config::CompilationMode::HostCompile, options};
-                auto createPipelineStrategy = [&](config::CompilationMode) {
-                    return createDialectPipelineStrategy40XX<DefaultHWOptions40XX>(&initCompilerOptions, &options);
+                auto createPipelineStrategy = [&](config::CompilationMode compilationMode) {
+                    return createDialectPipelineStrategy40XXHostCompile<DefaultHWOptions40XX>(
+                            compilationMode, &initCompilerOptions, &options);
                 };
                 HostPipelineStrategy factory(createPipelineStrategy, Logger::global());
                 factory.buildPipeline(pm);

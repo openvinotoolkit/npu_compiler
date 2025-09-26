@@ -42,6 +42,8 @@
 #include <openvino/runtime/core.hpp>
 #include <openvino/runtime/runtime.hpp>
 
+#include <openvino/op/group_query_attention.hpp>
+
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
@@ -80,6 +82,11 @@ llvm::cl::opt<bool> enableWeightsSeparationPath{
         "weights-separation-path",
         llvm::cl::desc("Disables constants folding for more \"Const->Convert->{Op}\" patterns"), llvm::cl::init(false)};
 
+llvm::cl::opt<bool> enableShaveCodeGen{
+        "enable-shave-code-gen",
+        llvm::cl::desc("Enable Shave Code Generation pipeline. The kernels will be compile at runtime"),
+        llvm::cl::init(false)};
+
 enum class NetworkIOType { INPUT, OUTPUT };
 
 //
@@ -103,6 +110,8 @@ mlir::OwningOpRef<mlir::ModuleOp> importIE(llvm::SourceMgr& sourceMgr, mlir::MLI
 
     ov::Core core;
     std::shared_ptr<ov::Model> model;
+    core.add_extension(std::vector<ov::Extension::Ptr>(
+            {std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>()}));
 
     try {
         model = core.read_model(netFileName.str());
@@ -197,12 +206,10 @@ mlir::OwningOpRef<mlir::ModuleOp> importELF(llvm::SourceMgr& sourceMgr, mlir::ML
 //
 
 mlir::LogicalResult exportELF(mlir::ModuleOp module, llvm::raw_ostream& output) {
-    auto compilationMode = config::getCompilationMode(module.getOperation());
-    if (compilationMode == config::CompilationMode::ShaveCodeGen) {
+    mlir::DefaultTimingManager tm;
+    if (enableShaveCodeGen) {  // --enable-shave-code-gen=true
         ShaveBinaryResources::loadElfData(module);
     }
-
-    mlir::DefaultTimingManager tm;
 
     auto arch = config::getArch(module.getOperation());
 

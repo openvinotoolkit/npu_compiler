@@ -1072,12 +1072,6 @@ mlir::LogicalResult MoveThroughShapeCast::matchAndRewrite(IE::ShapeCastOp shapeC
         return mlir::failure();
     }
 
-    if (isSuitableToAdjustMemPermuteShape(mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType()),
-                                          mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType()),
-                                          memPermuteOp.getMemPerm())) {
-        return mlir::failure();
-    }
-
     const auto origReshapeInType = mlir::cast<vpux::NDTypeInterface>(shapeCastOp->getOperand(0).getType());
     const auto origReshapeOutType = mlir::cast<vpux::NDTypeInterface>(shapeCastOp->getResult(0).getType());
     const auto origReshapeInShape = origReshapeInType.getShape();

@@ -66,13 +66,13 @@ const auto pad4DParams = testing::Combine(
         testing::ValuesIn(padsBegin), testing::ValuesIn(padsEnd), testing::Values(0.0f), testing::ValuesIn(padModes),
         testing::Values(ov::element::f16),
         testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{{{1, 5, 10, 11}}})),
-        testing::Values(DEVICE_NPU));
+        testing::Values(test_utils::TARGET_DEVICE));
 
 // returns a single explicit test param
 padLayerTestParamsSet getCfg(ov::Shape inShape, std::vector<int64_t> padsBegin, std::vector<int64_t> padsEnd,
                              ov::op::PadMode padMode, ov::element::Type prc) {
     auto shape = static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{{inShape}})[0];
-    return std::make_tuple(padsBegin, padsEnd, -1.0f, padMode, prc, shape, DEVICE_NPU);
+    return std::make_tuple(padsBegin, padsEnd, -1.0f, padMode, prc, shape, test_utils::TARGET_DEVICE);
 }
 
 std::vector<padLayerTestParamsSet> customParams = {
@@ -114,7 +114,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Pad12, Pad12LayerTestCommon,
                                           testing::Values(ov::op::PadMode::CONSTANT), testing::Values(ov::element::f16),
                                           testing::Values(ov::test::static_shapes_to_test_representation(
                                                   std::vector<ov::Shape>{{1, 5, 10, 11}})),
-                                          testing::Values(ov::test::utils::DEVICE_NPU)),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          Pad12LayerTestCommon::getTestCaseName);
 
 }  // namespace

@@ -136,10 +136,10 @@ mlir::LogicalResult vpux::IE::ConvolutionOp::inferReturnTypeComponents(
     const auto inShapeInfo = ShapeInfo::fromNDType(inputType);
     const auto filterShapeInfo = ShapeInfo::fromNDType(filterType);
 
-    const auto outShapeInfo = inferConvoutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides,
-                                                             dataPaddingBelow, dataPaddingAbove, windowDilations);
+    const auto outShapeInfo = inferConvolutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides,
+                                                              dataPaddingBelow, dataPaddingAbove, windowDilations);
     const auto outDesc =
-            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outShapeInfo.bounds));
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShapeInfo.bounds));
 
     inferredReturnShapes.emplace_back(outShapeInfo.shape, inputType.getElementType(), outDesc);
     return mlir::success();
@@ -180,7 +180,7 @@ mlir::LogicalResult vpux::IE::GroupConvolutionOp::inferReturnTypeComponents(
             inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow, dataPaddingAbove, windowDilations,
             conv.getGroups(), conv.getOutputPadding().has_value());
     const auto outDesc =
-            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outShapeInfo.bounds));
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShapeInfo.bounds));
 
     inferredReturnShapes.emplace_back(outShapeInfo.shape, inputType.getElementType(), outDesc);
     return mlir::success();

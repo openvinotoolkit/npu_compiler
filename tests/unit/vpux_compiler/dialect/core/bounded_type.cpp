@@ -44,7 +44,7 @@ public:
         const auto elemType = mlir::Float32Type::get(&ctx);
         const auto order = DimsOrder::NCHW;
         const auto bounds = SmallVector<int64_t>{1, 2, 10, 20};
-        const auto tensorAttr = getTensorAttr(&ctx, order, nullptr, Bounds(bounds));
+        const auto tensorAttr = getTensorAttr(&ctx, order, nullptr, BoundsRef(bounds));
         const auto type = mlir::RankedTensorType::get(shape, elemType, tensorAttr);
 
         return std::make_pair(type, bounds);
@@ -74,7 +74,8 @@ TEST_F(MLIR_BoundedTensorTypeTest, ThrowWithStaticShape) {
 TEST_F(MLIR_BoundedTensorTypeTest, Get) {
     auto type = getStaticTensorType();
     auto ndType = mlir::cast<NDTypeInterface>(type);
-    auto dynShapeType = ndType.changeShape(Shape(ndType.getShape().size(), mlir::ShapedType::kDynamic));
+    const Shape shape(ndType.getShape().size(), mlir::ShapedType::kDynamic);
+    auto dynShapeType = ndType.changeShape(shape);
 
     const auto bounds = Bounds{1, 2, 10, 20};
     const auto boundedType = Core::BoundedTensorType::get(dynShapeType, bounds);
@@ -101,7 +102,7 @@ TEST_F(MLIR_BoundedTensorTypeTest, ChangeBounds) {
     const auto newBounds = mlir::SmallVector<int64_t>{1, 2, 20, 20};
     ASSERT_TRUE(bounds != newBounds);
 
-    const auto newType = boundedType.changeBounds(Bounds(newBounds));
+    const auto newType = boundedType.changeBounds(BoundsRef(newBounds));
     ASSERT_TRUE(llvm::equal(newType.getBounds(), newBounds));
 }
 

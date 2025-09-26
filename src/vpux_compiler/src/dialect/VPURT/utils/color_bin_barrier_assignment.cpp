@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPURT/utils/color_bin_barrier_assignment.hpp"
 
 #include <llvm/ADT/SetOperations.h>
+
+#include <deque>
 #include <limits>
 
 using namespace vpux;

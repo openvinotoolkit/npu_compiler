@@ -5,9 +5,9 @@
 
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/core/IR/attributes.hpp"
 
 #include "common/utils.hpp"
@@ -129,10 +129,10 @@ TEST_F(MLIR_IndexedSymbolAttr, CheckExecutorResourceAttr) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
         module @test {
-            IE.TileResource 4 of @NCE at 700.0MHz {
-                IE.ExecutorResource 5 of @DPU
+            config.Resources 4 of @NCE at 700.0MHz {
+                config.ExecutorResource 5 of @DPU
             }
-            IE.ExecutorResource 1 of @DMA_NN
+            config.ExecutorResource 1 of @DMA_NN
 
             func.func @main(%arg0: memref<1x16x62x62xf16, #NHWC>,
                         %arg1: memref<1x48x60x60xf16, #NHWC>) -> memref<1x48x60x60xf16, #NHWC> {
@@ -202,8 +202,8 @@ TEST_F(MLIR_IndexedSymbolAttr, CheckExecutorResourceAttr) {
             const auto executor = vpux::VPUIP::VPUIPDialect::getExecutor(executeOp);
             ASSERT_TRUE(executor != nullptr);
 
-            if (vpux::IE::isNceTile(executor.getRootReference())) {
-                auto tileRes = vpux::IE::getTileExecutor(module.get());
+            if (vpux::config::isNceTile(executor.getRootReference())) {
+                auto tileRes = vpux::config::getTileExecutor(module.get());
                 ASSERT_TRUE(tileRes.hasProcessorFrequency());
                 ASSERT_EQ(tileRes.getProcessorFrequency().getValueAsDouble(), 700.0);
                 ASSERT_TRUE(executor.getIndex().has_value());
@@ -215,7 +215,7 @@ TEST_F(MLIR_IndexedSymbolAttr, CheckExecutorResourceAttr) {
                 ASSERT_EQ(nestedExecAttr.getRootName(), DPU_NAME);
                 ASSERT_FALSE(nestedExecAttr.getNestedReference().has_value());
 
-                auto nestedExecRes = vpux::IE::getAvailableExecutor(module.get(), executor.getFullReference());
+                auto nestedExecRes = vpux::config::getAvailableExecutor(module.get(), executor.getFullReference());
                 ASSERT_TRUE(nestedExecRes != nullptr);
                 ASSERT_EQ(nestedExecRes.getSymName(), DPU_NAME);
             }

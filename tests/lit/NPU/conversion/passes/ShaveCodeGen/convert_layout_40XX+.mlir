@@ -82,36 +82,6 @@ module @LayoutInt {
 
 // -----
 
-// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-// CHECK: [[NHWC:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-// CHECK: @LayoutTablegenPat
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-module @LayoutTablegenPat {
-  net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "input0" : tensor<1x3x28x29xf16, {order = #NHWC}>
-  } outputsInfo : {
-    DataInfo "output" : tensor<1x3x28x29xf16, {order = #NHWC}>
-  }
-  func.func @main(%arg0: tensor<1x3x28x29xf16, {order = #NHWC}>) -> tensor<1x3x28x29xf16, {order = #NHWC}> {
-    %0 = IE.CodeGenCapsule inputs(%arg0 as %arg1: tensor<1x3x28x29xf16, {order = #NHWC}>) {
-      %1 = IE.Log(%arg1) : tensor<1x3x28x29xf16, {order = #NHWC}> -> tensor<1x3x28x29xf16, {order = #NHWC}>
-      IE.CGCYield %1 : tensor<1x3x28x29xf16, {order = #NHWC}>
-    } -> tensor<1x3x28x29xf16, {order = #NHWC}>
-    return %0 : tensor<1x3x28x29xf16, {order = #NHWC}>
-
-// CHECK: func.func @main([[FuncARG:%.+]]: tensor<1x3x28x29xf16, {order = [[NHWC]]}>) -> tensor<1x3x28x29xf16, {order = [[NHWC]]}>
-// CHECK: [[CGRES:%.+]] = IE.CodeGenCapsule inputs([[FuncARG:%.+]] as [[ARG:%.+]]: tensor<1x3x28x29xf16, {order = [[NHWC]]}>)
-// CHECK-NEXT:    [[Cast_arg:%.+]] = IE.PermuteCast([[ARG]]) {dst_order = [[NCHW]], mem_perm = [[NCHW]]} : tensor<1x3x28x29xf16, {order = [[NHWC]]}> -> tensor<1x28x29x3xf16>
-// CHECK-NEXT:    [[Res:%.+]] = math.log [[Cast_arg]] fastmath<afn> : tensor<1x28x29x3xf16>
-// CHECK-NEXT:    [[Cast_res:%.+]] = IE.PermuteCast([[Res]]) {dst_order = [[NHWC]], mem_perm = [[NCHW]]} : tensor<1x28x29x3xf16> -> tensor<1x3x28x29xf16, {order = [[NHWC]]}>
-// CHECK-NEXT:    IE.CGCYield [[Cast_res]] : tensor<1x3x28x29xf16, {order = [[NHWC]]}>
-// CHECK-NEXT:    } -> tensor<1x3x28x29xf16, {order = [[NHWC]]}>
-// CHECK-NEXT:    return [[CGRES]] : tensor<1x3x28x29xf16, {order = [[NHWC]]}>
-  }
-}
-
-// -----
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>

@@ -83,6 +83,63 @@ func.func @MaxPool(%IN: tensor<1x3x16x?xf16, {bounds = #const.OpaqueI64Elements<
     return %RESHAPE_OUT : tensor<1x3x8x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 8, 16]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK:   [[RESHAPE_OUT]] : tensor<1x3x8x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 8, 16]> : tensor<4xsi64>, order = #NCHW}>
 }
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DynamicPermuteQuantize
+func.func @DynamicPermuteQuantize(%IN: tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>)
+    -> tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}> {
+    // CHECK: [[IN:%.+]]: tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+
+    %DIM_32 = const.Declare tensor<1xsi64> = dense<32> : tensor<1xsi64>
+    // CHECK:  [[DIM_32:%.+]] = const.Declare tensor<1xsi64> = dense<32> : tensor<1xsi64>
+
+    %DIM_12 = const.Declare tensor<1xsi64> = dense<12> : tensor<1xsi64>
+    // CHECK:  [[DIM_12:%.+]] = const.Declare tensor<1xsi64> = dense<12> : tensor<1xsi64>
+
+    %DIM_1 = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+    // CHECK:  [[DIM_1:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+
+    // CHECK: [[EXPAND:%.+]] = IE.DynamicExpand([[IN]])
+    // CHECK-SAME:   : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:   -> tensor<1x12x4x32xf16>
+
+    %PERMUTE_QUANTIZE = IE.PermuteQuantize(%IN) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]}
+    : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+    -> tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK:   [[PERMUTE:%.+]] = IE.PermuteQuantize([[EXPAND]])
+    // CHECK-SAME:   {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x12x4x32xf16>
+    // CHECK-SAME:   -> tensor<1x12x4x32xf16, {order = #NHWC}>
+
+    %SHAPE_OF = IE.ShapeOf(%IN) {dstElemType = si64} : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}> -> tensor<4xsi64>
+    // CHECK:   [[SHAPE_OF:%.+]] = IE.ShapeOf([[IN]])
+    // CHECK-SAME:   {dstElemType = si64} : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:   -> tensor<4xsi64>
+
+    %SLICE = IE.Slice %SHAPE_OF [2] [1] : tensor<4xsi64> to tensor<1xsi64>
+    // CHECK:   [[SLICE:%.+]] = IE.Slice [[SHAPE_OF]] [2] [1] : tensor<4xsi64> to tensor<1xsi64>
+
+    %CONCAT = IE.Concat(%DIM_1, %DIM_12, %SLICE, %DIM_32) {per_axis = #IE.Concat<axis = 0 : i64>}
+    : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>
+    -> tensor<4xsi64>
+
+    // CHECK:   [[CONCAT:%.+]] = IE.Concat([[DIM_1]], [[DIM_12]], [[SLICE]], [[DIM_32]])
+    // CHECK-SAME:   {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64>
+    // CHECK-SAME:   -> tensor<4xsi64>
+
+    %RESHAPE_OUT = IE.DynamicReshape(%PERMUTE_QUANTIZE, %CONCAT) {output_bounds = [1, 12, 4, 32], output_shape = [1, 12, -9223372036854775808, 32]} : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NHWC}>, tensor<4xsi64> -> tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+
+    //CHECK:    [[RESHAPE_OUT:%.+]] = IE.DynamicReshape([[PERMUTE]], [[CONCAT]])
+    //CHECK-SAME:   {output_bounds = [1, 12, 4, 32], output_shape = [1, 12, -9223372036854775808, 32]} : tensor<1x12x4x32xf16, {order = #NHWC}>, tensor<4xsi64>
+    //CHECK-SAME:   -> tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+
+    return %RESHAPE_OUT : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+    //CHECK:    [[RESHAPE_OUT]] : tensor<1x12x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 4, 32]> : tensor<4xsi64>, order = #NCHW}>
+
+}
 
 // -----
 

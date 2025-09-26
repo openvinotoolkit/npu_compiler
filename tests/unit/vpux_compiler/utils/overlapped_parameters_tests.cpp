@@ -80,7 +80,7 @@ TEST_P(GetOverlapDistributionParamsTests, GetMemoryViewFromProducerConsumers) {
 llvm::StringLiteral poolwith2ConvConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -117,7 +117,7 @@ llvm::StringLiteral poolwith2ConvConsumers = R"(
 llvm::StringLiteral poolwith3ConvConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -193,7 +193,7 @@ INSTANTIATE_TEST_SUITE_P(ConsumerUnionIncludesProducer, GetOverlapDistributionPa
 llvm::StringLiteral poolwith2NCEInterpConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x96x20x20xf16, {order = #NHWC}>)
           -> (tensor<1x96x40x40xf16, {order = #NHWC}>, tensor<1x96x60x60xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<96x96x2x2xf16, {order = #NHWC}>
@@ -268,7 +268,7 @@ llvm::StringLiteral poolwith2NCEInterpConsumers = R"(
 llvm::StringLiteral poolWithNCEInterpAndConvConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x96x20x20xf16, {order = #NHWC}>)
           -> (tensor<1x96x40x40xf16, {order = #NHWC}>, tensor<1x96x20x20xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<96x96x2x2xf16, {order = #NHWC}>
@@ -355,7 +355,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_DistributedTensorWithSETable, GetOverlapDistri
 llvm::StringLiteral convConsumersSameKernelDiffStrides = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 2 of @NCE at 6.000000e+02 MHz
+        config.Resources 2 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x32x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x32x14x14xf16, {order = #NHWC}>, tensor<1x32x28x27xf16, {order = #NHWC}>) {
             %weights = const.Declare tensor<32x32x1x1xf16, {order = #NHWC}>
@@ -390,7 +390,7 @@ llvm::StringLiteral convConsumersSameKernelDiffStrides = R"(
 llvm::StringLiteral consumersWithMismatchedMemoryView = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+        config.Resources 6 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x112x111xf16, {order = #NHWC}>)
           -> (tensor<1x16x112x111xf16, {order = #NHWC}>, tensor<1x16x56x56xf16, {order = #NHWC}>, tensor<1x16x56x55xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}>
@@ -466,7 +466,7 @@ INSTANTIATE_TEST_SUITE_P(ConsumerUnionDoesNotIncludeProducer, GetOverlapDistribu
 llvm::StringLiteral consumerNotSOHOrWCompatible = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 3 of @NCE at 6.000000e+02 MHz
+        config.Resources 3 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x2x2xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
@@ -512,7 +512,7 @@ llvm::StringLiteral consumerNotSOHOrWCompatible = R"(
 llvm::StringLiteral noCompatibleConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>)
           -> (tensor<1x144x16x16xf16, {order = #NHWC}>, tensor<1x144x16x16xf16, {order = #NHWC}>) {
             %0 = VPU.NCE.AveragePool(%arg0) {
@@ -537,7 +537,7 @@ llvm::StringLiteral noCompatibleConsumers = R"(
 llvm::StringLiteral noConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x16x16xf16, {order = #NHWC}>)
           -> tensor<1x144x16x16xf16, {order = #NHWC}> {
             %0 = VPU.NCE.AveragePool(%arg0) {
@@ -553,7 +553,7 @@ llvm::StringLiteral noConsumers = R"(
 llvm::StringLiteral mixedConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test {
-        IE.TileResource 2 of @NCE at 6.000000e+02 MHz
+        config.Resources 2 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x96x160xf16, {order = #NHWC}>)
           -> (tensor<1x16x192x320xf16, {order = #NHWC}>, tensor<1x16x96x160xf16, {order = #NHWC}>) {
             %weights = const.Declare tensor<16x16x5x5xf16, {order = #NHWC}>

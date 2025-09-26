@@ -16,9 +16,9 @@
 
 #include <llvm/ADT/SmallSet.h>
 
-#include <array>
 #include <cassert>
 #include <cstdint>
+#include <queue>
 #include <unordered_set>
 
 namespace vpux {

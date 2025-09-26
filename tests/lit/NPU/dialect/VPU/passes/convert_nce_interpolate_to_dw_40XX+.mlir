@@ -81,7 +81,7 @@ func.func @InterpAssignedSOHAsDwConv(%arg0: tensor<1x96x10x10xf16, {order = #NHW
 
 module {
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz
+config.Resources 2 of @NCE at 1.300000e+03 MHz
 
 // CHECK: @InterpAssignedSOKAsDwConv
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x96x10x10x[[IN_TYPE]], {order = #NHWC}>)
@@ -437,7 +437,7 @@ func.func @SingleClusterInterpNotSupportedWorkloadWithOptimization(%arg0: tensor
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module {
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz
+config.Resources 2 of @NCE at 1.300000e+03 MHz
 // CHECK-LABEL: @SOKInterpTooManyTilesNeeded
 func.func @SOKInterpTooManyTilesNeeded(%arg0: tensor<1x512x10x10xf16, {order = #NHWC}>) -> tensor<1x512x20x20xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<512x512x3x3xf16, {order = #NHWC}> = dense<1.0> : tensor<512x512x3x3xf16>, [#const.Reorder<#NHWC>]
@@ -528,7 +528,7 @@ func.func @SOHInterpTooManyTilesNeeded(%arg0: tensor<1x128x10x10xf16, {order = #
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module {
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz
+config.Resources 2 of @NCE at 1.300000e+03 MHz
 
 // CHECK-LABEL: @SOKInterpNotSupportedWorkload
 func.func @SOKInterpNotSupportedWorkload(%arg0: tensor<1x64x10x10xf16, {order = #NHWC}>) -> tensor<1x64x30x30xf16, {order = #NHWC}> {

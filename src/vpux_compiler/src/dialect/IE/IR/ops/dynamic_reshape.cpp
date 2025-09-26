@@ -37,7 +37,7 @@ mlir::LogicalResult vpux::IE::DynamicReshapeOp::inferReturnTypeComponents(
     const auto inType = mlir::cast<mlir::RankedTensorType>(reshape.getInput().getType());
 
     const auto outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), vpux::getMemorySpace(inType),
-                                             Bounds(outBounds));
+                                             BoundsRef(outBounds));
 
     inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
     return mlir::success();

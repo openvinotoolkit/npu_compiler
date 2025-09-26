@@ -18,7 +18,9 @@ module @arch attributes {config.arch = #config.arch_kind<NPU37XX>} {
 
 // -----
 
-// expected-error@+1 {{Available executor kind 'DMA_NN' was already added}}
+// expected-error@+1 {{Available global resources was already added}}
 module @executors {
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 1 of @DMA_NN
+    }
 }

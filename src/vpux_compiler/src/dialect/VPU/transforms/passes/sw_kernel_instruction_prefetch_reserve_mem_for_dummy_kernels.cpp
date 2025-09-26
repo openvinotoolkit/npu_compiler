@@ -5,11 +5,11 @@
 
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Operation.h>
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SWKERNELINSTRUCTIONPREFETCHRESERVEMEMFORDUMMYKERNELS
@@ -55,8 +55,8 @@ void SWKernelInstructionPrefetchReserveMemForDummyKernels::safeRunOnModule() {
 
     auto* ctx = module->getContext();
     auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
-    IE::setDummySwKernelsForInstructionPrefetchReservedMemory(module, memSpaceAttr,
-                                                              vpux::VPUIP::MAX_SW_KERNEL_DUMMY_KERNELS_DATA_SIZE);
+    config::setDummySwKernelsForInstructionPrefetchReservedMemory(module, memSpaceAttr,
+                                                                  vpux::VPUIP::MAX_SW_KERNEL_DUMMY_KERNELS_DATA_SIZE);
 }
 
 }  // namespace

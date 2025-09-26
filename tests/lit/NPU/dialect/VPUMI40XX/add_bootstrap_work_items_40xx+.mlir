@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @twoDma inputsInfo : {
     DataInfo "input_0" : tensor<1x16x16x16xf16>
   } outputsInfo : {
@@ -59,9 +59,9 @@ module {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module {
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @DmaAndVarint inputsInfo : {
     DataInfo "input" : tensor<1x16x16x16xf16>
   } outputsInfo : {
@@ -115,8 +115,8 @@ module {
 // -----
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @single_hswish inputsInfo : {
     DataInfo "input" : tensor<1x1000xf16>
   } outputsInfo : {
@@ -142,7 +142,7 @@ module attributes {config.arch = #config.arch_kind<NPU40XX>} {
     %8 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
     %9 = VPUMI40XX.DeclareKernelEntry kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
     %10 = VPUMI40XX.DeclareKernelArgs kernel_path("activation_hswish") -> !VPURegMapped.Index<0:0:0>
-    %11 = VPUMI40XX.KernelParams inputs(%6 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%7 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("activation_hswish") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>) -> !VPURegMapped.Index<0:0:0>
+    %11 = VPUMI40XX.KernelParams inputs(%6 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%7 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("activation_hswish") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
 
     %12 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
     %13 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<1, -1> -> !VPURegMapped.Index<0:0:1>
@@ -172,8 +172,8 @@ module attributes {config.arch = #config.arch_kind<NPU40XX>} {
 // -----
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @single_hswish_shave_idx1 inputsInfo : {
     DataInfo "input" : tensor<1x1000xf16>
   } outputsInfo : {
@@ -199,7 +199,7 @@ module attributes {config.arch = #config.arch_kind<NPU40XX>} {
     %8 = VPUMI40XX.DeclareKernelText kernel_path("activation_hswish") -> !VPURegMapped.Index<0:1:0>
     %9 = VPUMI40XX.DeclareKernelEntry kernel_path("activation_hswish") -> !VPURegMapped.Index<0:1:0>
     %10 = VPUMI40XX.DeclareKernelArgs kernel_path("activation_hswish") -> !VPURegMapped.Index<0:1:0>
-    %11 = VPUMI40XX.KernelParams inputs(%6 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%7 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("activation_hswish") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>) -> !VPURegMapped.Index<0:1:0>
+    %11 = VPUMI40XX.KernelParams inputs(%6 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%7 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("activation_hswish") kernel_params([0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]) -> !VPURegMapped.Index<0:1:0>
 
     %12 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
     %13 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<1, -1> -> !VPURegMapped.Index<0:0:1>

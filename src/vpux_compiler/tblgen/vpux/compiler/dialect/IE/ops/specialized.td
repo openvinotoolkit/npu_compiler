@@ -384,23 +384,21 @@ def IE_IncrementalSDPAOp :
         RankedTensorOf<[F16, F32, F64]>:$key,
         RankedTensorOf<[F16, F32, F64]>:$value,
 
-        RankedTensorOf<[F16, F32, F64]>:$input_running_max,
-        RankedTensorOf<[F16, F32, F64]>:$input_running_sum,
         RankedTensorOf<[F16, F32, F64]>:$input_partial_output,
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$input_running_max,
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$input_running_sum,
 
         Optional<RankedTensorOf<[F16, F32, F64]>>:$attention_mask,
         Optional<RankedTensorOf<[F16, F32, F64]>>:$scale,
-
-        UnitAttr:$casual,
 
         OptionalAttr<IntAttr>:$kv_num_blocks
 
     );
 
     let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$result_partial_output,
         RankedTensorOf<[F16, F32, F64]>:$result_running_max,
-        RankedTensorOf<[F16, F32, F64]>:$result_running_sum,
-        RankedTensorOf<[F16, F32, F64]>:$result_partial_output
+        RankedTensorOf<[F16, F32, F64]>:$result_running_sum
     );
 }
 
@@ -600,7 +598,11 @@ def IE_PermuteCastOp :
 
 def IE_PermuteQuantizeOp :
         IE_LayerOp<
-            "PermuteQuantize"
+            "PermuteQuantize",
+            [
+                DeclareOpInterfaceMethods<StaticShapeOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
+            ]
         > {
     let summary = "InferenceEngine PermuteQuantize layer";
 
@@ -789,7 +791,8 @@ def IE_RoPEOp :
         RankedTensorOf<[F16, F32, F64]>:$input_cos,
         RankedTensorOf<[F16, F32, F64]>:$input_sin
      );
-   let results = (outs
+
+    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
     );
 }
@@ -809,11 +812,15 @@ def IE_SDPAOp :
         RankedTensorOf<[F16, F32]>:$inputV,
         Optional<RankedTensorOf<[F16, F32]>>:$inputMask,
         Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
-        Optional<RankedTensorOf<[F16, F32]>>:$inputBias
+
+        UnitAttr:$causal
      );
-   let results = (outs
+
+    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
     );
+
+    let hasCanonicalizer = 1;
 }
 
 def IE_SelectOp :

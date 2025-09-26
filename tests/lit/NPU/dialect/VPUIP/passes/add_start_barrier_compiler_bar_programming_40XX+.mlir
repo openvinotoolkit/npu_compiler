@@ -28,7 +28,7 @@ func.func @AddStartBarrierBecauseTwoDMAUpdatesTheSameBarrier() -> !DDRType {
     }
     return %2 : !DDRType
 
-    // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier {isStartBarrier} -> !VPURT.Barrier
+    // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
     // CHECK:       [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier)
     // CHECK:         VPUIP.SyncDMA
@@ -60,7 +60,7 @@ func.func @AddStartBarrierAndExtraSyncBecauseTwoParallelUngurdedDMA() -> !DDRTyp
     }
     return %2 : !DDRType
 
-    // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier {isStartBarrier} -> !VPURT.Barrier
+    // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
     // CHECK:       VPURT.Task updates([[BAR0]] : !VPURT.Barrier)
     // CHECK:         VPUIP.SyncDMA
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier)

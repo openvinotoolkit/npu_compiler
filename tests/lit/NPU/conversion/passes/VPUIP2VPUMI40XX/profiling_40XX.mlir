@@ -3,14 +3,16 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-VPUIP-to-VPUMI40XX --setup-profiling-VPUMI40XX="dma-profiling=true" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values" --convert-VPUIP-to-VPUMI40XX --setup-profiling-VPUMI40XX="dma-profiling=true" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @mainModule {
-  builtin.module @ReservedMemory {
-    module @DmaProfilingReservedMemory {
-      IE.MemoryResource 4096 bytes of @DDR offset 0
+  config.Resources 1 of @global {
+    builtin.module @ReservedMemory {
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 4096 bytes of @DDR offset 0
+      }
     }
   }
 

@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 using namespace vpux;
 
@@ -38,7 +37,7 @@ mlir::LogicalResult vpux::VPU::SpaceToBatch::inferReturnTypes(mlir::MLIRContext*
         outShape[i] = (inputShape[i] + padsBegin[i] + padsEnd[i]) / blockShape[i];
     }
 
-    const auto outType = inputType.changeShape(Shape(outShape));
+    const auto outType = inputType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

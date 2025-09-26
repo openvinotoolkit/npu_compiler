@@ -17,6 +17,16 @@ int64_t vpux::getShaveQueueIdEncoding(int64_t numTiles, int64_t tileIndex, int64
     return listIndex * numTiles + tileIndex;
 }
 
+int64_t vpux::getShaveTileIndexFromEncodedId(int64_t shaveQueueIdEncoding, int64_t numTiles) {
+    VPUX_THROW_UNLESS(numTiles > 0, "Incorrect number of tiles: {0}", numTiles);
+    return shaveQueueIdEncoding % numTiles;
+}
+
+int64_t vpux::getShaveListIndexFromEncodedId(int64_t shaveQueueIdEncoding, int64_t numTiles) {
+    VPUX_THROW_UNLESS(numTiles > 0, "Incorrect number of tiles: {0}", numTiles);
+    return shaveQueueIdEncoding / numTiles;
+}
+
 bool vpux::VPU::isFifoPerShaveEngineEnabled(mlir::Operation* op) {
     return VPU::getConstraint<bool>(op, VPU::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
 }

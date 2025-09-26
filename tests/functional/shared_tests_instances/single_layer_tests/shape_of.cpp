@@ -46,11 +46,11 @@ const std::vector<std::vector<ov::Shape>> inShapes_precommit = {
 const auto paramsConfig1 =
         testing::Combine(::testing::ValuesIn(modelTypes), ::testing::Values(ov::element::i32),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes)),
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 const auto paramsPrecommit =
         testing::Combine(::testing::Values(ov::element::f16), ::testing::Values(ov::element::i32),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes_precommit)),
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ShapeOf, ShapeOfLayerTestCommon, paramsConfig1, ShapeOfLayerTestCommon::getTestCaseName);
 

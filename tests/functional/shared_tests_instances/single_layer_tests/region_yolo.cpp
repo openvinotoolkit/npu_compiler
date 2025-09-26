@@ -57,25 +57,27 @@ const std::vector<std::vector<size_t>> inputShapesPrecommit = {{{1, 27, 26, 26}}
 
 const std::vector<ov::element::Type> modelTypes = {ov::element::f16};
 
-const auto regionYoloParams = ::testing::Combine(testing::ValuesIn(inputShapes),
-                                                 testing::Values(20),                                     // classes
-                                                 testing::Values(4),                                      // coords
-                                                 testing::Values(5),                                      // numRegions
-                                                 testing::Values(false, true),                            // doSoftmax
-                                                 testing::Values(std::vector<int64_t>({0, 1, 2, 3, 4})),  // mask
-                                                 testing::Values(1),                                      // startAxis
-                                                 testing::Values(3),                                      // endAxis
-                                                 testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+const auto regionYoloParams =
+        ::testing::Combine(testing::ValuesIn(inputShapes),
+                           testing::Values(20),                                     // classes
+                           testing::Values(4),                                      // coords
+                           testing::Values(5),                                      // numRegions
+                           testing::Values(false, true),                            // doSoftmax
+                           testing::Values(std::vector<int64_t>({0, 1, 2, 3, 4})),  // mask
+                           testing::Values(1),                                      // startAxis
+                           testing::Values(3),                                      // endAxis
+                           testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
-const auto regionYoloPrecommitParams = ::testing::Combine(testing::ValuesIn(inputShapesPrecommit),
-                                                          testing::Values(4),      // classes
-                                                          testing::Values(4),      // coords
-                                                          testing::Values(9),      // numRegions
-                                                          testing::Values(false),  // doSoftmax
-                                                          testing::Values(std::vector<int64_t>({0, 1, 2})),  // mask
-                                                          testing::Values(1),  // startAxis
-                                                          testing::Values(3),  // endAxis
-                                                          testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+const auto regionYoloPrecommitParams =
+        ::testing::Combine(testing::ValuesIn(inputShapesPrecommit),
+                           testing::Values(4),                                // classes
+                           testing::Values(4),                                // coords
+                           testing::Values(9),                                // numRegions
+                           testing::Values(false),                            // doSoftmax
+                           testing::Values(std::vector<int64_t>({0, 1, 2})),  // mask
+                           testing::Values(1),                                // startAxis
+                           testing::Values(3),                                // endAxis
+                           testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_RegionYolo, RegionYoloLayerTestCommon, regionYoloParams,
                          RegionYoloLayerTestCommon::getTestCaseName);

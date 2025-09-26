@@ -30,14 +30,14 @@ size_t VPURT::getMaxEntry(const BarrierInfo::TaskSet& entries) {
 VPURT::TaskOpQueues VPURT::getTaskOpQueues(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo,
                                            std::optional<VPU::ExecutorKind> targetExecutorKind) {
     VPURT::TaskOpQueues taskOpQueues;
-    funcOp->walk([&](VPURT::TaskOp taskOp) {
+    for (auto taskOp : funcOp.getOps<VPURT::TaskOp>()) {
         const auto taskQueueType = VPURT::getTaskQueueType(taskOp, false);
         if (targetExecutorKind.has_value() && targetExecutorKind.value() != taskQueueType.type) {
-            return;
+            continue;
         }
         const auto taskInd = barrierInfo.getIndex(taskOp);
         taskOpQueues[taskQueueType].push_back(taskInd);
-    });
+    }
 
     return taskOpQueues;
 }
@@ -128,7 +128,7 @@ void VPURT::postProcessBarrierOps(mlir::func::FuncOp func) {
     }
 }
 
-// It should be called at ending of each pass which may change barriers after SplitExceedingVariantCountBarriersPass
+// It should be called at the end of each pass which may change barriers after SplitExceedingBarrierSlotCountPass
 bool VPURT::verifyBarrierSlots(mlir::func::FuncOp func, Logger log) {
     auto barrierSim = VPURT::BarrierSimulator{func};
     if (mlir::failed(barrierSim.checkProducerAndConsumerCount(log))) {
@@ -202,7 +202,7 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
     // simulate per FIFO execution - all FIFOs must reach end
     SmallVector<size_t> lastReadyOps;
     while (!VPURT::allQueuesReachedEnd(frontTasks, taskOpQueues)) {
-        const auto readyOps = VPURT::findReadyOpsFromTaskOpQueues(frontTasks, taskOpQueues, barrierInfo);
+        auto readyOps = VPURT::findReadyOpsFromTaskOpQueues(frontTasks, taskOpQueues, barrierInfo);
 
         // If simulation fails (no ready ops), dump previous
         if (readyOps.empty()) {
@@ -257,6 +257,24 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
             taskOp->moveAfter(*lastTaskOpIt);
         }
         prevTaskOp = taskOp;
+    }
+
+    // Align barrier order with WLM page index if present
+    if (!newBarrierOrder.empty()) {
+        auto firstBarOp = barrierInfo.getBarrierOpAtIndex(0);
+        if (firstBarOp.getWlmPage().has_value()) {
+            SmallVector<size_t> barPageInd(barrierInfo.getNumOfBarrierOps());
+            for (size_t i = 0; i < barrierInfo.getNumOfBarrierOps(); i++) {
+                auto barrierOp = barrierInfo.getBarrierOpAtIndex(i);
+                VPUX_THROW_WHEN(!barrierOp.getWlmPage().has_value(), "No WLM page assignment for barrier {0} - '{1}'",
+                                i, barrierOp);
+                barPageInd[i] = barrierOp.getWlmPage().value();
+            }
+
+            std::stable_sort(newBarrierOrder.begin(), newBarrierOrder.end(), [&](size_t barOpIdx1, size_t barOpIdx2) {
+                return barPageInd[barOpIdx1] < barPageInd[barOpIdx2];
+            });
+        }
     }
 
     // reorder barriers in the IR based on new order
@@ -393,7 +411,7 @@ bool VPURT::addFinalBarrierIfNotExists(mlir::func::FuncOp funcOp, Logger log) {
 }
 
 bool VPURT::isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementMode> workloadManagementMode) {
-    // Disable share wait and update barriers for PWLM_V2_PAGE and FWLM_V1_PAGES mode only for now
+    // Disable share wait and update barriers for PWLM_V2_PAGE mode only for now
     // For PWLM_V0_LCA mode enable shared barriers in order to avoid performance regressions
     // For PWLM_V0_LCA/PWLM_V1_BARRIER_FIFO mode use shareWaitAndUpdateBarriers to avoid issues in case of
     // rollback to nonWLM and lack of legalization of DMA descriptor fetch and potential issues in enqueue

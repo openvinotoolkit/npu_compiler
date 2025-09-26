@@ -8,7 +8,6 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -16,6 +15,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/dma_limits.hpp"
 #include "vpux/utils/core/numeric.hpp"
@@ -598,7 +598,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                 }
 
                 auto module = op->getParentOfType<mlir::ModuleOp>();
-                const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+                const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
                 if (!VPUIP::getPermuteDMASubInputShapes(arch, inputType, outputType, memPerm, dmaPortNum, log)
                              .has_value()) {
@@ -662,7 +662,7 @@ bool vpux::VPUIP::isLegalConvertToDMA(mlir::Operation* op, vpux::Logger log, boo
                     const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getOperand(0).getType());
                     const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp.getResult(0).getType());
                     auto module = swKernelOp->getParentOfType<mlir::ModuleOp>();
-                    const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+                    const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
                     if (!VPUIP::getPermuteDMASubInputShapes(config::getArch(op), inputType, outputType, memPerm.value(),
                                                             dmaPortNum, log)
@@ -755,7 +755,7 @@ bool vpux::VPUIP::isLegalAndBeneficialConvertToDMA(mlir::Operation* op, vpux::Lo
     }
     const auto arch = config::getArch(op);
     auto module = op->getParentOfType<mlir::ModuleOp>();
-    const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     VPUX_THROW_WHEN(dmaPortNum <= 0, "Number of ports should be a positive integer, while it is {0}", dmaPortNum);
     if (auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(op)) {
         if (VPUIP::isDepthToSpaceSwKernel(swKernelOp)) {
@@ -907,7 +907,7 @@ bool vpux::VPUIP::isCompatibleWithMultiClusterNNDMA(VPU::DepthToSpaceOp op, vpux
         return false;
     }
     auto module = prevOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     auto numClusters = tileOp.getCount();
     VPUX_THROW_WHEN(numClusters <= 0, "Number of clusters should be a positive integer, while it is {0}", numClusters);
 

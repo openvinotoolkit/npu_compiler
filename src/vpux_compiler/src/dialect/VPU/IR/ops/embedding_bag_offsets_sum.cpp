@@ -32,7 +32,7 @@ mlir::LogicalResult vpux::VPU::EmbeddingBagOffsetsSumOp::inferReturnTypes(
         return errorAt(loc, "Offsets input was not provided properly");
     }
 
-    const auto outType = inTypeEmbTable.changeShape(Shape(outShape));
+    const auto outType = inTypeEmbTable.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

@@ -37,14 +37,11 @@ mlir::FailureOr<FqData> revertScaleShift(mlir::MLIRContext* ctx, const Const::Co
 /// Returns quantization levels for a given type.
 int64_t getQuantizationLevels(mlir::Type type);
 
-// Returns the real element type of weights that they have during import.
-mlir::Type getTrueElemTypeOfWeights(Const::DeclareOp op);
+// Returns the real element type of weights/zp that they have during import.
+mlir::Type getTrueElemType(mlir::Operation* op);
 
-// Returns the real element type of weights that they have during import.
-// Historically, assume that convert op's input is weights and their type is the
-// real type. This assumption holds when WeightsDequantizeStructureInfo is
-// constructed successfully.
-mlir::Type getTrueElemTypeOfWeights(IE::ConvertOp op);
+// Returns the real input of weights/zp that they have during import.
+mlir::Value getTrueInputValue(mlir::Operation* op, mlir::PatternRewriter& rewriter);
 
 class WeightsDequantizeStructureInfo final {
     //                     --- Constant Input Case ---
@@ -169,9 +166,15 @@ public:
     bool hasConstWeights() const;
     bool hasScale() const;
     bool hasShift() const;
+    bool isKVcachedPattern() const;
 
-    Const::ContentAttr getStaticScale() const;
-    Const::ContentAttr getStaticShift() const;
+    mlir::Type getInputElemType() const;
+
+    Const::ContentAttr getStaticScaleAttr() const;
+    Const::ContentAttr getStaticShiftAttr() const;
+
+    mlir::Value getStaticScale() const;
+    mlir::Value getStaticShift() const;
     mlir::Value getDynamicScale() const;
     mlir::Value getDynamicShift() const;
 

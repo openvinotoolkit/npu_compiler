@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/IE/transposed_convolution_utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
@@ -40,20 +41,15 @@ bool vpux::VPU::NCEConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
 
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize()};
 
-    auto weightTables = NCEInvariant::getWeightsTableSize(OC, getOperation());
-    if (mlir::failed(weightTables)) {
-        VPUX_THROW("getWeightsTableSize function failed");
+    const auto op = getOperation();
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
     }
 
-    auto weightTablesValue = weightTables.value();
-    if (!weightTablesValue.empty()) {
-        buffers.append(weightTablesValue.begin(), weightTablesValue.end());
-    }
+    auto totalAvailableCMXSize =
+            reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
 
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
-                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
-
-    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
 }
@@ -83,14 +79,6 @@ static mlir::LogicalResult verifyConv(mlir::Location loc, mlir::Operation* op, V
     return VPU::verifyConvUtil(loc, op, filterShape, kernelStrides, padAttr, weightsTableShape, output);
 }
 
-static mlir::LogicalResult verifyWeightTables(VPU::NCEConvolutionOp op) {
-    if ((op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
-         op.getWeightTableBias() || op.getWeightZeroPoints())) {
-        return errorAt(op, "Only weightsTable can be populated for NCEConvolutionOp");
-    }
-    return mlir::success();
-}
-
 mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verify() {
     auto op = getOperation();
     const auto arch = config::getArch(op);
@@ -100,7 +88,7 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verify() {
         return mlir::success();
     }
 
-    if (mlir::failed(verifyWeightTables(*this))) {
+    if (mlir::failed(VPU::NCEInvariant::verifyWeightTables(op))) {
         return mlir::failure();
     }
 
@@ -142,7 +130,8 @@ Shape vpux::VPU::NCEConvolutionOp::inferAlignedFilterShape(NDTypeInterface input
 
     const auto remainder = (IC * KY * KX) % alignment;
 
-    if (remainder == 0) {
+    // In case IDU autopad is used (i.e. IC<16), the filter shape is always flattened and aligned
+    if (IC >= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT && remainder == 0) {
         return Shape{OC, IC, KY, KX};
     }
 
@@ -191,13 +180,14 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::inferReturnTypes(
     auto filterShapeInfo = ShapeInfo::fromNDType(filterType);
     filterShapeInfo.shape = filterShape.raw();
 
-    auto shapeInfo = inferConvoutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow,
-                                                    dataPaddingAbove, windowDilations);
+    auto shapeInfo = inferConvolutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow,
+                                                     dataPaddingAbove, windowDilations);
 
-    auto outputType = mlir::RankedTensorType::get(shapeInfo.shape, inputType.getElementType(),
-                                                  createTensorAttrFromType(inputType));
+    const auto outType =
+            vpux::getTensorType(ShapeRef(shapeInfo.shape), inputType.getElementType(), inputType.getDimsOrder(),
+                                /*memSpace=*/nullptr, BoundsRef(shapeInfo.bounds), /*DynamicDimsMask=*/{});
+    inferredReturnTypes.push_back(outType);
 
-    inferredReturnTypes.push_back(outputType);
     return mlir::success();
 }
 
@@ -206,7 +196,7 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::inferReturnTypes(
 //
 
 vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
-    const auto origInputShape = getShape(getInput());
+    const auto origInputShape = getBoundedShape(getInput());
     const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
     const auto origPadding = toPadInfo(getPad());
 
@@ -249,7 +239,7 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    auto nceOp = mlir::cast<NCEConvolutionOp>(getOperation());
+    auto nceOp = mlir::cast<VPU::NCEConvolutionOp>(getOperation());
     if (nceOp.getWeightsTable()) {
         inputTiling.tiles.push_back(
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
@@ -280,7 +270,7 @@ mlir::FailureOr<OutputTiling> vpux::VPU::NCEConvolutionOp::getTilingStrategy(Til
 bool vpux::VPU::NCEConvolutionOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
     const auto arch = config::getArch(getOperation());
 
-    auto nceOp = mlir::cast<NCEConvolutionOp>(getOperation());
+    auto nceOp = mlir::cast<VPU::NCEConvolutionOp>(getOperation());
     const auto isCompatible = VPU::isSEPConvCompatibleWithClusterStrategy(nceOp, strategy);
     if (isCompatible.has_value()) {
         return isCompatible.value();
@@ -324,7 +314,7 @@ bool VPU::NCEConvolutionOp::isOperationSplitOverHeightCompatible(const vpux::Til
     auto offset = ShapeRef(oriOutputTile.offsets);
     auto axis = ShapeRef(oriOutputTile.axis);
     if (outputShape == ShapeRef()) {
-        outputShape = getShape(getOutput());
+        outputShape = getBoundedShape(getOutput());
     }
     vpux::TileInfo outputTile{outputShape, offset, axis, oriOutputTile.isCompletedTile};
     if (!VPU::isOperationSplitOverHeightCompatible(getOperation(), outputTile)) {
@@ -332,10 +322,10 @@ bool VPU::NCEConvolutionOp::isOperationSplitOverHeightCompatible(const vpux::Til
     }
 
     auto nceOp = mlir::cast<NCEConvolutionOp>(getOperation());
-    Shape inputShape = getShape(nceOp.getInput()).toValues();
+    auto inputShape = getBoundedShape(nceOp.getInput()).toValues();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(nceOp.getInput().getType());
     // If has custom output shape, infer the input shape
-    if (outputShape != getShape(nceOp.getOutput())) {
+    if (outputShape != getBoundedShape(nceOp.getOutput())) {
         VPUX_THROW_UNLESS(offset != ShapeRef() && axis != ShapeRef(),
                           "Offsets and axis must have value when create TileInfo. Loc: {0}", nceOp->getLoc());
         outputTile.isCompletedTile = true;
@@ -346,7 +336,7 @@ bool VPU::NCEConvolutionOp::isOperationSplitOverHeightCompatible(const vpux::Til
     }
 
     auto moduleOp = nceOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
 
     return isSOHSupportedByDPU(inputType, inputShape, numTiles, false, config::getArch(nceOp.getOperation()));
@@ -385,26 +375,22 @@ bool VPU::NCEConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis))};
-    auto weightTables = NCEInvariant::getWeightsTableSize(OC, getOperation());
-    if (mlir::failed(weightTables)) {
-        VPUX_THROW("getWeightsTableSize function failed");
+    const auto op = getOperation();
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
     }
 
-    auto weightTablesValue = weightTables.value();
-    buffers.append(weightTablesValue.begin(), weightTablesValue.end());
+    auto totalAvailableCMXSize = reservedMem.count() == 0 ? VPU::getTotalCMXSize(op).count()
+                                                          : VPU::getTotalCMXFragmentationAwareSize(op).count();
 
-    auto totalAvailableCMXSize = reservedMem.count() == 0
-                                         ? VPU::getTotalCMXSize(getOperation()).count()
-                                         : VPU::getTotalCMXFragmentationAwareSize(getOperation()).count();
-
-    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(op), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;
 }
 
 bool VPU::NCEConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
         VPU::MultiClusterStrategy strategy, VPU::DistributedTypeInterface newDistributedTensorType) {
-    auto nceOp = mlir::cast<NCEConvolutionOp>(getOperation());
+    auto nceOp = mlir::cast<VPU::NCEConvolutionOp>(getOperation());
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
@@ -422,7 +408,7 @@ DimArr vpux::VPU::NCEConvolutionOp::restrictedFusionAxes() {
 vpux::NDTypeInterface vpux::VPU::NCEConvolutionOp::getDistributedTypeForOpOperand(
         mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
-    auto origOp = mlir::cast<NCEConvolutionOp>(getOperation());
+    auto origOp = mlir::cast<VPU::NCEConvolutionOp>(getOperation());
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
     auto outputTensorType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTensorType.getShape(), strategy);
@@ -566,7 +552,7 @@ mlir::LogicalResult vpux::VPU::NCEConvolutionOp::verifyConvCMX(mlir::Location lo
 
     const auto inOrder = inputType.getDimsOrder();
 
-    auto convOp = mlir::cast<NCEConvolutionOp>(module.getOperation());
+    auto convOp = mlir::cast<VPU::NCEConvolutionOp>(module.getOperation());
     Byte requiredCMX;
     if (inOrder == DimsOrder::NHWC) {
         requiredCMX = VPU::getRequiredCMXSizeForNCEOps({inputType, filterType, outputType}, OC,

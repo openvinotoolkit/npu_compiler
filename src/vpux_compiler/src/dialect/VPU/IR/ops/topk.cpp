@@ -2,7 +2,6 @@
 // Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
-
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -133,6 +132,11 @@ mlir::FailureOr<OutputTiling> vpux::VPU::TopKOp::getTilingStrategy(TilingMode ti
 //
 
 bool vpux::VPU::TopKOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t) {
+    auto ddrAccessOp = mlir::dyn_cast<VPU::DDRAccessOpInterface>(getOperation());
+    if (ddrAccessOp != nullptr && ddrAccessOp.isDDRAccessNecessaryOrBeneficial(Logger::global())) {
+        return false;
+    }
+
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
     const auto inShape = inputType.getShape();
     int64_t axis = getAxisAttr().getValue().getSExtValue();

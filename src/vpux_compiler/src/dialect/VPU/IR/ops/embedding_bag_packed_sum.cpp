@@ -28,7 +28,7 @@ mlir::LogicalResult vpux::VPU::EmbeddingBagPackedSumOp::inferReturnTypes(
         outShape.emplace_back(embTableShape[i]);
     }
     outShape[0] = batchSize;
-    const auto outType = embTableType.changeShape(Shape(outShape));
+    const auto outType = embTableType.changeShape(ShapeRef(outShape));
 
     inferredReturnTypes.push_back(outType);
     return mlir::success();

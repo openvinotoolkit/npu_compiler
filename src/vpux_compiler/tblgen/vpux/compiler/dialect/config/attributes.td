@@ -40,10 +40,9 @@ def Config_CompilationMode  :
             [
                 I64EnumAttrCase<"ReferenceSW",  0>,
                 I64EnumAttrCase<"DefaultHW",    1>,
-                I64EnumAttrCase<"ShaveCodeGen", 2>,
-                I64EnumAttrCase<"HostCompile",  3>,
-                I64EnumAttrCase<"WSMonolithic", 4>,
-                I64EnumAttrCase<"WSInit",       5>
+                I64EnumAttrCase<"HostCompile",  2>,
+                I64EnumAttrCase<"WSMonolithic", 3>,
+                I64EnumAttrCase<"WSInit",       4>
             ]
         > {
 }

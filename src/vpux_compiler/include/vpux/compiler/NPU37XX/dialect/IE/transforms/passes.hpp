@@ -16,28 +16,6 @@ namespace IE {
 namespace arch37xx {
 
 //
-// Passes
-//
-
-std::unique_ptr<mlir::Pass> createInsertIdentityPoolBeforeOpPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createOptimizeSliceExpandPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createPropagateExpandPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFusePermuteQuantizeExpandPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createExpandActivationChannelsPass(const bool seOpsEnabled = false,
-                                                               Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertFFTToConvPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertSubGRUSequenceToConvPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertToMixedPrecision(const bool enableFloatInQuantWeightsMixedMode = true,
-                                                          Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createOptimizeNetworkInputConvertPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertWeightsToI8Pass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createProcessAsymmetricZeroPointsForConvolutionPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFuseOutstandingDequant(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createWeightsQuantFusedIntoTaskPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createProcessAsymmetricZeroPointsForMatmulPass(double decompositionEnablementRatio = 0.0,
-                                                                           Logger log = Logger::global());
-
-//
 // Pipelines
 //
 
@@ -122,11 +100,6 @@ void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& o
 
 void buildAdjustLayoutPipeline(mlir::OpPassManager& pm, const AdjustLayoutOptions& options,
                                Logger log = Logger::global());
-
-std::unique_ptr<mlir::Pass> createPropagateReorderToNCEPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSwapMaxPoolWithActivation(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFuseReordersPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFuseStaticScalePass(Logger log = Logger::global());
 
 //
 // Registration

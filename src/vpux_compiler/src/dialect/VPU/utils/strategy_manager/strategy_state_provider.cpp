@@ -4,9 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_state_provider.hpp"
-#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
-#include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
@@ -192,8 +190,8 @@ StrategyCost DefaultStateProvider::getFullCost() {
 VPUNNCostParameters DefaultStateProvider::getCostModelParameters(const OperationStrategy& state) const {
     const auto getTiling = [](const auto& strategy, auto* operation) {
         if (strategy != nullptr) {
-            auto tiles = fillDividedTiles(operation, Shape(parseIntArrayAttr<int64_t>(strategy)),
-                                          getShape(operation->getResult(0)));
+            const Shape shape(parseIntArrayAttr<int64_t>(strategy));
+            auto tiles = fillDividedTiles(operation, shape, getShape(operation->getResult(0)));
 
             VPUX_THROW_WHEN(mlir::failed(tiles), "Incorrect tiling {0} for operation {1}", strategy,
                             operation->getLoc());
@@ -320,7 +318,7 @@ bool DefaultStateProvider::canStayInCMX(const OperationStrategy& parentState,
 
     // assuming, it's K tiling, check parent's memory footprint
     const auto tiles =
-            fillDividedTiles(parentState.first, Shape(parentTiling), getShape(parentState.first->getResult(0)));
+            fillDividedTiles(parentState.first, ShapeRef(parentTiling), getShape(parentState.first->getResult(0)));
     if (mlir::failed(tiles)) {
         return false;
     }

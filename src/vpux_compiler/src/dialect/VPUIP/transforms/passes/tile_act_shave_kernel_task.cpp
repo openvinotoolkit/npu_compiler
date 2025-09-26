@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -14,6 +13,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/logger/logger.hpp"
@@ -221,10 +221,15 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
     } else if (kernelEntryName == "gru_sequence_last_part") {
         return Dims4D::Act::N;
     } else if (kernelEntryName == "grid_sample") {
-        const auto numShaves = IE::getTotalNumOfEngines(swKernelOp, VPU::ExecutorKind::SHAVE_ACT);
+        auto outType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        // Prioritize outer-most dimensions
+        auto tileDimPriority = outType.getDimsOrder().toPermutation();
+        const auto numShaves = config::getTotalNumOfEngines(swKernelOp, VPU::ExecutorKind::SHAVE_ACT);
         const auto inShape = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType()).getShape();
-        if (inShape[Dim(Dims4D::Act::N)] >= numShaves) {
-            return Dim(Dims4D::Act::N);
+        for (const auto& tileDim : tileDimPriority) {
+            if (inShape[tileDim] >= numShaves) {
+                return tileDim;
+            }
         }
     } else if (kernelEntryName == "lstm_gates") {
         return Dims4D::Act::H;
@@ -408,6 +413,24 @@ bool canGatherElementsOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
     return axisVal != inHighestDimVal;
 }
 
+bool isTopKOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
+    auto kernelEntryName = getSwKernelEntryName(swKernelOp);
+    if (kernelEntryName != "topk") {
+        return false;
+    }
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+
+    const auto inHighestDimVal =
+            getHighestNonTrivialDim(inputType.getShape(), inputType.getDimsOrder()).value_or(Dim(0));
+    const auto outputHighestDimVal =
+            getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
+    const auto tileDim = getSwKernelTileDim(swKernelOp);
+
+    return inHighestDimVal == tileDim && outputHighestDimVal == tileDim;
+}
+
 bool isOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "sdpa",
@@ -438,7 +461,7 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
     // this is a workaround to force tiling of an operation with multiple outputs
     if ((kernelEntryName == "detection_output_sort") && (arch == config::ArchKind::NPU37XX)) {
         auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
-        auto tileOp = vpux::IE::getTileExecutor(module);
+        auto tileOp = vpux::config::getTileExecutor(module);
         VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query SHAVE_ACT executor.");
         VPUX_THROW_UNLESS(tileOp.hasSubExecutor(VPU::ExecutorKind::SHAVE_ACT),
                           "No SHAVE_ACT executor found, check your arch");
@@ -633,7 +656,7 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         const auto inputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
         auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
-        const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+        const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
 
         if (isBeneficialForUsingPermuteDMA(arch, inputType, outputType, memPerm.value(), dmaPortNum, log)) {
             return false;
@@ -767,7 +790,7 @@ bool checkSwKernelTilingAlignment(VPUIP::SwKernelOp swKernelOp, const vpux::NDTy
     }
 
     auto moduleOp = swKernelOp->getParentOfType<mlir::ModuleOp>();
-    auto tileExec = IE::getTileExecutor(moduleOp);
+    auto tileExec = config::getTileExecutor(moduleOp);
     auto shaveActExec = tileExec.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
     auto numSplits = shaveActExec.getCount();
 
@@ -981,6 +1004,10 @@ bool SwKernelRewriterBase::needInsertSubviewOnly(VPUIP::SwKernelOp swKernelOp) c
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
     if (kernelEntryName == "gather") {
         return isGatherOpTileAtHighestDim(swKernelOp);
+    }
+
+    if (kernelEntryName == "topk") {
+        return isTopKOpTileAtHighestDim(swKernelOp);
     }
 
     const auto tileDim = getSwKernelTileDim(swKernelOp);
@@ -2196,6 +2223,40 @@ std::optional<OutputTiling> ClusterSwKernelRewriter::calculateOutputTiles(VPUIP:
             }
         }
     }
+
+    // When the distribution mode is segmented, there is an assumption that tiled dimension is split equally
+    // with the remainder cluster having smaller tile (i.e. sorted in descending order).
+    // This assumption is established in splitSegmentedShape method.
+    // If this assumption is not respected here, the problem may appear when subviewing such a tensor, as
+    // SubView uses the aforementioned method for it's shape inference, thus it will change the data's
+    // distribution across clusters, leading to accuracy issues.
+    // Example (tiling dimension = 33, number of clusters = 3):
+    //          Cluster1       Cluster2       Cluster3
+    //             11             11             11
+    //            6, 5           6, 5           6, 5
+    //           |________________||________________|
+    // Which leads to [6, 5, 6] & [5, 6, 5], instead of assumed [6, 6, 5] & [6, 5, 5] distribution
+    if (mode == VPU::DistributionMode::SEGMENTED && !insertSubviewOnly && !tileOnDifferentDims(swKernelOp)) {
+        OutputTiling tilesSortedPerCluster;
+        for (auto tileId : irange(tileSize)) {
+            OutputTiling tilesPerCluster;
+            for (auto clusterId : irange(outTiles.size())) {
+                tilesPerCluster.push_back(getTileFromList(globalOutTiles, clusterId, tileId, numTiles, mode, false));
+            }
+            std::sort(tilesPerCluster.begin(), tilesPerCluster.end(), [&](const TileInfo& lhs, const TileInfo& rhs) {
+                return lhs.shape[Dim(tileDim)] > rhs.shape[Dim(tileDim)];
+            });
+            tilesSortedPerCluster.insert(tilesSortedPerCluster.end(), tilesPerCluster.begin(), tilesPerCluster.end());
+        }
+        // Adjust offsets after sorting
+        int64_t curSize = 0;
+        for (auto& tile : tilesSortedPerCluster) {
+            tile.offsets[tileDim] = curSize;
+            curSize += tile.shape[tileDim];
+        }
+        std::swap(tilesSortedPerCluster, globalOutTiles);
+    }
+
     return globalOutTiles;
 }
 
@@ -2809,7 +2870,7 @@ void TileActShaveKernelTaskPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     auto shaveActCount = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
 
     mlir::RewritePatternSet patterns(&ctx);

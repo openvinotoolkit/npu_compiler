@@ -6,7 +6,9 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -88,8 +90,12 @@ void fillNNrtConfig(npu40xx::nn_public::VpuNNShaveRuntimeConfigs& shv_rt_configs
     }
 
     if (stackFrames.has_value()) {
-        shv_rt_configs.stack_frames[0] = stackFrames->first;
-        shv_rt_configs.stack_frames[1] = stackFrames->second;
+        auto moduleOp = getModuleOp(op);
+        const auto tileCount = config::getTileExecutor(moduleOp).getCount();
+        for (int64_t n = 0; n < tileCount; ++n) {
+            shv_rt_configs.stack_frames[n * 2] = stackFrames->first;
+            shv_rt_configs.stack_frames[n * 2 + 1] = stackFrames->second;
+        }
     }
 
     shv_rt_configs.stack_size = checked_cast<uint32_t>(shaveStacksSize.value_or(0));

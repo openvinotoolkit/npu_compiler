@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --vertical-fusion %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --vertical-fusion="vf-outlining-instance-threshold=0 vf-outlining-instance-threshold=0" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 

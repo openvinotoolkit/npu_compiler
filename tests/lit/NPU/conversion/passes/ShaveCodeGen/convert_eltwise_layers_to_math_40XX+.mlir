@@ -344,6 +344,8 @@ module @SingleMinUILayerDynamic {
 
 // -----
 
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: module @SingleLogLayer
 module @SingleLogLayer {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
@@ -358,12 +360,21 @@ module @SingleLogLayer {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 
-    // CHECK-NOT:  IE.Log
-    // CHECK:      {{.*}} = math.log {{.*}} fastmath<afn> : tensor<1x1x1x1000xf16>
+// CHECK-NOT:  IE.Log
+// CHECK: IE.CodeGenCapsule inputs({{.*}} as [[ARG:%.+]]: tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      [[OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      ^bb0([[IN:%.+]]: f16, {{.*}}: f16):
+// CHECK-NEXT:        [[LOG:%.+]] = math.log [[IN]] fastmath<afn> : f16
+// CHECK-NEXT:        linalg.yield [[LOG]] : f16
+// CHECK-NEXT:      } -> tensor<1x1x1x1000xf16>
+// CHECK-NEXT:      IE.CGCYield [[OP]] : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    } -> tensor<1x1x1x1000xf16>
 	}
 }
 // -----
 
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: module @SingleExpLayer
 module @SingleExpLayer {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
@@ -378,8 +389,15 @@ module @SingleExpLayer {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 
-    // CHECK-NOT:  IE.Log
-    // CHECK: {{.*}} = math.exp {{.*}} fastmath<afn> : tensor<1x1x1x1000xf16>
+// CHECK-NOT:  IE.Exp
+// CHECK: IE.CodeGenCapsule inputs({{.*}} as [[ARG:%.+]]: tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      [[OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      ^bb0([[IN:%.+]]: f16, {{.*}}: f16):
+// CHECK-NEXT:        [[EXP:%.+]] = math.exp [[IN]] fastmath<afn> : f16
+// CHECK-NEXT:        linalg.yield [[EXP]] : f16
+// CHECK-NEXT:      } -> tensor<1x1x1x1000xf16>
+// CHECK-NEXT:      IE.CGCYield [[OP]] : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    } -> tensor<1x1x1x1000xf16>
 	}
 }
 
@@ -415,6 +433,8 @@ module @SingleSinLayer {
 // -----
 // IE.Sqrt
 
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: module @SingleSqrtLayer
 module @SingleSqrtLayer {
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x1x1x1000xf16>
@@ -429,8 +449,15 @@ module @SingleSqrtLayer {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 
-    // CHECK-NOT: IE.Sqrt
-    // CHECK:     {{.*}} = math.sqrt {{.*}} fastmath<afn> : tensor<1x1x1x1000xf16>
+// CHECK-NOT: IE.Sqrt
+// CHECK: IE.CodeGenCapsule inputs({{.*}} as [[ARG:%.+]]: tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      [[OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK-NEXT:      ^bb0([[IN:%.+]]: f16, {{.*}}: f16):
+// CHECK-NEXT:        [[SQRT:%.+]] = math.sqrt [[IN]] fastmath<afn> : f16
+// CHECK-NEXT:        linalg.yield [[SQRT]] : f16
+// CHECK-NEXT:      } -> tensor<1x1x1x1000xf16>
+// CHECK-NEXT:      IE.CGCYield [[OP]] : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    } -> tensor<1x1x1x1000xf16>
   }
 }
 

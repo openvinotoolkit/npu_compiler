@@ -5,11 +5,11 @@
 
 #include <mlir/IR/BuiltinOps.h>
 #include <mlir/IR/Operation.h>
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SWKERNELDATAPREFETCHRESERVEMEM
@@ -59,7 +59,7 @@ void SWKernelDataPrefetchReserveMemPass::safeRunOnModule() {
     auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
 
     int64_t reservedMemTotalSize = 0;
-    for (auto& resMem : IE::getReservedMemoryResources(module, memSpaceAttr)) {
+    for (auto& resMem : config::getReservedMemoryResources(module, memSpaceAttr)) {
         reservedMemTotalSize += resMem.getByteSize();
     }
 
@@ -68,7 +68,7 @@ void SWKernelDataPrefetchReserveMemPass::safeRunOnModule() {
     if (reservedMemTotalSize < maxPrefetchDataSize) {
         _log.trace("Enlarge the original reserved memory range for SW Kernel prefetching - size: '{0}'",
                    maxPrefetchDataSize - reservedMemTotalSize);
-        IE::setSWKernelPrefetchingReservedMemory(module, memSpaceAttr, maxPrefetchDataSize - reservedMemTotalSize);
+        config::setSWKernelPrefetchingReservedMemory(module, memSpaceAttr, maxPrefetchDataSize - reservedMemTotalSize);
     }
 }
 

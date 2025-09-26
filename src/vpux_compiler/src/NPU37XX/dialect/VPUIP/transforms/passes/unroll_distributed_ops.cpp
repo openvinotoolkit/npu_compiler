@@ -7,11 +7,11 @@
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include "vpux/compiler/core/profiling.hpp"
@@ -442,7 +442,7 @@ void UnrollDistributedOpsPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     const VPUIP::ClusterDMARewriter dmaRewriter(&ctx, dmaPortCount, /*dmaFusionHandler=*/{}, _log);

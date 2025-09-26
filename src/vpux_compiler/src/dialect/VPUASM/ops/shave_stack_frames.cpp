@@ -17,7 +17,7 @@ size_t vpux::VPUASM::ShaveStackFrameOp::getBinarySizeCached(ELF::SymbolReference
 }
 
 size_t vpux::VPUASM::ShaveStackFrameOp::getAlignmentRequirements(config::ArchKind) {
-    return ELF::VPUX_DEFAULT_ALIGNMENT;
+    return ELF::VPUX_SHAVE_ALIGNMENT;
 }
 
 vpux::ELF::SectionFlagsAttr vpux::VPUASM::ShaveStackFrameOp::getPredefinedMemoryAccessors() {

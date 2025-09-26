@@ -33,15 +33,15 @@ module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, 
     config.Option @VPU.MetadataMaxMediaCount : 4 : ui64
     config.Option @VPU.MaxKernelSize : 11 : si64
   }
-  IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 6 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input1" : tensor<1x16x720x1000xf16>
     DataInfo "input2" : tensor<1x16x720x1000xf16>
@@ -72,22 +72,22 @@ module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, 
     config.Option @VPU.MetadataMaxMediaCount : 4 : ui64
     config.Option @VPU.MaxKernelSize : 11 : si64
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main1 inputsInfo : {
     DataInfo "input_0" : tensor<1x90x1000x16xf16>
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x90x1000x16xf16>
   }
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0
+        config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
     }
   }

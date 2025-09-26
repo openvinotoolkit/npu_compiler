@@ -6,7 +6,6 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -15,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/logger/logger.hpp"
@@ -132,10 +132,10 @@ bool isNCEMatMulSupported(vpux::NDTypeInterface inputType, [[maybe_unused]] vpux
 
     // If we have less groups than clusters, it doesn't make sense to try split-over-group optimisation.
     const auto groups = outputType.getShape()[DimsGroups5D::Act::G];
-    const auto clusters = IE::getTileExecutor(moduleOp).getCount();
+    const auto clusters = config::getTileExecutor(moduleOp).getCount();
 
     if (groups < clusters) {
-        logCb(llvm::formatv("VPU::NCEMatMulOp input has more groups than there are available clusters"));
+        logCb(llvm::formatv("VPU::NCEMatMulOp input has fewer groups than there are available clusters"));
         return false;
     }
 
@@ -154,14 +154,14 @@ bool VPU::NCEMatMulOp::isSupported(IE::MatMulOp op, vpux::LogCb logCb, bool chec
     const auto outputShape = outputType.getShape();
 
     bool isSupported = isNCEMatMulSupported(
-            inputType.changeShape(Shape({inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N], 1,
-                                         inputShape[Dims4D::Act::W], inputShape[Dims4D::Act::H], 1})),
+            inputType.changeShape(ShapeRef({inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N], 1,
+                                            inputShape[Dims4D::Act::W], inputShape[Dims4D::Act::H], 1})),
             // Filter shape 2nd and 3rd can be incorrect depending on transposeB option, however filter is not used in
             // checks
-            filterType.changeShape(Shape({filterShape[Dims4D::Act::C] * filterShape[Dims4D::Act::N],
-                                          filterShape[Dims4D::Act::H], filterShape[Dims4D::Act::W], 1, 1})),
-            outputType.changeShape(Shape({outputShape[Dims4D::Act::C] * outputShape[Dims4D::Act::N], 1,
-                                          outputShape[Dims4D::Act::W], outputShape[Dims4D::Act::H], 1})),
+            filterType.changeShape(ShapeRef({filterShape[Dims4D::Act::C] * filterShape[Dims4D::Act::N],
+                                             filterShape[Dims4D::Act::H], filterShape[Dims4D::Act::W], 1, 1})),
+            outputType.changeShape(ShapeRef({outputShape[Dims4D::Act::C] * outputShape[Dims4D::Act::N], 1,
+                                             outputShape[Dims4D::Act::W], outputShape[Dims4D::Act::H], 1})),
             mod, logCb, checkLayout, checkChannelAlignment);
     return isSupported;
 }

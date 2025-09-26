@@ -7,15 +7,15 @@
 // REQUIRES: arch-NPU40XX
 
 module @OneDMAWithoutAttributes attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 2 of @SHAVE_ACT
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-  IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-  IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 2 of @SHAVE_ACT
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+  config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<1x2x3x4xf16>
   } outputsInfo : {
@@ -43,7 +43,7 @@ module @OneDMAWithoutAttributes attributes {config.arch = #config.arch_kind<NPU4
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) <DMA> {elfMemOffsetAttrKey = 0 : ui64}
       }
       ELF.CreateSection @task.dma.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-        VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.DMA.cmx.0.0::@DeclareTaskBuffer_DMA_0_0_0) input(@io.NetworkInput0::@DeclareBuffer0) outputs([@io.NetworkOutput0::@DeclareBuffer1]) waits([]) updates([]) start_after(0) clean_after(0) dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>) acceleration_mode(<DISABLE>) indices( @io.NetworkIndices::@indices) {elfMemOffsetAttrKey = 0 : ui64}
+        VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.DMA.cmx.0.0::@DeclareTaskBuffer_DMA_0_0_0) input(@io.NetworkInput0::@DeclareBuffer0) outputs([@io.NetworkOutput0::@DeclareBuffer1]) waits([]) updates([]) start_after(0) clean_after(0) dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i4, len = 0 : i4, srcWidth = 0 : i4, srcStride = 0 : i4, srcPlaneStride = 0 : i4, dstWidth = 0 : i4, dstStride = 0 : i4, dstPlaneStride = 0 : i4>) acceleration_mode(<DISABLE>) indices( @io.NetworkIndices::@indices) {elfMemOffsetAttrKey = 0 : ui64, addressing_mode = 0 : i64}
       }
       ELF.CreateSection @note.MappedInferenceVersion aligned(4) secType(SHT_NOTE) secFlags("SHF_NONE") secLocation(<DDR>) {
         VPUASM.MappedInferenceVersion @MappedInferenceVersion_0_0(11 _ 4 _ 10)

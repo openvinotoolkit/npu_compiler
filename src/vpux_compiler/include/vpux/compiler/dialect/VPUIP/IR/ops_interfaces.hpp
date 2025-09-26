@@ -15,7 +15,6 @@
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/ValueRange.h>
 #include <mlir/Interfaces/SideEffectInterfaces.h>
-#include <vpu_cost_model.h>
 
 namespace vpux::IE {
 class LayerLayoutInfo;
@@ -23,6 +22,9 @@ class LayerLayoutInfo;
 namespace vpux::VPU {
 enum class ExecutorKind : uint64_t;
 }  // namespace vpux::VPU
+namespace VPUNN {
+class VPUCostModel;
+}  // namespace VPUNN
 
 namespace vpux {
 namespace VPUIP {

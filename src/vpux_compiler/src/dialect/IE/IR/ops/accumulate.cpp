@@ -46,3 +46,40 @@ mlir::LogicalResult vpux::IE::AccumulateOp::verify() {
 
     return mlir::success();
 }
+
+//
+// ConvertToAdd
+//
+
+namespace {
+class ConvertToAdd final : public mlir::OpRewritePattern<IE::AccumulateOp> {
+public:
+    using mlir::OpRewritePattern<IE::AccumulateOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::AccumulateOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult ConvertToAdd::matchAndRewrite(IE::AccumulateOp origOp, mlir::PatternRewriter& rewriter) const {
+    if (origOp.getLhsScale() != nullptr || origOp.getRhsScale() != nullptr) {
+        // If scales are set, we cannot convert to Add
+        return mlir::failure();
+    }
+
+    const auto broadcastTypeAttr =
+            vpux::IE::AutoBroadcastTypeAttr::get(rewriter.getContext(), IE::AutoBroadcastType::NONE_OR_EXPLICIT);
+    rewriter.replaceOpWithNewOp<IE::AddOp>(origOp, origOp.getType(), origOp.getLhs(), origOp.getRhs(),
+                                           broadcastTypeAttr, nullptr, nullptr, nullptr, nullptr);
+
+    return mlir::success();
+}
+
+}  // namespace
+
+//
+// getCanonicalizationPatterns
+//
+
+void vpux::IE::AccumulateOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
+    patterns.add<ConvertToAdd>(ctx);
+}

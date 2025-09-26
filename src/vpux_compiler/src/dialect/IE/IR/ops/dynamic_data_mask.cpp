@@ -31,7 +31,7 @@ mlir::LogicalResult IE::DynamicDataMaskOp::inferReturnTypeComponents(
     }
 
     const auto outDesc =
-            vpux::getTensorAttr(ctx, outTensorType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outBounds));
+            vpux::getTensorAttr(ctx, outTensorType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
     inferredReturnShapes.emplace_back(shapeInfo.shape, outTensorType.getElementType(), outDesc);
 
     return mlir::success();

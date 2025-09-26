@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/IE/utils/scale_shift_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 namespace vpux {
 namespace IE {

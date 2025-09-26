@@ -34,7 +34,7 @@ mlir::LogicalResult vpux::VPU::RDFTUncutOp::inferReturnTypes(mlir::MLIRContext* 
     // insert complex numbers representation, as output for IRDFT are complex numbers.
     outShape.push_back(2);
 
-    auto outType = inType.changeShape(Shape(outShape));
+    auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
     return mlir::success();
 }

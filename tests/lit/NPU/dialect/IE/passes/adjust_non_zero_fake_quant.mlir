@@ -146,3 +146,27 @@ func.func @NotAdjustWithPerChannelQuantize(%arg0: tensor<1x3x30x30xf16>) -> tens
     // CHECK:           [[MAXPOOL:%.*]] = IE.MaxPool
     // CHECK:           return [[MAXPOOL]]
 }
+
+// -----
+
+// CHECK-LABEL: @NotAdjustFQWithNonStaticLowHighValues
+func.func @NotAdjustFQWithNonStaticLowHighValues(%arg0: tensor<1x256x2048x1xf16>, %arg1: tensor<1x1x1xf16>, %arg2: tensor<1x1x1xf16>, %arg3: tensor<1x1x1xf16>, %arg4: tensor<1x1x1xf16>) -> tensor<1x256x2048x1xf16> {
+    %input_low = IE.AffineReshape(%arg1) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %input_high = IE.AffineReshape(%arg2) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %output_low = IE.AffineReshape(%arg3) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %output_high = IE.AffineReshape(%arg4) {dim_mapping = [[0], [1], [2, 3]], shape_value = [1, 1, 1, 1]} : tensor<1x1x1xf16> -> tensor<1x1x1x1xf16>
+
+    %0 = IE.FakeQuantize(%arg0, %input_low, %input_high, %output_low, %output_high) {
+        auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64
+    } : tensor<1x256x2048x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x256x2048x1xf16>
+
+    return %0 : tensor<1x256x2048x1xf16>
+
+    // CHECK:           [[IN_LOW:%.+]] = IE.AffineReshape
+    // CHECK:           [[IN_HIGH:%.+]] = IE.AffineReshape
+    // CHECK:           [[OUT_LOW:%.+]] = IE.AffineReshape
+    // CHECK:           [[OUT_HIGH:%.+]] = IE.AffineReshape
+    // CHECK:           [[FQ:%.+]] = IE.FakeQuantize
+
+    // CHECK:           return [[FQ]]
+}

@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
-
-#include "vpux/compiler/dialect/VPUIPDPU/ops.hpp"
-
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUIPDPU/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/utils/platform_resources.hpp"
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops_interfaces.hpp"
@@ -101,6 +101,14 @@ SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferen
         }
     }
     return sparsityMap;
+}
+
+void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata) {
+    metadata.mResourceRequirements.nn_slice_count_ = VPUIP::getNumTilesUsed(moduleOp);
+    uint32_t workspace_offset = 0;
+    metadata.mResourceRequirements.nn_slice_length_ =
+            workspace_offset +
+            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
 }
 
 }  // namespace VPUASM

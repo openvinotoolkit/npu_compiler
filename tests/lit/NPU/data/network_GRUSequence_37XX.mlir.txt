@@ -15,20 +15,20 @@ module @dumpsubgraph attributes {config.arch = #config.arch_kind<NPU37XX>, confi
     func.func private @builtin_Convert(memref<*xf32, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.task_type = @COMPUTE} loc(#loc)
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc)
   } loc(#loc)
-  IE.TileResource {activity_factor = 0.000000e+00 : f64} 2 of @NCE at 1.300000e+03 MHz {
+  config.Resources {activity_factor = 0.000000e+00 : f64} 2 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc)
+        config.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc)
       } loc(#loc)
     } loc(#loc)
-    IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware loc(#loc)
-    IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc)
-    IE.ExecutorResource 2 of @SHAVE_ACT loc(#loc)
-    IE.ExecutorResource 1 of @SHAVE_NN loc(#loc)
-    IE.ExecutorResource 1 of @DPU loc(#loc)
+    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware loc(#loc)
+    config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc)
+    config.ExecutorResource 2 of @SHAVE_ACT loc(#loc)
+    config.ExecutorResource 1 of @SHAVE_NN loc(#loc)
+    config.ExecutorResource 1 of @DPU loc(#loc)
   } loc(#loc)
-  IE.ExecutorResource 2 of @DMA_NN loc(#loc)
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc)
+  config.ExecutorResource 2 of @DMA_NN loc(#loc)
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc)
   net.NetworkInfo {inferenceTiming = 27805 : i64} entryPoint : @main inputsInfo : {
     DataInfo "Parameter_214" : tensor<1x768xf32> loc(#loc)
   } outputsInfo : {
@@ -52,7 +52,7 @@ module @dumpsubgraph attributes {config.arch = #config.arch_kind<NPU37XX>, confi
     %8 = VPURT.ConfigureBarrier<6> -> !VPURT.Barrier loc(#loc28)
     %9 = VPURT.ConfigureBarrier<7> -> !VPURT.Barrier loc(#loc29)
     %10 = VPURT.ConfigureBarrier<8> -> !VPURT.Barrier loc(#loc29)
-    %11 = VPURT.ConfigureBarrier<9> {isFinalBarrier} -> !VPURT.Barrier loc(#loc7)
+    %11 = VPURT.ConfigureBarrier<9> <{isFinalBarrier}> -> !VPURT.Barrier loc(#loc7)
     %cst = const.Declare memref<1x3072xf16> = dense<0.000000e+00> : tensor<1x3072xf16> loc(#loc27)
     %cst_0 = const.Declare memref<1x2304x768xf16> = dense<0.000000e+00> : tensor<1x2304x768xf16> loc(#loc27)
     %cst_1 = const.Declare memref<1x1x768xf16> = dense<0.000000e+00> : tensor<1x1x768xf16> loc(#loc27)

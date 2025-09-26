@@ -14,14 +14,15 @@
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/loop.hpp"
+
+#include <mutex>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_TILINGSTRATEGYASSIGNMENT
 #define GEN_PASS_DEF_TILINGSTRATEGYASSIGNMENT
 #include "vpux/compiler/dialect/VPU/passes.hpp.inc"
 }  // namespace vpux::VPU
-
-#include "vpux/compiler/utils/loop.hpp"
 
 using namespace vpux;
 
@@ -132,38 +133,39 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
     std::mutex prefetchSetMutex;
     std::mutex strategiesMapMutex;
     const auto opsToTile = func.getOps<VPU::TilingBuilderOpInterface>();
+    const auto numOps = std::distance(opsToTile.begin(), opsToTile.end());
     _costModel = std::make_shared<vpux::VPU::LayerCostModel>(vpux::VPU::LayerCostModel(
             func, _enablePrefetchTiling, siblingOpsAnalysis, std::move(layerCostModel), _log));
 
     // Get cost of possible ISOLATED/PIPELINING strategies in parallel. Note that it is not possible to
     // say which strategy will be the best since whether strategy can be prefetched depends on parent op tiling.
-    loop_1d(LoopExecPolicy::Sequential, func.getContext(), std::distance(opsToTile.begin(), opsToTile.end()),
-            [&](const size_t index) {
-                auto it = opsToTile.begin();
-                std::advance(it, index);
-                auto tilingOp = *it;
-                auto op = tilingOp.getOperation();
-                if (_shaveDDRAccessOptimizationMode == VPU::EnableShaveDDRAccessOptimization::TRUE) {
-                    auto ddrAccessOp = mlir::dyn_cast<VPU::DDRAccessOpInterface>(op);
-                    if (ddrAccessOp != nullptr && ddrAccessOp.isDDRAccessNecessaryOrBeneficial(_log)) {
-                        return;
-                    }
-                }
+    auto loopExecPolicy = numOps < MIN_OPS_FOR_PARALLEL_TILING ? LoopExecPolicy::Sequential : LoopExecPolicy::Parallel;
+    loop_1d(loopExecPolicy, func.getContext(), numOps, [&](const size_t index) {
+        auto it = opsToTile.begin();
+        std::advance(it, index);
+        auto tilingOp = *it;
+        auto op = tilingOp.getOperation();
+        if (_shaveDDRAccessOptimizationMode == VPU::EnableShaveDDRAccessOptimization::TRUE) {
+            auto ddrAccessOp = mlir::dyn_cast<VPU::DDRAccessOpInterface>(op);
+            if (ddrAccessOp != nullptr && ddrAccessOp.isDDRAccessNecessaryOrBeneficial(_log)) {
+                return;
+            }
+        }
 
-                auto tilingModeOpt = vpux::VPU::getTilingMode(op, _enablePrefetchTiling, _log);
-                if (tilingModeOpt.has_value()) {
-                    auto [tilingMode, prefetchingCandidate] = tilingModeOpt.value();
-                    if (tilingMode == TilingMode::ISOLATED || tilingMode == TilingMode::PIPELINING) {
-                        auto strategies = getStrategies(tilingOp, tilingMode);
-                        std::lock_guard<std::mutex> guard(strategiesMapMutex);
-                        strategiesForOp.insert(std::make_pair(tilingOp, strategies));
-                    }
-                    if (prefetchingCandidate) {
-                        std::lock_guard<std::mutex> guard(prefetchSetMutex);
-                        opsToCheckForPrefetch.insert(tilingOp);
-                    }
-                }
-            });
+        auto tilingModeOpt = vpux::VPU::getTilingMode(op, _enablePrefetchTiling, _log);
+        if (tilingModeOpt.has_value()) {
+            auto [tilingMode, prefetchingCandidate] = tilingModeOpt.value();
+            if (tilingMode == TilingMode::ISOLATED || tilingMode == TilingMode::PIPELINING) {
+                auto strategies = getStrategies(tilingOp, tilingMode);
+                std::lock_guard<std::mutex> guard(strategiesMapMutex);
+                strategiesForOp.insert(std::make_pair(tilingOp, strategies));
+            }
+            if (prefetchingCandidate) {
+                std::lock_guard<std::mutex> guard(prefetchSetMutex);
+                opsToCheckForPrefetch.insert(tilingOp);
+            }
+        }
+    });
 
     auto getBestStrategy = [this](VPU::TilingBuilderOpInterface tilingOp,
                                   std::vector<vpux::VPU::StrategyWithCost>& strategies,

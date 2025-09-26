@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
@@ -130,7 +130,7 @@ void InitResourcesPass::safeRunOnModule() {
         }
     }
 
-    auto nceCluster = IE::getTileExecutor(module);
+    auto nceCluster = config::getTileExecutor(module);
     if (!nceCluster.hasProcessorFrequency()) {
         auto revisionID = config::getRevisionID(module);
         auto freqMHz = vpux::VPU::getDpuFrequency(_arch, revisionID);

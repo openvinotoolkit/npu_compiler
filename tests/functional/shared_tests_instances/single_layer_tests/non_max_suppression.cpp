@@ -136,7 +136,7 @@ const auto nmsParams = ::testing::Combine(
                            ::testing::ValuesIn(thrType)),
         ::testing::ValuesIn(maxOutBoxPerClass), ::testing::ValuesIn(iouThreshold), ::testing::ValuesIn(scoreThreshold),
         ::testing::ValuesIn(sigmaThreshold), ::testing::ValuesIn(encodType), ::testing::ValuesIn(sortResDesc),
-        ::testing::ValuesIn(outType), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::ValuesIn(outType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_NmsLayerTest, NmsLayerTestCommon, nmsParams, NmsLayerTestCommon::getTestCaseName);
 
@@ -154,7 +154,7 @@ const auto nmsParamsSmoke =
                          ::testing::ValuesIn(maxOutBoxPerClassSmoke), ::testing::ValuesIn(iouThresholdSmoke),
                          ::testing::ValuesIn(scoreThresholdSmoke), ::testing::ValuesIn(sigmaThresholdSmoke),
                          ::testing::ValuesIn(encodTypeSmoke), ::testing::ValuesIn(sortResDesc),
-                         ::testing::ValuesIn(outType), ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::ValuesIn(outType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_NmsLayerTest, NmsLayerTestCommon, nmsParamsSmoke,
                          NmsLayerTestCommon::getTestCaseName);
@@ -170,7 +170,7 @@ const auto nmsCustomParamsSmoke = testing::Combine(
         ::testing::ValuesIn(customMaxOutBoxPerClassSmoke), ::testing::ValuesIn(customIouThresholdSmoke),
         ::testing::ValuesIn(customScoreThresholdSmoke), ::testing::ValuesIn(sigmaThresholdSmoke),
         ::testing::ValuesIn(encodTypeSmoke), ::testing::ValuesIn(sortResDesc), ::testing::ValuesIn(outType),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_custom_NmsLayerTest, NmsLayerTestCommon, nmsCustomParamsSmoke,
                          NmsLayerTestCommon::getTestCaseName);  // Tracking number [E#172848]

@@ -117,8 +117,6 @@ constexpr StringLiteral lastSecondaryTaskInExecutionGroup = "lastSecondaryTaskIn
 
 uint32_t generateTileMask(mlir::ArrayRef<uint32_t> usedTileIndexes);
 
-void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head);
-
 //
 // Resolve Task Location utils
 //

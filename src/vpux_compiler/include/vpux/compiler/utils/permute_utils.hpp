@@ -82,11 +82,11 @@ IE::LayerWithPermuteInterface getFusableLayerWithPermuteInterface(mlir::Operatio
 
 NDTypeInterface inferNewTypeWithMemPerm(NDTypeInterface oldType, mlir::AffineMap memPerm, const DimsOrder& dstOrder);
 
+std::optional<mlir::AffineMap> tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
+                                                                  ShapeRef outShape, mlir::PatternRewriter& rewriter);
+
 std::optional<IE::PermuteCastOp> tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
                                                         ShapeRef outShape, mlir::PatternRewriter& rewriter);
 
 Dim inferDimAfterPermutation(Dim dim, DimsOrder srcOrder, DimsOrder dstOrder, mlir::AffineMap perm);
-
-bool isSuitableToAdjustMemPermuteShape(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType,
-                                       mlir::AffineMap memPerm);
 }  // namespace vpux

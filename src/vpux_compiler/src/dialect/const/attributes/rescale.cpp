@@ -23,7 +23,17 @@ using namespace vpux;
 
 void vpux::Const::RescaleAttr::print(mlir::AsmPrinter& printer) const {
     printer << "<";
-    printer.printAttribute(getScale());
+    if (getScale().isSplat()) {
+        auto foldedFloatContent = getScale().fold();
+        auto splatValue = foldedFloatContent.getSplatValue<double>();
+        auto floatAttr = mlir::FloatAttr::get(mlir::FloatType::getF64(getContext()), splatValue);
+        printer.printAttribute(floatAttr);
+    } else {
+        printer << "Content";
+        printer << "<";
+        vpux::Const::printContentAttr(printer, getScale());
+        printer << ">";
+    }
     printer << ">";
 }
 
@@ -35,17 +45,28 @@ mlir::Attribute vpux::Const::RescaleAttr::parse(mlir::AsmParser& parser, mlir::T
     if (mlir::failed(parser.parseLess())) {
         return nullptr;
     }
+    Const::ContentAttr contentAttr;
+    mlir::FloatAttr floatAttr;
 
-    mlir::FloatAttr scale;
-    if (mlir::failed(parser.parseAttribute(scale))) {
+    if (parser.parseOptionalAttribute(floatAttr).has_value()) {
+    } else if (mlir::succeeded(parser.parseOptionalKeyword("Content"))) {
+        if (mlir::failed(parser.parseLess())) {
+            return nullptr;
+        }
+        if (mlir::failed(Const::parseContentAttr(parser, contentAttr))) {
+            return nullptr;
+        }
+        if (mlir::failed(parser.parseGreater())) {
+            return nullptr;
+        }
+    } else {
         return nullptr;
     }
 
     if (mlir::failed(parser.parseGreater())) {
         return nullptr;
     }
-
-    return Const::RescaleAttr::get(scale);
+    return (floatAttr != nullptr) ? Const::RescaleAttr::get(floatAttr) : Const::RescaleAttr::get(contentAttr);
 }
 
 //
@@ -56,7 +77,7 @@ vpux::NDTypeInterface vpux::Const::RescaleAttr::inferOutputType(vpux::NDTypeInte
     return input;
 }
 
-bool vpux::Const::RescaleAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::RescaleAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 
@@ -68,17 +89,40 @@ Const::Content vpux::Const::RescaleAttr::transform(vpux::Const::Content& input) 
     auto output =
             Const::Content::allocTempBuffer(inferOutputType(input.getType()), mlir::Float32Type::get(getContext()),
                                             inferOutputSplat(input.isSplat(), input.getType()));
-
-    auto scaledVals = output.getTempBuf<float>();
-
-    const auto scale = static_cast<float>(getScale().getValue().convertToDouble());
-
-    input.read([&](auto values) {
-        for (size_t i = 0; i < scaledVals.size(); ++i) {
-            scaledVals[i] = checked_cast<float>(values[i]) * scale;
+    auto scaledValues = output.getTempBuf<float>();
+    auto scaleContent = getScale().fold();
+    VPUX_THROW_WHEN(input.isSplat() && !scaleContent.isSplat(), "scalar * tensor is not supported");
+    if (scaleContent.isSplat()) {
+        if (std::isnan(scaleContent.getSplatValue<double>())) {  // Check for NaN scale value - When scale is NaN, all
+                                                                 // output values must be NaN to prevent undefined
+                                                                 // behavior during type casting.
+            for (size_t i = 0; i < scaledValues.size(); ++i) {
+                scaledValues[i] = std::numeric_limits<float>::quiet_NaN();
+            }
+            return output;
         }
-    });
-
+        float scale = scaleContent.getSplatValue<float>();
+        input.read([&](auto inputValues) {
+            for (size_t i = 0; i < scaledValues.size(); ++i) {
+                scaledValues[i] = checked_cast<float>(inputValues[i]) * scale;
+            }
+        });
+    } else {
+        scaleContent.read([&](auto scaleValues) {
+            input.read([&](auto inputValues) {
+                VPUX_THROW_UNLESS(scaleValues.size() == inputValues.size(), "Vector size ({0}) doesn't match ({1})",
+                                  scaleValues.size(), inputValues.size());
+                for (size_t i = 0; i < scaledValues.size(); ++i) {
+                    float scale = scaleValues[i];
+                    if (std::isnan(scale)) {  // Check for NaN in individual scale elements
+                        scaledValues[i] = std::numeric_limits<float>::quiet_NaN();
+                    } else {
+                        scaledValues[i] = checked_cast<float>(inputValues[i]) * scale;
+                    }
+                }
+            });
+        });
+    }
     return output;
 }
 
@@ -87,6 +131,7 @@ Const::Content vpux::Const::RescaleAttr::transform(vpux::Const::Content& input) 
 //
 
 llvm::hash_code vpux::Const::RescaleAttr::getStableHashValue() const {
-    const auto scale = getScale().getValue();
-    return llvm::hash_combine(getMnemonic(), scale);
+    VPUX_THROW_UNLESS(getScale().isSplat(), "RescaleAttr scale must be splat");
+    const auto scale = getScale().fold().getSplatValue<double>();
+    return llvm::hash_combine(getMnemonic(), llvm::APFloat(scale));
 }

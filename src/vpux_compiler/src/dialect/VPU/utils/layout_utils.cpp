@@ -516,46 +516,6 @@ mlir::LogicalResult vpux::VPU::verifyLSTMSequenceLayoutInfo(mlir::Operation* op)
     return mlir::success();
 }
 
-void vpux::VPU::inferDequantizeLayoutInfo(mlir::Operation* origOp, IE::LayerLayoutInfo& info) {
-    const auto inType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType()).getElementType();
-
-    const auto qType = mlir::cast<mlir::quant::QuantizedType>(inType);
-
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(qType)) {
-        const auto numDims = info.getInput(0).numDims();
-        if (numDims == 3) {
-            info.fill(DimsOrder::HWC);
-        } else if (numDims == 4) {
-            info.fill(DimsOrder::NHWC);
-        } else {
-            VPUX_THROW("Unsupported rank '{0}'", numDims);
-        }
-    } else {
-        VPU::inferLayoutInfoSameInOutSpecificDimsOrder(
-                info, {DimsOrder::CHW, DimsOrder::HWC, DimsOrder::NCHW, DimsOrder::NHWC});
-    }
-}
-
-mlir::LogicalResult vpux::VPU::verifyDequantizeLayoutInfo(mlir::Operation* op) {
-    const auto inType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
-
-    const auto qType = mlir::cast<mlir::quant::QuantizedType>(inType.getElementType());
-
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(qType)) {
-        const auto numDims = inType.getShape().raw().size();
-        if (numDims == 3) {
-            return VPU::verifySameInOutSpecificDimsOrder(op, {DimsOrder::HWC});
-        } else if (numDims == 4) {
-            return VPU::verifySameInOutSpecificDimsOrder(op, {DimsOrder::NHWC});
-        } else {
-            VPUX_THROW("Unsupported rank '{0}'", numDims);
-        }
-    } else {
-        return VPU::verifySameInOutSpecificDimsOrder(
-                op, {DimsOrder::CHW, DimsOrder::HWC, DimsOrder::NCHW, DimsOrder::NHWC});
-    }
-}
-
 void vpux::VPU::inferQuantizeLayoutInfo(mlir::Operation* origOp, IE::LayerLayoutInfo& info) {
     const auto outType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
 

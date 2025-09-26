@@ -45,12 +45,20 @@ private:
         const auto actInput = mulInput ? mulInput : addInput;
         const auto actType = mlir::cast<vpux::NDTypeInterface>(actInput.getType());
         const auto axesVec = parseIntArrayAttr<int64_t>(origOp.getAxesValueAttr());
+        const auto mvnRank = mvnType.getShape().size();
+        const auto actRank = actType.getShape().size();
+        auto actShape = SmallVector<int64_t>(actType.getShape().raw());
+
+        if (actRank < mvnRank) {  // insert leading 1s
+            actShape.insert(actShape.begin(), mvnRank - actRank, 1);
+        }
 
         int64_t normSize = 1;
         int64_t actSize = 1;  // for same norm axes
         for (auto axis : axesVec) {
+            axis = axis < 0 ? axis + mvnRank : axis;
             normSize *= mvnType.getShape()[Dim(axis)];
-            actSize *= actType.getShape()[Dim(axis)];
+            actSize *= actShape[axis];
         }
         const auto bpp = mvnType.getElemTypeSize().count() / CHAR_BIT;
         normSize *= bpp;

@@ -10,7 +10,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -115,8 +114,8 @@ mlir::LogicalResult MoveTwoInputsEltwiseOpAfterGather<ConcreteOp>::matchAndRewri
     _log.trace("Got '{0}' at '{1}'", gatherOp->getName(), gatherOp->getLoc());
 
     // Conversion is benificial when GatherOp is reducing tensor size.
-    auto inputShapeSize = getShape(gatherOp.getInput());
-    auto outputShapeSize = getShape(gatherOp.getOutput());
+    auto inputShapeSize = getShape(gatherOp.getInput()).toValues();
+    auto outputShapeSize = getShape(gatherOp.getOutput()).toValues();
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(gatherOp.getInput().getType())) {
         inputShapeSize = Shape(boundedType.getBounds().raw());
     }

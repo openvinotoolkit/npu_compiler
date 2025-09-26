@@ -74,7 +74,7 @@ mlir::LogicalResult vpux::VPU::ExtractImagePatchesOp::inferReturnTypes(
     outputShape.push_back(outputRows);
     outputShape.push_back(outputCols);
 
-    const auto outType = inputType.changeShape(Shape(outputShape));
+    const auto outType = inputType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

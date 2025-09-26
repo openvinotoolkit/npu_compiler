@@ -101,6 +101,24 @@ ShapeInfo inferAvgPoolOutputShape(const ShapeInfo& inDataShape, ArrayRef<int64_t
                                   IE::RoundingType roundingType = IE::RoundingType::FLOOR);
 
 /**
+ * @brief                        Infers the output shape for an AvgPool operation
+ *                               with the given parameters
+ * @param inDataShape:           The shape of the input data
+ * @param windowStrides:         The strides
+ * @param windowDilations:       The dilations
+ * @param dataPaddingBelow:      Builds the beginning of padding shape
+ * @param dataPaddingAbove:      Builds the end of padding shape
+ * @param windowShape:           The kernel window
+ * @param roundingType:          Whether to use ceiling or floor rounding type while
+ *                               computing output shape
+ * @return                       The output shape as SmallVector
+ */
+ShapeInfo inferAvgPool16OutputShape(const ShapeInfo& inDataShape, ArrayRef<int64_t> windowStrides,
+                                    ArrayRef<int64_t> windowDilations, ArrayRef<int64_t> dataPaddingBelow,
+                                    ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowShape,
+                                    IE::RoundingType roundingType = IE::RoundingType::FLOOR);
+
+/**
  * @brief                        Infers the output shape for a ConvolutionBackpropData operation
  *                               with the given parameters
  * @param inputShape:            The shape of the input data
@@ -161,9 +179,9 @@ ShapeInfo inferMatMulOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const ShapeI
  *
  * @return                       The output shape info as ShapeInfo
  */
-ShapeInfo inferConvoutionOutputShapeInfo(const ShapeInfo& inShapeInfo, const ShapeInfo& filterShapeInfo,
-                                         ArrayRef<int64_t> windowStrides, ArrayRef<int64_t> dataPaddingBelow,
-                                         ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations);
+ShapeInfo inferConvolutionOutputShapeInfo(const ShapeInfo& inShapeInfo, const ShapeInfo& filterShapeInfo,
+                                          ArrayRef<int64_t> windowStrides, ArrayRef<int64_t> dataPaddingBelow,
+                                          ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations);
 
 /**
  * @brief                        Infers the output shape for a GroupConvolution operation
@@ -207,7 +225,6 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> reifyEltwiseTensors(mlir::OpBui
                                                                      mlir::Value input2,
                                                                      IE::AutoBroadcastType broadcastType,
                                                                      mlir::Location loc);
-
 mlir::FailureOr<SmallVector<mlir::OpFoldResult>> reifyMatMulTensors(mlir::OpBuilder& builder, mlir::Value input1,
                                                                     mlir::Value input2, bool transposeA,
                                                                     bool transposeB, mlir::Location loc);
@@ -233,6 +250,21 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> reifyConvPoolTensors(mlir::OpBu
                                                                       ArrayRef<int64_t> strides,
                                                                       ArrayRef<int64_t> padBegin,
                                                                       ArrayRef<int64_t> padEnd, mlir::Location loc);
+
+/**
+ * @brief                        Infers the output shape for a PermuteQuantize operation
+ *
+ * @param input:                 The input tensor
+ * @param inOrder:               The order of the input tensor
+ * @param newType:               The new type obtained after applying padding to the input tensor
+ * @param outOrder:              The order of the output tensor
+ * @param memPerm:               The memory permutation attribute
+
+ * @return                       The output shape info as ShapeInfo
+ */
+
+ShapeInfo inferPermuteQuantizeOutputShapeInfo(mlir::Value input, DimsOrder inOrder, vpux::NDTypeInterface newType,
+                                              DimsOrder outOrder, mlir::AffineMap memPerm);
 
 /**
  * @brief                        Infers the output shape for an Elementwise operation

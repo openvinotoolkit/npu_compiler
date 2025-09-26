@@ -45,7 +45,7 @@ mlir::LogicalResult vpux::VPU::AdaptiveAvgPoolOp::inferReturnTypes(
         outputShape.push_back(pooledSpatialShape[i]);
     }
 
-    const auto outType = inputType.changeShape(Shape(outputShape));
+    const auto outType = inputType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

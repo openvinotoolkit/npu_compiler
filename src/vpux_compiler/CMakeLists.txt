@@ -88,6 +88,26 @@ include(cmake/add_npu_library.cmake)
 
 set(VPUX_COMPILER_VERSION_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/compiler_version.cpp)
 
+# compiler repo git commit hash
+set(COMMIT_HASH_PATTERN ${CMAKE_CURRENT_SOURCE_DIR}/include/vpux/compiler/compiler_hash.hpp.in)
+set(COMMIT_HASH_FILE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler/compiler_hash.hpp)
+set(COMMIT_HASH_CACHE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler/compiler_hash.hpp.pre)
+
+add_custom_target(update_compiler_hash ALL
+    COMMAND ${CMAKE_COMMAND}
+        -D REPO_DIR=${PROJECT_SOURCE_DIR}
+        -D COMMIT_HASH_PATTERN=${COMMIT_HASH_PATTERN}
+        -D COMMIT_HASH_FILE=${COMMIT_HASH_FILE}
+        -D COMMIT_HASH_CACHE=${COMMIT_HASH_CACHE}
+        -P ${PROJECT_SOURCE_DIR}/cmake/compiler_commit_hash.cmake
+    COMMENT "Updating compiler commit hash..."
+    BYPRODUCTS ${COMMIT_HASH_FILE}
+)
+
+add_library(compiler_commit_hash INTERFACE)
+target_include_directories(compiler_commit_hash INTERFACE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler)
+add_dependencies(compiler_commit_hash update_compiler_hash)
+
 # Construct source files after BITCOMPACTOR configuration
 add_subdirectory(src)
 get_property(VPU_SRC_LIBS GLOBAL PROPERTY NPU_SRC_LIB_LIST)

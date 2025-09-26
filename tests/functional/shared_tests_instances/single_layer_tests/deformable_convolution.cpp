@@ -47,7 +47,7 @@ const auto testParamsStrides1x1 =
                            ::testing::Values(ov::element::f16),  // model type
                            ::testing::Values(ov::test::static_shapes_to_test_representation(
                                    {{1, 32, 19, 19}, {1, 18, 19, 19}, {32, 32, 3, 3}, {1, 9, 19, 19}})),  // input shape
-                           ::testing::Values(DEVICE_NPU));                                                // device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));                                 // device name
 
 const auto configParamsStrides2x2 =
         ::testing::Combine(::testing::Values(std::vector<size_t>{2, 2}),     // strides
@@ -66,7 +66,7 @@ const auto testParamsStrides2x2 =
                            ::testing::Values(ov::element::f16),  // model type
                            ::testing::Values(ov::test::static_shapes_to_test_representation(
                                    {{1, 32, 38, 38}, {1, 18, 19, 19}, {32, 32, 3, 3}, {1, 9, 19, 19}})),  // input shape
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto configParamsMultipleDG =
         ::testing::Combine(::testing::Values(std::vector<size_t>{1, 1}),     // strides
@@ -85,7 +85,7 @@ const auto testParamsMultipleDG =
                            ::testing::Values(ov::element::f16),  // model type
                            ::testing::Values(ov::test::static_shapes_to_test_representation(
                                    {{1, 2, 3, 3}, {1, 16, 2, 2}, {2, 2, 2, 2}, {1, 8, 2, 2}})),  // input shape
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precomit_DeformableConvolution2DTest_Strides1x1, DeformableConvolutionLayerTestCommon,
                          testParamsStrides1x1, DeformableConvolutionLayerTest::getTestCaseName);

@@ -292,6 +292,24 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
         >,
 
         InterfaceMethod<
+            "Get the scale table operand of the operation",
+            "mlir::Value", "getWeightTableScaleOperand", (ins),
+            [{}],
+            [{
+                return nullptr;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Get the bias table operand of the operation",
+            "mlir::Value", "getWeightTableBiasOperand", (ins),
+            [{}],
+            [{
+                return nullptr;
+            }]
+        >,
+
+        InterfaceMethod<
             "Add workload",
             "mlir::Operation*", "addWorkload",
             (ins "mlir::OpBuilder&":$builder, "mlir::Location":$loc,
@@ -433,6 +451,16 @@ def VPU_TilingViewLikeOpInterface : OpInterface<"TilingViewLikeOpInterface"> {
         >,
 
         InterfaceMethod<
+            "Check if the tiling dim is supported with restriction on tiling size",
+            "bool", "isSupportedTilingDimWithRestrictions",
+            (ins "Dim":$tilingDim),
+            [{}],
+            [{
+                return false;
+            }]
+        >,
+
+        InterfaceMethod<
             "Check if the output tile is supported or not",
             "bool", "isSupportedOutTile",
             (ins "const TileInfo&":$outputTile),
@@ -495,6 +523,24 @@ def VPU_TilingInfoOpInterface : OpInterface<"TilingInfoOpInterface"> {
             "bool", "isSupportedTilingStrategy",
             (ins "const vpux::Shape&":$strategy, "vpux::TilingMode":$tilingMode, "vpux::Logger":$log)
         >,
+
+        InterfaceMethod<
+            "Check if prefetching tiling mode is supported by the operation implementation",
+            "bool", "isPrefetchingTilingSupported", (ins),
+            [{}],
+            [{
+                return false;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Check if pipelining tiling mode is supported by the operation implementation",
+            "bool", "isPipeliningTilingSupported", (ins),
+            [{}],
+            [{
+                return false;
+            }]
+        >
     ];
 
     let verify = [{

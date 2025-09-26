@@ -37,7 +37,11 @@ class SelectLayerTestCommon : public SelectLayerTest, virtual public VpuOv2Layer
     }
 };
 
-class ShaveCodeGenSelectLayerTestCommon : public SelectLayerTestCommon {};
+class ShaveCodeGenSelectLayerTestCommon : public SelectLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 TEST_P(SelectLayerTestCommon, NPU3720_SW) {
     setReferenceSoftwareMode();
@@ -50,7 +54,7 @@ TEST_P(SelectLayerTestCommon, NPU4000_SW) {
 }
 
 TEST_P(ShaveCodeGenSelectLayerTestCommon, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -73,7 +77,7 @@ const std::vector<std::vector<ov::Shape>> inShapes = {
 
 const auto selectTestParams = ::testing::Combine(
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes)), ::testing::ValuesIn(inputTypes),
-        ::testing::Values(ov::op::AutoBroadcastType::NUMPY), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(ov::op::AutoBroadcastType::NUMPY), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Select, SelectLayerTestCommon, selectTestParams,
                          SelectLayerTestCommon::getTestCaseName);

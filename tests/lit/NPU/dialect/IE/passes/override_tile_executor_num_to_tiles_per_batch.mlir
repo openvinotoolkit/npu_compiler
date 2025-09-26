@@ -7,7 +7,7 @@
 // REQUIRES: arch-NPU40XX
 
 module @OverrideToTilesPerBatchForNonBatchedCase {
-    IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+    config.Resources 4 of @NCE at 1.700000e+03 MHz
     net.NetworkInfo entryPoint : @SingleInputSingleOutputNonBatched
     inputsInfo : {
         DataInfo "input" : tensor<1x3x62x62xf32>
@@ -15,7 +15,7 @@ module @OverrideToTilesPerBatchForNonBatchedCase {
         DataInfo "output" : tensor<1x48x60x60xf32>
     }
 
-    // CHECK: IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+    // CHECK: config.Resources 4 of @NCE at 1.700000e+03 MHz
 
     func.func private @SingleInputSingleOutputNonBatched_Batch1(%arg0: tensor<1x3x62x62xf32>) -> tensor<1x48x60x60xf32> {
         %cst = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>
@@ -41,7 +41,7 @@ module @OverrideToTilesPerBatchForNonBatchedCase {
 // -----
 
 module @OverrideToTilesPerBatchForBatchedCase {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
     net.NetworkInfo entryPoint : @MultipleInputSingleOutputDeBatched
     inputsInfo : {
         DataInfo "input1" : tensor<3x3x62x62xf32>
@@ -50,7 +50,7 @@ module @OverrideToTilesPerBatchForBatchedCase {
         DataInfo "output" : tensor<3x48x60x60xf32>
     }
 
-    // CHECK: IE.TileResource 2 of @NCE at 1.700000e+03 MHz
+    // CHECK: config.Resources 2 of @NCE at 1.700000e+03 MHz
 
     func.func private @MultipleInputSingleOutputDeBatched_Batch1(%arg0: tensor<1x3x62x62xf32>, %arg1: tensor<1x48x60x60xf32>) -> tensor<1x48x60x60xf32> {
       %cst = const.Declare tensor<48x3x3x3xf32> = dense<1.000000e+00> : tensor<48x3x3x3xf32>

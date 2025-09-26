@@ -50,17 +50,12 @@ mlir::Value buildDwWeights(const mlir::Location& loc, const int64_t OC, const ml
 }
 
 bool isLegalQuantizeOp(IE::QuantizeOp quantizeOp, bool canUseCMajor) {
-    const auto isPerAxisQuantized = isQuantizedPerAxis(quantizeOp.getOutput());
     auto outputLayerUsers = quantizeOp.getOutput().getUsers();
     auto anyUserIsConv = !outputLayerUsers.empty() && ::llvm::any_of(outputLayerUsers, [](auto user) {
         return mlir::isa<IE::ConvolutionOp>(user);
     });
 
-    return (anyUserIsConv && canUseCMajor) || isPerAxisQuantized;
-};
-
-bool isLegalDequantizeOp(IE::DequantizeOp dequantizeOp) {
-    return isQuantizedPerAxis(dequantizeOp.getInput());
+    return anyUserIsConv && canUseCMajor;
 };
 
 bool isPerChannelQuantizedType(mlir::Value val) {
@@ -78,6 +73,17 @@ bool isPerChannelQuantizedType(mlir::Value val) {
     auto quantizeDim = perAxisType.getQuantizedDimension();
     return quantizeDim == Dims4D::Act::C.ind();
 }
+
+bool is16BitStorageType(vpux::NDTypeInterface type) {
+    auto quantType = mlir::cast<mlir::quant::QuantizedType>(type.getElementType());
+    return quantType.getStorageTypeIntegralWidth() == 16;
+}
+
+bool is8BitStorageType(vpux::NDTypeInterface type) {
+    auto quantType = mlir::cast<mlir::quant::QuantizedType>(type.getElementType());
+    return quantType.getStorageTypeIntegralWidth() == 8;
+}
+
 }  // namespace vpux::IE
 
 namespace {

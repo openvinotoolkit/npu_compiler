@@ -60,7 +60,7 @@ typedef struct _ze_profiling_task_info {
     ze_task_execute_type_t exec_type;
     uint64_t start_time_ns;
     uint64_t duration_ns;
-    uint32_t active_cycles;  // XXX total_cycles are reported instead
+    uint32_t active_cycles;
     uint32_t stall_cycles;
     uint32_t task_id;
     uint32_t parent_layer_id;  ///< Not used

@@ -4,8 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 
 using namespace vpux;
 

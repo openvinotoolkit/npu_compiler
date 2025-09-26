@@ -142,7 +142,8 @@ def IE_MVNOp :
         BoolAttr:$across_channels,
         BoolAttr:$normalize_variance,
         F64Attr:$eps,
-        OptionalAttr<I64ArrayAttr>:$internal_reshape
+        OptionalAttr<I64ArrayAttr>:$internal_reshape,
+        DefaultValuedOptionalAttr<BoolAttr, "false">:$high_precision_normalize
     );
 
     let results = (outs
@@ -155,7 +156,14 @@ def IE_MVNOp :
             "::mlir::BoolAttr":$across_channels,
             "::mlir::BoolAttr":$normalize_variance,
             "::mlir::FloatAttr":$eps
-        )>
+        )>,
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::BoolAttr":$across_channels,
+            "::mlir::BoolAttr":$normalize_variance,
+            "::mlir::FloatAttr":$eps,
+            "::mlir::ArrayAttr":$internal_reshape
+        )>,
     ];
 
     let hasCanonicalizer = 1;

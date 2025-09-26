@@ -17,10 +17,8 @@ endforeach()
 
 # TODO: Remove once the thirdparties respect these flags
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    if(BUILD_COMPILER_FOR_DRIVER)
-        string(REPLACE "/sdl" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-        string(REPLACE "/sdl" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-    endif()
+    string(REPLACE "/sdl" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REPLACE "/sdl" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
     if(NOT BUILD_COMPILER_FOR_DRIVER)
         set(ie_c_cxx_deprecated_no_errors "${ie_c_cxx_deprecated_no_errors} /wd4146 /wd4703")
     endif()

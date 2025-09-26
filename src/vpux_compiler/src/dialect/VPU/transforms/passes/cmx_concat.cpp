@@ -9,10 +9,12 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
@@ -20,6 +22,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/SetOperations.h>
+#include <mlir/Support/LLVM.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_CMXCONCAT
@@ -236,6 +239,7 @@ private:
     bool isMemConsistentPerCluster();
     bool areDistributionTypesConsistent();
     bool areAnyInputsInPlace();
+    bool areNCEOutputsAligned();
     void insertCopyAfterConcat();
     NDTypeInterface getNewConcatType();
 };
@@ -510,17 +514,23 @@ bool InputConcatPattern::concatFitsInCMX(size_t cmxSize) {
 }
 
 bool isSupportedAndBeneficialToInsertNCEOp(InputConcatPart concatPart) {
-    if (!concatPart.isMultiCluster()) {
-        return true;
-    }
-
     auto copyOutOp = concatPart.getCopyOp();
     if (copyOutOp == nullptr) {
         return false;
     }
 
-    auto nceDistributedType = mlir::cast<vpux::VPU::DistributedTypeInterface>(copyOutOp->getOperand(0).getType());
+    // The input channels of the inserted NCE operation must be aligned for this case to be supported
+    auto inputType = mlir::cast<NDTypeInterface>(copyOutOp->getOperand(0).getType());
+    if (!VPU::NCEInvariant::isInputActTypeSupported(inputType,
+                                                    VPU::NCEInvariant::getAlignment(inputType.getElementType()))) {
+        return false;
+    }
 
+    if (!concatPart.isMultiCluster()) {
+        return true;
+    }
+
+    auto nceDistributedType = mlir::cast<vpux::VPU::DistributedTypeInterface>(inputType);
     auto nceDistributionMode =
             mlir::cast<vpux::VPU::DistributedTensorType>(nceDistributedType.getDistributedTypes().front())
                     .getDistribution()
@@ -779,6 +789,25 @@ bool InputConcatPattern::areAnyInputsInPlace() {
     return false;
 }
 
+// Moving the concat to CMX means that all NCE operations would write directly into the concatenated buffer.
+// All NCE operations need to write to an address that is aligned to 16 bytes. As the outputs are concatenated into a
+// contiguous buffer, it is necessary for the sizes of each output to be a multiple of 16 bytes
+bool InputConcatPattern::areNCEOutputsAligned() {
+    auto inputParts = llvm::drop_end(_inputParts, 1);
+    for (auto& inputPart : inputParts) {
+        auto nceOp = mlir::dyn_cast_if_present<VPU::NCEOpInterface>(inputPart.getNceOp());
+        if (nceOp == nullptr) {
+            continue;
+        }
+        auto resultType = mlir::cast<NDTypeInterface>(nceOp->getResult(0).getType());
+        const auto resultSize = resultType.getTotalAllocSize().count();
+        if (resultSize % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
 bool InputConcatPattern::inputPatternCanBeCMXed(size_t cmxSize) {
     // Check compatibility between input distribution types
     if (!areDistributionTypesConsistent()) {
@@ -806,6 +835,11 @@ bool InputConcatPattern::inputPatternCanBeCMXed(size_t cmxSize) {
     // TODO E#99223: remove limitation for in-place Eltwise
     if (areAnyInputsInPlace()) {
         _log.trace("Input is in-place, which is not yet supported");
+        return false;
+    }
+
+    if (!areNCEOutputsAligned()) {
+        _log.trace("NCE outputs would not be aligned");
         return false;
     }
 
@@ -1369,6 +1403,20 @@ void CMXConcatPass::safeRunOnFunc() {
         _log.trace("Got '{0}' at '{1}'", concat->getName(), concat->getLoc());
         if (!isPotentialCMXConcat(concat)) {
             nestLog.trace("Concat cannot be executed on CMX");
+            return;
+        }
+
+        const auto outputShape = getShape(concat.getOutput());
+        for (auto input : concat.getInputs()) {
+            const auto inputShape = getShape(input);
+            if (vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(inputShape)) {
+                nestLog.trace("Input dimensions exceed the VPU_DIMENSION_LIMIT: {0}", inputShape);
+                return;
+            }
+        }
+
+        if (vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(outputShape)) {
+            nestLog.trace("Output dimensions exceed the VPU_DIMENSION_LIMIT: {0}", outputShape);
             return;
         }
         auto potentialInputPattern = getInputPattern(concat);

@@ -53,7 +53,7 @@ const auto params_MLIR =
         testing::Combine(testing::ValuesIn(netPrecisions),                                           // Model type
                          testing::ValuesIn(static_shapes_to_test_representation(inputShapes_MLIR)),  // Input shapes
                          testing::ValuesIn(mergeRepeated),                                           // Merge repeated
-                         testing::Values(DEVICE_NPU));                                               // Device name
+                         testing::Values(test_utils::TARGET_DEVICE));                                // Device name
 
 INSTANTIATE_TEST_SUITE_P(smoke_CTCGreedyDecoder, CTCGreedyDecoderLayerTestCommon, params_MLIR,
                          CTCGreedyDecoderLayerTest::getTestCaseName);

@@ -7,8 +7,6 @@
 #include <mlir/IR/BuiltinTypes.h>
 
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
-#include "vpux/utils/core/numeric.hpp"
 
 #include <algorithm>
 

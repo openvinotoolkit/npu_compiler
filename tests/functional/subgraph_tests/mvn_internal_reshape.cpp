@@ -38,6 +38,7 @@ namespace ov::test::subgraph {
 
 using MvnInternalReshapeParams = std::tuple<ov::Shape,           // first/final shape
                                             ov::Shape,           // mvn shape
+                                            bool,                // acrossChannels
                                             bool,                // normalize variance
                                             ov::element::Type>;  // precision
 
@@ -46,19 +47,20 @@ class MvnInternalReshapeTestCommon :
         public testing::WithParamInterface<MvnInternalReshapeParams> {
 public:
     static std::string getTestCaseName(testing::TestParamInfo<MvnInternalReshapeParams> obj) {
-        const auto& [ioShape, mvnShape, normVariance, prc] = obj.param;
+        const auto& [ioShape, mvnShape, acrossChannels, normVariance, prc] = obj.param;
         const std::string sep = "_";
         std::ostringstream result;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
         result << "IOS={" << vec2str(ioShape) << "}" << sep;
         result << "MvnS={" << vec2str(mvnShape) << "}" << sep;
+        result << "acrossChannels={" << acrossChannels << "}" << sep;
         result << "norm={" << normVariance << "}" << sep;
         result << "prc={" << prc << "}" << sep;
         return result.str();
     }
 
     void SetUp() override {
-        const auto& [ioShape, mvnShape, normVariance, prc] = GetParam();
+        const auto& [ioShape, mvnShape, acrossChannels, normVariance, prc] = GetParam();
         const auto C = ioShape.at(1);
         const auto K = mvnShape.at(1);
         ASSERT_GT(C, K);
@@ -77,7 +79,7 @@ public:
         auto add1 = std::make_shared<ov::op::v1::Add>(params[0], ct1);
 
         auto reshape1 = buildReshape(add1, mvnShape);
-        auto mvn = std::make_shared<ov::op::v0::MVN>(reshape1, false, normVariance, 1.0E-6);
+        auto mvn = std::make_shared<ov::op::v0::MVN>(reshape1, acrossChannels, normVariance, 1.0E-6);
         auto reshape2 = buildReshape(mvn, ioShape);
         auto add2 = std::make_shared<ov::op::v1::Add>(reshape2, ct2);
 
@@ -127,10 +129,21 @@ std::vector<ov::Shape> ioShape1 = {
         {1, C1 * 20, 1, W1 / 20},
 #endif
 };
-const auto testParams1 = ::testing::Combine(::testing::ValuesIn(ioShape1), ::testing::Values(mvnShape1),
-                                            ::testing::Values(true), ::testing::ValuesIn(precision));
+const auto testParams1 =
+        ::testing::Combine(::testing::ValuesIn(ioShape1), ::testing::Values(mvnShape1), ::testing::Values(false),
+                           ::testing::Values(true), ::testing::ValuesIn(precision));
 
 INSTANTIATE_TEST_SUITE_P(smoke_MvnInternalReshape1, MvnInternalReshapeTestCommon, testParams1,
+                         MvnInternalReshapeTestCommon::getTestCaseName);
+
+// Test batched MVN
+ov::Shape mvnShape2 = {32, 16, 64, 64};
+ov::Shape ioShape2 = {1, 512, 64, 64};
+const auto testParams2 =
+        ::testing::Combine(::testing::Values(ioShape2), ::testing::Values(mvnShape2), ::testing::Values(true),
+                           ::testing::Values(true), ::testing::ValuesIn(precision));
+
+INSTANTIATE_TEST_SUITE_P(smoke_MvnInternalReshape2, MvnInternalReshapeTestCommon, testParams2,
                          MvnInternalReshapeTestCommon::getTestCaseName);
 
 }  // namespace

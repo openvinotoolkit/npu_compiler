@@ -3,9 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/core/async_deps_info.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
@@ -37,7 +37,7 @@ namespace {
 
 bool isOptimizableOp(mlir::async::ExecuteOp execOp) {
     const auto executor = vpux::VPUIP::VPUIPDialect::getExecutor(execOp);
-    return !IE::isNceTile(executor.getFullReference());
+    return !config::isNceTile(executor.getFullReference());
 }
 
 bool isSameExecutor(mlir::async::ExecuteOp execOp1, mlir::async::ExecuteOp execOp2) {

@@ -52,7 +52,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU37XX>, config.com
         // CHECK:   [[BUFF2:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x1x1x1000xf16, @DDR>
         // CHECK:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
         // CHECK:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
-        // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> {isFinalBarrier} -> !VPURT.Barrier
+        // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK:   [[BUFF3:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<1x1000xf16, @DDR>
 
         // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {

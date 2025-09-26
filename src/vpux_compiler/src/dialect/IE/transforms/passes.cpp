@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/utils/passes.hpp"
 
 namespace vpux::IE {
 

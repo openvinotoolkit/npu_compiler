@@ -8,13 +8,15 @@
 
 // CHECK-LABEL: @NoMultiplyNumClustersRemained
 module @NoMultiplyNumClustersRemained {
-    IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1x55x55xf16>
@@ -30,20 +32,22 @@ module @NoMultiplyNumClustersRemained {
     }
 }
 
-// CHECK: IE.TileResource 6 of @NCE
-// CHECK: IE.ExecutorResource 2 of @DMA_NN
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN
 
 // -----
 
 // CHECK-LABEL: @NoMatMulNumClustersRemained
 module @NoMatMulNumClustersRemained {
-    IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1x55x128xf16>
@@ -59,20 +63,22 @@ module @NoMatMulNumClustersRemained {
     }
 }
 
-// CHECK: IE.TileResource 6 of @NCE
-// CHECK: IE.ExecutorResource 2 of @DMA_NN
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN
 
 // -----
 
 // CHECK-LABEL: @NoSoftMaxNumClustersRemained
 module @NoSoftMaxNumClustersRemained {
-    IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1x55x55xf16>
@@ -89,20 +95,22 @@ module @NoSoftMaxNumClustersRemained {
     }
 }
 
-// CHECK: IE.TileResource 6 of @NCE
-// CHECK: IE.ExecutorResource 2 of @DMA_NN
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN
 
 // -----
 
 // CHECK-LABEL: @MatMulMultiplySoftMaxNumClustersReduced
 module @MatMulMultiplySoftMaxNumClustersReduced {
-    IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1x55x55xf16>
@@ -120,20 +128,22 @@ module @MatMulMultiplySoftMaxNumClustersReduced {
     }
 }
 
-// CHECK: IE.TileResource 1 of @NCE
-// CHECK: IE.ExecutorResource 1 of @DMA_NN
+// CHECK: config.Resources 1 of @NCE
+// CHECK: config.ExecutorResource 1 of @DMA_NN
 
 // -----
 
 // CHECK-LABEL: @BigShapesNumClustersRemained
 module @BigShapesNumClustersRemained {
-    IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 6 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 2 of @DMA_NN
+    config.Resources 1 of @global {
+        config.ExecutorResource 2 of @DMA_NN
+    }
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
         DataInfo "input" : tensor<1x1x555x555xf16>
@@ -151,5 +161,5 @@ module @BigShapesNumClustersRemained {
     }
 }
 
-// CHECK: IE.TileResource 6 of @NCE
-// CHECK: IE.ExecutorResource 2 of @DMA_NN
+// CHECK: config.Resources 6 of @NCE
+// CHECK: config.ExecutorResource 2 of @DMA_NN

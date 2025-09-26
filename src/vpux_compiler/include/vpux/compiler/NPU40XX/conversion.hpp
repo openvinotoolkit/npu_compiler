@@ -5,8 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/NPU37XX/conversion.hpp"
-#include "vpux/compiler/NPU40XX/conversion.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 #include "vpux/compiler/dialect/VPU/utils/dry_run_utils.hpp"
 
@@ -14,10 +12,6 @@
 
 namespace vpux {
 namespace arch40xx {
-
-//
-// passes
-//
 
 //
 // pipelines
@@ -41,7 +35,6 @@ void elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool workloadManagementEna
 //
 
 void registerConversionPipeline();
-void registerConversionPasses();
 
 }  // namespace arch40xx
 }  // namespace vpux

@@ -4,9 +4,12 @@
 //
 
 #include "vpux/compiler/core/cycle_cost_info.hpp"
-
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+
+#include <vpu_cost_model.h>
 
 using namespace vpux;
 
@@ -73,4 +76,12 @@ size_t CycleCostInfo::getCycleCost(mlir::Operation* op) {
     size_t cycleCost = costInterface.getOperationCycleCost(_costModel);
     storeCycleCost(cycleCost, op);
     return cycleCost;
+}
+
+void CycleCostInfo::resetNNCacheCounter() {
+    _costModel->getPreloadedCacheCounter().reset();
+}
+
+void CycleCostInfo::printNNCacheStatistics(Logger& log) const {
+    log.info("[NN Cache statistics]  {0}", _costModel->getPreloadedCacheCounter().printString());
 }

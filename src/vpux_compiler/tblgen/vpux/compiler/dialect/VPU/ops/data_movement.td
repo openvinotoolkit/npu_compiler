@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_DATA_MOVEMENT
 #define VPUX_COMPILER_DIALECT_VPU_OPS_DATA_MOVEMENT
 
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/core/constraints.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
@@ -861,7 +862,8 @@ def VPU_SliceOp :
         VPU_LayerOp<
             "Slice",
             [
-                VPU_ViewLikeOpInterface
+                VPU_ViewLikeOpInterface,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "Extract single slice from ranked tensor or distributed tensor";

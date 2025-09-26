@@ -4,10 +4,10 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/mapped_inference_rewriter.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
 namespace vpux {
@@ -193,7 +193,7 @@ mlir::FailureOr<SymbolizationResult> MappedInferenceRewriter::symbolize(
             media_used = fillBits(1);
         }
         auto module = getModuleOp(op);
-        auto tileCount = static_cast<size_t>(IE::getTileExecutor(module).getCount());
+        auto tileCount = static_cast<size_t>(config::getTileExecutor(module).getCount());
         uint8_t dpu_used = fillBits(tileCount);
         auto dmaCount = parseIntArrayOfArrayAttr<int64_t>(op.getDmaCount());
 

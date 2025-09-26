@@ -77,8 +77,8 @@ func.func @NotAdjustForSoftmaxMultiShaveOptNHWC(%arg0: tensor<1x2x16x64xf16, {or
 
 // -----
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1000000 bytes of @CMX_NN
+config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1000000 bytes of @CMX_NN
 }
 
 // CHECK-LABEL:   @AdjustForGeluMultiShaveOptNCHW
@@ -95,8 +95,8 @@ func.func @AdjustForGeluMultiShaveOptNCHW(%arg0: tensor<1x2x2x2xf16>) -> tensor<
 
 // -----
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1000000 bytes of @CMX_NN
+config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1000000 bytes of @CMX_NN
 }
 
 // CHECK-LABEL:   @NotAdjustForGeluMultiShaveOptNCHWWithSuitableDimH
@@ -114,8 +114,8 @@ func.func @NotAdjustForGeluMultiShaveOptNCHWWithSuitableDimH(%arg0: tensor<1x2x1
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1000000 bytes of @CMX_NN
+config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1000000 bytes of @CMX_NN
 }
 
 // CHECK-LABEL:   @AdjustForGeluMultiShaveOptNHWC

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -127,8 +128,16 @@ bool vpux::VPU::ShapeCastOp::isSupportedTilingDim(DimArrRef tilingDims) {
     return dimOrder.dimPos(tilingDim) <= dimOrder.dimPos(highestReshapedDim);
 }
 
+bool vpux::VPU::ShapeCastOp::isSupportedTilingDimWithRestrictions(Dim tilingDim) {
+    VPUX_THROW_UNLESS(isSupportedTilingDim({tilingDim}), "ShapeCastOp does not support tiling on dim {0}", tilingDim);
+    // If the tiling dim size is changed, there will be restrictions on the tiling dim.
+    auto inputShape = vpux::getShape(getInput());
+    auto outputShape = vpux::getShape(getOutput());
+    return inputShape[tilingDim] != outputShape[tilingDim];
+}
+
 bool vpux::VPU::ShapeCastOp::isSupportedOutTile(const TileInfo& outTile) {
-    auto tilingDims = getNonOneDim(Shape(outTile.axis));
+    auto tilingDims = getNonOneDim(ShapeRef(outTile.axis));
     if (!isSupportedTilingDim(tilingDims)) {
         return false;
     }
@@ -255,6 +264,177 @@ mlir::LogicalResult FuseShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, mlir
     return mlir::success();
 }
 
+class UniquifyShapeCast final : public mlir::OpRewritePattern<VPU::ShapeCastOp> {
+public:
+    using mlir::OpRewritePattern<VPU::ShapeCastOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(VPU::ShapeCastOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+/*
+Convert
+           Input
+        /        \
+     Slice      Slice
+       |          |
+    ShapeCast  ShapeCast
+
+to
+           Input
+             |
+        ShapeCast
+        /        \
+     Slice      Slice
+
+*/
+
+mlir::LogicalResult UniquifyShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, mlir::PatternRewriter& rewriter) const {
+    auto sliceOp = origOp.getInput().getDefiningOp<VPU::SliceOp>();
+    if (sliceOp == nullptr) {
+        return mlir::failure();
+    }
+
+    // Handle slice on single dimension case
+    const auto sliceDims = IE::getDiffInOutSizeDims(getShape(sliceOp.getSource()), getShape(sliceOp.getResult()));
+    if (sliceDims.size() != 1) {
+        return mlir::failure();
+    }
+    const auto sliceDim = sliceDims.front();
+
+    auto source = sliceOp.getSource();
+    if (source.hasOneUse()) {
+        return mlir::failure();
+    }
+
+    auto reshapedDims = getReshapedDims(origOp);
+    if (reshapedDims.size() != 2) {
+        // Only handle simple case where two dimensions are reshaped
+        return mlir::failure();
+    }
+
+    auto dimOrder = DimsOrder::fromValue(origOp.getInput());
+    auto isSlicedOnHigherDim = llvm::all_of(reshapedDims, [&](Dim dim) {
+        return dimOrder.dimPos(dim) >= dimOrder.dimPos(sliceDim);
+    });
+    if (!isSlicedOnHigherDim) {
+        return mlir::failure();
+    }
+
+    const auto inShape = getShape(origOp.getInput());
+    const auto outShape = getShape(origOp.getOutput());
+    const auto sliceOnReshapedDims = llvm::find(reshapedDims, sliceDim) != reshapedDims.end();
+
+    const auto enlargedDim = inShape[reshapedDims[0]] < outShape[reshapedDims[0]] ? reshapedDims[0] : reshapedDims[1];
+    const auto factor = outShape[enlargedDim] / inShape[enlargedDim];
+    const auto sliceOnShrinkDim = sliceOnReshapedDims && sliceDim != enlargedDim;
+
+    SmallVector<VPU::SliceOp> sliceUsers;
+    SmallVector<VPU::ShapeCastOp> shapeCastUsers;
+    for (auto user : source.getUsers()) {
+        auto slice = mlir::dyn_cast<VPU::SliceOp>(user);
+        if (slice == nullptr || !slice->hasOneUse()) {
+            return mlir::failure();
+        }
+        auto curSliceDims = IE::getDiffInOutSizeDims(getShape(slice.getSource()), getShape(slice.getResult()));
+        if (curSliceDims.size() != 1) {
+            return mlir::failure();
+        }
+        if (sliceDim != curSliceDims.front()) {
+            return mlir::failure();
+        }
+
+        auto shapeCast = mlir::dyn_cast<VPU::ShapeCastOp>(*slice->user_begin());
+        if (shapeCast == nullptr) {
+            return mlir::failure();
+        }
+        auto curReshapedDims = getReshapedDims(shapeCast);
+        if (curReshapedDims != reshapedDims) {
+            return mlir::failure();
+        }
+
+        auto curInShape = getShape(shapeCast.getInput());
+        auto curOutShape = getShape(shapeCast.getOutput());
+        if (curOutShape[enlargedDim] <= curInShape[enlargedDim]) {
+            return mlir::failure();
+        }
+
+        auto curFactor = curOutShape[enlargedDim] / curInShape[enlargedDim];
+        if (curFactor != factor) {
+            return mlir::failure();
+        }
+
+        if (sliceOnShrinkDim) {
+            auto offsets = parseIntArrayAttr<int64_t>(slice.getStaticOffsetsAttr());
+            if (offsets[sliceDim.ind()] % factor != 0) {
+                return mlir::failure();
+            }
+        }
+
+        sliceUsers.push_back(slice);
+        shapeCastUsers.push_back(shapeCast);
+    }
+    if (sliceUsers.size() <= 1) {
+        return mlir::failure();
+    }
+
+    auto newShape = Shape(getShape(source));
+    if (sliceOnShrinkDim) {
+        if (newShape[sliceDim] % factor != 0) {
+            return mlir::failure();
+        }
+    }
+
+    const auto enlargeOnDim0 = enlargedDim == reshapedDims[0];
+    newShape[reshapedDims[0]] = enlargeOnDim0 ? newShape[reshapedDims[0]] * factor : newShape[reshapedDims[0]] / factor;
+    newShape[reshapedDims[1]] = enlargeOnDim0 ? newShape[reshapedDims[1]] / factor : newShape[reshapedDims[1]] * factor;
+
+    rewriter.setInsertionPointAfterValue(source);
+    auto newShapeCast = rewriter.create<VPU::ShapeCastOp>(source.getLoc(), source,
+                                                          getIntArrayAttr(rewriter.getContext(), newShape));
+
+    if (sliceOnReshapedDims) {
+        /*
+          [N, C, H, W]                            [N, C, H, W]
+               |                                        |
+             Slice                                  ShapeCast
+               |                                        |
+          [N, C, H, subW]             to         [N, C/factor, H, W*factor]
+               |                                        |
+            ShapeCast                                 Slice
+               |                                        |
+      [N, C/Factor, H, subW*factor]              [N, C/Factor, H, subW*factor]
+        */
+        for (auto idx : irange(sliceUsers.size())) {
+            auto sizes = to_small_vector(getShape(shapeCastUsers[idx].getOutput()));
+            auto offsets = parseIntArrayAttr<int64_t>(sliceUsers[idx].getStaticOffsets());
+            if (sliceDim == reshapedDims[0]) {
+                offsets[reshapedDims[0].ind()] = enlargeOnDim0 ? offsets[reshapedDims[0].ind()] * factor
+                                                               : offsets[reshapedDims[0].ind()] / factor;
+            } else {
+                offsets[reshapedDims[1].ind()] = enlargeOnDim0 ? offsets[reshapedDims[1].ind()] / factor
+                                                               : offsets[reshapedDims[1].ind()] * factor;
+            }
+            rewriter.setInsertionPoint(shapeCastUsers[idx].getOperation());
+            rewriter.replaceOpWithNewOp<VPU::SliceOp>(shapeCastUsers[idx], newShapeCast,
+                                                      getIntArrayAttr(rewriter.getContext(), offsets),
+                                                      getIntArrayAttr(rewriter.getContext(), sizes));
+        }
+
+    } else {
+        for (auto idx : irange(sliceUsers.size())) {
+            rewriter.setInsertionPoint(shapeCastUsers[idx].getOperation());
+            auto sizes = getShape(shapeCastUsers[idx].getOutput());
+            rewriter.replaceOpWithNewOp<VPU::SliceOp>(shapeCastUsers[idx], newShapeCast,
+                                                      sliceUsers[idx].getStaticOffsetsAttr(),
+                                                      getIntArrayAttr(rewriter.getContext(), sizes));
+        }
+    }
+    for (auto slice : llvm::make_early_inc_range(sliceUsers)) {
+        rewriter.eraseOp(slice);
+    }
+    return mlir::success();
+}
+
 }  // namespace
 
 //
@@ -263,4 +443,5 @@ mlir::LogicalResult FuseShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, mlir
 
 void vpux::VPU::ShapeCastOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<FuseShapeCast>(ctx);
+    patterns.add<UniquifyShapeCast>(ctx);
 }

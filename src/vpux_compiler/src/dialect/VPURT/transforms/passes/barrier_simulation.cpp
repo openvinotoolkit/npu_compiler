@@ -43,6 +43,8 @@ void BarrierSimulationPass::safeRunOnFunc() {
         signalPassFailure();
         return;
     }
+    // For the simulation to run correctly barriers need to be ordered
+    // based on first barrier producer order
     if (mlir::failed(barrierSim.simulateBarriers(_log.nest()))) {
         _log.error("Barrier simulation failed");
         signalPassFailure();

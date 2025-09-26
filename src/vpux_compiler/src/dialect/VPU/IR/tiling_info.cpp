@@ -6,8 +6,8 @@
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/utils/core/error.hpp"
 
 #include <mlir/Support/LogicalResult.h>
@@ -69,8 +69,8 @@ InputTiling DetectionOutputSortOpInputTiling(const vpux::TileInfo& firstOutputTi
 InputTiling DetectionOutputSortOpInputTilingOnShave(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& firstOutputTile,
                                                     int tileId, int tileCount, Logger /*log*/) {
     auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto numClusters = IE::getTileExecutor(module).getCount();
-    auto numTotalShaves = IE::getTotalNumOfEngines(module, VPU::ExecutorKind::SHAVE_ACT);
+    auto numClusters = config::getTileExecutor(module).getCount();
+    auto numTotalShaves = config::getTotalNumOfEngines(module, VPU::ExecutorKind::SHAVE_ACT);
 
     VPUX_THROW_WHEN(numClusters <= 0, "Unsupported number of clusters: {0}", numClusters);
 

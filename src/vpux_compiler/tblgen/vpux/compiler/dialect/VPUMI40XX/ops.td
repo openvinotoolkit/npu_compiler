@@ -260,7 +260,8 @@ def VPUMI40XX_NNDMAOp :
         OptionalAttr<IntAttr>:$wlmPage,
         OptionalAttr<VPUIP_PhysicalBarrierRangeAttr>:$physical_barrier_range,
         OptionalAttr<VPUIP_EnqueueDMAAttr>:$enqueue_dma_attr,
-        OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma
+        OptionalAttr<VPUIP_FetchDMAAttr>:$fetch_dma,
+        OptionalAttr<VPUIP_GatherAddressingMode>:$addressingMode
     );
 
     let results = (outs
@@ -525,7 +526,7 @@ def VPUMI40XX_KernelParamsOp :
         DenseI32ArrayAttr:$dynamicInputShapesSize,
         DenseI32ArrayAttr:$dynamicOutputShapesSize,
         StrAttr:$kernel_type,
-        ElementsAttr:$kernel_params,
+        ArrayAttr:$kernel_params,
         UnitAttr:$is_output_broadcasted,
         UnitAttr:$isJitCompiled
     );
@@ -791,7 +792,8 @@ def VPUMI40XX_DPUInvariantOp :
         UI64Attr:$clean_after,
         Optional<VPURegMapped_IndexType>:$enqueueBarrier,
         OptionalAttr<IntAttr>:$wlmPage,
-        OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config
+        OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
+        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region
     );
 
     let results = (outs

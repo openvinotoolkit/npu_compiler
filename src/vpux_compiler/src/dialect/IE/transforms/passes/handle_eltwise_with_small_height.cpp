@@ -9,8 +9,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/factors.hpp"
@@ -195,7 +195,7 @@ private:
 void HandleEltwiseWithSmallHeightPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-    auto numClusters = IE::getTileExecutor(func).getCount();
+    auto numClusters = config::getTileExecutor(func).getCount();
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<HandleEltwiseWithSmallHeight>(&ctx, numClusters, _log);
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {

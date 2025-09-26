@@ -13,10 +13,10 @@
 !dataTypeDdrCompBuf = memref<1x1x1x1xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN offset 0
+        config.MemoryResource 64 bytes of @CMX_NN offset 0
       }
     }
   }
@@ -91,10 +91,10 @@ module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleCluster {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN offset 0
+        config.MemoryResource 64 bytes of @CMX_NN offset 0
       }
     }
   }
@@ -205,10 +205,10 @@ module @DmaSpillSingleCluster {
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterWithNoUniqueIdsAfterInlining {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN offset 0
+        config.MemoryResource 64 bytes of @CMX_NN offset 0
       }
     }
   }
@@ -320,10 +320,10 @@ module @DmaSpillSingleClusterWithNoUniqueIdsAfterInlining {
 !dataTypeDdrCompBuf = memref<1x64x56x56xf16, {compression = #VPUIP.Compression<CompressionCandidate>, order = #NCHW}, @DDR>
 
 module @DmaSpillSingleClusterWithParallelDecompressAndCompressTasks {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN offset 0
+        config.MemoryResource 64 bytes of @CMX_NN offset 0
       }
     }
   }

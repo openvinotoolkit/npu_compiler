@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUMI37XX2VPUASM/kernel_params_rewriter.hpp"
+#include <llvm/ADT/SmallVector.h>
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux {
 namespace vpumi37xx2vpuasm {
@@ -38,9 +40,14 @@ mlir::FailureOr<SymbolizationResult> KernelParamsRewriter::symbolize(VPUMI37XX::
 
     auto [inputsShapeAttr, outputsShapeAttr] = processDynamicShapes(context, inputShapes, outputShapes);
 
-    auto newOp =
-            rewriter.create<VPUASM::KernelParamsOp>(op.getLoc(), symName, inputsAttr, outputsAttr, inputsShapeAttr,
-                                                    outputsShapeAttr, op.getKernelTypeAttr(), op.getKernelParamsAttr());
+    auto params = op.getKernelParamsAttr();
+    auto denseElemData = params.getValues<uint8_t>();
+    auto dataVector = SmallVector<uint8_t>(denseElemData.begin(), denseElemData.end());
+
+    auto kernelParams = VPUASM::KernelParamsProperty(dataVector);
+    auto newOp = rewriter.create<VPUASM::KernelParamsOp>(op.getLoc(), symName, inputsAttr, outputsAttr, inputsShapeAttr,
+                                                         outputsShapeAttr, op.getKernelTypeAttr(),
+                                                         std::move(kernelParams), nullptr, nullptr);
 
     rewriter.eraseOp(op);
 

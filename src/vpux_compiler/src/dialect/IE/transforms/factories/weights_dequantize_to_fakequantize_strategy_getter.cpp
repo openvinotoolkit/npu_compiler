@@ -6,10 +6,7 @@
 #include "vpux/compiler/dialect/IE/transforms/factories/weights_dequantize_to_fakequantize_strategy_getter.hpp"
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/utils/logging.hpp"
-#include "vpux/utils/logger/logger.hpp"
 
 using namespace vpux;
 

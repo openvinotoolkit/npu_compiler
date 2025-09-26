@@ -400,6 +400,39 @@ mlir::LogicalResult preparePadWithZeroSwap(optimization::TransformAttrPos padWit
 }
 
 //
+// MoveSubViewAfter
+//
+
+mlir::LogicalResult verifyCastElementTypeSwap(Const::CastElemTypeAttr castElemTypeAttr, Const::SubViewAttr subViewAttr,
+                                              NDTypeInterface subViewInType) {
+    auto getChangedAxes = [&]() {
+        auto subview = mlir::dyn_cast<Const::SubViewAttr>(subViewAttr);
+        auto subviewShape = parseIntArrayAttr<int64_t>(subview.getShape());
+        mlir::SetVector<int32_t> changedAxes;
+        for (size_t i = 0; i < subviewShape.size(); i++) {
+            if (subviewShape[i] != subViewInType.getShape()[Dim(i)]) {
+                changedAxes.insert(i);
+            }
+        }
+
+        return changedAxes;
+    };
+
+    auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(castElemTypeAttr.getElemType());
+    if (perAxisType == nullptr) {
+        return mlir::success();
+    }
+
+    auto quantizationAxis = perAxisType.getQuantizedDimension();
+    auto changedAxes = getChangedAxes();
+    if (changedAxes.contains(quantizationAxis)) {
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
+
+//
 // MoveReshapeBefore
 //
 
@@ -520,7 +553,14 @@ std::pair<optimization::TransformAttrPos, bool> fuseConsecutiveTransformations(
     } else if (mlir::isa<Const::RescaleAttr>(prevTransformation) && mlir::isa<Const::RescaleAttr>(currTransformation)) {
         auto firstAttr = mlir::cast<Const::RescaleAttr>(prevTransformation);
         auto secondAttr = mlir::cast<Const::RescaleAttr>(currTransformation);
-        auto newScale = firstAttr.getScale().getValueAsDouble() * secondAttr.getScale().getValueAsDouble();
+        // Transformations optimizations are disabled for non-splat RescaleAttr -- TODO: E#176939 - enable
+        // optimizations including `moveSubViewBefore` and `moveReshapeBefore` cases.
+        if (!firstAttr.getScale().isSplat() || !secondAttr.getScale().isSplat()) {
+            return {currPos, false};
+        }
+        float scaledValueA = firstAttr.getScale().fold().getSplatValue<float>();
+        float scaledValueB = secondAttr.getScale().fold().getSplatValue<float>();
+        float newScale = scaledValueA * scaledValueB;
         newTransformation = Const::RescaleAttr::get(getFPAttr(firstAttr.getContext(), newScale));
     } else if ((mlir::isa<Const::ReshapeAttr>(prevTransformation) &&
                 mlir::isa<Const::ReshapeAttr>(currTransformation)) ||
@@ -653,10 +693,16 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
     auto result =
             llvm::TypeSwitch<Const::TransformAttrInterface, std::pair<optimization::TransformAttrPos, bool>>(
                     prevTransformation)
-                    .Case<Const::AddAttr, Const::RescaleAttr, Const::DequantizeAttr, Const::ReorderAttr>(
+                    .Case<Const::AddAttr, Const::DequantizeAttr, Const::ReorderAttr>(
                             [&](Const::TransformAttrInterface /*transformation*/) {
                                 return swapTransformations(currPos - 1, currPos);
                             })
+                    .Case<Const::RescaleAttr>([&](Const::RescaleAttr attr) {
+                        if (!attr.getScale().isSplat()) {
+                            return std::make_pair(currPos, false);
+                        }
+                        return swapTransformations(currPos - 1, currPos);
+                    })
                     .Case<Const::CastElemTypeAttr, Const::ConvertElemTypeAttr>([&](auto attr) {
                         prepareTransformElemTypeSwap<decltype(attr)>(currPos - 1);
                         return swapTransformations(currPos - 1, currPos);
@@ -738,6 +784,38 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
 }
 
 //
+// MoveSubViewAfter
+//
+
+std::pair<optimization::TransformAttrPos, bool> moveSubViewAfter(
+        SmallVector<Const::TransformAttrInterface>& transformations, optimization::TransformAttrPos& currPos,
+        NDTypeInterface baseType) {
+    if (currPos == transformations.begin() || currPos == transformations.end()) {
+        return {currPos, false};
+    }
+
+    auto currTransformation = *(currPos);
+    auto prevTransformation = *(currPos - 1);
+
+    if (!mlir::isa<Const::ReorderAttr, Const::CastElemTypeAttr>(currTransformation) ||
+        !mlir::isa<Const::SubViewAttr>(prevTransformation)) {
+        return {currPos, false};
+    }
+
+    auto prevTransformations = ArrayRef(transformations).drop_back((transformations.end() - currPos) + 1);
+    auto prevTransformationInType = Const::inferFinalType(baseType, prevTransformations);
+
+    if (auto castElemType = mlir::dyn_cast<Const::CastElemTypeAttr>(currTransformation)) {
+        if (mlir::failed(verifyCastElementTypeSwap(castElemType, mlir::cast<Const::SubViewAttr>(prevTransformation),
+                                                   prevTransformationInType))) {
+            return {currPos, false};
+        }
+    }
+
+    return swapTransformations(currPos - 1, currPos);
+}
+
+//
 // MoveReshapeBefore
 //
 
@@ -760,28 +838,33 @@ std::pair<optimization::TransformAttrPos, bool> moveReshapeBefore(
     auto prevTransformations = ArrayRef(transformations).drop_back((transformations.end() - currPos) + 1);
     auto prevTransformationInType = Const::inferFinalType(baseType, prevTransformations);
 
-    auto result =
-            llvm::TypeSwitch<Const::TransformAttrInterface, std::pair<optimization::TransformAttrPos, bool>>(
-                    prevTransformation)
-                    .Case<Const::AddAttr, Const::RescaleAttr>([&](Const::TransformAttrInterface /*transformation*/) {
-                        return swapTransformations(currPos - 1, currPos);
-                    })
-                    .Case<Const::CastElemTypeAttr, Const::ConvertElemTypeAttr>([&](auto attr) {
-                        if (mlir::failed(prepareTransformElemTypeSwap<decltype(attr)>(currPos - 1,
-                                                                                      prevTransformationInType))) {
-                            return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
-                        }
-                        return swapTransformations(currPos - 1, currPos);
-                    })
-                    .Case<Const::DequantizeAttr>([&](Const::DequantizeAttr) {
-                        if (mlir::failed(prepareDequantizeSwap(currPos - 1, prevTransformationInType))) {
-                            return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
-                        }
-                        return swapTransformations(currPos - 1, currPos);
-                    })
-                    .Default([&](Const::TransformAttrInterface /*transformation*/) {
-                        return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
-                    });
+    auto result = llvm::TypeSwitch<Const::TransformAttrInterface, std::pair<optimization::TransformAttrPos, bool>>(
+                          prevTransformation)
+                          .Case<Const::AddAttr>([&](Const::TransformAttrInterface /*transformation*/) {
+                              return swapTransformations(currPos - 1, currPos);
+                          })
+                          .Case<Const::RescaleAttr>([&](Const::RescaleAttr attr) {
+                              if (!attr.getScale().isSplat()) {
+                                  return std::make_pair(currPos, false);
+                              }
+                              return swapTransformations(currPos - 1, currPos);
+                          })
+                          .Case<Const::CastElemTypeAttr, Const::ConvertElemTypeAttr>([&](auto attr) {
+                              if (mlir::failed(prepareTransformElemTypeSwap<decltype(attr)>(
+                                          currPos - 1, prevTransformationInType))) {
+                                  return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
+                              }
+                              return swapTransformations(currPos - 1, currPos);
+                          })
+                          .Case<Const::DequantizeAttr>([&](Const::DequantizeAttr) {
+                              if (mlir::failed(prepareDequantizeSwap(currPos - 1, prevTransformationInType))) {
+                                  return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
+                              }
+                              return swapTransformations(currPos - 1, currPos);
+                          })
+                          .Default([&](Const::TransformAttrInterface /*transformation*/) {
+                              return std::pair<optimization::TransformAttrPos, bool>{currPos, false};
+                          });
 
     return result;
 }

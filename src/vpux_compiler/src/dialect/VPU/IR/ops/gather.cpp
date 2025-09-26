@@ -109,7 +109,7 @@ mlir::LogicalResult vpux::VPU::GatherOp::inferReturnTypes(mlir::MLIRContext* ctx
         calculateOutputShape(outShapeBounds, indicesBounds);
 
         const auto typeComponents = TypeComponents()
-                                            .setShape(Shape(outShape))
+                                            .setShape(ShapeRef(outShape))
                                             .setDimsOrder(DimsOrder::fromNumDims(outShape.size()))
                                             .setBounds(Bounds(outShapeBounds));
 

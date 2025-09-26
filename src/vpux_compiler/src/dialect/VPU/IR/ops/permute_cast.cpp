@@ -5,10 +5,8 @@
 
 #include <mlir/Support/LogicalResult.h>
 #include <cstdint>
-#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"

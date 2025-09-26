@@ -44,7 +44,7 @@ mlir::LogicalResult vpux::VPU::UpsamplingOp::inferReturnTypes(mlir::MLIRContext*
             inShape[3] + (inShape[3] - 1) * (upsamplingFactorVector[0] - 1) + padWidthVector[0] + padWidthVector[1],
     };
 
-    const auto outType = inType.changeShape(Shape(outputShape));
+    const auto outType = inType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/asm.hpp"
 
 #include <llvm/ADT/STLExtras.h>

@@ -188,24 +188,6 @@ template void reindexList<VPURegMapped::FetchTaskOp>(VPUMI40XX::MappedInferenceO
                                                      size_t);
 
 //
-// AddEnqueueDMAops Util
-//
-void reindexTaskLinkAttrForDMA(VPURegMapped::TaskOpInterface head) {
-    if (!head) {
-        return;
-    }
-
-    // Start from second DMA in the list as first doesn't have previous DMA
-    head = head.getNextTask();
-    while (head) {
-        if (head.getTaskLink().has_value()) {
-            head.linkToPreviousTask();
-        }
-        head = head.getNextTask();
-    }
-}
-
-//
 // Resolve Task Location utils
 //
 

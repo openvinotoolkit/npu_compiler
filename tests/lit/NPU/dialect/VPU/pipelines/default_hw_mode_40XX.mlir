@@ -109,13 +109,11 @@ module @Convolution attributes {config.arch = #config.arch_kind<NPU40XX>, config
 
 // CHECK-LABEL: @SoftMax
 module @SoftMax {
-    // CHECK-DAG: {{  }}IE.TileResource
+    // CHECK-DAG: {{  }}config.Resources
     // CHECK-DAG: {{      }}module @DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT: {{        }}IE.MemoryResource 8 bytes of @CMX_NN offset 1473528
-    // CHECK-DAG: {{      }}module @SWKernelPrefetchingReservedMemory
-    // CHECK-NEXT: {{        }}IE.MemoryResource 512 bytes of @CMX_NN offset 1473536
+    // CHECK-NEXT: {{        }}config.MemoryResource 8 bytes of @CMX_NN offset 1473016
     // CHECK-DAG: {{      }}module @DmaProfilingReservedMemory
-    // CHECK-NEXT: {{        }}IE.MemoryResource 512 bytes of @CMX_NN offset 1474048
+    // CHECK-NEXT: {{        }}config.MemoryResource 512 bytes of @CMX_NN offset 1473024
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1000xf16>
     } outputsInfo : {
@@ -595,15 +593,15 @@ module @VerticalFusionOutlining {
 // By bringing AdjustMemorySpace in front of OptimizeSharedInputCopyForConcat, the pattern will be matched and rewritten to: Copy(CMX2DDR) -> Concat(DDR) -> {Slice(DDR) -> Copy(DDR2CMX) -> Concat(CMX)}
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
-  IE.TileResource 1 of @NCE at 1.850000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 1 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" tensorNames = ["input"] : tensor<1x3x128x128xf32>
   } outputsInfo : {
@@ -697,15 +695,15 @@ module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat1T {
 // Check whether OptimizeSharedInputCopyForConcat is applied after reordering with AdjustMemorySpace on 2T (E#156584)
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @AdjustMemorySpaceAndOptimizeSharedInputCopyForConcat2T {
-  IE.TileResource 2 of @NCE at 1.850000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" tensorNames = ["input"] : tensor<1x3x128x128xf32>
   } outputsInfo : {

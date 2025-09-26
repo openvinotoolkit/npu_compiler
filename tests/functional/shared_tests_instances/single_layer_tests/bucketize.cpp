@@ -75,13 +75,13 @@ const auto testBucketizeParamsI64 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[0])),
                            ::testing::ValuesIn(with_right_bound), ::testing::Values(dataInputPrecisions[0]),
                            ::testing::Values(bucketsInputPrecisions[0]), ::testing::Values(outputPrecisions[1]),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testBucketizeParams =
         ::testing::Combine(::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapes)),
                            ::testing::ValuesIn(with_right_bound), ::testing::Values(dataInputPrecisions[0]),
                            ::testing::Values(bucketsInputPrecisions[0]), ::testing::Values(outputPrecisions[0]),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precomit_BucketizeTest, BucketizeLayerTestCommon, testBucketizeParams,
                          BucketizeLayerTestCommon::getTestCaseName);

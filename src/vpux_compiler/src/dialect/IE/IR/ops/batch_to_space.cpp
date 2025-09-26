@@ -9,7 +9,6 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/attributes_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 

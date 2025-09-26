@@ -48,7 +48,7 @@ mlir::Type normalizeQuantStorageType(mlir::quant::QuantizedType qType);
 
 mlir::Type expandScalesAndZP(mlir::Type perAxisQType, ShapeRef padBefore, ShapeRef padAfter);
 
-mlir::Type tileScalesAndZP(mlir::Type perAxisQType, ShapeRef shape, ShapeRef offsets, ShapeRef strides = Shape());
+mlir::Type tileScalesAndZP(mlir::Type perAxisQType, ShapeRef shape, ShapeRef offsets, ShapeRef strides = {});
 
 mlir::Type tileScalesAndZP(mlir::Type perAxisQType, ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes);
 

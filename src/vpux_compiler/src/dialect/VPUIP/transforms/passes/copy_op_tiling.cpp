@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -343,7 +343,7 @@ void CopyOpTilingPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
     const auto arch = config::getArch(module);
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     const auto dmaPortNum = dmaOp.getCount();
 
     // This rewriter will not handle Copy Op with a distributed type

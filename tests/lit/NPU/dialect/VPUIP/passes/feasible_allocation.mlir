@@ -19,7 +19,7 @@ net.NetworkInfo
     outputsInfo : {
         DataInfo "prob" : tensor<1x16x4x4xf16>
     }
-// CHECK:   IE.TileResource {{[0-9]+}} of @NCE
+// CHECK:   config.Resources {{[0-9]+}} of @NCE
 
 func.func @main(%in: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>, %out: memref<1x16x4x4xf16, #NHWC>) -> memref<1x16x4x4xf16, #NHWC> {
     %wt = const.Declare memref<16x1x1x4xsi32, [@CMX_NN, 0]> = dense<1> : tensor<16x1x1x4xsi32>
@@ -120,10 +120,10 @@ func.func @main(%in: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>, %out: memref<1x1
 // CHECK-LABEL: @SimpleGraphWithReservedMem
 module @SimpleGraphWithReservedMem {
 
-IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
         module @DmaProfilingReservedMemory {
-            IE.MemoryResource 512 bytes of @CMX_NN offset 0
+            config.MemoryResource 512 bytes of @CMX_NN offset 0
         }
     }
 }
@@ -137,7 +137,7 @@ net.NetworkInfo
         DataInfo "prob" : tensor<1x16x4x4xf16>
     }
 
-// CHECK:   IE.TileResource {{[0-9]+}} of @NCE
+// CHECK:   config.Resources {{[0-9]+}} of @NCE
 
 func.func @main(%in: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>, %out: memref<1x16x4x4xf16, #NHWC>) -> memref<1x16x4x4xf16, #NHWC> {
     %wt = const.Declare memref<16x1x1x4xsi32, [@CMX_NN, 0]> = dense<1> : tensor<16x1x1x4xsi32>
@@ -248,7 +248,7 @@ net.NetworkInfo
         DataInfo "prob2" : tensor<1x16x4x4xf16>
     }
 
-// CHECK:   IE.TileResource {{[0-9]+}} of @NCE
+// CHECK:   config.Resources {{[0-9]+}} of @NCE
 
 func.func @main(%arg0: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>, %arg1: memref<1x16x4x4xf16, #NHWC>, %arg2: memref<1x16x4x4xf16, #NHWC>)
         -> (memref<1x16x4x4xf16, #NHWC>, memref<1x16x4x4xf16, #NHWC>) {
@@ -333,7 +333,7 @@ net.NetworkInfo
     outputsInfo : {
         DataInfo "prob" : tensor<1x16x4x4xf16>
     }
-// CHECK:   IE.TileResource {{[0-9]+}} of @NCE
+// CHECK:   config.Resources {{[0-9]+}} of @NCE
 
 func.func @main(%in: memref<1x16x4x4xf16, #NHWC, [@CMX_NN, 0]>, %out: memref<1x16x4x4xf16, #NHWC>) -> memref<1x16x4x4xf16, #NHWC> {
     %wt = const.Declare memref<16x1x1x4xsi32, [@CMX_NN, 0]> = dense<1> : tensor<16x1x1x4xsi32>

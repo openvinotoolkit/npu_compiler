@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <queue>
-#include <vpux/compiler/dialect/core/transforms/passes.hpp>
-
 #include <vpux/compiler/dialect/core/IR/ops.hpp>
+#include <vpux/compiler/dialect/core/transforms/passes.hpp>
 #include <vpux/compiler/utils/func_dialect.hpp>
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/dense_map.hpp"
+
+#include <queue>
 
 namespace vpux::Core {
 #define GEN_PASS_DECL_PACKNESTEDMODULES

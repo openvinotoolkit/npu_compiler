@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
@@ -391,7 +390,8 @@ SmallVector<StridedShape> VPU::DistributedTensorType::getPerClusterMemoryStrided
     VPUX_THROW_UNLESS(strideInReqs.checkStrides(*this), "Only compact strides are supported");
 
     const auto memoryShapes = getPerClusterMemoryShapes();
-    return VPU::getPerClusterMemoryStridedShapes(getShape(), getStrides(), getDimsOrder(), getDistribution().getMode(),
+    const auto strides = getStrides();
+    return VPU::getPerClusterMemoryStridedShapes(getShape(), strides, getDimsOrder(), getDistribution().getMode(),
                                                  memoryShapes);
 }
 

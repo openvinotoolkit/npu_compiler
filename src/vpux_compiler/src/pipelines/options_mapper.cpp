@@ -248,20 +248,10 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
         }
     };
 
-    if (platform == ov::intel_npu::Platform::NPU3720) {
-        switch (config.get<intel_npu::PERFORMANCE_HINT>()) {
-        case ov::hint::PerformanceMode::THROUGHPUT:
-        case ov::hint::PerformanceMode::LATENCY:
-        default:
-            return getNumOfDmaPortsWithDpuCountLimit();
-        }
-    } else if (platform == ov::intel_npu::Platform::NPU4000) {
-        switch (config.get<intel_npu::PERFORMANCE_HINT>()) {
-        case ov::hint::PerformanceMode::THROUGHPUT:
-        case ov::hint::PerformanceMode::LATENCY:
-        default:
-            return getNumOfDmaPortsWithDpuCountLimit();
-        }
+    if (archKind == config::ArchKind::NPU37XX) {
+        return getNumOfDmaPortsWithDpuCountLimit();
+    } else if (archKind == config::ArchKind::NPU40XX) {
+        return getNumOfDmaPortsWithDpuCountLimit();
     } else {
         switch (config.get<intel_npu::PERFORMANCE_HINT>()) {
         case ov::hint::PerformanceMode::THROUGHPUT:
@@ -271,7 +261,7 @@ std::optional<int> getNumberOfDMAEngines(const intel_npu::Config& config) {
             return getNumOfDmaPortsWithDpuCountLimit();
         }
     }
-}
+}  // namespace vpux
 
 //
 // getAvailableCmx
@@ -364,6 +354,14 @@ std::optional<bool> getWlmRollback(const intel_npu::Config& config) {
 std::optional<bool> getQDQOptimization(const intel_npu::Config& config) {
     if (config.has<intel_npu::QDQ_OPTIMIZATION>()) {
         return config.get<intel_npu::QDQ_OPTIMIZATION>();
+    }
+
+    return std::nullopt;
+}
+
+std::optional<bool> getQDQOptimizationAggressive(const intel_npu::Config& config) {
+    if (config.has<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>()) {
+        return config.get<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
     }
 
     return std::nullopt;
@@ -467,5 +465,15 @@ std::optional<ConstantFoldingConfig> getConstantFoldingInBackground(const intel_
 }
 
 #endif
+
+// Profiling
+
+std::optional<bool> getPerfCount(const intel_npu::Config& config) {
+    if (config.has<intel_npu::PERF_COUNT>()) {
+        return config.get<intel_npu::PERF_COUNT>();
+    }
+
+    return std::nullopt;
+}
 
 }  // namespace vpux

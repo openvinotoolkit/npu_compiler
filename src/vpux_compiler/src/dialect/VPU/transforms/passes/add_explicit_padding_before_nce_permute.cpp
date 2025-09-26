@@ -7,7 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_ADDEXPLICITPADDINGBEFORENCEPERMUTE
@@ -27,13 +27,10 @@ bool isSliceOnChannels(mlir::Operation* userOp) {
     const auto inputShape = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType()).getShape();
     const auto offsets = Shape(parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr()));
     const auto sizes = Shape(parseIntArrayAttr<int64_t>(sliceOp.getStaticSizesAttr()));
-    if (offsets[Dims4D::Act::C] + sizes[Dims4D::Act::C] < inputShape[Dims4D::Act::C]) {
-        return true;
-    }
-    return false;
+    return offsets[Dims4D::Act::C] + sizes[Dims4D::Act::C] < inputShape[Dims4D::Act::C];
 }
 
-bool userNeedsExplicitPad(mlir::Operation* userOp) {
+bool userNeedsExplicitPad(mlir::Operation* userOp, int64_t ncePermuteInputChannels) {
     if (userOp == nullptr) {
         return false;
     }
@@ -46,20 +43,27 @@ bool userNeedsExplicitPad(mlir::Operation* userOp) {
 
     // If NCE operation has weights sparsity, expanded activation won't be used in actual compute
     auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(userOp);
-    if (nceOp != nullptr && nceOp.getWeightsOperand() != nullptr &&
-        mlir::isa<vpux::VPU::SparseTensorType>(nceOp.getWeightsOperand().getType())) {
+    const auto hasSparseWeights = nceOp != nullptr && nceOp.getWeightsOperand() != nullptr &&
+                                  mlir::isa<vpux::VPU::SparseTensorType>(nceOp.getWeightsOperand().getType());
+    if (hasSparseWeights) {
         return false;
     }
 
-    // Following ops doesn't have compute on channels and if the user op is Slice on channel
-    // it will not propagate NaN through the model.
-    if (mlir::isa<VPU::NCEMaxPoolOp, VPU::NCEDepthConvolutionOp, VPU::NCEAveragePoolOp, VPU::NCEEltwiseOp,
-                  VPU::ViewLikeOpInterface>(userOp)) {
-        bool isPadNeeded = false;
-        for (auto nextUserOp : userOp->getResult(0).getUsers()) {
-            isPadNeeded |= userNeedsExplicitPad(nextUserOp);
+    // Following ops do not have compute on channels and if the user op is Slice on channel or if they produce sliced
+    // data directly, NaNs will not be propagated through the model
+    if (mlir::isa<VPU::NCEMaxPoolOp, VPU::NCEDepthConvolutionOp, VPU::NCEAveragePoolOp, VPU::NCEEltwiseOp>(userOp)) {
+        auto resultShape = mlir::cast<NDTypeInterface>(userOp->getResult(0).getType()).getShape();
+        const auto producesSlicedChannels = resultShape[Dims4D::Act::C] <= ncePermuteInputChannels;
+        if (producesSlicedChannels) {
+            return false;
         }
-        return isPadNeeded;
+        return llvm::any_of(userOp->getResult(0).getUsers(), [&](mlir::Operation* nextUserOp) {
+            return userNeedsExplicitPad(nextUserOp, ncePermuteInputChannels);
+        });
+    } else if (mlir::isa<VPU::ViewLikeOpInterface>(userOp)) {
+        return llvm::any_of(userOp->getResult(0).getUsers(), [&](mlir::Operation* nextUserOp) {
+            return userNeedsExplicitPad(nextUserOp, ncePermuteInputChannels);
+        });
     }
 
     return true;
@@ -72,15 +76,16 @@ bool isExplicitPadNeeded(VPU::NCEPermuteOp origOp) {
     const auto dstElemAttr = outputType.getElementType();
     const auto expandedChannels = origOp.getExpandedChannels();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    const auto inputChannels = inputType.getShape()[Dims4D::Act::C];
 
     // Explicit Padding must be introduced only if output element type of NCE Permute is FP16
     // and output channels are greater than input channels.
-    if (!dstElemAttr.isF16() || expandedChannels == inputType.getShape()[Dims4D::Act::C]) {
+    if (!dstElemAttr.isF16() || expandedChannels == inputChannels) {
         return false;
     }
 
     for (auto userOp : origOp.getResult().getUsers()) {
-        if (userNeedsExplicitPad(userOp)) {
+        if (userNeedsExplicitPad(userOp, inputChannels)) {
             return true;
         }
     }

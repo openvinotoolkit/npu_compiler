@@ -18,7 +18,6 @@
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
-
 namespace vpux::IE {
 #define GEN_PASS_DECL_UNIQUIFYBRANCHES
 #define GEN_PASS_DEF_UNIQUIFYBRANCHES
@@ -715,6 +714,120 @@ mlir::LogicalResult MoveReorderBeforeSplit::matchAndRewrite(IE::ReorderOp layerO
     return mlir::success();
 }
 
+// Convert:
+
+//        Operation
+//        |       |
+//       Sin     Cos
+//        |       |
+//     Reorder   Reorder
+
+// To:
+
+//        Operation
+//            |
+//         Reorder
+//         |     |
+//        Sin   Cos
+
+//
+// MoveReorderBeforeEltwiseOp
+//
+class MoveReorderBeforeEltwiseOp final : public mlir::OpRewritePattern<IE::ReorderOp> {
+public:
+    MoveReorderBeforeEltwiseOp(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ReorderOp>(ctx), _log(log) {
+        setDebugName("MoveReorderBeforeEltwiseOp");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ReorderOp layerOp, mlir::PatternRewriter& rewriter) const final;
+
+protected:
+    Logger _log;
+};
+
+mlir::LogicalResult MoveReorderBeforeEltwiseOp::matchAndRewrite(IE::ReorderOp layerOp,
+                                                                mlir::PatternRewriter& rewriter) const {
+    auto eltwiseOp = layerOp.getInput().getDefiningOp();
+    const auto isValidEltwiseOp = [&](mlir::Operation* op) {
+        if (op == nullptr) {
+            return false;
+        }
+        if (!op->hasOneUse()) {
+            return false;
+        }
+        if (DimsOrder::fromValue(op->getOperand(0)) != DimsOrder::fromValue(op->getResult(0))) {
+            return false;
+        }
+
+        return op->hasTrait<IE::EltwiseOp>() && op->getNumOperands() == 1 && op->getNumResults() == 1;
+    };
+
+    if (!isValidEltwiseOp(eltwiseOp)) {
+        return mlir::failure();
+    }
+
+    const auto refInOrder = DimsOrder::fromValue(layerOp.getInput());
+    const auto refOutOrder = DimsOrder::fromValue(layerOp.getOutput());
+    auto parentOp = eltwiseOp->getOperand(0).getDefiningOp();
+    if (parentOp == nullptr) {
+        return mlir::failure();
+    }
+    SmallVector<mlir::Operation*> eltwiseOps;
+    SmallVector<IE::ReorderOp> reorderOps;
+    for (auto eltwiseUser : parentOp->getUsers()) {
+        if (!isValidEltwiseOp(eltwiseUser)) {
+            return mlir::failure();
+        }
+
+        auto reorderUser = mlir::dyn_cast<IE::ReorderOp>(*eltwiseUser->getUsers().begin());
+        if (reorderUser == nullptr) {
+            return mlir::failure();
+        }
+        const auto inOrder = DimsOrder::fromValue(reorderUser.getInput());
+        const auto outOrder = DimsOrder::fromValue(reorderUser.getOutput());
+        if (refInOrder != inOrder || refOutOrder != outOrder) {
+            return mlir::failure();
+        }
+
+        auto iface = mlir::dyn_cast<IE::LayoutInfoOpInterface>(eltwiseUser);
+        if (iface == nullptr) {
+            return mlir::failure();
+        }
+
+        // Check if the operation could support the new layout
+        auto orderInfo = iface.getLayoutInfo();
+        orderInfo.setInput(0, refOutOrder);
+        iface.inferLayoutInfo(orderInfo, /*seOpsEnabled=*/false, /*seExperimentalOpsEnabled=*/false);
+        if (orderInfo.getInput(0) != refOutOrder || orderInfo.getOutput(0) != refOutOrder) {
+            return mlir::failure();
+        }
+        eltwiseOps.push_back(eltwiseUser);
+        reorderOps.push_back(reorderUser);
+    }
+
+    if (eltwiseOps.size() < 2) {
+        return mlir::failure();
+    }
+
+    rewriter.setInsertionPointAfterValue(parentOp->getResult(0));
+    auto newReorder =
+            rewriter.create<IE::ReorderOp>(layerOp->getLoc(), eltwiseOp->getOperand(0), layerOp.getDstOrderAttr());
+
+    for (auto p : eltwiseOps | indexed) {
+        auto reorderOp = reorderOps[p.index()];
+        auto eltwiseOp = p.value();
+        mlir::IRMapping mapper;
+        mapper.map(eltwiseOp->getOperand(0), newReorder.getOutput());
+        auto newOp = rewriter.clone(*eltwiseOp, mapper);
+        auto newOutType = mlir::cast<NDTypeInterface>(eltwiseOp->getResult(0).getType()).changeDimsOrder(refOutOrder);
+        newOp->getResult(0).setType(newOutType);
+        rewriter.replaceOp(reorderOp, newOp->getResult(0));
+    }
+
+    return mlir::success();
+}
+
 //
 // UniquifyBranches
 //
@@ -745,6 +858,7 @@ void UniquifyBranches::safeRunOnFunc() {
     patterns.add<MoveMemPermuteBeforeSlice>(&ctx, _log);
     patterns.add<MoveQuantizeCastBeforeSlice>(&ctx, _log);
     patterns.add<MoveReorderBeforeSplit>(&ctx, _log);
+    patterns.add<MoveReorderBeforeEltwiseOp>(&ctx, _log);
 
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

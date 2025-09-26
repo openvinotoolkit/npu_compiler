@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_CONTROL_FLOW
 #define VPUX_COMPILER_DIALECT_VPU_OPS_CONTROL_FLOW
 
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"

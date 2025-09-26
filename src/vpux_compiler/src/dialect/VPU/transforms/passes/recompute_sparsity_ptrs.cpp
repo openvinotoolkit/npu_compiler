@@ -10,7 +10,6 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_RECOMPUTESPARSITYPTRS

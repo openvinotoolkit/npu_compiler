@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
 
 namespace vpux::VPU {
@@ -41,7 +41,7 @@ void CompressDmaReserveMemPass::safeRunOnModule() {
 
     _log.trace("Compressed DMA reserved memory - size: '{0}'", ACT_COMPRESSION_RESERVED_MEM_SIZE);
 
-    IE::setCompressDmaReservedMemory(module, memSpaceAttr, ACT_COMPRESSION_RESERVED_MEM_SIZE);
+    config::setCompressDmaReservedMemory(module, memSpaceAttr, ACT_COMPRESSION_RESERVED_MEM_SIZE);
 }
 
 }  // namespace

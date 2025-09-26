@@ -9,13 +9,13 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @EnqueueTargetAssign() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
-    %bar0 = VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+    %bar0 = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
     %bar1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     %bar2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
     %bar3 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     %bar4 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %bar5 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-    %bar6 = VPURT.ConfigureBarrier<2> {isFinalBarrier} -> !VPURT.Barrier
+    %bar6 = VPURT.ConfigureBarrier<2> <{isFinalBarrier}> -> !VPURT.Barrier
 
     // dummy buffer
     %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
@@ -121,13 +121,13 @@ func.func @EnqueueTargetAssign() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> 
 
     return %buf3: memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
 
-    // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+    // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
     // CHECK:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     // CHECK:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
     // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     // CHECK:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     // CHECK:   [[BAR5:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-    // CHECK:   [[BAR6:%.+]] = VPURT.ConfigureBarrier<2> {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK:   [[BAR6:%.+]] = VPURT.ConfigureBarrier<2> <{isFinalBarrier}> -> !VPURT.Barrier
 
     // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {
     // CHECK-NEXT: VPUIP.NNDMA

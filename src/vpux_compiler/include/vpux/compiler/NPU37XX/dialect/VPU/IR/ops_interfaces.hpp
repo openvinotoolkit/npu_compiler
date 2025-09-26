@@ -15,5 +15,6 @@ void registerNCEOpInterface(mlir::DialectRegistry& registry);
 void registerClusterBroadcastingOpInterfaces(mlir::DialectRegistry& registry);
 void registerUnrollBatchOpInterfaces(mlir::DialectRegistry& registry);
 void registerICostModelUtilsInterface(mlir::DialectRegistry& registry);
+void registerSWTilingInfoOpInterface(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::VPU::arch37xx

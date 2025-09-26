@@ -121,7 +121,7 @@ const auto conv1D = ::testing::Combine(
         conv1DParams,
         ::testing::Values(ov::element::f16),                                                  // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 16, 64}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution1D, ConvolutionLayerTest_NPU3720_SW, conv1D,
                          ConvolutionLayerTest::getTestCaseName);
@@ -143,7 +143,7 @@ const auto convLargeKernel1D = ::testing::Combine(
         conv1DParams_LargeKernel,
         ::testing::Values(ov::element::f16),                                                    // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 1, 80000}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution1D_LargeKernel, ConvolutionLayerTest_NPU3720_HW, convLargeKernel1D,
                          ConvolutionLayerTest::getTestCaseName);
@@ -168,7 +168,7 @@ std::vector<std::vector<ov::Shape>> iShape2D = {
 const auto conv2D_AutoPadValid = ::testing::Combine(conv2DParams_AutoPadValid,            //
                                                     ::testing::Values(ov::element::f16),  // netPrc
                                                     ::testing::ValuesIn(static_shapes_to_test_representation(iShape2D)),
-                                                    ::testing::Values(DEVICE_NPU));
+                                                    ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AutoPadValid, ConvolutionLayerTest_NPU3720_SW, conv2D_AutoPadValid,
                          ConvolutionLayerTest::getTestCaseName);
@@ -191,7 +191,7 @@ const auto conv2D_CMajorCompatible = ::testing::Combine(
         conv2DParams_CMajorCompatible,
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 64, 64}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_CMajorCompatible, ConvolutionLayerTest_NPU3720_SW, conv2D_CMajorCompatible,
                          ConvolutionLayerTest::getTestCaseName);
@@ -214,8 +214,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_3x2x2_Kernel, ConvolutionLayerTest_
                          ::testing::Combine(conv3DParams_3x2x2_Kernel,            //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 32, 5, 28, 28}})}),   // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 32, 5, 28, 28}})}),                  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 // NPU4000
@@ -223,8 +223,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_3x2x2_Kernel, ConvolutionLayerTest_
                          ::testing::Combine(conv3DParams_3x2x2_Kernel,            //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 32, 5, 28, 28}})}),   // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 32, 5, 28, 28}})}),                  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 3D Convolution / 3x1x1 Kernel ============= */
@@ -243,8 +243,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_3x1x1_Kernel, ConvolutionLayerTest_
                          ::testing::Combine(conv3DParams_3x1x1_Kernel,            //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 32, 6, 28, 28}})}),   // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 32, 6, 28, 28}})}),                  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 // NPU4000
@@ -252,8 +252,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_3x1x1_Kernel, ConvolutionLayerTest_
                          ::testing::Combine(conv3DParams_3x1x1_Kernel,            //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 32, 6, 28, 28}})}),   // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 32, 6, 28, 28}})}),                  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / LargeKernel ============= */
@@ -272,8 +272,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel, ConvolutionLayerTest_N
                          ::testing::Combine(conv2DParams_LargeKernel1,            //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 3, 64, 64}})}),       // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 3, 64, 64}})}),                      // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / LargeDilations ============= */
@@ -292,8 +292,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeDilations, ConvolutionLayerTes
                          ::testing::Combine(conv2DParams_LargeDilations,          //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 3, 64, 64}})}),       // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 3, 64, 64}})}),                      // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 /* ============= 2D Convolution / ExplicitPadding ============= */
 
@@ -312,7 +312,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ExplicitPadding, ConvolutionLayerTe
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 16, 16}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / AsymmetricPadding ============= */
@@ -331,7 +331,7 @@ const auto conv2D_AsymmetricPadding = ::testing::Combine(
         conv2DParams_AsymmetricPadding,                                                          //
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 64, 64}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricPadding, ConvolutionLayerTest_NPU3720_SW,
                          conv2D_AsymmetricPadding, ConvolutionLayerTest::getTestCaseName);
@@ -354,7 +354,7 @@ const auto conv2D_AsymmetricKernel = ::testing::Combine(
         conv2DParams_AsymmetricKernel,                                                           //
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 16, 16}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricKernel, ConvolutionLayerTest_NPU3720_SW, conv2D_AsymmetricKernel,
                          ConvolutionLayerTest::getTestCaseName);
@@ -377,7 +377,7 @@ const auto conv2D_AsymmetricStrides = ::testing::Combine(
         conv2DParams_AsymmetricStrides,                                                          //
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 16, 16}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricStrides, ConvolutionLayerTest_NPU3720_HW,
                          conv2D_AsymmetricStrides, ConvolutionLayerTest::getTestCaseName);
@@ -397,7 +397,7 @@ const auto conv2D_AsymmetricStrides2 =
         ::testing::Combine(conv2DParams_AsymmetricStrides2,                                    //
                            ::testing::Values(ov::element::f16),                                // netPrc
                            ::testing::ValuesIn(static_shapes_to_test_representation(iShape)),  // inputShapes
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_AsymmetricStrides2, ConvolutionLayerTest_NPU3720_HW,
                          conv2D_AsymmetricStrides2, ConvolutionLayerTest::getTestCaseName);
@@ -418,7 +418,7 @@ const auto conv2D_LargeKernel =
         ::testing::Combine(conv2DParams_LargeKernel,                                                      //
                            ::testing::Values(ov::element::f16),                                           // netPrc
                            ::testing::ValuesIn(static_shapes_to_test_representation(iShapeLargeKernel)),  // inputShapes
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_Explicit, ConvolutionLayerTest_NPU3720_HW, conv2D_LargeKernel,
                          ConvolutionLayerTest::getTestCaseName);
@@ -439,7 +439,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeKernel_OneDim, ConvolutionLaye
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 1, 1, 2176}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / Dilated ============= */
@@ -458,7 +458,7 @@ const auto conv2D_Dilated = ::testing::Combine(
         conv2DParams_Dilated,                                                                    //
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 16, 16}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_Dilated, ConvolutionLayerTest_NPU3720_SW, conv2D_Dilated,
                          ConvolutionLayerTest::getTestCaseName);
@@ -481,8 +481,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeSize1, ConvolutionLayerTest_NP
                          ::testing::Combine(conv2DParams_LargeSize1,              //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 16, 128, 128}})}),    // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 16, 128, 128}})}),                   // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 const auto conv2DParams_LargeSize2 =
@@ -499,8 +499,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeSize2, ConvolutionLayerTest_NP
                          ::testing::Combine(conv2DParams_LargeSize2,              //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 16, 256, 256}})}),    // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 16, 256, 256}})}),                   // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 const auto conv2DParams_LargeSize3 = ::testing::Combine(::testing::Values<std::vector<size_t>>({1, 1}),     // kernels
@@ -515,7 +515,7 @@ const auto conv2DInstantiateParams_LargeSize3 = ::testing::Combine(
         conv2DParams_LargeSize3,
         ::testing::Values(ov::element::f32),                                                      // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 9216, 1, 1}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeSize3, ConvolutionLayerTest_FP32_SW,
                          conv2DInstantiateParams_LargeSize3, ConvolutionLayerTest::getTestCaseName);
@@ -536,7 +536,7 @@ const auto conv2D_LargeStrides = ::testing::Combine(
         conv2DParams_LargeStrides,
         ::testing::Values(ov::element::f16),                                                     // netPrc
         ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 3, 64, 64}})}),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_LargeStrides, ConvolutionLayerTest_NPU3720_SW, conv2D_LargeStrides,
                          ConvolutionLayerTest::getTestCaseName);
@@ -556,8 +556,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOK, ConvolutionLayerTestLatency_NP
                          ::testing::Combine(conv2DParams_SOK,                     //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    1, 32, 3, 3}})}),        // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    1, 32, 3, 3}})}),                       // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= BatchN to Batch1 ============= */
@@ -575,8 +575,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_NBatch, ConvolutionLayerTestLatency
                          ::testing::Combine(conv2DParams_NBatch,                  //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    32, 32, 1, 3}})}),       // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    32, 32, 1, 3}})}),                      // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / SOB ============= */
@@ -594,8 +594,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_SOB, ConvolutionLayerTest_MULTI_BAT
                          ::testing::Combine(conv2DParams_SOB,                     //
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
-                                                    2, 3, 96, 96}})}),       // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),  //
+                                                    2, 3, 96, 96}})}),                      // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),  //
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= SCM ============= */
@@ -606,7 +606,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_Convolution2D, ConvolutionLayerTest_NPU372
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 16, 16, 16}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 /* ============= 2D Convolution / ShapeCast ============= */
@@ -625,7 +625,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_PadBeginEnd, ConvolutionL
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 1080, 2048}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 const auto conv2DParams_ShapeCast_PadBegin =
@@ -643,7 +643,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_PadBegin, ConvolutionLaye
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 1080, 2048}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 const auto conv2DParams_ShapeCast_PadEnd =
@@ -661,7 +661,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_PadEnd, ConvolutionLayerT
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 1080, 2048}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 const auto conv2DParams_ShapeCast_PadBeginEnd_Stride =
         ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{4, 4}}),     // kernels
@@ -678,7 +678,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_PadBeginEnd_Stride, Convo
                                             ::testing::Values(ov::element::f16),        // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 1080, 2048}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 const auto conv3DParams =
@@ -696,7 +696,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D, ConvolutionLayerTest_NPU3720_HW,
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 64, 64, 64}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D, ConvolutionLayerTest_NPU4000_HW,
@@ -704,7 +704,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D, ConvolutionLayerTest_NPU4000_HW,
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 64, 64, 64}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 // Conv 3D with strides not equal to 1
@@ -723,7 +723,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_ComplexStrides, ConvolutionLayerTes
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 64, 64, 64}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_ComplexStrides, ConvolutionLayerTest_NPU4000_HW,
@@ -731,6 +731,6 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_ComplexStrides, ConvolutionLayerTes
                                             ::testing::Values(ov::element::f16),  // netPrc
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 64, 64, 64}})}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 }  // namespace

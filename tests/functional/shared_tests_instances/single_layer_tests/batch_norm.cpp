@@ -42,13 +42,13 @@ const auto paramsConfig =
         testing::Combine(testing::Values(0.001),                                             // epsilon
                          testing::Values(ov::element::f16),                                  // Model type
                          testing::ValuesIn(static_shapes_to_test_representation(inShapes)),  // Input shape
-                         testing::Values(DEVICE_NPU));                                       // Target device name
+                         testing::Values(test_utils::TARGET_DEVICE));                        // Target device name
 
 const auto paramsPrecommit =
         testing::Combine(testing::Values(0.001),                                                       // epsilon
                          testing::Values(ov::element::f16),                                            // Model type
                          testing::ValuesIn(static_shapes_to_test_representation(inShapes_precommit)),  // Input shape
-                         testing::Values(DEVICE_NPU));  // Target device name
+                         testing::Values(test_utils::TARGET_DEVICE));  // Target device name
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_BatchNorm, BatchNormLayerTestCommon, paramsPrecommit,
                          BatchNormLayerTestCommon::getTestCaseName);

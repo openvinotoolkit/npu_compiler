@@ -174,7 +174,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_DynamicTensorIterator_LSTMSequence, DynamicTensor
                          testing::Combine(testing::ValuesIn({LSTMType::LSTMSequence}), testing::ValuesIn(input_shapes),
                                           testing::ValuesIn(hidden_sizes),
                                           testing::ValuesIn(recurent_sequence_direction),
-                                          testing::Values<std::string>(ov::test::utils::DEVICE_NPU),
+                                          testing::Values<std::string>(test_utils::TARGET_DEVICE),
                                           testing::ValuesIn(model_types)),
                          DynamicTensorIteratorNPUTest::getTestCaseName);
 

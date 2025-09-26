@@ -75,6 +75,28 @@ std::pair<optimization::TransformAttrPos, bool> moveSubViewBefore(
         NDTypeInterface baseType);
 
 /*
+ * Check compatible transformations that are placed after SubView and swaps them. Transformations are considered
+ * compatible if they perform element-wise computation, only change the metadata of the constant or the information
+ * of the transformation can be reconstructed when moving SubView after. For example:
+ *     SubView + CastElemType => CastElemType + SubView
+ *
+ * TODO: E#182003 consider removing this transformation
+ *
+ * Parameters:
+ *  transformations: list of transformations
+ *  currPos: current position of compatible transformation that might be swapped with previous SubView
+ *  baseType: original data type
+ * Result:
+ *  if optimization has been applied: returns the new position of the SubView and true;
+ *                                      end position means that the transformation was folded
+ *  otherwise returns the current position and false
+ */
+
+std::pair<optimization::TransformAttrPos, bool> moveSubViewAfter(
+        SmallVector<Const::TransformAttrInterface>& transformations, optimization::TransformAttrPos& currPos,
+        NDTypeInterface baseType);
+
+/*
  * Check compatible transformations that are placed before Reshape and swaps them. Although the Reshape transformation
  * does not do any computation, moving it before other transformations allows the possibility for other optimizations to
  * be done. For example, in the following pattern, the Reshape is moved before SubView:

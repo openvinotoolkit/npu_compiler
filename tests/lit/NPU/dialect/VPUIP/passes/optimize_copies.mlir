@@ -5579,7 +5579,7 @@ func.func @SubViewWithTrivialCopy(
     %SUBVIEW = VPUIP.SubView %INPUT [0, 0, 0, 0] [1, 1, 357604, 1] :
         memref<1x1x363584x1x!qElemType, #NHWC, @DDR>
         to memref<1x1x357604x1x!qElemType, {order = #NHWC, strides = [363584, 1, 1, 1]}, @DDR>
-    // CHECK-NOT:   VPUIP.SubView
+    // CHECK:   [[SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]] [0, 0, 0, 0] [1, 1, 357604, 1]
 
     %ALLOC = memref.alloc() : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
     // CHECK-NOT:   memref.alloc
@@ -5590,7 +5590,7 @@ func.func @SubViewWithTrivialCopy(
             -> memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
     // CHECK-NOT:   VPUIP.Copy
 
-    // CHECK:   [[VIEW_OP:%.+]] = VPUIP.ViewOp [[INPUT]] : memref<1x1x363584x1x!qElemType, #NHWC, @DDR> to memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
+    // CHECK:   [[VIEW_OP:%.+]] = VPUIP.ViewOp [[SUBVIEW]] : memref<1x1x357604x1x!qElemType, {order = #NHWC, strides = [363584, 1, 1, 1]}, @DDR> to memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
 
     return %COPY : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
     // CHECK:   return [[VIEW_OP]] : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
@@ -5631,27 +5631,29 @@ func.func @SkipSubViewWithNonTrivialCopy(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: SkipSubViewWithOffset
-func.func @SkipSubViewWithOffset(
+// CHECK: func.func @SubViewWithOffset([[INPUT:%.+]]: memref<1x1x363584x1x!qElemType, #NHWC, @DDR>)
+// CHECK-SAME: -> memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
+func.func @SubViewWithOffset(
     %INPUT: memref<1x1x363584x1x!qElemType, #NHWC, @DDR>
 ) -> memref<1x1x357604x1x!qElemType, #NHWC, @DDR> {
-    // CHECK:   [[INPUT:%.+]]: memref<1x1x363584x1x!qElemType, #NHWC, @DDR>
     %SUBVIEW = VPUIP.SubView %INPUT [0, 0, 1, 0] [1, 1, 357604, 1] :
         memref<1x1x363584x1x!qElemType, #NHWC, @DDR>
         to memref<1x1x357604x1x!qElemType, {order = #NHWC, strides = [363584, 1, 1, 1]}, @DDR>
     // CHECK:   [[SUBVIEW:%.+]] = VPUIP.SubView [[INPUT]]
 
     %ALLOC = memref.alloc() : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
-    // CHECK:   [[ALLOC:%.+]] = memref.alloc() : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
+    // CHECK-NOT:   memref.alloc()
 
     %COPY = VPUIP.Copy
         inputs(%SUBVIEW : memref<1x1x357604x1x!qElemType, {order = #NHWC, strides = [363584, 1, 1, 1]}, @DDR>)
         outputs(%ALLOC : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>)
             -> memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
-    // CHECK:   [[COPY:%.+]] = VPUIP.Copy
+    // CHECK-NOT:   VPUIP.Copy
+
+    // CHECK: [[VIEWOP:%.+]] = VPUIP.ViewOp [[SUBVIEW]] : memref<1x1x357604x1x!qElemType, {order = #NHWC, strides = [363584, 1, 1, 1]}, @DDR> to memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
 
     return %COPY : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
-    // CHECK:   return [[COPY]] : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
+    // CHECK:   return [[VIEWOP]] : memref<1x1x357604x1x!qElemType, #NHWC, @DDR>
 }
 
 // -----

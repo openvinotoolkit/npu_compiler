@@ -27,7 +27,6 @@ using BarrierConfig = SmallVector<uint32_t>;
 // HW reg address for barrier fifo
 constexpr uint32_t STRIDE = 0x20U;
 constexpr uint8_t BARRIER_FIFO_DEPTH = 4;
-constexpr uint8_t CONSUMER_INTERRUPT_PAGE_INTERVAL = 100;
 
 uint32_t getBarrierFifoAddr(size_t pid = 0) {
     return VPUMI40XX::FIFO_BARRIERS_NCE_FILL_BARRIER_FIFO_ADR + (pid * STRIDE);
@@ -76,9 +75,8 @@ public:
               _numberOfDescriptorsPerBarrier(0),
               _workloadManagementBarrierProgrammingMode(workloadManagementBarrierProgrammingMode),
               _workloadManagementMode(workloadManagementMode),
-              _enableConsumerInterruptEveryNPages(
-                      workloadManagementBarrierProgrammingMode ==
-                      WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED) {
+              _disableAllInterrupts(workloadManagementBarrierProgrammingMode ==
+                                    WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -112,7 +110,7 @@ private:
     SmallVector<uint32_t> _barrierProgrammingStrides;
     BarrierConfig _barrierConfigurationsRaw;
     SmallVector<SmallVector<BarrierDesc>> _physicalBarriersUsage;
-    bool _enableConsumerInterruptEveryNPages;
+    bool _disableAllInterrupts;
 };
 
 Const::DeclareOp createConstant(mlir::OpBuilder& builder, mlir::Operation* insertionPoint, ArrayRef<uint32_t> vals,
@@ -200,30 +198,15 @@ void AddBarrierConfigurationOps::fillPhysicalBarrierUsage() {
     DenseMap<int64_t, int64_t> barrierCount;
 
     auto barriers = vpux::to_small_vector(netFunc.getOps<VPUMI40XX::ConfigureBarrierOp>());
-    int64_t lastPage = barriers.back().getWlmPage().value_or(-1);
-    int64_t lastConsumerInterruptPage = -1;
     for (auto barrierOp : barriers) {
         auto pid = barrierOp.getId();
-        auto desc =
-                BarrierDesc(barrierOp.getProducerCount().value_or(0), 0, barrierOp.getConsumerCount().value_or(0), 1);
+        auto consumerInterrupt = _disableAllInterrupts ? 0 : 1;
+        auto desc = BarrierDesc(barrierOp.getProducerCount().value_or(0), 0, barrierOp.getConsumerCount().value_or(0),
+                                consumerInterrupt);
 
         // Used for debug trace
         desc.virtualId = barrierOp.getResult().getType().getValue();
         desc.wlmPage = barrierOp.getWlmPage().value_or(-1);
-
-        // Enable interrupt every Nth page except last page
-        if (_enableConsumerInterruptEveryNPages) {
-            bool shouldEnableConsumerInterrupt = (CONSUMER_INTERRUPT_PAGE_INTERVAL > 0) && (desc.wlmPage > 0) &&
-                                                 (desc.wlmPage % CONSUMER_INTERRUPT_PAGE_INTERVAL == 0) &&
-                                                 (desc.wlmPage != lastPage) &&
-                                                 (desc.wlmPage != lastConsumerInterruptPage);
-
-            if (shouldEnableConsumerInterrupt) {
-                lastConsumerInterruptPage = desc.wlmPage;
-            } else {
-                desc.consumerInterrupt = 0;
-            }
-        }
 
         if (barrierOp.getIsFinalBarrier()) {
             desc.consumerCount = 1;

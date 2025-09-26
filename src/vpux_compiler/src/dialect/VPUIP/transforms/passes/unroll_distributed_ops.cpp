@@ -5,11 +5,11 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/compression_utils.hpp"
 #include "vpux/compiler/utils/memref_attr_utils.hpp"
@@ -485,6 +485,67 @@ SmallVector<mlir::Value> VPUIP::ClusterNCEBaseRewriter::getWeightsBuffers(mlir::
     return perClusterBuffers;
 }
 
+// Function to calculate the linear index in a flattened array
+size_t calculateLinearIndex(const SmallVector<int64_t>& indices, const SmallVector<int64_t>& shape) {
+    size_t linearIndex = 0;
+    size_t stride = 1;
+    for (size_t i = shape.size(); i > 0; --i) {
+        linearIndex += indices[i - 1] * stride;
+        stride *= shape[i - 1];
+    }
+    return linearIndex;
+}
+
+// Function to compare sub-vectors in-place
+bool compareSubVectorsInPlace(const std::vector<char>& original, const SmallVector<int64_t>& originalShape,
+                              const SmallVector<int64_t>& offset1, const SmallVector<int64_t>& subShape1,
+                              const SmallVector<int64_t>& offset2, const SmallVector<int64_t>& subShape2) {
+    // Calculate the total number of elements in the sub-shape
+    size_t totalElements1 = 1;
+    for (size_t dim : subShape1) {
+        totalElements1 *= dim;
+    }
+
+    size_t totalElements2 = 1;
+    for (size_t dim : subShape2) {
+        totalElements2 *= dim;
+    }
+
+    // Ensure subShape2 is not larger than subShape1
+    if (totalElements2 > totalElements1) {
+        return false;
+    }
+
+    // Iterate over the sub-shape and compare the values
+    SmallVector<int64_t> indices(subShape2.size(), 0);
+    for (size_t i = 0; i < totalElements2; ++i) {
+        // Calculate the linear indices in the original vector
+        SmallVector<int64_t> originalIndices1 = offset1;
+        SmallVector<int64_t> originalIndices2 = offset2;
+        for (size_t j = 0; j < subShape2.size(); ++j) {
+            originalIndices1[j] += indices[j];
+            originalIndices2[j] += indices[j];
+        }
+        size_t originalIndex1 = calculateLinearIndex(originalIndices1, originalShape);
+        size_t originalIndex2 = calculateLinearIndex(originalIndices2, originalShape);
+
+        // Compare the values
+        if (original[originalIndex1] != original[originalIndex2]) {
+            return false;
+        }
+
+        // Update the indices for the next element
+        for (size_t j = subShape2.size(); j > 0; --j) {
+            if (++indices[j - 1] < subShape2[j - 1]) {
+                break;
+            }
+            indices[j - 1] = 0;
+        }
+    }
+
+    return true;
+}
+
 //
 // ClusterPerElementDMABaseRewriter
 //
@@ -550,7 +611,7 @@ void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpIn
         }
     }
 
-    auto isZeroOffsetWeightTableDMA = [&]() -> bool {
+    auto isAcrossClusterReusableWeightTableDMA = [&]() -> bool {
         if (auto task = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(*dmaOp.getOutputBuff().user_begin())) {
             if (task.getIsZeroOffsetWeightsTableAttr()) {
                 if (task.getWeightTable() != dmaOp.getOutputBuff()) {
@@ -568,6 +629,7 @@ void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpIn
                 const auto tilingScheme = parseIntArrayAttr<int64_t>(outputDistType.getDistribution().getNumTiles());
                 const auto tileAxis = vpux::VPU::getDistributedTilingAxis(tilingScheme);
                 auto computeShapes = VPU::arrayAttrToVecOfShapes(outputDistType.getDistribution().getComputeShapes());
+                auto computeOffsets = VPU::arrayAttrToVecOfShapes(outputDistType.getDistribution().getComputeOffsets());
                 auto firstTiledSize = computeShapes.begin()->raw()[tileAxis];
                 bool hasUnevenTileSize =
                         std::find_if(computeShapes.begin(), computeShapes.end(), [&](Shape tileShape) -> bool {
@@ -576,6 +638,43 @@ void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpIn
                 if (hasUnevenTileSize && outputDistType.getShape().size() == DimsGroups5D::Filter::numDims) {
                     return false;
                 }
+
+                if (auto constOp = dmaOp.getInput().getDefiningOp<Const::DeclareOp>()) {
+                    const auto content = constOp.getContent();
+                    const auto contentType = content.getType();
+                    const auto elemTypeByteSize = contentType.getElemTypeSize().count() / CHAR_BIT;
+                    VPUX_THROW_WHEN(elemTypeByteSize != 4,
+                                    "Unsupported element type byte size {0} for zero offset weight table DMA",
+                                    elemTypeByteSize);
+                    const auto bufSize = checked_cast<size_t>(contentType.getTotalAllocSize().count());
+                    std::vector<char> tempBuf(bufSize);
+                    content.copyTo(MutableArrayRef(tempBuf.data(), bufSize));
+
+                    auto getNewShapeInByte = [](ShapeRef originalShape, int64_t newElement) -> SmallVector<int64_t> {
+                        SmallVector<int64_t> newShapeInByte(originalShape.raw());
+                        newShapeInByte.push_back(newElement);
+                        return newShapeInByte;
+                    };
+
+                    auto originalShape = contentType.getShape();
+                    SmallVector<int64_t> originalShapeInByte = getNewShapeInByte(originalShape, elemTypeByteSize);
+
+                    // Extract the sub-vector based on the offset and shape
+                    SmallVector<int64_t> computeOffsetFirstClusterInByte = getNewShapeInByte(computeOffsets[0], 0);
+                    SmallVector<int64_t> computeShapeFirstClusterInByte =
+                            getNewShapeInByte(computeShapes[0], elemTypeByteSize);
+                    for (size_t i = 1; i < computeOffsets.size(); ++i) {
+                        SmallVector<int64_t> computeOffsetCurClusterInByte = getNewShapeInByte(computeOffsets[i], 0);
+                        SmallVector<int64_t> computeShapeCurClusterInByte =
+                                getNewShapeInByte(computeShapes[i], elemTypeByteSize);
+                        if (!compareSubVectorsInPlace(tempBuf, originalShapeInByte, computeOffsetFirstClusterInByte,
+                                                      computeShapeFirstClusterInByte, computeOffsetCurClusterInByte,
+                                                      computeShapeCurClusterInByte)) {
+                            return false;
+                        }
+                    }
+                }
+
                 return true;
             }
         }
@@ -593,9 +692,9 @@ void VPUIP::ClusterPerElementDMABaseRewriter::matchAndRewrite(VPUIP::DMATypeOpIn
                     dmaOp, inputDistMode, outputDistMode);
 
     builder.setInsertionPointAfter(vpurtTask);
-    if ((unrollingType != UnrollingType::DUPLICATED) && isZeroOffsetWeightTableDMA()) {
-        _log.nest().trace("Unrolling with DUPLICATED mode for zero offset weight table DMA");
-        unrollZeroOffsetWeightTableDMA(loc, vpurtTask, builder);
+    if ((unrollingType != UnrollingType::DUPLICATED) && isAcrossClusterReusableWeightTableDMA()) {
+        _log.nest().trace("Unrolling with DUPLICATED mode for across cluster reusable weight table DMA");
+        unrollAcrossClusterReusableWeightTableDMA(loc, vpurtTask, builder);
     } else if (unrollingType == UnrollingType::SEGMENTED) {
         _log.nest().trace("Unrolling with SEGMENDTED or OVERLAPPED mode");
         if (_log.isActive(LogLevel::Trace) && !inputBufferOffsets.empty()) {
@@ -1231,9 +1330,8 @@ void VPUIP::ClusterPerElementDMABaseRewriter::unrollDuplicated(mlir::Location lo
     _log.trace("Insert new DMA op: '{0}'", newDMAOp);
 }
 
-void VPUIP::ClusterPerElementDMABaseRewriter::unrollZeroOffsetWeightTableDMA(mlir::Location loc,
-                                                                             VPURT::TaskOp vpurtTask,
-                                                                             mlir::OpBuilder& builder) const {
+void VPUIP::ClusterPerElementDMABaseRewriter::unrollAcrossClusterReusableWeightTableDMA(
+        mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder) const {
     auto dmaOp = vpurtTask.getInnerTaskOpOfType<VPUIP::DMATypeOpInterface>();
     VPUX_THROW_WHEN(dmaOp == nullptr, "Inner task is not DMA op");
 
@@ -1518,7 +1616,7 @@ void VPUIP::unrollDistributedOpsCommon40XXPlus(mlir::func::FuncOp func,
     auto ctx = func->getContext();
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     const VPUIP::ClusterDMARewriter dmaRewriter(ctx, dmaPortCount, std::move(maybeDmaFusionHandler), log);

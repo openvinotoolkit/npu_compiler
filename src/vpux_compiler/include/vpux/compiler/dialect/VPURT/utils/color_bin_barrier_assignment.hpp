@@ -10,6 +10,8 @@
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 
+#include <deque>
+
 namespace vpux {
 namespace VPURT {
 

@@ -45,7 +45,7 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
             overwriteIfUnset(options->optimizationLevel, 3);
         }
         setupParamsAccordingToOptimizationLevel(options->optimizationLevel, *options, useWlm);
-        setupPWLMParams(*options);
+        setupPWLMParams(*options, getLogLevel(config));
         dpuDryRunMode = VPU::getDPUDryRunMode(options->dpuDryRun);
         auto enableProfiling = config.get<intel_npu::PERF_COUNT>();
         backendCompilationOptions->enableDMAProfiling =

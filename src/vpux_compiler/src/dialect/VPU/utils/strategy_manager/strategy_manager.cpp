@@ -4,11 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_manager.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
@@ -72,7 +75,7 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
             }
         }
 
-        if (IE::hasDynamicTensors(op) && !mlir::isa<VPU::LSTMSequenceOp>(op)) {
+        if (!isMultiClusterTilingSupported(op)) {
             return;
         }
 
@@ -205,7 +208,8 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                         const auto inputType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType());
                         const auto outputType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType());
                         auto module = getModuleOp(memPermuteOp.getOperation());
-                        const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+                        const auto dmaPortNum =
+                                config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
                         if (VPUIP::isBeneficialForUsingPermuteDMA(config::getArch(memPermuteOp.getOperation()),
                                                                   inputType, outputType, memPerm, dmaPortNum, _log)) {
                             _log.trace("Operation {0} is mapped to permute DMA, do not assign strategy", origOp);
@@ -266,10 +270,8 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                     return;
                 })
                 .Case<NCEPermuteOp>([&](NCEPermuteOp origOp) {
-                    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
-                    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-                    const auto inputShape = inputType.getShape();
-                    const auto outputShape = outputType.getShape();
+                    const auto inputShape = getBoundedShape(origOp.getInput());
+                    const auto outputShape = getBoundedShape(origOp.getOutput());
                     // Such configurations cannot be tiled properly.
                     if (inputShape.size() != RANK_REQUIRED_FOR_TILING) {
                         _log.trace(
@@ -305,7 +307,7 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
 
                     const auto checkTileDim = [&](Dim tileDim) -> bool {
                         const int64_t MIN_DIM_SIZE_FOR_TILING =
-                                IE::getTileExecutor(origOp.getOperation()->getParentOfType<mlir::ModuleOp>())
+                                config::getTileExecutor(origOp.getOperation()->getParentOfType<mlir::ModuleOp>())
                                         .getCount();
                         if (inputShape[tileDim] < MIN_DIM_SIZE_FOR_TILING) {
                             _log.trace(
@@ -328,7 +330,7 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                         // Check if permute can use multi clusters with channel alignment
                         const auto outputShape = getShape(permuteOp.getOutput());
                         auto moduleOp = permuteOp->getParentOfType<mlir::ModuleOp>();
-                        const auto numClustersAvailableForCompilation = IE::getTileExecutor(moduleOp).getCount();
+                        const auto numClustersAvailableForCompilation = config::getTileExecutor(moduleOp).getCount();
                         const auto uniformDistributedSegments = VPU::isUniformDistributedSegmentsSupported(permuteOp);
                         const auto numClusters = getNumberOfClustersForSOKToAvoidAlignment(
                                 outputShape[Dims4D::Act::C], numClustersAvailableForCompilation,

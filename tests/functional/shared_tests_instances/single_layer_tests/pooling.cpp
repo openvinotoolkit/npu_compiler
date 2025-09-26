@@ -24,10 +24,10 @@ namespace test {
 #endif
 
 void skipCompilationCallbackImplNPU3720(std::stringstream& skip, ov::AnyMap configuration, PoolingTypes poolType,
-                                        std::vector<size_t> kernel, std::vector<size_t> strides,
-                                        std::vector<size_t> padBegin, std::vector<size_t> padEnd,
-                                        ov::op::PadType padType, bool excludePad, ov::element::Type netPrecision,
-                                        ov::op::RoundingType roundingMode, ov::Shape inputShapes) {
+                                        std::vector<size_t> kernel, ov::Strides strides, std::vector<size_t> padBegin,
+                                        std::vector<size_t> padEnd, ov::op::PadType padType, bool excludePad,
+                                        ov::element::Type netPrecision, ov::op::RoundingType roundingMode,
+                                        ov::Shape inputShapes) {
     // all DefaultHW test Should be enable when E#94485 will be fixed. Convert to HW scenario not implemented
     if ((poolType == PoolingTypes::AVG) && (configuration[ov::intel_npu::compilation_mode.name()] == "DefaultHW") &&
         (strides.size() == 2)) {
@@ -104,7 +104,7 @@ TEST_P(PoolingLayerTest_NPU3720, SW) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType;
         std::vector<size_t> kernel;
-        std::vector<size_t> strides;
+        ov::Strides strides;
         std::vector<size_t> padBegin;
         std::vector<size_t> padEnd;
         ov::op::RoundingType roundingMode;
@@ -127,7 +127,7 @@ TEST_P(PoolingLayerTest_NPU3720, HW) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType;
         std::vector<size_t> kernel;
-        std::vector<size_t> strides;
+        ov::Strides strides;
         std::vector<size_t> padBegin;
         std::vector<size_t> padEnd;
         ov::op::RoundingType roundingMode;
@@ -151,7 +151,7 @@ TEST_P(PoolingLayerTest_NPU3720_SingleCluster, HW) {
         const auto& poolParams = std::get<0>(GetParam());
         PoolingTypes poolType;
         std::vector<size_t> kernel;
-        std::vector<size_t> strides;
+        ov::Strides strides;
         std::vector<size_t> padBegin;
         std::vector<size_t> padEnd;
         ov::op::RoundingType roundingMode;
@@ -244,6 +244,31 @@ TEST_P(MaxPoolingV8LayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
     run(Platform::NPU4000);
 }
+
+class AvgPoolingV16LayerTestCommon : public AvgPoolingV16LayerTest, virtual public VpuOv2LayerTest {};
+
+TEST_P(AvgPoolingV16LayerTestCommon, NPU3720_SW) {
+    setSkipCompilationCallback([this](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(AvgPoolingV16LayerTestCommon, NPU4000_SW) {
+    setSkipCompilationCallback([this](std::stringstream& skip) {
+        const auto netPrecision = std::get<1>(GetParam());
+        if (netPrecision == ov::element::i8 || netPrecision == ov::element::u8) {
+            skip << "AvgPool16 SingleLayerTest is not enabled with precision: " << netPrecision;
+        }
+    });
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -258,7 +283,7 @@ std::vector<std::vector<ov::Shape>> inputShapesAutoPadValid = {
 const auto pool_AutoPadValid = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),     //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}, {5, 5}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}, {2, 2}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}, {2, 2}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),          // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),          // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),              //
@@ -266,7 +291,7 @@ const auto pool_AutoPadValid = ::testing::Combine(
                            ::testing::Values(false)),  // excludePad,                          //
         ::testing::Values(ov::element::f16),           // netPrc
         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesAutoPadValid)),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= ExplicitPadding ============= */
 
@@ -274,7 +299,7 @@ std::vector<std::vector<ov::Shape>> inputShapesExplicitPadding = {{{1, 16, 30, 3
 const auto pool_ExplicitPadding = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),             //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),                  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{2, 2}}),                  // strides
+                           ::testing::ValuesIn<ov::Strides>({{2, 2}}),                          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}, {1, 1}, {0, 1}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}, {1, 1}, {0, 1}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR,
@@ -283,14 +308,14 @@ const auto pool_ExplicitPadding = ::testing::Combine(
                            ::testing::Values(false)),                                           //
         ::testing::Values(ov::element::f16),                                                    // netPrc
         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesExplicitPadding)),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AsymmetricKernel ============= */
 
 const auto pool_AsymmetricKernel = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),             //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 1}, {1, 3}}),          // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}, {2, 2}}),          // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}, {2, 2}}),                  // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                      //
@@ -298,14 +323,14 @@ const auto pool_AsymmetricKernel = ::testing::Combine(
                            ::testing::Values(false)),                                           // excludePad
         ::testing::Values(ov::element::f16),                                                    // netPrc
         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesExplicitPadding)),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AsymmetricStrides ============= */
 
 const auto pool_AsymmetricStrides = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),             //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),                  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 2}, {2, 1}}),          // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 2}, {2, 1}}),                  // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                      //
@@ -313,14 +338,14 @@ const auto pool_AsymmetricStrides = ::testing::Combine(
                            ::testing::Values(false)),                                           // excludePad
         ::testing::Values(ov::element::f16),                                                    // netPrc
         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesExplicitPadding)),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= LargeSize ============= */
 
 const auto pool_LargeSize1 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{2, 2}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{2, 2}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),      //
@@ -329,12 +354,12 @@ const auto pool_LargeSize1 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                    // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 64, 128, 128}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargeSize2 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{2, 2}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{2, 2}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),      //
@@ -343,14 +368,14 @@ const auto pool_LargeSize2 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                    // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 256, 256}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= LargeStrides ============= */
 
 const auto pool_LargeStrides = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                          //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}, {11, 11}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{9, 9}}),            // strides
+                           ::testing::ValuesIn<ov::Strides>({{9, 9}}),                    // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),            // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),            // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                //
@@ -360,14 +385,14 @@ const auto pool_LargeStrides = ::testing::Combine(
         ::testing::Values(ov::element::f16),  // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= Padding valitation ( > K_SZ/2) ============= */
 
 const auto pool_LargePadding2 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                        //
                            ::testing::ValuesIn<std::vector<size_t>>({{2, 2}, {3, 3}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),          // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                  // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{2, 2}}),          // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{2, 2}}),          // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),              //
@@ -376,12 +401,12 @@ const auto pool_LargePadding2 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                            // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding3 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                                //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}, {4, 4}, {5, 5}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                  // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),                  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),                  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                      //
@@ -390,12 +415,12 @@ const auto pool_LargePadding3 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                                    // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding4 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                                        //
                            ::testing::ValuesIn<std::vector<size_t>>({{4, 4}, {5, 5}, {6, 6}, {7, 7}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                          // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                  // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{4, 4}}),                          // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{4, 4}}),                          // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                              //
@@ -404,13 +429,13 @@ const auto pool_LargePadding4 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                                            // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding5 = ::testing::Combine(
         ::testing::Combine(
                 ::testing::Values(PoolingTypes::MAX),                                                //
                 ::testing::ValuesIn<std::vector<size_t>>({{5, 5}, {6, 6}, {7, 7}, {8, 8}, {9, 9}}),  // kernels
-                ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                                  // strides
+                ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                          // strides
                 ::testing::ValuesIn<std::vector<size_t>>({{5, 5}}),                                  // padBegins
                 ::testing::ValuesIn<std::vector<size_t>>({{5, 5}}),                                  // padEnds
                 ::testing::Values(ov::op::RoundingType::FLOOR),                                      //
@@ -419,13 +444,13 @@ const auto pool_LargePadding5 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                                         // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding6 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),  //
                            ::testing::ValuesIn<std::vector<size_t>>(
                                    {{6, 6}, {7, 7}, {8, 8}, {9, 9}, {10, 10}, {11, 11}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),             // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                     // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{6, 6}}),             // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{6, 6}}),             // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                 //
@@ -434,13 +459,13 @@ const auto pool_LargePadding6 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                               // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding7 = ::testing::Combine(
         ::testing::Combine(
                 ::testing::Values(PoolingTypes::MAX),                                                    //
                 ::testing::ValuesIn<std::vector<size_t>>({{7, 7}, {8, 8}, {9, 9}, {10, 10}, {11, 11}}),  // kernels
-                ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                                      // strides
+                ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                              // strides
                 ::testing::ValuesIn<std::vector<size_t>>({{7, 7}}),                                      // padBegins
                 ::testing::ValuesIn<std::vector<size_t>>({{7, 7}}),                                      // padEnds
                 ::testing::Values(ov::op::RoundingType::FLOOR),                                          //
@@ -449,12 +474,12 @@ const auto pool_LargePadding7 = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                                             // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto pool_LargePadding8 = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                                            //
                            ::testing::ValuesIn<std::vector<size_t>>({{8, 8}, {9, 9}, {10, 10}, {11, 11}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                              // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                      // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{8, 8}}),                              // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{8, 8}}),                              // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                                  //
@@ -463,14 +488,14 @@ const auto pool_LargePadding8 = ::testing::Combine(
         ::testing::Values(ov::element::f16),           // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 64, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AVGPooling / Large Kernels ============= */
 
 const auto avgPool_largeKernels = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG),                  //
                            ::testing::ValuesIn<std::vector<size_t>>({{23, 30}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),    // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),            // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),        //
@@ -479,14 +504,14 @@ const auto avgPool_largeKernels = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                      // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 2048, 23, 30}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AVGPooling / Large KernelsX ============= */
 
 const auto avgPool_largeKernelsX = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG),                                          //
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 14}}),                           // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                            // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                    // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                                //
@@ -494,14 +519,14 @@ const auto avgPool_largeKernelsX = ::testing::Combine(
                            ::testing::Values(false)),                                                     // excludePad
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 1, 14}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AVGPooling / Large KernelsY ============= */
 
 const auto avgPool_largeKernelsY = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG),                                          //
                            ::testing::ValuesIn<std::vector<size_t>>({{14, 1}}),                           // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                            // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                    // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                                //
@@ -509,14 +534,14 @@ const auto avgPool_largeKernelsY = ::testing::Combine(
                            ::testing::Values(false)),                                                     // excludePad,
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 14, 1}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AVGPooling / Large Prime Kernels ============= */
 
 const auto avgPool_largePrimeKernels = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG),                  //
                            ::testing::ValuesIn<std::vector<size_t>>({{17, 17}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),    // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),            // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),        //
@@ -525,14 +550,14 @@ const auto avgPool_largePrimeKernels = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                      // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 147, 17, 17}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= MAXPooling / Large Kernels ============= */
 
 const auto maxPool_largeKernels = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                  //
                            ::testing::ValuesIn<std::vector<size_t>>({{23, 30}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{23, 30}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{23, 30}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),    // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),        //
@@ -541,14 +566,14 @@ const auto maxPool_largeKernels = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                      // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 2048, 23, 30}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= MAXPooling / Large KernelsX ============= */
 
 const auto maxPool_largeKernelsX = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                                          //
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 14}}),                           // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                            // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                    // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                                //
@@ -556,14 +581,14 @@ const auto maxPool_largeKernelsX = ::testing::Combine(
                            ::testing::Values(false)),                                                     // excludePad
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 1, 14}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= MAXPooling / Large KernelsY ============= */
 
 const auto maxPool_largeKernelsY = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                                          //
                            ::testing::ValuesIn<std::vector<size_t>>({{14, 1}}),                           // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),                            // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),                                    // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),                            // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                                //
@@ -571,14 +596,14 @@ const auto maxPool_largeKernelsY = ::testing::Combine(
                            ::testing::Values(false)),                                                     // excludePad
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 14, 1}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= AvgPooling / Exclude_Pad Handling ============= */
 
 const auto avgPool_excludePad = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG),                //
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),      //
@@ -587,7 +612,7 @@ const auto avgPool_excludePad = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                    // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 16, 28, 28}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ======================================== NPU 3720 ============================================================= */
 
@@ -595,7 +620,7 @@ const auto avgPool_excludePad = ::testing::Combine(
 const auto pool_ExplicitNoPadding_Params = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),
                            ::testing::ValuesIn<std::vector<size_t>>({{14, 14}, {14, 1}, {1, 14}}),  // kernels
-                           ::testing::Values<std::vector<size_t>>({1, 1}),                          // strides
+                           ::testing::Values<ov::Strides>({1, 1}),                                  // strides
                            ::testing::Values<std::vector<size_t>>({0, 0}),                          // padBegins
                            ::testing::Values<std::vector<size_t>>({0, 0}),                          // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR), ::testing::Values(ov::op::PadType::EXPLICIT),
@@ -603,13 +628,13 @@ const auto pool_ExplicitNoPadding_Params = ::testing::Combine(
         ::testing::Values(ov::element::f16),          // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 30, 14, 14}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // U-net usecase
 const auto pool_unet_Params = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),
                            ::testing::Values<std::vector<size_t>>({12, 1}),  // kernels
-                           ::testing::Values<std::vector<size_t>>({1, 1}),   // strides
+                           ::testing::Values<ov::Strides>({1, 1}),           // strides
                            ::testing::Values<std::vector<size_t>>({0, 0}),   // padBegins
                            ::testing::Values<std::vector<size_t>>({0, 0}),   // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR), ::testing::Values(ov::op::PadType::EXPLICIT),
@@ -617,13 +642,13 @@ const auto pool_unet_Params = ::testing::Combine(
         ::testing::Values(ov::element::f16),          // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 1, 12, 176}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // large kernel
 const auto pooling_largeKernel_Params = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX, PoolingTypes::AVG),  //
                            ::testing::ValuesIn<std::vector<size_t>>({{28, 28}}),     // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),       // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),               // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),       // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),       // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),           //
@@ -632,13 +657,13 @@ const auto pooling_largeKernel_Params = ::testing::Combine(
         ::testing::Values(ov::element::f16),                                         // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 70, 28, 28}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // Large kernel with stride 1
 const auto pooling_largeKernelStrideOne = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::MAX),                 //
                            ::testing::ValuesIn<std::vector<size_t>>({{71, 1}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),   // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1}}),           // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),   // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),   // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),       //
@@ -646,13 +671,13 @@ const auto pooling_largeKernelStrideOne = ::testing::Combine(
                            ::testing::Values(false)),                            // excludePad,              //
         ::testing::Values(ov::element::f16),                                     // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 1, 71, 2}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // Test all padding type
 const auto poolAllPadTypeParams = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::ValuesIn<std::vector<size_t>>({{5, 7}}),  // kernels
-                           ::testing::Values<std::vector<size_t>>({2, 3}),      // strides
+                           ::testing::Values<ov::Strides>({2, 3}),              // strides
                            ::testing::Values<std::vector<size_t>>({2, 3}),      // padBegins
                            ::testing::Values<std::vector<size_t>>({1, 2}),      // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR, ov::op::RoundingType::CEIL),
@@ -661,13 +686,13 @@ const auto poolAllPadTypeParams = ::testing::Combine(
                            ::testing::Values(true)),                                                      // excludePad
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 2, 30, 30}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // 3D usecase
 const auto pool3DParams = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::ValuesIn<std::vector<size_t>>({{3}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{1}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{1}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::CEIL),
@@ -675,13 +700,13 @@ const auto pool3DParams = ::testing::Combine(
                            ::testing::Values(false)),                                                 // excludePad
         ::testing::Values(ov::element::f16),                                                          // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{3, 4, 64}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // 5d usecase
 const auto pool5DParams = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::ValuesIn<std::vector<size_t>>({{2, 2, 2}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{2, 2, 2}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{2, 2, 2}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0, 0}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0, 0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),
@@ -690,13 +715,13 @@ const auto pool5DParams = ::testing::Combine(
         ::testing::Values(ov::element::f16),          // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 4, 16, 8, 12}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // 5d usecase, no 4D conversion
 const auto pool5DParams_no4D = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 7, 7}}),  // kernels
-                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1, 1}}),  // strides
+                           ::testing::ValuesIn<ov::Strides>({{1, 1, 1}}),          // strides
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0, 0}}),  // padBegins
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0, 0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR), ::testing::Values(ov::op::PadType::EXPLICIT),
@@ -704,13 +729,13 @@ const auto pool5DParams_no4D = ::testing::Combine(
         ::testing::Values(ov::element::f32),          // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 960, 4, 7, 7}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // pad outside of kernel size/2. Pad is valid until at kerneSize-1.
 const auto pooligBigPadEndParams = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),  // kernels
-                           ::testing::Values<std::vector<size_t>>({2, 2}),      // strides
+                           ::testing::Values<ov::Strides>({2, 2}),              // strides
                            ::testing::Values<std::vector<size_t>>({0, 0}),      // padBegins
                            ::testing::Values<std::vector<size_t>>({2, 2}),      // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR, ov::op::RoundingType::CEIL),
@@ -718,26 +743,26 @@ const auto pooligBigPadEndParams = ::testing::Combine(
                            ::testing::Values(false)),                                                     // excludePad
         ::testing::Values(ov::element::f16),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 4, 54, 54}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // basic usecase
 const auto pool_basic_Params = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                            ::testing::Values<std::vector<size_t>>({3, 3}),  // kernels
-                           ::testing::Values<std::vector<size_t>>({1, 1}),  // strides
+                           ::testing::Values<ov::Strides>({1, 1}),          // strides
                            ::testing::Values<std::vector<size_t>>({1, 1}),  // padBegins
                            ::testing::Values<std::vector<size_t>>({1, 1}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR), ::testing::Values(ov::op::PadType::EXPLICIT),
                            ::testing::Values(false)),                                                     // excludePad
         ::testing::Values(ov::element::f32),                                                              // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 2, 16, 24}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // Integer Input/Output
 const auto pool_inputOutputInteger = ::testing::Combine(
         ::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),                      //
                            ::testing::Values<std::vector<size_t>>({{8, 8}}),                             // kernels
-                           ::testing::Values<std::vector<size_t>>({{8, 1}}),                             // strides
+                           ::testing::Values<ov::Strides>({{8, 1}}),                                     // strides
                            ::testing::Values<std::vector<size_t>>({{0, 0}}),                             // padBegins
                            ::testing::Values<std::vector<size_t>>({{0, 0}}),                             // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),                               //
@@ -745,13 +770,13 @@ const auto pool_inputOutputInteger = ::testing::Combine(
                            ::testing::Values(false)),                                                    // excludePad,
         ::testing::Values(ov::element::u8, ov::element::i8, ov::element::i32, ov::element::i64),         // netPrc
         ::testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 1, 16, 8}})),  // inputShapes
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // SOB multi-clustering
 auto generateSOBParamsFromInputShape = [](const std::vector<ov::Shape>& inputShapes) {
     return ::testing::Combine(::testing::Combine(::testing::Values(PoolingTypes::AVG, PoolingTypes::MAX),
                                                  ::testing::Values<std::vector<size_t>>({3, 3}),  // kernels
-                                                 ::testing::Values<std::vector<size_t>>({2, 2}),  // strides
+                                                 ::testing::Values<ov::Strides>({2, 2}),          // strides
                                                  ::testing::Values<std::vector<size_t>>({1, 1}),  // padBegins
                                                  ::testing::Values<std::vector<size_t>>({1, 1}),  // padEnds
                                                  ::testing::Values(ov::op::RoundingType::FLOOR),
@@ -759,7 +784,7 @@ auto generateSOBParamsFromInputShape = [](const std::vector<ov::Shape>& inputSha
                                                  ::testing::Values(false)),                          // excludePad
                               ::testing::Values(ov::element::f16),                                   // netPrc
                               ::testing::Values(static_shapes_to_test_representation(inputShapes)),  // inputShapes
-                              ::testing::Values(DEVICE_NPU));
+                              ::testing::Values(test_utils::TARGET_DEVICE));
 };
 
 /* ========== MaxPool8 ========== */
@@ -767,11 +792,11 @@ auto generateSOBParamsFromInputShape = [](const std::vector<ov::Shape>& inputSha
 const std::vector<std::vector<size_t>> kernels = {{3, 5}};
 const std::vector<std::vector<size_t>> kernel_3d = {{2, 2, 2}};
 
-const std::vector<std::vector<size_t>> strides = {{2, 1}};
-const std::vector<std::vector<size_t>> strides_3d = {{1, 1, 1}};
+const std::vector<ov::Strides> strides = {{2, 1}};
+const std::vector<ov::Strides> strides_3d = {{1, 1, 1}};
 
-const std::vector<std::vector<size_t>> dilation = {{2, 2}};
-const std::vector<std::vector<size_t>> dilation_3d = {{1, 1, 1}};
+const std::vector<ov::Strides> dilation = {{2, 2}};
+const std::vector<ov::Strides> dilation_3d = {{1, 1, 1}};
 
 const std::vector<std::vector<size_t>> pad_begins = {{0, 2}};
 const std::vector<std::vector<size_t>> pad_begins_3d = {{0, 0, 0}};
@@ -783,34 +808,37 @@ const std::vector<std::vector<ov::Shape>> inputShape = {{{1, 3, 30, 30}}};
 const std::vector<std::vector<ov::Shape>> inputShape_5d = {{{1, 4, 16, 8, 12}}};
 
 /* ========== Explicit Pad Floor Rounding ========== */
-const auto maxPool8_ExplicitPad_FloorRounding_Params = ::testing::Combine(
-        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
-                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
-                           ::testing::Values(ov::element::i32), ::testing::Values(0),
-                           ::testing::Values(ov::op::RoundingType::FLOOR),
-                           ::testing::Values(ov::op::PadType::EXPLICIT)),
-        ::testing::Values(ov::element::f16, ov::element::i32, ov::element::f32),
-        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)), ::testing::Values(DEVICE_NPU));
+const auto maxPool8_ExplicitPad_FloorRounding_Params =
+        ::testing::Combine(::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides),
+                                              ::testing::ValuesIn(dilation), ::testing::ValuesIn(pad_begins),
+                                              ::testing::ValuesIn(pad_ends), ::testing::Values(ov::element::i32),
+                                              ::testing::Values(0), ::testing::Values(ov::op::RoundingType::FLOOR),
+                                              ::testing::Values(ov::op::PadType::EXPLICIT)),
+                           ::testing::Values(ov::element::f16, ov::element::i32, ov::element::f32),
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========== Same Upper Pad Floor Rounding ========== */
-const auto maxPool8_SameUpperPad_FloorRounding_Params = ::testing::Combine(
-        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
-                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
-                           ::testing::Values(ov::element::i32), ::testing::Values(0),
-                           ::testing::Values(ov::op::RoundingType::FLOOR),
-                           ::testing::Values(ov::op::PadType::SAME_UPPER)),
-        ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)), ::testing::Values(DEVICE_NPU));
+const auto maxPool8_SameUpperPad_FloorRounding_Params =
+        ::testing::Combine(::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides),
+                                              ::testing::ValuesIn(dilation), ::testing::ValuesIn(pad_begins),
+                                              ::testing::ValuesIn(pad_ends), ::testing::Values(ov::element::i32),
+                                              ::testing::Values(0), ::testing::Values(ov::op::RoundingType::FLOOR),
+                                              ::testing::Values(ov::op::PadType::SAME_UPPER)),
+                           ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========== Same Lower Pad Floor Rounding ========== */
-const auto maxPool8_SameLowerPad_FloorRounding_Params = ::testing::Combine(
-        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
-                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
-                           ::testing::Values(ov::element::i32), ::testing::Values(0),
-                           ::testing::Values(ov::op::RoundingType::FLOOR),
-                           ::testing::Values(ov::op::PadType::SAME_LOWER)),
-        ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)), ::testing::Values(DEVICE_NPU));
+const auto maxPool8_SameLowerPad_FloorRounding_Params =
+        ::testing::Combine(::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides),
+                                              ::testing::ValuesIn(dilation), ::testing::ValuesIn(pad_begins),
+                                              ::testing::ValuesIn(pad_ends), ::testing::Values(ov::element::i32),
+                                              ::testing::Values(0), ::testing::Values(ov::op::RoundingType::FLOOR),
+                                              ::testing::Values(ov::op::PadType::SAME_LOWER)),
+                           ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========= Explicit Pad Ceil Rounding ========== */
 const auto maxPool8_ExplicitPad_CeilRounding_Params = ::testing::Combine(
@@ -819,7 +847,8 @@ const auto maxPool8_ExplicitPad_CeilRounding_Params = ::testing::Combine(
                            ::testing::Values(ov::element::i32), ::testing::Values(0),
                            ::testing::Values(ov::op::RoundingType::CEIL), ::testing::Values(ov::op::PadType::EXPLICIT)),
         ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========= Explicit Pad Floor Rounding 5D input========== */
 const auto maxPool8_ExplicitPad_FloorRounding_5Dinput_Params =
@@ -830,7 +859,7 @@ const auto maxPool8_ExplicitPad_FloorRounding_5Dinput_Params =
                                               ::testing::Values(ov::op::PadType::EXPLICIT)),
                            ::testing::Values(ov::element::f16),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========= Same Upper Pad Floor Rounding 5D input========== */
 const auto maxPool8_SameUpperPad_FloorRounding_5Dinput_Params =
@@ -841,7 +870,7 @@ const auto maxPool8_SameUpperPad_FloorRounding_5Dinput_Params =
                                               ::testing::Values(ov::op::PadType::SAME_UPPER)),
                            ::testing::Values(ov::element::f16),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 /* ========= Same Lower Pad Ceil Rounding 5D input========== */
 const auto maxPool8_SameLowerPad_CeilRounding_5Dinput_Params =
@@ -852,7 +881,79 @@ const auto maxPool8_SameLowerPad_CeilRounding_5Dinput_Params =
                                               ::testing::Values(ov::op::PadType::SAME_LOWER)),
                            ::testing::Values(ov::element::f16),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========== AvgPool16 ========== */
+
+/* ========== Explicit Pad Floor Rounding ========== */
+const auto avgPool16_ExplicitPad_FloorRounding_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
+                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
+                           ::testing::Values(ov::op::RoundingType::FLOOR), ::testing::Values(ov::op::PadType::EXPLICIT),
+                           ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16, ov::element::i32, ov::element::f32),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========== Same Upper Pad Floor Rounding ========== */
+const auto avgPool16_SameUpperPad_FloorRounding_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
+                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
+                           ::testing::Values(ov::op::RoundingType::FLOOR),
+                           ::testing::Values(ov::op::PadType::SAME_UPPER), ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========== Same Lower Pad Floor Rounding ========== */
+const auto avgPool16_SameLowerPad_FloorRounding_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
+                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
+                           ::testing::Values(ov::op::RoundingType::FLOOR),
+                           ::testing::Values(ov::op::PadType::SAME_LOWER), ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========= Explicit Pad Ceil Rounding ========== */
+const auto avgPool16_ExplicitPad_CeilRounding_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernels), ::testing::ValuesIn(strides), ::testing::ValuesIn(dilation),
+                           ::testing::ValuesIn(pad_begins), ::testing::ValuesIn(pad_ends),
+                           ::testing::Values(ov::op::RoundingType::CEIL), ::testing::Values(ov::op::PadType::EXPLICIT),
+                           ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========= Explicit Pad Floor Rounding 5D input========== */
+const auto avgPool16_ExplicitPad_FloorRounding_5Dinput_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernel_3d), ::testing::ValuesIn(strides_3d),
+                           ::testing::Values(dilation_3d[0]), ::testing::ValuesIn(pad_begins_3d),
+                           ::testing::ValuesIn(pad_ends_3d), ::testing::Values(ov::op::RoundingType::FLOOR),
+                           ::testing::Values(ov::op::PadType::EXPLICIT), ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========= Same Upper Pad Floor Rounding 5D input========== */
+const auto avgPool16_SameUpperPad_FloorRounding_5Dinput_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernel_3d), ::testing::ValuesIn(strides_3d),
+                           ::testing::ValuesIn(dilation_3d), ::testing::ValuesIn(pad_begins_3d),
+                           ::testing::ValuesIn(pad_ends_3d), ::testing::Values(ov::op::RoundingType::FLOOR),
+                           ::testing::Values(ov::op::PadType::SAME_UPPER), ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+/* ========= Same Lower Pad Ceil Rounding 5D input========== */
+const auto avgPool16_SameLowerPad_CeilRounding_5Dinput_Params = ::testing::Combine(
+        ::testing::Combine(::testing::ValuesIn(kernel_3d), ::testing::ValuesIn(strides_3d),
+                           ::testing::ValuesIn(dilation_3d), ::testing::ValuesIn(pad_begins_3d),
+                           ::testing::ValuesIn(pad_ends_3d), ::testing::Values(ov::op::RoundingType::CEIL),
+                           ::testing::Values(ov::op::PadType::SAME_LOWER), ::testing::Values(false, true)),
+        ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShape_5d)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Pooling_NCHW_NoPadding, PoolingLayerTest_NPU3720, pool_ExplicitNoPadding_Params,
                          PoolingLayerTest_NPU3720::getTestCaseName);
@@ -1067,5 +1168,27 @@ INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameUpperPad_CeilRounding5D, MaxPoolingV
 
 INSTANTIATE_TEST_SUITE_P(smoke_MaxPool8_SameLowerPad_CeilRounding5D, MaxPoolingV8LayerTestCommon,
                          maxPool8_SameLowerPad_CeilRounding_5Dinput_Params, MaxPoolingV8LayerTest::getTestCaseName);
+/* ============= AvgPool16 ============= */
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_AvgPool16_ExplicitPad_FloorRounding, AvgPoolingV16LayerTestCommon,
+                         avgPool16_ExplicitPad_FloorRounding_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameUpperPad_FloorRounding, AvgPoolingV16LayerTestCommon,
+                         avgPool16_SameUpperPad_FloorRounding_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameLowerPad_FloorRounding, AvgPoolingV16LayerTestCommon,
+                         avgPool16_SameLowerPad_FloorRounding_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_ExplicitPad_CeilRounding, AvgPoolingV16LayerTestCommon,
+                         avgPool16_ExplicitPad_CeilRounding_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_ExplicitPad_FloorRounding5D, AvgPoolingV16LayerTestCommon,
+                         avgPool16_ExplicitPad_FloorRounding_5Dinput_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameUpperPad_CeilRounding5D, AvgPoolingV16LayerTestCommon,
+                         avgPool16_SameUpperPad_FloorRounding_5Dinput_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameLowerPad_CeilRounding5D, AvgPoolingV16LayerTestCommon,
+                         avgPool16_SameLowerPad_CeilRounding_5Dinput_Params, AvgPoolingV16LayerTest::getTestCaseName);
 
 }  // namespace

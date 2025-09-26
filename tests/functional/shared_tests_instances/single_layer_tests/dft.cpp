@@ -71,7 +71,7 @@ const auto combine = [](const std::vector<std::vector<ov::Shape>>& inputShapes,
                         const std::vector<std::vector<int64_t>>& signalSizes) {
     return testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(inputShapes)),
                             testing::ValuesIn(inputType), testing::ValuesIn(axes), testing::ValuesIn(signalSizes),
-                            testing::ValuesIn(opTypes), testing::Values(DEVICE_NPU),
+                            testing::ValuesIn(opTypes), testing::Values(test_utils::TARGET_DEVICE),
                             testing::Values(utils::InputLayerType::CONSTANT),
                             testing::Values(utils::InputLayerType::CONSTANT));
 };

@@ -59,23 +59,41 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
 
         SmallVector<std::pair<mlir::OpOperand*, mlir::Operation*>> quantizeOps;
         SmallVector<mlir::Operation*> consumerOps;
+        SmallVector<SmallVector<mlir::Operation*>> nestedInterReturnTypesOps;
 
         for (auto& operand : concatOp->getOpOperands()) {
             auto parentOp = operand.get().getDefiningOp();
+            mlir::OpOperand* parentOperand = &operand;
+            SmallVector<mlir::Operation*> parentOps;
 
             if (!mlir::isa_and_nonnull<IE::ElemTypeInfoOpInterface, IE::QuantizeOp>(parentOp)) {
                 return;
             }
-            if (mlir::isa_and_nonnull<IE::ConcatOp>(parentOp)) {
+            if (parentOp->getNumOperands() != 1) {
                 return;
             }
 
             while (mlir::isa_and_nonnull<IE::ElemTypeInfoOpInterface>(parentOp)) {
-                parentOp = parentOp->getOperand(0).getDefiningOp();
+                // Check if parentOp was already visited
+                bool visitedParentOp = false;
+                for (const auto& interReturnTypesOps1 : nestedInterReturnTypesOps) {
+                    auto it = std::find(interReturnTypesOps1.begin(), interReturnTypesOps1.end(), parentOp);
+                    if (it != interReturnTypesOps1.end()) {
+                        visitedParentOp = true;
+                    }
+                }
+                if (!visitedParentOp) {
+                    parentOps.push_back(parentOp);
+                }
+                parentOperand = &parentOp->getOpOperand(0);
+                parentOp = parentOperand->get().getDefiningOp();
                 if (mlir::isa_and_nonnull<IE::ConcatOp>(parentOp)) {
                     return;
                 }
                 if (!mlir::isa_and_nonnull<IE::ElemTypeInfoOpInterface, IE::QuantizeOp>(parentOp)) {
+                    return;
+                }
+                if (parentOp->getNumOperands() != 1) {
                     return;
                 }
             }
@@ -83,13 +101,21 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
             if (!mlir::isa_and_nonnull<IE::QuantizeOp>(parentOp)) {
                 return;
             }
-
-            quantizeOps.push_back(std::make_pair(&operand, parentOp));
+            bool visitedParentOp = false;
+            for (auto [operand, quantOp] : quantizeOps) {
+                if (quantOp == parentOp) {
+                    visitedParentOp = true;
+                }
+            }
+            if (visitedParentOp == false) {
+                quantizeOps.push_back(std::make_pair(parentOperand, parentOp));
+            }
+            nestedInterReturnTypesOps.push_back(parentOps);
         }
 
         mlir::Operation* operation = concatOp;
         mlir::Operation* dequantizeOp = nullptr;
-        while (!operation->getUsers().empty() &&
+        while (!operation->getResult(0).getUsers().empty() &&
                mlir::isa_and_nonnull<IE::ElemTypeInfoOpInterface, IE::DequantizeOp>(operation)) {
             auto consumer = *(operation->getResult(0).getUsers().begin());
             if (!consumer->getResult(0).hasOneUse()) {
@@ -112,16 +138,16 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
             return;
         }
 
+        // Skip QuantizeOp by linking to above op
         for (auto [operand, quantOp] : quantizeOps) {
-            auto childOp = *(quantOp->getResult(0).getUsers().begin());
-            if (childOp == concatOp) {
-                operand->set(quantOp->getOperand(0));
-            } else {
-                childOp->getOpOperand(0).set(quantOp->getOperand(0));
-            }
-            while (!mlir::isa_and_nonnull<IE::ConcatOp>(childOp)) {
-                inferReturnTypes(childOp, InferShapedTypeMode::ELEM_TYPE);
-                childOp = *(childOp->getResult(0).getUsers().begin());
+            operand->set(quantOp->getOperand(0));
+            opsToErase.push_back(quantOp);
+        }
+
+        // Infer return types to the chain of ElemTypeInfoOpInterface that sets between QuantizeOp and ConcatOp
+        for (auto& opsToInferReturnType1 : nestedInterReturnTypesOps) {
+            for (auto op = opsToInferReturnType1.rbegin(); op != opsToInferReturnType1.rend(); ++op) {
+                inferReturnTypes(*op, InferShapedTypeMode::ELEM_TYPE);
             }
         }
 
@@ -133,14 +159,13 @@ void RemoveQuantDequantSeqPass::safeRunOnFunc() {
 
         dequantizeOp->replaceAllUsesWith(dequantizeOp->getOperands());
         opsToErase.push_back(dequantizeOp);
-
-        for (auto quantOp : quantizeOps) {
-            opsToErase.push_back(quantOp.second);
-        }
     });
 
     for (auto op : llvm::make_early_inc_range(opsToErase)) {
-        op->erase();
+        // Remove dangling ops
+        if (op->getResult(0).getUsers().empty()) {
+            op->erase();
+        }
     }
 
     func.walk([this](vpux::IE::QuantizeOp quantizeOp) {

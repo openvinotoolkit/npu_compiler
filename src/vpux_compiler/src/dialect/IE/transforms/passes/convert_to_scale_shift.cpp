@@ -316,9 +316,9 @@ bool isBeneficialToConvertMultiplyToScaleShift(ShapeRef activationShape, ShapeRe
     }
 
     // Operations benefit from running on DPU when channel dimension size is less than
-    // 1.5x(experimental value) the standard limit
+    // 2x(experimental value) the standard limit
     // E-171794 will introduce a comprehensive solution for choosing between different executors
-    constexpr double DPU_BENEFIT_FACTOR = 1.5;
+    constexpr double DPU_BENEFIT_FACTOR = 2;
     const bool isBenefitOnDPU =
             dimCShape < static_cast<int64_t>(VPU::NCEInvariant::VPU_DIMENSION_LIMIT * DPU_BENEFIT_FACTOR);
     // Operations that do not need to be broadcasted can be decided to execute on DPU(NCEEltwise) or

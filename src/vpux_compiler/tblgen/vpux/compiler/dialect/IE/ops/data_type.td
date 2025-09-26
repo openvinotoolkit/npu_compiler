@@ -94,10 +94,16 @@ def IE_DynamicDequantizeOp :
         > {
     let summary = "InferenceEngine Dynamic Dequantize layer";
 
+    let description = [{
+        The operation dequantizes the input from like i8 i4 or i2 to f16 or f32.
+        The input data type should be signed or unsigned, we can not support
+        signless because we can not determine the data range.
+    }];
+
     let arguments = (ins
         RankedTensorOf<[quant_QuantizedType]>:$input,
         RankedTensorOf<[F16, F32]>:$scale,
-        Optional<RankedTensorOf<[I8, I4]>>:$zp,
+        Optional<RankedTensorOf<[I8, I4, I2, U2]>>:$zp,
 
         TypeAttr:$dstElemType
     );

@@ -85,8 +85,7 @@ struct WeightsSparsityOptions : mlir::PassPipelineOptions<WeightsSparsityOptions
 //
 
 struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
-    BoolOption enablePrefetchTiling{*this, "enable-prefetch", llvm::cl::desc("Enable prefetch mode"),
-                                    llvm::cl::init(true)};
+    BoolOption enablePrefetchTiling{*this, "prefetching", llvm::cl::desc("Enable prefetch mode"), llvm::cl::init(true)};
 
     BoolOption enableVPUNNCostForTiling{*this, "enable-vpunn-cost-for-tiling",
                                         llvm::cl::desc("Use VPUNN cost model to get the best tiling strategy"),
@@ -98,8 +97,7 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
     BoolOption enableVerticalFusion{*this, "vertical-fusion", llvm::cl::desc("Enable vertical fusion feature"),
                                     llvm::cl::init(false)};
 
-    BoolOption enableVerticalFusionPipelining{*this, "vertical-fusion-pipelining",
-                                              llvm::cl::desc("Enable vertical fusion pipelining"),
+    BoolOption enableVerticalFusionPipelining{*this, "pipelining", llvm::cl::desc("Enable vertical fusion pipelining"),
                                               llvm::cl::init(false)};
 
     BoolOption enableSCFTiling{*this, "scf-tiling", llvm::cl::desc("Enable tiling using SCF dialect"),
@@ -160,23 +158,7 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
 
     template <class OtherOptions>
     explicit TilingOptions(const OtherOptions& options) {
-        enablePrefetchTiling = options.enablePrefetching;
-        enableVPUNNCostForTiling = options.enableVPUNNCostForTiling;
-        enableOutputPipelining = options.enableOutputPipelining;
-        enableVerticalFusion = options.enableVerticalFusion;
-        opTilingCacheThreshold = options.opTilingCacheThreshold;
-        vfOutliningInstanceThreshold = options.vfOutliningInstanceThreshold;
-        vfOutliningTileThreshold = options.vfOutliningTileThreshold;
-        enableVerticalFusionOutlining = options.enableVerticalFusionOutlining;
-        enableProfiling = options.enableProfiling;
-        enableProfilingWithOutlining = options.enableProfilingWithOutlining;
-        enableVerticalFusionPipelining = options.enablePipelining;
-        enableShaveDDRAccessOptimization = options.enableShaveDDRAccessOptimization;
-        readStrategyFromJson = options.readStrategyFromJson;
-        writeStrategyToJson = options.writeStrategyToJson;
-        dumpStrategyToLog = options.dumpStrategyToLog;
-        enableSCFTiling = options.enableSCFTiling;
-        workloadManagementMode = options.workloadManagementMode;
+        this->matchAndCopyOptionValuesFrom(options);
     }
 };
 
@@ -246,6 +228,10 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                                                   llvm::cl::desc("Enable weights dequantization for weights as input"),
                                                   llvm::cl::init(false)};
 
+    BoolOption enableQDQOptimizationAggressive{*this, "enable-qdq-optimization-aggressive",
+                                               llvm::cl::desc("Enable aggressive QDQ optimizations"),
+                                               llvm::cl::init(false)};
+
     BoolOption enableAdaptiveStripping{*this, "enable-adaptive-stripping", llvm::cl::desc("Enable adaptive stripping"),
                                        llvm::cl::init(false)};
 
@@ -272,6 +258,18 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
 
     // SetupEnableDCIM pass options
     BoolOption enableDCIM{*this, "enable-dcim", ::llvm::cl::desc("Enable DCIM"), ::llvm::cl::init(true)};
+
+    BoolOption enableAsymmetricPerTensorZP{
+            *this, "enable-asymmetric-per-tensor-zp",
+            llvm::cl::desc("Enable asymmetric weights with per tensor zp to run on NCE without dequantization"),
+            llvm::cl::init(false)};
+
+    BoolOption enableAsymmetricPerChannelZP{
+            *this, "enable-asymmetric-per-channel-zp",
+            llvm::cl::desc("Enable asymmetric weights with per channel zp to run on NCE without dequantization"),
+            llvm::cl::init(false)};
+
+    BoolOption enableProfiling{*this, "enable-profiling", llvm::cl::desc("Enable profiling"), llvm::cl::init(false)};
 
     InitCompilerOptions() = default;
 
@@ -322,6 +320,15 @@ private:
 // Passes
 //
 
+std::unique_ptr<mlir::Pass> createMoveConvertAroundViewLikeOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createComputeNCEInputWorkloadsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertM2IOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFuseM2IOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createApplyTilingMVN1SumPass(bool enablePrefetchTiling = true,
+                                                         Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createDecomposeMVNPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSplitRealDFTOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAdjustForOptimizedLayersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInitResourcesPass();
 std::unique_ptr<mlir::Pass> createInitResourcesPass(const InitCompilerOptions& initCompilerOptions,
                                                     Logger log = Logger::global());
@@ -332,10 +339,12 @@ std::unique_ptr<mlir::Pass> createCompressDmaReserveMemPass(Logger log = Logger:
 std::unique_ptr<mlir::Pass> createSWKernelInstructionPrefetchReserveMemForDummyKernelsPass(
         Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSWKernelDataPrefetchReserveMemPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createCloneReservedResourcesFromTopModulePass(Logger log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createOptimizeSharedInputCopyForConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCMXConcatPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitNCEOpsOntoWorkloadsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createCorrectNCEWorkloadsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createResolveEltwiseWithZTiledWorkloadsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createShiftOutputWorkloadsForHaloPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createMakeOpsWithDistributedTensorPass(bool enableExplicitDistributionInfoAttr = false,
@@ -463,8 +472,10 @@ std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass();
 std::unique_ptr<mlir::Pass> createVerticalFusionOutliningPass(const TilingOptions& options,
                                                               Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollUnusedVerticalFusionRegionPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createEnsureNCEOpsSizeRequirementsPass(bool enableOutputEnsurance = true,
-                                                                   Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createEnsureNCEOpsSizeRequirementsPass(
+        bool enableOutputEnsurance = true, bool enableDequantWeightEnsuranceBeforeStrategy = true,
+        bool skipNonConvOC = false, Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvolutionSplitOverInputChannelPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFuseClampPass(Logger log = Logger::global());
 
 // If optimizeOnlyOuterConcat is true, only optimize when concat dimension is the highest dimension
@@ -482,6 +493,12 @@ void buildActivationSparsityPipeline(mlir::OpPassManager& pm, const VPU::Activat
 void buildWeightsSparsityPipeline(mlir::OpPassManager& pm, const VPU::WeightsSparsityOptions& options,
                                   Logger log = Logger::global());
 void buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& options, Logger log = Logger::global());
+
+//
+// Scf Compute Ops outlining Pipeline
+//
+
+void buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 
 //
 // Strategy Pipeline
@@ -538,12 +555,16 @@ std::unique_ptr<mlir::Pass> createConstructWsAnalysisPass(const Logger& log = Lo
 std::unique_ptr<mlir::Pass> createDestructWsAnalysisPass(const Logger& log = Logger::global());
 
 std::unique_ptr<mlir::Pass> createQueryWSInfoPass(const Logger& log = Logger::global());
+std::unique_ptr<mlir::Pass> createQueryWSInfoPass(std::optional<Byte> memLimit, const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createIntroduceInitFunctionPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createIntroduceInitFunctionPass(StringRef wsExtractionModeString,
+                                                            std::optional<int64_t> initPart,
+                                                            std::optional<Byte> memLimit,
                                                             const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createConcatInitInputsPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createConcatInitResultsPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createConcatInitResultsPass(StringRef wsExtractionModeString,
+                                                        std::optional<int64_t> initPart, std::optional<Byte> memLimit,
                                                         const Logger& log = Logger::global());
 
 //
@@ -601,6 +622,8 @@ struct DefaultHWOptionsDialectBase : public virtual vpux::DefaultHWOptionsBase {
 std::unique_ptr<mlir::Pass> createScfComputeOpsOutliningPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createFinalizeComputeFunctionBoundariesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertDynamicToStaticKernelsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createConvertVPUOpsToUpstreamOpsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createRestorePadAttrAfterSCFTilingPass(Logger log = Logger::global());
 
 //
 // Registration

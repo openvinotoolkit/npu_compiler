@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/barrier_variant_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/platform_resources.hpp"
@@ -125,6 +125,14 @@ void SetupNpuConstraintPass::safeRunOnModule() {
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 
     auto arch = config::getArch(getOperation());
+    if (config::isArchVPUX3XXX(arch)) {
+        // E-179084: long-term plan is to manage NPU2.7 WLM disabled externally to the pass
+        // via InitCompilerOptions argument
+        // note: WLM enabled on NPU2.7 may silently be ignored and work in some of the cases
+        // but also may lead to unexpected compilation failures
+        workloadManagementStatus = VPU::WorkloadManagementStatus::DISABLED;
+    }
+
     bool isRollBackPossible = wlmRollback.hasValue() && wlmRollback;
     bool isWlmWithoutRollback =
             workloadManagementStatus == VPU::WorkloadManagementStatus::ENABLED && !isRollBackPossible;
@@ -174,7 +182,7 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     auto maxInvariants = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::DPUInvariant, arch);
 
     auto numShvExecutorsPerTile = [&] {
-        auto tileOp = IE::getTileExecutor(moduleOp);
+        auto tileOp = config::getTileExecutor(moduleOp);
         auto executorKind = VPU::ExecutorKind::SHAVE_ACT;
         VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", executorKind);
         VPUX_THROW_UNLESS(tileOp.hasSubExecutor(executorKind), "Expected tileOp contain executor of type {0}.",

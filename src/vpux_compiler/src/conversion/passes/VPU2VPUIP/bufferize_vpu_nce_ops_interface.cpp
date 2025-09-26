@@ -265,7 +265,7 @@ SmallVector<int64_t> calculateWCHShape(ArrayRef<int64_t> shape) {
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutionOp origOp,
-                                      VPU::NCEConvolutionOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEConvolutionOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEConvolutionOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -327,7 +327,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEConvolutio
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMaxPoolOp origOp,
-                                      VPU::NCEMaxPoolOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEMaxPoolOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEMaxPoolOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -375,7 +375,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMaxPoolOp 
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEAveragePoolOp origOp,
-                                      VPU::NCEAveragePoolOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEAveragePoolOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEAveragePoolOp", 0);
     //
     // Prepare output buffer for DPU
@@ -426,7 +426,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEAveragePoo
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvolutionOp origOp,
-                                      VPU::NCEDepthConvolutionOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEDepthConvolutionOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEDepthConvolutionOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -470,15 +470,15 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
 
     const auto mpeEngineAttr = VPU::MPEEngineConfig::retrieveMPEEngineAttribute(origOp);
 
-    auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), newArgs.getInput(), newArgs.getFilter(),
-                                      newArgs.getWeightsTable(), /*weight_table_scale=*/nullptr,
-                                      /*weight_table_bias=*/nullptr, outputBuffers, VPUIP::NCETaskType::DWCONV,
-                                      kernelSizeAttr, origOp.getStrides(), origOp.getPad(), origOp.getWorkloads(),
-                                      isSuperdenseAttr, ppeAttr, dpuCostAttr,
-                                      /*isInplace=*/nullptr,
-                                      /*isPermuteQuantize=*/nullptr, /*cmSpPattern=*/nullptr,
-                                      /*inputChannelsCompression=*/nullptr, /*isNCEPermute=*/false,
-                                      /*smallKernelOptimization=*/isSmallKernelOptimizationAttr, mpeEngineAttr, log);
+    auto nceOp =
+            createNCEClusterTask(rewriter, origOp->getLoc(), newArgs.getInput(), newArgs.getFilter(),
+                                 newArgs.getWeightsTable(), newArgs.getWeightTableScale(), newArgs.getWeightTableBias(),
+                                 outputBuffers, VPUIP::NCETaskType::DWCONV, kernelSizeAttr, origOp.getStrides(),
+                                 origOp.getPad(), origOp.getWorkloads(), isSuperdenseAttr, ppeAttr, dpuCostAttr,
+                                 /*isInplace=*/nullptr,
+                                 /*isPermuteQuantize=*/nullptr, /*cmSpPattern=*/nullptr,
+                                 /*inputChannelsCompression=*/nullptr, /*isNCEPermute=*/false,
+                                 /*smallKernelOptimization=*/isSmallKernelOptimizationAttr, mpeEngineAttr, log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
 
@@ -490,7 +490,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEDepthConvo
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolateOp origOp,
-                                      VPU::NCEInterpolateOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEInterpolateOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEInterpolateOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -547,7 +547,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEInterpolat
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEEltwiseOp origOp,
-                                      VPU::NCEEltwiseOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEEltwiseOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEEltwiseOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -597,7 +597,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEEltwiseOp 
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp origOp,
-                                      VPU::NCEReduceOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEReduceOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEReduceOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -647,7 +647,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEReduceOp o
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCECompressConvolutionOp origOp,
-                                      VPU::NCECompressConvolutionOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCECompressConvolutionOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCECompressConvolutionOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
@@ -722,7 +722,7 @@ VPU::DistributedTensorType createCustomDistributedTensorType(VPU::ClusteredOpInt
 //
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp origOp,
-                                      VPU::NCEPermuteOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEPermuteOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEPermuteOp", 0);
 
     auto copyDistTensorType = mlir::dyn_cast<VPU::DistributedTensorType>(origOp->getOperand(0).getType());
@@ -877,7 +877,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEPermuteOp 
 }
 
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp origOp,
-                                      VPU::NCEMatMulOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      VPU::NCEMatMulOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-NCEMatMulOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
     //

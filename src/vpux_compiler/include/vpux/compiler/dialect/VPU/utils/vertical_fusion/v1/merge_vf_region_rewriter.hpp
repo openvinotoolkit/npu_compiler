@@ -16,6 +16,8 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <deque>
+
 namespace vpux::VPU::VF::v1 {
 
 //

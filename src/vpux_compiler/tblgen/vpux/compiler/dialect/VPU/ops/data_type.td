@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_DATA_TYPE
 #define VPUX_COMPILER_DIALECT_VPU_OPS_DATA_TYPE
 
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
@@ -24,7 +25,8 @@ def VPU_ConvertOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "Convert VPU layer";
@@ -211,7 +213,7 @@ def VPU_DynamicDequantizeOp :
     let arguments = (ins
         AnyTypeOf<[RankedTensorOf<[quant_QuantizedType]>, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$scale,
-        Optional<AnyTypeOf<[RankedTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$zp,
+        Optional<AnyTypeOf<[RankedTensorOf<[I8, I4, I2, U2]>, VPU_DistributedTensor]>>:$zp,
 
         TypeAttr:$dstElemType,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy

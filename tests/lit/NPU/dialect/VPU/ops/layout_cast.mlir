@@ -34,3 +34,50 @@ func.func @ConstFold() -> tensor<1x2x3x4xf32> {
     // CHECK-NOT:   VPU.LayoutCast
     // CHECK:       return [[CST]]
 }
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @FuseLayoutCasts
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x8x64xf32>
+func.func @FuseLayoutCasts(%arg0: tensor<1x4x8x64xf32>) -> tensor<1x4x8x64xf32, {order = #NHWC}> {
+    %0 = VPU.LayoutCast(%arg0) {
+        dst_order = #NCWH
+    } : tensor<1x4x8x64xf32> -> tensor<1x4x8x64xf32, {order = #NCWH}>
+
+    %1 = VPU.LayoutCast(%0) {
+        dst_order = #NHWC
+    } : tensor<1x4x8x64xf32, {order = #NCWH}> -> tensor<1x4x8x64xf32, {order = #NHWC}>
+
+    return %1 : tensor<1x4x8x64xf32, {order = #NHWC}>
+
+    // CHECK:   [[LAYOUT_CAST:%.*]] = VPU.LayoutCast([[INPUT]]) {
+    // CHECK-SAME:      order = #NHWC
+    // CHECK-SAME:  } : tensor<1x4x8x64xf32> -> tensor<1x4x8x64xf32, {order = #NHWC}>
+
+    // CHECK:   return [[LAYOUT_CAST]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @FuseLayoutCastsSameInOut
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x4x8x64xf32>
+func.func @FuseLayoutCastsSameInOut(%arg0: tensor<1x4x8x64xf32>) -> tensor<1x4x8x64xf32> {
+    %0 = VPU.LayoutCast(%arg0) {
+        dst_order = #NHWC
+    } : tensor<1x4x8x64xf32> -> tensor<1x4x8x64xf32, {order = #NHWC}>
+
+    %1 = VPU.LayoutCast(%0) {
+        dst_order = #NCHW
+    } : tensor<1x4x8x64xf32, {order = #NHWC}> -> tensor<1x4x8x64xf32>
+
+    return %1 : tensor<1x4x8x64xf32>
+
+    // CHECK-NOT:   VPU.LayoutCast
+    // CHECK:   return [[INPUT]]
+}

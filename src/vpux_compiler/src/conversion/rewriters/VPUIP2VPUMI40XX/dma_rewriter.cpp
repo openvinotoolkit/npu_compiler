@@ -459,8 +459,12 @@ mlir::LogicalResult GatherDMARewriter::matchAndRewrite(VPUIP::GatherDMAOp gather
             adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
             true,  // allowDifferentInOutShapes
             adaptor.getIndices(),
-            nullptr,                 // enqueueBarrier
-            origOp.getWlmPageAttr()  // wlmPageAttr
+            nullptr,                             // enqueueBarrier
+            origOp.getWlmPageAttr(),             // wlmPageAttr
+            nullptr,                             // physicalBarrierRangeAttr
+            nullptr,                             // enqueueDMAAttr
+            nullptr,                             // fetchDmaAttr
+            gatherDMAOp.getAddressingModeAttr()  // addressingMode
     );
     return mlir::success();
 }
@@ -597,7 +601,8 @@ mlir::LogicalResult BarrierProgDMARewriter::matchAndRewrite(VPUIP::BarProgDMAOp 
             origOp.getWlmPageAttr(),                     // wlmPageAttr
             barProgDmaOp.getPhysicalBarrierRangeAttr(),  // physicalBarrierRangeAttr
             nullptr,                                     // enqueueDMAAttr
-            nullptr                                      // fetchDMAAttr
+            nullptr,                                     // fetchDMAAttr
+            nullptr                                      // addressingMode
     );
 
     return mlir::success();
@@ -643,13 +648,14 @@ mlir::LogicalResult FetchDMARewriter::matchAndRewrite(VPUIP::FetchDMAOp fetchDMA
             nullptr,  // actCompressionSparsityMap
             nullptr,  // dmaTransaction
             dmaDescriptorAttr, adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
-            false,                        // allowDifferentInOutShapes
-            nullptr,                      // indices
-            nullptr,                      // enqueueBarrier
-            origOp.getWlmPageAttr(),      // wlmPageAttr
-            nullptr,                      // physicalBarrierRangeAttr
-            nullptr,                      // enqueueDMAAttr
-            fetchDMAOp.getFetchDmaAttr()  // fetchDmaAttr
+            false,                         // allowDifferentInOutShapes
+            nullptr,                       // indices
+            nullptr,                       // enqueueBarrier
+            origOp.getWlmPageAttr(),       // wlmPageAttr
+            nullptr,                       // physicalBarrierRangeAttr
+            nullptr,                       // enqueueDMAAttr
+            fetchDMAOp.getFetchDmaAttr(),  // fetchDmaAttr
+            nullptr                        // addressingMode
     );
 
     return mlir::success();
@@ -701,7 +707,8 @@ mlir::LogicalResult EnqueueDMARewriter::matchAndRewrite(VPUIP::EnqueueDMAOp enqu
             origOp.getWlmPageAttr(),           // wlmPageAttr
             nullptr,                           // physicalBarrierRangeAttr
             enqueueDMAOp.getEnqueueDmaAttr(),  // enqueueDMAAttr
-            nullptr                            // fetchDmaAttr
+            nullptr,                           // fetchDmaAttr
+            nullptr                            // addressingMode
     );
 
     return mlir::success();

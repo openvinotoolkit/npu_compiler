@@ -88,6 +88,23 @@ public:
 
     NetworkDescriptionView compile(const std::shared_ptr<const ov::Model>& model, const intel_npu::Config& config,
                                    BlobAllocator& allocator) const;
+
+    // WS CiP-specific methods
+
+    /// @brief Returns Init schedules and Main in a single call. There is always exactly one Main schedule, placed at
+    /// the back of the vector.
+    std::vector<std::shared_ptr<intel_npu::NetworkDescription>> compileWsOneShot(
+            const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config) const override;
+
+    /// @brief Sequentially compiles Init and Main schedules. The Main schedule is always last.
+    intel_npu::NetworkDescription compileWsIterative(const std::shared_ptr<ov::Model>& model,
+                                                     const intel_npu::Config& config, size_t callIdx) const override;
+
+    // WS CiD-specific methods
+
+    /// @brief Sequentially compiles Init and Main schedules. The Main schedule is always last.
+    NetworkDescriptionView compileWsIterative(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config,
+                                              size_t callIdx, BlobAllocator& allocator) const;
 };
 
 }  // namespace vpux

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "common/npu_test_env_cfg.hpp"
 #include "shared_test_classes/base/ov_subgraph.hpp"
 #include "shared_test_classes/single_op/shape_of.hpp"
 
@@ -39,7 +40,7 @@ public:
             result << ")_";
         }
         result << "axis=" << axis << "_";
-        result << "device=" << td << "_";
+        result << "device=" << test_utils::TARGET_DEVICE << "_";
         return result.str();
     }
 

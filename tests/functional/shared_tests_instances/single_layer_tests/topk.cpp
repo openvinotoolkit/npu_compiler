@@ -11,6 +11,7 @@ namespace test {
 
 class TopKLayerTestCommon : virtual public TopKLayerTest, virtual public VpuOv2LayerTest {};
 class TopK11LayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
+class TopKDDRLayerTestCommon : public TopK11LayerTest, virtual public VpuOv2LayerTest {};
 class TopKLayerTest_SW_FP32 : public TopKLayerTestCommon {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] = "convert-precision-to-fp16=false";
@@ -24,6 +25,11 @@ TEST_P(TopKLayerTestCommon, NPU3720_HW) {
 
 TEST_P(TopKLayerTestCommon, NPU4000_SW) {
     setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(TopKDDRLayerTestCommon, NPU4000_SW) {
+    setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
@@ -79,6 +85,7 @@ TEST_P(TopK1LayerTest, NPU3720_HW) {
 
 using ov::test::TopK11LayerTestCommon;
 using ov::test::TopK1LayerTest;
+using ov::test::TopKDDRLayerTestCommon;
 using ov::test::TopKLayerTest_SW_FP32;
 using ov::test::TopKLayerTestCommon;
 
@@ -108,7 +115,7 @@ const auto paramsConfig = ::testing::Combine(
         ::testing::ValuesIn(sortTypes), ::testing::ValuesIn(modelTypeFP16),
         ::testing::ValuesIn(
                 ov::test::static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{5, 5, 5}}}))),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK, TopKLayerTestCommon, paramsConfig, TopKLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK1, TopK1LayerTest, paramsConfig, TopK1LayerTest::getTestCaseName);
@@ -118,7 +125,7 @@ const auto paramsConfigPrecommitFP32 = ::testing::Combine(
         ::testing::ValuesIn(modes), ::testing::ValuesIn(sortTypes), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 ov::test::static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{5, 5, 5}}}))),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TopK_FP32, TopKLayerTest_SW_FP32, paramsConfigPrecommitFP32,
                          TopKLayerTest_SW_FP32::getTestCaseName);
@@ -138,7 +145,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK_Tilling, TopKLayerTestCommon,
                                             ::testing::ValuesIn(modelTypes_Tilling),
                                             ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                                     std::vector<std::vector<ov::Shape>>({{{1, 5, 512, 512}}}))),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopKLayerTestCommon::getTestCaseName);
 
 // K=1 asm optimization tests
@@ -151,7 +158,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK_K1, TopKLayerTestCommon,
                                             ::testing::ValuesIn(modelTypes_Tilling),
                                             ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                                     std::vector<std::vector<ov::Shape>>{{{1, 42840, 13}}})),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopKLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_TopK_K300, TopKLayerTestCommon,
@@ -163,7 +170,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK_K300, TopKLayerTestCommon,
                                             ::testing::ValuesIn(modelTypes_Tilling),
                                             ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                                     std::vector<std::vector<ov::Shape>>{{{1, 3600}}})),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopKLayerTestCommon::getTestCaseName);
 
 }  // namespace
@@ -177,7 +184,18 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK11, TopK11LayerTestCommon,
                                             ::testing::Values(ov::element::f16),
                                             ::testing::Values(ov::test::static_shapes_to_test_representation(
                                                     std::vector<ov::Shape>({{{10, 10, 10}}}))),
-                                            ::testing::Values(true), ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopK11LayerTestCommon::getTestCaseName);
+
+// Can't tile, require DDR
+INSTANTIATE_TEST_SUITE_P(smoke_TopK11_DDRAccess, TopKDDRLayerTestCommon,
+                         ::testing::Combine(::testing::Values(1), ::testing::Values(-1),
+                                            ::testing::Values(ov::op::v3::TopK::Mode::MAX),
+                                            ::testing::Values(ov::op::v3::TopK::SortType::SORT_VALUES),
+                                            ::testing::Values(ov::element::f16),
+                                            ::testing::Values(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<ov::Shape>({{{1, 5898240}}}))),
+                                            ::testing::Values(true), ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopKDDRLayerTestCommon::getTestCaseName);
 
 }  // namespace

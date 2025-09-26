@@ -4,12 +4,11 @@
 //
 
 #include <mlir/IR/BuiltinOps.h>
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -90,12 +89,13 @@ void vpux::VPU::DetectionOutputSortOp::build(::mlir::OpBuilder& odsBuilder, ::ml
                                              ::mlir::IntegerAttr topK) {
     auto indicesBuffer = createIndicesAuxiliaryBuffer(odsBuilder, getShape(classPredictions));
     auto module = getModule(odsBuilder);
-    auto numShaves = IE::getTotalNumOfEngines(module, VPU::ExecutorKind::SHAVE_ACT);
+    auto numShaves = config::getTotalNumOfEngines(module, VPU::ExecutorKind::SHAVE_ACT);
 
     // 4 buffers of size 256 elements are required for counting sort
     // tensor has SEGMENTED distribution mode
     // multiply the buffer numShaves times to provide unique buffer for each shave
-    auto sortingBuffer = createSortingAuxiliaryBuffer(odsBuilder, Shape{1, 1, 4 * numShaves, 256});
+    Shape shape{1, 1, 4 * numShaves, 256};
+    auto sortingBuffer = createSortingAuxiliaryBuffer(odsBuilder, shape);
 
     build(odsBuilder, odsState, classPredictions, indicesBuffer, sortingBuffer, confidenceThreshold, topK, nullptr);
 }
@@ -106,7 +106,7 @@ void vpux::VPU::DetectionOutputSortOp::build(::mlir::OpBuilder& odsBuilder, ::ml
 
 InputTiling vpux::VPU::DetectionOutputSortOp::backInferTileInfo(const vpux::TileInfo& firstOutputTile,
                                                                 vpux::Logger /*log*/) {
-    auto numShaves = IE::getTotalNumOfEngines(getOperation(), VPU::ExecutorKind::SHAVE_ACT);
+    auto numShaves = config::getTotalNumOfEngines(getOperation(), VPU::ExecutorKind::SHAVE_ACT);
     return DetectionOutputSortOpInputTiling(firstOutputTile, numShaves);
 }
 
@@ -142,7 +142,7 @@ vpux::VPU::DistributionInfo vpux::VPU::DetectionOutputSortOp::getExplicitDistrib
 
 bool VPU::DetectionOutputSortOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& outputTile) {
     auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
 
     auto outputShape = ShapeRef(outputTile.shape);
     if (outputShape == ShapeRef()) {

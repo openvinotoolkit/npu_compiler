@@ -6,13 +6,13 @@
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/core/bounded_buffer.hpp"
 #include "vpux/compiler/core/profiling_metadata.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/kernel_params_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -145,7 +145,7 @@ private:
                                        Logger _log) {
         _log.trace("VPUIP_VPUMI37XX pass: replaceVPURTTaskOpWithNNDMAOp()");
 
-        const auto dmaExecCount = IE::getAvailableExecutor(moduleOp, VPU::ExecutorKind::DMA_NN).getCount();
+        const auto dmaExecCount = config::getAvailableExecutor(moduleOp, VPU::ExecutorKind::DMA_NN).getCount();
         const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(config::getArch(moduleOp));
         const auto dmaMaxNumPlanes = dmaEngineLimits.getMaxNumPlanes();
 
@@ -563,12 +563,13 @@ private:
 
                     auto llvmFuncOpNameStr = kernel_info_llvmFuncOp.getName().str();
 
-                    vpux::translateToLLVMIR(moduleOp, sw_kernel_symbol, _log);
+                    llvm::LLVMContext llvmContext;
+                    auto llvmModule = vpux::translateToLLVMIR(moduleOp, sw_kernel_symbol, llvmContext);
 
                     createComputeOpSwKernel(ctx, op, builderBlk, nullptr, llvmFuncOpNameStr, true, wait_bars,
                                             update_bars, indexType, kernelTextEntryMap);
 
-                    vpux::lowerLLVMToBinary(moduleOp, sw_kernel_symbol);
+                    vpux::lowerLLVMToBinary(moduleOp, std::move(llvmModule), sw_kernel_symbol, _log);
                 }
 
                 shave_task_count++;
@@ -710,7 +711,7 @@ private:
                                  Logger _log) {
         _log.trace("VPUIP_VPUMI37XX pass: createMappedInferenceOp()");
 
-        const auto dmaExecCount = IE::getAvailableExecutor(moduleOp, VPU::ExecutorKind::DMA_NN).getCount();
+        const auto dmaExecCount = config::getAvailableExecutor(moduleOp, VPU::ExecutorKind::DMA_NN).getCount();
 
         mlir::Value invariantTasks;
         mlir::Value variantTasks;

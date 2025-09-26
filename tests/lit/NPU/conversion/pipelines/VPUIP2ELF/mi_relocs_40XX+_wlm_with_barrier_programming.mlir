@@ -18,10 +18,10 @@ net.NetworkInfo
         DataInfo "hswish" : tensor<1x32xf16>
     }
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
   builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-      IE.MemoryResource 512 bytes of @CMX_NN offset 0
+      config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
   }
 }
@@ -59,10 +59,10 @@ func.func @main(%1: memref<1x1x1x32xf16>, %2: memref<1x1x1x32xf16>) -> memref<1x
     %in_tile0_cmx  = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
     %out_tile0_cmx = VPURT.DeclareBuffer <CMX_NN> [0] <2000> -> memref<1x1x1x32xf16, [@CMX_NN, 0]>
 
-    %b0 = VPURT.ConfigureBarrier<2> {isStartBarrier} -> !VPURT.Barrier
+    %b0 = VPURT.ConfigureBarrier<2> <{isStartBarrier}> -> !VPURT.Barrier
     %b1 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     %b2 = VPURT.ConfigureBarrier<4> -> !VPURT.Barrier
-    %b3 = VPURT.ConfigureBarrier<5> {isFinalBarrier} -> !VPURT.Barrier
+    %b3 = VPURT.ConfigureBarrier<5> <{isFinalBarrier}> -> !VPURT.Barrier
 
     VPURT.Task updates(%b0 : !VPURT.Barrier) {
         VPUIP.NNDMA {port = 0 : i64} inputs(%1 : memref<1x1x1x32xf16>) outputs(%in_tile0_cmx : memref<1x1x1x32xf16, [@CMX_NN, 0]>) -> memref<1x1x1x32xf16, [@CMX_NN, 0]>

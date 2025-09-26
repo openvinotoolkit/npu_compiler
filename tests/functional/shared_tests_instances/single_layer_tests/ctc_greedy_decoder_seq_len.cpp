@@ -5,6 +5,7 @@
 
 #include "single_op_tests/ctc_greedy_decoder_seq_len.hpp"
 #include <random>
+#include "common/npu_test_env_cfg.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 #include "openvino/op/ctc_greedy_decoder_seq_len.hpp"
@@ -47,7 +48,7 @@ public:
         result << "idxPRC=" << indicesPrecision.get_type_name() << '_';
         result << "BlankIdx=" << blankIndex.value_or(-1) << '_';
         result << "mergeRepeated=" << std::boolalpha << mergeRepeated << '_';
-        result << "trgDev=" << targetDevice;
+        result << "trgDev=" << test_utils::TARGET_DEVICE;
 
         return result.str();
     }
@@ -148,7 +149,7 @@ const auto blankIndexes = std::vector<std::optional<int>>{0, 50, std::nullopt};
 const auto params = testing::Combine(::testing::ValuesIn(inputShape), ::testing::ValuesIn(sequenceLengths),
                                      ::testing::ValuesIn(probPrecisions), ::testing::ValuesIn(idxPrecisions),
                                      ::testing::ValuesIn(blankIndexes), ::testing::ValuesIn(mergeRepeated),
-                                     ::testing::Values(DEVICE_NPU));
+                                     ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_CTCGreedyDecoderSeqLenTests, CTCGreedyDecoderSeqLenLayerTestCommon, params,
                          NPUCTCGreedyDecoderSeqLenLayerTest::getTestCaseName);

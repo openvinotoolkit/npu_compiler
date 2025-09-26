@@ -45,6 +45,7 @@ enum DataType : uint32_t {
     NN_NF4,
     NN_BF8,  // f8E5M2
     NN_HF8,  // f8E4M3
+    NN_U2,
 };
 
 typedef uint64_t NDOrder;
@@ -108,18 +109,17 @@ struct MemRefData {
 
 #ifdef __shave
 #ifdef __cplusplus
+
+#define PRAGMA_TINY_LOOP _Pragma("clang loop vectorize(disable) unroll(disable)")
+
 static inline uint32_t getNumElem(const struct MemRefData& buff) {
     uint32_t n = 1;
     uint32_t* pDims = (uint32_t*)(buff.dimsAddr);
+    PRAGMA_TINY_LOOP
     for (uint32_t i = 0; i < buff.numDims; i++) {
         n *= pDims[i];
     }
     return n;
-}
-
-static inline uint32_t getNumElem4D(const MemRefData& buff) {
-    uint32_t* pDims = (uint32_t*)(buff.dimsAddr);
-    return pDims[0] * pDims[1] * pDims[2] * pDims[3];
 }
 
 static inline uint32_t getBpp(uint32_t type) {

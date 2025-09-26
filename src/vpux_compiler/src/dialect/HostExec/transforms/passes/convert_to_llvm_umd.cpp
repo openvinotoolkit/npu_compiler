@@ -2,6 +2,11 @@
 // Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
+#ifdef _WIN32
+#define NO_MINMAX
+#endif
+
+#include <cmath>
 
 #include <mlir/Conversion/AsyncToLLVM/AsyncToLLVM.h>
 #include <mlir/Conversion/LLVMCommon/MemRefBuilder.h>
@@ -9,6 +14,7 @@
 #include <mlir/Conversion/LLVMCommon/TypeConverter.h>
 #include <mlir/Conversion/MemRefToLLVM/MemRefToLLVM.h>
 #include <mlir/Dialect/Async/IR/Async.h>
+#include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
@@ -20,6 +26,7 @@
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/dialect/HostExec/IR/ops.hpp"
 #include "vpux/compiler/dialect/HostExec/params.hpp"
+#include "vpux/compiler/dialect/HostExec/transforms/utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -32,8 +39,138 @@ namespace vpux::HostExec {
 }  // namespace vpux::HostExec
 
 using namespace vpux;
+using namespace vpux::HostExec;
 
 namespace {
+
+struct CommandListIndexState {
+    // Stores commandlist index
+    uint32_t resetIndex = 0;
+
+    // Stores the lastest pointer_to_integer and pointers of command list**.
+    mlir::Value lastResult = nullptr;
+    mlir::Value lastResultPtr = nullptr;
+
+    // Stores steps size(8). Which is a byte size of pointer type
+    mlir::LLVM::ConstantOp stepSizeInByte = nullptr;
+
+    // Stores the last CallOp of submit command list
+    // A fence pointer and an event pointer needs to be updated
+    // with given pointers
+    mlir::LLVM::CallOp lastSubmitCommandListCallOp = nullptr;
+
+    // The max number of inputs for all sub graphs.
+    // This is used to allocate an array for input pointers
+    uint32_t maxNumInputs = 0;
+
+    // The max number of outputs for all sub graphs
+    // This is used to allocate an array for input pointers
+    uint32_t maxNumOutputs = 0;
+
+    // Buffer to stores input buffer pointers
+    mlir::LLVM::AllocaOp inputs = nullptr;
+
+    // Buffer to stores output buffer pointers
+    mlir::LLVM::AllocaOp outputs = nullptr;
+
+    bool commandListGroupStarted = false;
+
+    void initialize(mlir::ModuleOp& moduleOp, mlir::func::FuncOp& funcOp) {
+        mlir::OpBuilder builder(funcOp);
+        auto& entryBlock = funcOp.getBody().front();
+        builder.setInsertionPointToStart(&entryBlock);
+
+        stepSizeInByte = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), 8);
+
+        obtainNumMaxNumArguments(moduleOp);
+
+        auto voidPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+        auto constMaxNumInputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
+                                                                        builder.getIntegerType(32), maxNumInputs);
+        auto constMaxNumOutputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
+                                                                         builder.getIntegerType(32), maxNumOutputs);
+        inputs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, voidPtrType,
+                                                      constMaxNumInputs);
+        outputs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, voidPtrType,
+                                                       constMaxNumOutputs);
+    }
+
+    // Update pointers of commandlist**
+    mlir::Value updateCommandListIndex(mlir::OpBuilder& builder, mlir::func::FuncOp& funcOp) {
+        auto loc = builder.getUnknownLoc();
+        auto numArgs = funcOp.getNumArguments();
+        auto cmdList = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
+        mlir::Type i64Type = builder.getI64Type();
+        auto voidPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+
+        if (resetIndex++ > 0) {
+            // Increase commandlist pointer by 8 (size of pointer type)
+            mlir::LLVM::AddOp addOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, lastResult, stepSizeInByte);
+            lastResult = addOp.getResult();
+            lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
+
+            return lastResultPtr;
+        } else {
+            // For the first commandlist pointer, no need of increasing commandlist pointer
+            lastResult = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, cmdList);
+            lastResultPtr = builder.create<mlir::LLVM::IntToPtrOp>(loc, voidPtrType, lastResult);
+
+            return cmdList;
+        }
+    }
+
+    // Returns address of commandlist**
+    mlir::Value getCommandList(mlir::func::FuncOp& funcOp) {
+        auto numArgs = funcOp.getNumArguments();
+        auto cmdList = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
+
+        // For the first subgraph, no need of commandlist pointer update is requried
+        return (resetIndex > 1) ? lastResultPtr : cmdList;
+    }
+
+    // Update inference execution sync params (e.g., event or fence) for the last commandlist submission
+    void finalizeCommandListIndex(mlir::ModuleOp& module, mlir::MLIRContext* ctx, mlir::func::FuncOp& funcOp) {
+        // fence or event needs to be set to the last command list for host side synchronization.
+        if (lastSubmitCommandListCallOp != nullptr) {
+            auto numArgs = funcOp.getNumArguments();
+            auto fence = funcOp.getArgument(GET_ARG_INDEX_COMMAND_FENCE(numArgs));
+            auto event = funcOp.getArgument(GET_ARG_INDEX_COMMAND_EVENT(numArgs));
+
+            constexpr uint32_t argIndexFence = 2;
+            constexpr uint32_t argIndexEvent = 3;
+
+            lastSubmitCommandListCallOp.setOperand(argIndexFence, fence);
+            lastSubmitCommandListCallOp.setOperand(argIndexEvent, event);
+        }
+
+        // Add an atribute "number of subgraphs" to the main module
+        mlir::Type i64Type = mlir::IntegerType::get(ctx, 64);
+        mlir::IntegerAttr numSubGraphs = mlir::IntegerAttr::get(i64Type, resetIndex);
+
+        module->setAttr(HOST_EXEC_NUM_SUBGRAPH_ATTR_NAME, numSubGraphs);
+    }
+
+    // Obtain the max inputs and outputs,
+    void obtainNumMaxNumArguments(mlir::ModuleOp moduleOp) {
+        maxNumInputs = 0;
+        maxNumOutputs = 0;
+
+        // Function signatures are defined as FuncOp under BinaryOp
+        for (auto binaryOp : moduleOp.getOps<HostExec::BinaryOp>()) {
+            for (auto func : binaryOp.getOps<mlir::func::FuncOp>()) {
+                auto resultCount = func.getNumResults();
+
+                // Note that function arguments stores both inputs and results.
+                const auto inputCount = func.getNumArguments() - resultCount;
+
+                maxNumOutputs = std::max(maxNumOutputs, resultCount);
+                maxNumInputs = std::max(maxNumInputs, inputCount);
+            }
+        }
+    }
+};
+
+// @brief Add arguments (e.g., commandlist, command queue) to an entry function for L0 function calls
 void addFuncParamsForUmdFuncCall(mlir::func::FuncOp& funcOp) {
     // Update the function's return type to NoneType
     auto funcType = funcOp.getFunctionType();
@@ -49,6 +186,7 @@ void addFuncParamsForUmdFuncCall(mlir::func::FuncOp& funcOp) {
     mlir::Type deviceHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
     mlir::Type ddiTableHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
     mlir::Type commandListHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
+    mlir::Type commandListCountType = mlir::IntegerType::get(ctx, 64);
     mlir::Type commandQueueHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
     mlir::Type fenceHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
     mlir::Type eventHandlePtrType = mlir::LLVM::LLVMPointerType::get(ctx);
@@ -57,6 +195,7 @@ void addFuncParamsForUmdFuncCall(mlir::func::FuncOp& funcOp) {
     newInputTypes.push_back(deviceHandlePtrType);
     newInputTypes.push_back(ddiTableHandlePtrType);
     newInputTypes.push_back(commandListHandlePtrType);
+    newInputTypes.push_back(commandListCountType);
     newInputTypes.push_back(commandQueueHandlePtrType);
     newInputTypes.push_back(fenceHandlePtrType);
     newInputTypes.push_back(eventHandlePtrType);
@@ -79,10 +218,111 @@ void addFuncParamsForUmdFuncCall(mlir::func::FuncOp& funcOp) {
     entryBlock.addArgument(deviceHandlePtrType, funcOp->getLoc());
     entryBlock.addArgument(ddiTableHandlePtrType, funcOp->getLoc());
     entryBlock.addArgument(commandListHandlePtrType, funcOp->getLoc());
+    entryBlock.addArgument(commandListCountType, funcOp->getLoc());
     entryBlock.addArgument(commandQueueHandlePtrType, funcOp->getLoc());
     entryBlock.addArgument(fenceHandlePtrType, funcOp->getLoc());
     entryBlock.addArgument(eventHandlePtrType, funcOp->getLoc());
 }
+
+//@brief create function call op to reset a command list
+void createL0ResetCommandList(mlir::Operation* op, mlir::PatternRewriter& rewriter,
+                              CommandListIndexState& cmdListIndexState) {
+    if (cmdListIndexState.commandListGroupStarted) {
+        // Skip redudant command list reset
+        // When there are multiple ExecutOp in a scf::for, there will be multiple CreateGroupOps.
+        // Inference exectuion will be recorded in one command list.
+        // A barrier will be added between ExecuteOp.
+
+        return;
+    }
+
+    auto funcOp = op->getParentOfType<mlir::func::FuncOp>();
+    auto moduleOp = getModuleOp(op);
+    mlir::MLIRContext* ctx = rewriter.getContext();
+    auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
+
+    cmdListIndexState.commandListGroupStarted = true;
+    auto cmdList = cmdListIndexState.updateCommandListIndex(rewriter, funcOp);
+    createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_reset_commandlist", {cmdList}, returnType);
+}
+
+//@brief create function call op to submit command list
+void createSubmitCommandList(mlir::OpBuilder& builder, mlir::ModuleOp& moduleOp,
+                             CommandListIndexState& cmdListIndexState) {
+    if (cmdListIndexState.commandListGroupStarted == false) {
+        // ignore redudandant await/await_all op
+        return;
+    }
+
+    cmdListIndexState.commandListGroupStarted = false;
+
+    mlir::MLIRContext* ctx = builder.getContext();
+    vpux::net::NetworkInfoOp netInfo;
+    mlir::func::FuncOp funcOp;
+    vpux::net::NetworkInfoOp::getFromModule(moduleOp, netInfo, funcOp);
+
+    auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
+
+    // Create the LLVM::mlir.constant operation representing nullptr
+    auto elementPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+    mlir::Value nullPtr = builder.create<mlir::LLVM::ZeroOp>(builder.getUnknownLoc(), elementPtrType);
+
+    // Host side synchronization will be required for the last command list.
+    // The last two arguments will be updated in updateCommandListIndex later if required.
+    auto numArgs = funcOp.getNumArguments();
+    auto cmdQueue = funcOp.getArgument(GET_ARG_INDEX_COMMAND_QUEUE(numArgs));
+
+    auto cmdList = cmdListIndexState.getCommandList(funcOp);
+    auto callOp = createLLVMFuncCallOp(builder, moduleOp, "npu_level_zero_submit_commandlist",
+                                       {cmdList, cmdQueue, nullPtr, nullPtr}, returnType);
+
+    // Mark this call op as the last one to update 3rd and 4th arguments of the last submit command list
+    cmdListIndexState.lastSubmitCommandListCallOp = callOp;
+}
+
+int64_t getElementByteSize(mlir::Value sourceDesc) {
+    int64_t bytes = 2;
+
+    if (auto op = sourceDesc.getDefiningOp<mlir::memref::SubViewOp>()) {
+        auto memRefType = op.getSource().getType();
+        auto elementType = memRefType.getElementType();
+        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+    } else if (auto op = sourceDesc.getDefiningOp<mlir::memref::ViewOp>()) {
+        auto memRefType = op.getSource().getType();
+        auto elementType = memRefType.getElementType();
+        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+    } else if (auto op = sourceDesc.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+        return getElementByteSize(op.getInputs()[0]);
+    } else {
+        auto type = sourceDesc.getType();
+        if (auto memRefType = mlir::dyn_cast_or_null<mlir::MemRefType>(type)) {
+            auto elementType = memRefType.getElementType();
+            return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+        }
+
+        return bytes;
+    }
+}
+
+// Extract buffer pointers from memref descriptors
+inline mlir::Value getBufferStartAddress(mlir::OpBuilder& builder, mlir::Location& loc, mlir::Value& sourceDesc) {
+    // Extract source buffer pointer (allocated pointer + offset)
+    // mlir::memref::Mem
+
+    int64_t bytes = getElementByteSize(sourceDesc);
+
+    mlir::Type i64Type = builder.getI64Type();
+    mlir::LLVM::ExtractValueOp srcPtrExtractOp = builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, 0);
+    mlir::LLVM::ExtractValueOp srcOffsetExtractOp = builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, 2);
+    mlir::LLVM::PtrToIntOp srcPtrToIntOp = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, srcPtrExtractOp);
+    auto elementByteSize = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), i64Type, bytes);
+    mlir::LLVM::MulOp byteOffsetMulOp =
+            builder.create<mlir::LLVM::MulOp>(loc, i64Type, elementByteSize, srcOffsetExtractOp);
+    mlir::LLVM::AddOp srcAddOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, srcPtrToIntOp, byteOffsetMulOp);
+
+    return srcAddOp;
+}
+
 mlir::LogicalResult areAllLLVMTypes(mlir::Operation* op, mlir::ValueRange operands,
                                     mlir::ConversionPatternRewriter& rewriter) {
     if (!llvm::all_of(operands, [](mlir::Value value) {
@@ -91,25 +331,6 @@ mlir::LogicalResult areAllLLVMTypes(mlir::Operation* op, mlir::ValueRange operan
         return rewriter.notifyMatchFailure(op, "Cannot convert if operands aren't of LLVM type.");
     }
     return mlir::success();
-}
-
-mlir::LLVM::CallOp createLLVMFuncCallOp(mlir::OpBuilder& builder, mlir::ModuleOp module, StringRef name,
-                                        ArrayRef<mlir::Value> args, mlir::Type returnType) {
-    SmallVector<mlir::Type> argTypes;
-    argTypes.reserve(args.size());
-    for (auto arg : args) {
-        argTypes.push_back(arg.getType());
-    }
-    auto funcType = mlir::LLVM::LLVMFunctionType::get(returnType, argTypes);
-    auto funcOp = [&] {
-        if (auto function = module.lookupSymbol<mlir::LLVM::LLVMFuncOp>(name)) {
-            return function;
-        }
-        return mlir::OpBuilder::atBlockBegin(module.getBody())
-                .create<mlir::LLVM::LLVMFuncOp>(builder.getUnknownLoc(), name, funcType);
-    }();
-
-    return builder.create<mlir::LLVM::CallOp>(builder.getUnknownLoc(), funcOp, args);
 }
 
 class LvlZeroAllocLowering final : public mlir::ConvertOpToLLVMPattern<mlir::memref::AllocOp> {
@@ -159,64 +380,69 @@ mlir::LogicalResult LvlZeroAllocLowering::matchAndRewrite(mlir::memref::AllocOp 
 
 class LvlZeroMemoryCopyLowering final : public mlir::ConvertOpToLLVMPattern<mlir::memref::CopyOp> {
 public:
-    LvlZeroMemoryCopyLowering(const mlir::LLVMTypeConverter& typeConverter)
-            : mlir::ConvertOpToLLVMPattern<mlir::memref::CopyOp>(typeConverter, vpux::benefitHigh) {
+    LvlZeroMemoryCopyLowering(const mlir::LLVMTypeConverter& typeConverter, CommandListIndexState& cmdListIdxState)
+            : mlir::ConvertOpToLLVMPattern<mlir::memref::CopyOp>(typeConverter, vpux::benefitHigh),
+              commandListIndexState(cmdListIdxState) {
     }
     mlir::LogicalResult matchAndRewrite(mlir::memref::CopyOp origOp, OpAdaptor adaptor,
                                         mlir::ConversionPatternRewriter& rewriter) const final;
+
+private:
+    CommandListIndexState& commandListIndexState;
 };
 
 mlir::LogicalResult LvlZeroMemoryCopyLowering ::matchAndRewrite(mlir::memref::CopyOp origOp, OpAdaptor adaptor,
                                                                 mlir::ConversionPatternRewriter& rewriter) const {
     auto loc = origOp.getLoc();
-    auto srcType = mlir::cast<mlir::BaseMemRefType>(origOp.getSource().getType());
-    auto targetType = mlir::cast<mlir::BaseMemRefType>(origOp.getTarget().getType());
+    auto typeConverter = this->getTypeConverter();
 
-    // First make sure we have an unranked memref descriptor representation.
-    auto makeUnranked = [&, this](mlir::Value ranked, mlir::MemRefType type) {
-        auto rank = rewriter.create<mlir::LLVM::ConstantOp>(loc, getIndexType(), type.getRank());
-        auto* typeConverter = getTypeConverter();
-        auto ptr = typeConverter->promoteOneMemRefDescriptor(loc, ranked, rewriter);
+    // Convert source op to LLVM pointer if necessary
+    mlir::Value sourcePtr = adaptor.getSource();
+    if (!mlir::LLVM::isCompatibleType(sourcePtr.getType())) {
+        if (auto converted = typeConverter->materializeTargetConversion(
+                    rewriter, loc, typeConverter->convertType(sourcePtr.getType()), mlir::ValueRange{sourcePtr})) {
+            sourcePtr = converted;
+        } else {
+            return rewriter.notifyMatchFailure(origOp, "Could not convert source operand to LLVM type");
+        }
+    }
 
-        auto unrankedType = mlir::UnrankedMemRefType::get(type.getElementType(), type.getMemorySpace());
-        return mlir::UnrankedMemRefDescriptor::pack(rewriter, loc, *typeConverter, unrankedType, {rank, ptr});
-    };
+    // Convert target op to LLVM pointer if necessary
+    mlir::Value targetPtr = adaptor.getTarget();
+    if (!mlir::LLVM::isCompatibleType(targetPtr.getType())) {
+        if (auto converted = typeConverter->materializeTargetConversion(
+                    rewriter, loc, typeConverter->convertType(targetPtr.getType()), mlir::ValueRange{targetPtr})) {
+            targetPtr = converted;
+        } else {
+            return rewriter.notifyMatchFailure(origOp, "Could not convert target operand to LLVM type");
+        }
+    }
 
-    // Save stack position before promoting descriptors
-    auto stackSaveOp = rewriter.create<mlir::LLVM::StackSaveOp>(loc, getVoidPtrType());
+    // Calculate the size of the memory to copy
+    mlir::SmallVector<mlir::Value, 4> shape;
+    mlir::SmallVector<mlir::Value, 4> strides;
+    mlir::Value sizeBytes;
+    mlir::MemRefType targetMemrefType = mlir::cast<mlir::MemRefType>(origOp.getTarget().getType());
+    getMemRefDescriptorSizes(origOp.getLoc(), targetMemrefType, {}, rewriter, shape, strides, sizeBytes);
 
-    auto srcMemRefType = mlir::dyn_cast<mlir::MemRefType>(srcType);
-    mlir::Value unrankedSource = srcMemRefType ? makeUnranked(adaptor.getSource(), srcMemRefType) : adaptor.getSource();
-    auto targetMemRefType = mlir::dyn_cast<mlir::MemRefType>(targetType);
-    mlir::Value unrankedTarget =
-            targetMemRefType ? makeUnranked(adaptor.getTarget(), targetMemRefType) : adaptor.getTarget();
+    // Extract buffer pointers from memref descriptors
+    auto src = getBufferStartAddress(rewriter, loc, sourcePtr);
+    auto target = getBufferStartAddress(rewriter, loc, targetPtr);
 
-    // Now promote the unranked descriptors to the stack.
-    auto one = rewriter.create<mlir::LLVM::ConstantOp>(loc, getIndexType(), rewriter.getIndexAttr(1));
-    auto promote = [&](mlir::Value desc) {
-        auto ptrType = mlir::LLVM::LLVMPointerType::get(rewriter.getContext());
-        auto allocated = rewriter.create<mlir::LLVM::AllocaOp>(loc, ptrType, desc.getType(), one);
-        rewriter.create<mlir::LLVM::StoreOp>(loc, desc, allocated);
-        return allocated;
-    };
-
-    auto sourcePtr = promote(unrankedSource);
-    auto targetPtr = promote(unrankedTarget);
-    auto elemSize = getSizeInBytes(loc, srcType.getElementType(), rewriter);
-    auto module = vpux::getModuleOp(origOp);
     mlir::MLIRContext* ctx = rewriter.getContext();
     auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
-    mlir::func::FuncOp funcOp;
     auto moduleOp = vpux::getModuleOp(origOp);
-    vpux::net::NetworkInfoOp netInfo;
-    vpux::net::NetworkInfoOp::getFromModule(moduleOp, netInfo, funcOp);
-    auto numArgs = funcOp.getNumArguments();
-    auto cmdlist = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
+    auto funcOp = origOp->getParentOfType<mlir::func::FuncOp>();
 
-    createLLVMFuncCallOp(rewriter, module, "npu_level_zero_append_memory_copy",
-                         {sourcePtr, targetPtr, elemSize, cmdlist}, returnType);
-    // Restore stack used for descriptors
-    rewriter.create<mlir::LLVM::StackRestoreOp>(loc, stackSaveOp);
+    // As of today, copy op should be considered as a sub graph
+    // So, command list reset/submission is required for the copy op
+    createL0ResetCommandList(origOp, rewriter, commandListIndexState);
+
+    auto cmdList = commandListIndexState.getCommandList(funcOp);
+    createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_append_memory_copy", {src, target, sizeBytes, cmdList},
+                         returnType);
+
+    createSubmitCommandList(rewriter, moduleOp, commandListIndexState);
 
     rewriter.eraseOp(origOp);
 
@@ -227,47 +453,45 @@ template <typename AsyncOp>
 class AsyncOpRewriter final : public mlir::OpRewritePattern<AsyncOp> {
 public:
     AsyncOpRewriter(mlir::MLIRContext* ctx, const mlir::LLVMTypeConverter& typeConverter, mlir::PatternBenefit benefit,
-                    Logger log)
-            : mlir::OpRewritePattern<AsyncOp>(ctx, benefit), _typeConverter(typeConverter), _log(std::move(log)) {
+                    CommandListIndexState& cmdListIndexState, Logger log)
+            : mlir::OpRewritePattern<AsyncOp>(ctx, benefit),
+              _typeConverter(typeConverter),
+              commandListIndexState(cmdListIndexState),
+              _log(std::move(log)) {
         this->setDebugName("AsyncOpRewriter");
     }
 
 private:
     mlir::LogicalResult matchAndRewrite(AsyncOp origOp, mlir::PatternRewriter& rewriter) const final;
     const mlir::LLVMTypeConverter& _typeConverter;
+    CommandListIndexState& commandListIndexState;
     Logger _log;
 };
 
 template <typename AsyncOp>
 mlir::LogicalResult AsyncOpRewriter<AsyncOp>::matchAndRewrite(AsyncOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto submitCommandList = [&](mlir::Operation* origOp) {
-        mlir::MLIRContext* ctx = rewriter.getContext();
-        mlir::func::FuncOp funcOp;
-        auto moduleOp = vpux::getModuleOp(origOp);
-        vpux::net::NetworkInfoOp netInfo;
-        vpux::net::NetworkInfoOp::getFromModule(moduleOp, netInfo, funcOp);
-        auto numArgs = funcOp.getNumArguments();
-        auto cmdlist = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
-        auto cmdQueue = funcOp.getArgument(GET_ARG_INDEX_COMMAND_QUEUE(numArgs));
-        auto fence = funcOp.getArgument(GET_ARG_INDEX_COMMAND_FENCE(numArgs));
-        auto event = funcOp.getArgument(GET_ARG_INDEX_COMMAND_EVENT(numArgs));
-        auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
-        createLLVMFuncCallOp(rewriter, getModuleOp(origOp), "npu_level_zero_submit_commandlist",
-                             {cmdlist, cmdQueue, fence, event}, returnType);
-        rewriter.eraseOp(origOp);
-        return mlir::success();
-    };
+    auto moduleOp = vpux::getModuleOp(origOp);
 
-    if (mlir::isa<mlir::async::AwaitOp>(origOp)) {
+    if (auto awaitOp = mlir::dyn_cast<mlir::async::AwaitOp>(*origOp)) {
+        auto users = awaitOp->getUsers();
+        bool awaitOpInScfFor = false;
         if (origOp->template getParentOfType<mlir::scf::ForOp>()) {
-            rewriter.eraseOp(origOp);
-            return mlir::success();
+            awaitOpInScfFor = true;
+            if (users.empty()) {
+                rewriter.eraseOp(origOp);
+                return mlir::success();
+            }
         }
 
-        mlir::async::AwaitOp awaitOp = mlir::cast<mlir::async::AwaitOp>(*origOp);
-        auto users = awaitOp->getUsers();
         if (users.empty()) {
-            return submitCommandList(origOp);
+            if (awaitOpInScfFor == false) {
+                // if await is called outside of scf.for
+                // command list needs to be submitted
+                createSubmitCommandList(rewriter, moduleOp, commandListIndexState);
+            }
+
+            rewriter.eraseOp(origOp);
+            return mlir::success();
         }
 
         // Async.AwaitOp
@@ -279,7 +503,7 @@ mlir::LogicalResult AsyncOpRewriter<AsyncOp>::matchAndRewrite(AsyncOp origOp, ml
             const auto results = executeOp.getResults();
             int index = -1;
             for (size_t i = 0; i < results.size(); ++i) {
-                if (awaitOp.getOperand() == results[i]) {
+                if (awaitOpOperand == results[i]) {
                     if (i == 0) {
                         _log.error("Invalid index {0} as the first result is token", i);
                         return mlir::failure();
@@ -321,6 +545,19 @@ mlir::LogicalResult AsyncOpRewriter<AsyncOp>::matchAndRewrite(AsyncOp origOp, ml
                             viewOp.setOperand(0, operand);
                         } else if (auto copyOp = mlir::dyn_cast<mlir::memref::CopyOp>(u)) {
                             copyOp.setOperand(0, operand);
+                        } else if (auto nestedCallOp = mlir::dyn_cast<Core::NestedCallOp>(u)) {
+                            if (awaitOpInScfFor) {
+                                auto userOperands = u->getOperands();
+                                auto awaitOpResult = awaitOp.getResult();
+                                uint32_t index = 0;
+                                for (auto userOperand : userOperands) {
+                                    if (awaitOpResult == userOperand) {
+                                        nestedCallOp.setOperand(index, operand);
+                                        break;
+                                    }
+                                    ++index;
+                                }
+                            }
                         } else if (mlir::isa<mlir::UnrealizedConversionCastOp, Core::NestedCallOp,
                                              mlir::async::YieldOp>(u)) {
                             continue;
@@ -342,9 +579,14 @@ mlir::LogicalResult AsyncOpRewriter<AsyncOp>::matchAndRewrite(AsyncOp origOp, ml
             rewriter.eraseOp(origOp);
             return mlir::success();
         }
-        return submitCommandList(origOp);
+
+        createSubmitCommandList(rewriter, moduleOp, commandListIndexState);
+        rewriter.eraseOp(origOp);
+        return mlir::success();
     } else if (mlir::isa<mlir::async::AwaitAllOp>(origOp)) {
-        return submitCommandList(origOp);
+        createSubmitCommandList(rewriter, moduleOp, commandListIndexState);
+        rewriter.eraseOp(origOp);
+        return mlir::success();
     } else {
         _log.warning("Unsupported async operation: {0}", origOp->getName());
     }
@@ -361,16 +603,8 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::AddToGroupOp>::matchAndRewrite(
 template <>
 mlir::LogicalResult AsyncOpRewriter<mlir::async::CreateGroupOp>::matchAndRewrite(
         mlir::async::CreateGroupOp origOp, mlir::PatternRewriter& rewriter) const {
-    mlir::func::FuncOp funcOp;
-    auto moduleOp = vpux::getModuleOp(origOp);
-    vpux::net::NetworkInfoOp netInfo;
-    vpux::net::NetworkInfoOp::getFromModule(moduleOp, netInfo, funcOp);
-    auto numArgs = funcOp.getNumArguments();
-    auto cmdlist = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
+    createL0ResetCommandList(origOp, rewriter, commandListIndexState);
 
-    mlir::MLIRContext* ctx = rewriter.getContext();
-    auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
-    createLLVMFuncCallOp(rewriter, getModuleOp(origOp), "npu_level_zero_reset_commandlist", {cmdlist}, returnType);
     rewriter.eraseOp(origOp);
     return mlir::success();
 }
@@ -389,11 +623,16 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
     auto umdContext = funcOp.getArgument(GET_ARG_INDEX_CONTEXT(numArgs));
     auto device = funcOp.getArgument(GET_ARG_INDEX_DEVICE(numArgs));
     auto ddiTable = funcOp.getArgument(GET_ARG_INDEX_DDI_TABLE(numArgs));
-    auto cmdList = funcOp.getArgument(GET_ARG_INDEX_COMMAND_LIST(numArgs));
     auto cmdQueue = funcOp.getArgument(GET_ARG_INDEX_COMMAND_QUEUE(numArgs));
-    // needs to calculate the size of the kernel function after serialization of the core.NestedModule
+
+    // note: needs to calculate the size of the kernel function after serialization of the core.NestedModule
+    if (origOp->template getParentOfType<mlir::scf::ForOp>() == nullptr) {
+        createL0ResetCommandList(origOp, rewriter, commandListIndexState);
+    }
 
     auto voidPtrTy = mlir::LLVM::LLVMPointerType::get(ctx);
+    auto& inputs = commandListIndexState.inputs;
+    auto& outputs = commandListIndexState.outputs;
     std::map<std::string, std::pair<HostExec::BinaryOp, mlir::Value>> kernels;
     for (auto& op : origOp.getBody()->getOperations()) {
         if (auto callOp = mlir::dyn_cast<Core::NestedCallOp>(op)) {
@@ -450,8 +689,8 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
             auto numOutputs =
                     rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(32), kernelOutputs.size());
 
-            auto inputs = rewriter.create<mlir::LLVM::AllocaOp>(loc, voidPtrTy, voidPtrTy, numInputs);
-            auto outputs = rewriter.create<mlir::LLVM::AllocaOp>(loc, voidPtrTy, voidPtrTy, numOutputs);
+            auto voidPointerType = mlir::LLVM::LLVMPointerType::get(&(_typeConverter.getContext()));
+            auto stackSaveOp = rewriter.create<mlir::LLVM::StackSaveOp>(loc, voidPointerType);
 
             // Store each output pointer as void* in the input array
             for (size_t i = 0; i < kernelInputs.size(); ++i) {
@@ -469,8 +708,9 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
                     }
                 }
 
-                auto desc = mlir::MemRefDescriptorView(mlir::ValueRange{llvmInput});
-                rewriter.create<mlir::LLVM::StoreOp>(loc, desc.allocatedPtr(), gep);
+                // input pointer = allocated pointer(0) + offset(2)
+                auto inputPtr = getBufferStartAddress(rewriter, loc, llvmInput);
+                rewriter.create<mlir::LLVM::StoreOp>(loc, inputPtr, gep);
             }
 
             // Store each output pointer as void* in the output array
@@ -489,17 +729,27 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
                         return mlir::failure();
                     }
                 }
-                auto desc = mlir::MemRefDescriptorView(mlir::ValueRange{llvmOutput});
-                rewriter.create<mlir::LLVM::StoreOp>(loc, desc.allocatedPtr(), gep);
+
+                // output pointer = allocated pointer(0) + offset(2)
+                auto outputPtr = getBufferStartAddress(rewriter, loc, llvmOutput);
+                rewriter.create<mlir::LLVM::StoreOp>(loc, outputPtr, gep);
             }
 
             auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
-            createLLVMFuncCallOp(rewriter, getModuleOp(origOp), "npu_level_zero_execute_graph",
-                                 {inputs, numInputs, outputs, numOutputs, kernelGlobal, kernelSize, umdContext, device,
-                                  ddiTable, cmdList, cmdQueue},
+            auto cmdList = commandListIndexState.getCommandList(funcOp);
+            createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_execute_graph",
+                                 {inputs.getResult(), numInputs, outputs.getResult(), numOutputs, kernelGlobal,
+                                  kernelSize, umdContext, device, ddiTable, cmdList, cmdQueue},
                                  returnType);
+
+            // Restore stack used for descriptors
+            rewriter.create<mlir::LLVM::StackRestoreOp>(loc, stackSaveOp);
         }
     }
+
+    // note
+    // BinaryOp will be remove in safeRunOnModule
+    // as lowering Async::AwaitOp is required function signature defined in BinaryOp
 
     rewriter.eraseOp(origOp);
     return mlir::success();
@@ -526,10 +776,13 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
     mlir::RewritePatternSet patterns(ctx);
     mlir::ConversionTarget target(*ctx);
     mlir::LowerToLLVMOptions options(ctx);
+    options.useBarePtrCallConv = true;
     mlir::LLVMTypeConverter typeConverter(ctx, options);
 
+    mlir::func::FuncOp mainFuncOp;
     for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
         if (funcOp.getName() == "main") {
+            mainFuncOp = funcOp;
             addFuncParamsForUmdFuncCall(funcOp);
         }
     }
@@ -548,25 +801,41 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
     target.addLegalOp<mlir::ModuleOp>();
     target.addLegalDialect<mlir::LLVM::LLVMDialect>();
     target.addLegalOp<mlir::UnrealizedConversionCastOp>();
+    target.addLegalOp<mlir::cf::AssertOp>();
 
-    patterns.add<LvlZeroMemoryCopyLowering>(typeConverter);
+    CommandListIndexState commandListIndexState;
+    commandListIndexState.initialize(module, mainFuncOp);
+
+    patterns.add<LvlZeroMemoryCopyLowering>(typeConverter, commandListIndexState);
     patterns.add<LvlZeroAllocLowering>(typeConverter);
-    patterns.add<AsyncOpRewriter<mlir::async::AddToGroupOp>>(ctx, typeConverter, vpux::benefitHigh, _log);
-    patterns.add<AsyncOpRewriter<mlir::async::CreateGroupOp>>(ctx, typeConverter, vpux::benefitHigh, _log);
-    patterns.add<AsyncOpRewriter<mlir::async::AwaitAllOp>>(ctx, typeConverter, vpux::benefitHigh, _log);
-    patterns.add<AsyncOpRewriter<mlir::async::AwaitOp>>(ctx, typeConverter, vpux::benefitHigh, _log);
+    patterns.add<AsyncOpRewriter<mlir::async::AddToGroupOp>>(ctx, typeConverter, vpux::benefitHigh,
+                                                             commandListIndexState, _log);
+    patterns.add<AsyncOpRewriter<mlir::async::CreateGroupOp>>(ctx, typeConverter, vpux::benefitHigh,
+                                                              commandListIndexState, _log);
+    patterns.add<AsyncOpRewriter<mlir::async::AwaitAllOp>>(ctx, typeConverter, vpux::benefitHigh, commandListIndexState,
+                                                           _log);
+    patterns.add<AsyncOpRewriter<mlir::async::AwaitOp>>(ctx, typeConverter, vpux::benefitHigh, commandListIndexState,
+                                                        _log);
+
     // Note: ExecuteOp is a special case, a few conditions apply which is why it is the last pattern,
     // 1 npu_level_zero_execute_graph that all inputs and outputs are converted to LLVM types.
     // 2.It will have successor and predecessor dependencies on the other async and memref operations therefore those
     // operations should be removed or converted before this pattern is applied.
 
-    patterns.add<AsyncOpRewriter<mlir::async::ExecuteOp>>(ctx, typeConverter, vpux::benefitLow, _log);
+    patterns.add<AsyncOpRewriter<mlir::async::ExecuteOp>>(ctx, typeConverter, vpux::benefitLow, commandListIndexState,
+                                                          _log);
 
     if (mlir::failed(mlir::applyPartialConversion(module, target, std::move(patterns)))) {
         signalPassFailure();
     }
 
-    // Remove all BinaryOps as global variables for the ops were defined
+    for (auto funcOp : module.getOps<mlir::func::FuncOp>()) {
+        if (funcOp.getName() == "main") {
+            commandListIndexState.finalizeCommandListIndex(module, ctx, funcOp);
+        }
+    }
+
+    // remove all BinaryOp as they were converted into global variables
     auto binaryOps = to_small_vector(module.getOps<HostExec::BinaryOp>());
     for (auto binaryOp : binaryOps) {
         binaryOp.getOperation()->erase();

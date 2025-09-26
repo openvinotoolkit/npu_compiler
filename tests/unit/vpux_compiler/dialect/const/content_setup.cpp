@@ -105,9 +105,17 @@ public:
 
     void checkRescaleAttr(Const::TransformAttrInterface actualTransformation, double expectedValue) {
         const auto getValue = [](Const::RescaleAttr attr) {
-            return attr.getScale().getValueAsDouble();
+            return attr.getScale().fold().getSplatValue<double>();
         };
         checkSingleValueAttr<Const::RescaleAttr, double>(actualTransformation, expectedValue, getValue);
+    }
+
+    void checkRescaleAttr(Const::TransformAttrInterface actualTransformation, ArrayRef<double> expectedValues) {
+        auto rescaleAttr = mlir::dyn_cast<Const::RescaleAttr>(actualTransformation);
+        ASSERT_TRUE(rescaleAttr != nullptr);
+        auto foldedAttr = rescaleAttr.getScale().fold();
+        auto actualValues = foldedAttr.vec<double>();
+        EXPECT_THAT(actualValues, testing::ElementsAreArray(expectedValues));
     }
 
     void checkReorderAttr(Const::TransformAttrInterface actualTransformation, DimsOrder expectedValue) {
@@ -155,6 +163,12 @@ public:
         auto actualAttr = mlir::dyn_cast<Const::RelocateWeightsTableAttr>(actualTransformation);
         ASSERT_TRUE(actualAttr != nullptr);
         ASSERT_TRUE(actualAttr == expectedAttr);
+    }
+
+    void checkInterpolateAttr(Const::TransformAttrInterface actualTransformation, Const::InterpolateAttr expectedAttr) {
+        auto actualInterpAttr = mlir::dyn_cast<Const::InterpolateAttr>(actualTransformation);
+        ASSERT_TRUE(actualInterpAttr != nullptr);
+        ASSERT_TRUE(actualInterpAttr == expectedAttr);
     }
 
     void checkFuseAttr(Const::TransformAttrInterface actualTransformation) {
@@ -711,6 +725,54 @@ public:
     }
 };
 
+//
+// TEST_SUITE: MoveSubviewAfter
+//
+
+class MLIR_ContentSetupTest_MoveSubViewAfter : public MLIR_ContentSetupTest {
+public:
+    MLIR_ContentSetupTest_MoveSubViewAfter(): MLIR_ContentSetupTest() {
+    }
+
+    void SetUp() override {
+        Const::LazyFoldingOptions specialOptions;
+        specialOptions.getFoldingSequenceOptimizations =
+                [=](mlir::Type baseType) -> SmallVector<Const::LazyFoldingOptions::OptimizeConstTransformationsFunc> {
+            auto moveSubViewAfter = [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                                        vpux::Const::details::optimization::TransformAttrPos& currPos) {
+                return vpux::Const::details::moveSubViewAfter(transformations, currPos, baseType);
+            };
+            return {moveSubViewAfter};
+        };
+        Const::setLazyFoldingOptions(&ctx, specialOptions);
+    }
+};
+
+//
+// TEST_SUITE: SwapAttributeAndLayoutTransformations
+//
+
+class MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations : public MLIR_ContentSetupTest {
+public:
+    MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations(): MLIR_ContentSetupTest() {
+    }
+
+    void SetUp() override {
+        Const::LazyFoldingOptions specialOptions;
+        specialOptions.getFoldingSequenceOptimizations =
+                [=](mlir::Type baseType) -> SmallVector<Const::LazyFoldingOptions::OptimizeConstTransformationsFunc> {
+            auto moveAttributeBeforeLayoutTransformations =
+                    [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                        vpux::Const::details::optimization::TransformAttrPos& currPos) {
+                        return vpux::Const::details::moveAttributeBeforeLayoutTransformations(transformations, currPos,
+                                                                                              baseType);
+                    };
+            return {moveAttributeBeforeLayoutTransformations};
+        };
+        Const::setLazyFoldingOptions(&ctx, specialOptions);
+    }
+};
+
 }  // namespace
 
 TEST_F(MLIR_ContentSetupTest, Invalidated) {
@@ -771,6 +833,24 @@ TEST_F(MLIR_ContentSetupTest, FuseSubView) {
     EXPECT_EQ(actualTransformations.size(), 1);
 
     checkSubViewAttr(actualTransformations[0], offsetFinal, shapeFinal);
+}
+
+TEST_F(MLIR_ContentSetupTest, DoNotFuseNonSplatRescale) {
+    std::vector<double> vals(24);
+    std::iota(vals.begin(), vals.end(), 0.0);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx));
+    auto tensorA = getContentAttr<double>(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx), vals);
+    auto tensorB = getContentAttr<double>(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx), vals);
+    // First rescale
+    auto contentAttrSetup = baseContentAttrSetup.rescale(tensorA);
+    // Second rescale
+    contentAttrSetup = contentAttrSetup.rescale(tensorB);
+
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+    checkRescaleAttr(actualTransformations[0], vals);
+    checkRescaleAttr(actualTransformations[1], vals);
 }
 
 TEST_F(MLIR_ContentSetupTest, FuseAdd) {
@@ -901,6 +981,33 @@ TEST_F(MLIR_ContentSetupTest, FuseCastElemType_Quantized) {
     checkCastElemTypeAttr(actualTransformations[1], quantizedType);
 }
 
+TEST_F(MLIR_ContentSetupTest, FuseInterpolate) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 8;
+
+    auto expectedType = mlir::Float16Type::get(&ctx);
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, expectedType);
+
+    // original Interpolate
+    auto contentAttrSetup = baseContentAttrSetup.interpolate(
+            getIntArrayAttr(&ctx, ArrayRef<int64_t>{1, 2}), getIntArrayAttr(&ctx, ArrayRef<int64_t>{6, 6}),
+            mlir::StringAttr::get(&ctx, "CUBIC"), mlir::StringAttr::get(&ctx, "HALF_PIXEL"),
+            mlir::StringAttr::get(&ctx, "FLOOR"), mlir::BoolAttr::get(&ctx, false),
+            getIntArrayAttr(&ctx, ArrayRef<int64_t>{0, 0, 0}), getIntArrayAttr(&ctx, ArrayRef<int64_t>{0, 0, 0}),
+            getFPAttr(&ctx, -0.75f));
+
+    // check final Interpolate
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    auto _expectedInterpolateAttr = Const::InterpolateAttr::get(
+            getIntArrayAttr(&ctx, ArrayRef<int64_t>{1, 2}), getIntArrayAttr(&ctx, ArrayRef<int64_t>{6, 6}),
+            mlir::StringAttr::get(&ctx, "CUBIC"), mlir::StringAttr::get(&ctx, "HALF_PIXEL"),
+            mlir::StringAttr::get(&ctx, "FLOOR"), mlir::BoolAttr::get(&ctx, false),
+            getIntArrayAttr(&ctx, ArrayRef<int64_t>{0, 0, 0}), getIntArrayAttr(&ctx, ArrayRef<int64_t>{0, 0, 0}),
+            getFPAttr(&ctx, -0.75f));
+    checkInterpolateAttr(actualTransformations[0], _expectedInterpolateAttr);
+}
+
 //
 // MoveSubViewBefore
 //
@@ -1007,6 +1114,24 @@ TEST_F(MLIR_ContentSetupTest, SwapTransposeAndSubView) {
 
     checkSubViewAttr(actualTransformations[0], {OFF_W, OFF_H, OFF_C}, {OW, OH, OC});
     checkTransposeAttr(actualTransformations[1], DimsOrder::WHC);
+}
+
+TEST_F(MLIR_ContentSetupTest, DoNotSwapNonSplatRescaleAndSubview) {
+    std::vector<double> vals(24);
+    std::iota(vals.begin(), vals.end(), 0.0);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx));
+    auto rhsContentAttr = getContentAttr<double>(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx), vals);
+    auto contentAttrSetup = baseContentAttrSetup.rescale(rhsContentAttr);
+
+    SmallVector<int64_t> expectedOffset = {0, 1, 0, 0};
+    SmallVector<int64_t> expectedShape = {1, 1, 3, 4};
+    contentAttrSetup = contentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+    checkRescaleAttr(actualTransformations[0], vals);
+    checkSubViewAttr(actualTransformations[1], expectedOffset, expectedShape);
 }
 
 TEST_F(MLIR_ContentSetupTest, SwapRescaleAndSubView) {
@@ -1232,6 +1357,111 @@ TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndSubView) {
 
     checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
     checkCastElemTypeAttr(actualTransformations[1], expectedType);
+}
+
+TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, Reorder) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first SubView
+    SmallVector<int64_t> expectedOffset = {0, 1, 1};
+    SmallVector<int64_t> expectedShape = {4, 2, 1};
+
+    auto contentAttrSetup = baseContentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    // second Reorder
+    contentAttrSetup = contentAttrSetup.reorder(vpux::DimsOrder::HWC);
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkReorderAttr(actualTransformations[0], vpux::DimsOrder::HWC);
+    checkSubViewAttr(actualTransformations[1], expectedOffset, expectedShape);
+}
+
+TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, CastElemType) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first CastElemType
+    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
+            0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 0, 0, 255);
+    auto contentAttrSetup = baseContentAttrSetup.castElemType(perAxisQType);
+
+    // second SubView
+    SmallVector<int64_t> expectedOffset = {0, 1, 1};
+    SmallVector<int64_t> expectedShape = {2, 2, 1};
+
+    contentAttrSetup = contentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    // third CastElemType
+    contentAttrSetup = contentAttrSetup.castElemType(mlir::Float16Type::get(&ctx));
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 3);
+
+    checkCastElemTypeAttr(actualTransformations[0], perAxisQType);
+    checkCastElemTypeAttr(actualTransformations[1], mlir::Float16Type::get(&ctx));
+    checkSubViewAttr(actualTransformations[2], expectedOffset, expectedShape);
+}
+
+TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, PerAxisCastElemTypeWhenQuantizedAxisIsNotChanged) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first SubView
+    SmallVector<int64_t> expectedOffset = {0, 1, 1};
+    SmallVector<int64_t> expectedShape = {4, 2, 1};
+
+    auto contentAttrSetup = baseContentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    // second CastElemType
+    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
+            0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 0, 0, 255);
+    contentAttrSetup = contentAttrSetup.castElemType(perAxisQType);
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkCastElemTypeAttr(actualTransformations[0], perAxisQType);
+    checkSubViewAttr(actualTransformations[1], expectedOffset, expectedShape);
+}
+
+TEST_F(MLIR_ContentSetupTest_MoveSubViewAfter, DoNotMoveSubViewWhenChangingQuantizedAxis) {
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, mlir::Float32Type::get(&ctx));
+
+    // first SubView
+    SmallVector<int64_t> expectedOffset = {0, 1, 1};
+    SmallVector<int64_t> expectedShape = {2, 2, 1};
+
+    auto contentAttrSetup = baseContentAttrSetup.subview(ShapeRef(expectedOffset), ShapeRef(expectedShape));
+
+    // second CastElemType
+    ctx.loadDialect<mlir::quant::QuantizationDialect>();
+    auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
+            0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5}, {127, 127}, 0, 0, 255);
+    contentAttrSetup = contentAttrSetup.castElemType(perAxisQType);
+
+    // check
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+
+    checkSubViewAttr(actualTransformations[0], expectedOffset, expectedShape);
+    checkCastElemTypeAttr(actualTransformations[1], perAxisQType);
 }
 
 TEST_F(MLIR_ContentSetupTest, SwapConvertElemTypeAndSubView) {
@@ -1599,34 +1829,12 @@ TEST_F(MLIR_ContentSetupTest, SwapMultipleTransformationsAndSubView) {
 // moveAttributeBeforeLayoutTransformations
 //
 
-TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndLayoutTransformations) {
+TEST_F(MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations, QuantizeAndMemPermute) {
     const int64_t IN = 1;
     const int64_t IC = 4;
     const int64_t IH = 8;
     const int64_t IW = 3;
-    ctx.loadDialect<mlir::quant::QuantizationDialect>();
-    const auto inShape = Shape({IN, IC, IH, IW});
-    const auto baseType = getTensorType(inShape, mlir::Float32Type::get(&ctx), DimsOrder::NCHW, nullptr);
-
-    VPUX_SCOPE_EXIT {
-        // restore default options to avoid failures in other tests
-        Const::setLazyFoldingOptions(&ctx, Const::LazyFoldingOptions());
-    };
-
-    Const::LazyFoldingOptions specialOptions;
-    specialOptions.getFoldingSequenceOptimizations =
-            [=](mlir::Type) -> SmallVector<Const::LazyFoldingOptions::OptimizeConstTransformationsFunc> {
-        auto moveAttributeBeforeLayoutTransformations =
-                [=](SmallVector<Const::TransformAttrInterface>& transformations,
-                    vpux::Const::details::optimization::TransformAttrPos& currPos) {
-                    return vpux::Const::details::moveAttributeBeforeLayoutTransformations(transformations, currPos,
-                                                                                          baseType);
-                };
-        return {moveAttributeBeforeLayoutTransformations};
-    };
-    Const::setLazyFoldingOptions(&ctx, specialOptions);
-
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IN, IC, IH, IW}, mlir::Float32Type::get(&ctx));
 
     SmallVector<int64_t> expectedShape = {1, 5, 4, 5};
     auto contentAttrSetup = baseContentAttrSetup.reshape(ShapeRef(expectedShape));
@@ -1635,6 +1843,7 @@ TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndLayoutTransformations) {
     const auto memPerm = DimsOrder::NWCH;
     contentAttrSetup = contentAttrSetup.memPermute(dstOrder, memPerm);  // 1x4x5x5
 
+    ctx.loadDialect<mlir::quant::QuantizationDialect>();
     auto perAxisQType = mlir::quant::UniformQuantizedPerAxisType::get(
             0, getUInt8Type(&ctx), mlir::Float32Type::get(&ctx), {2, 0.5, 2, 0.5}, {127, 127, 127, 127}, 1, 0, 255);
     contentAttrSetup = contentAttrSetup.quantize(perAxisQType);
@@ -1655,34 +1864,12 @@ TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndLayoutTransformations) {
     checkSubViewAttr(actualTransformations[3], expectedSubViewOffset, expectedSubViewShape);
 }
 
-TEST_F(MLIR_ContentSetupTest, ReshapeAndLayoutTransformations) {
+TEST_F(MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations, ReshapeAndMemPermute) {
     const int64_t IN = 1;
     const int64_t IC = 4;
     const int64_t IH = 8;
     const int64_t IW = 3;
-
-    const auto inShape = Shape({IN, IC, IH, IW});
-    const auto baseType = getTensorType(inShape, mlir::Float32Type::get(&ctx), DimsOrder::NCHW, nullptr);
-
-    VPUX_SCOPE_EXIT {
-        // restore default options to avoid failures in other tests
-        Const::setLazyFoldingOptions(&ctx, Const::LazyFoldingOptions());
-    };
-
-    Const::LazyFoldingOptions specialOptions;
-    specialOptions.getFoldingSequenceOptimizations =
-            [=](mlir::Type) -> SmallVector<Const::LazyFoldingOptions::OptimizeConstTransformationsFunc> {
-        auto moveAttributeBeforeLayoutTransformations =
-                [=](SmallVector<Const::TransformAttrInterface>& transformations,
-                    vpux::Const::details::optimization::TransformAttrPos& currPos) {
-                    return vpux::Const::details::moveAttributeBeforeLayoutTransformations(transformations, currPos,
-                                                                                          baseType);
-                };
-        return {moveAttributeBeforeLayoutTransformations};
-    };
-    Const::setLazyFoldingOptions(&ctx, specialOptions);
-
-    Const::ContentSetup baseContentAttrSetup(baseType);
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IN, IC, IH, IW}, mlir::Float32Type::get(&ctx));
 
     const auto dstOrder = DimsOrder::NHWC;
     const auto memPerm = DimsOrder::NWCH;
@@ -1796,30 +1983,12 @@ SmallVector<SwapQuantizeAndLayoutTransformationsParams> getSwapQuantizeAndLayout
                                                                                // perm1: 1x8x4x3 perm2: 1x4x3x8
 }
 
-TEST_F(MLIR_ContentSetupTest, QuantizeMemPermAndReorder) {
+TEST_F(MLIR_ContentSetupTest_SwapAttributeAndLayoutTransformations, QuantizeMemPermAndReorder) {
     ctx.loadDialect<mlir::quant::QuantizationDialect>();
-    VPUX_SCOPE_EXIT {
-        // restore default options to avoid failures in other tests
-        Const::setLazyFoldingOptions(&ctx, Const::LazyFoldingOptions());
-    };
 
     for (auto [inputOrder, destinationOrder, permutation, qDim, inShape, expectedQDim] :
          getSwapQuantizeAndLayoutTransformationsParams()) {
-        auto baseType = getTensorType(Shape(inShape), mlir::Float32Type::get(&ctx), DimsOrder::NCHW, nullptr);
-
-        Const::LazyFoldingOptions specialOptions;
-        specialOptions.getFoldingSequenceOptimizations =
-                [=](mlir::Type) -> SmallVector<Const::LazyFoldingOptions::OptimizeConstTransformationsFunc> {
-            auto moveAttributeBeforeLayoutTransformations =
-                    [=](SmallVector<Const::TransformAttrInterface>& transformations,
-                        vpux::Const::details::optimization::TransformAttrPos& currPos) {
-                        return vpux::Const::details::moveAttributeBeforeLayoutTransformations(transformations, currPos,
-                                                                                              baseType);
-                    };
-            return {moveAttributeBeforeLayoutTransformations};
-        };
-        Const::setLazyFoldingOptions(&ctx, specialOptions);
-        Const::ContentSetup baseContentAttrSetup(baseType);
+        auto baseContentAttrSetup = getContentSetup(ShapeRef(inShape), mlir::Float32Type::get(&ctx));
 
         const auto inOrd = inputOrder;
         const auto dstOrd = destinationOrder;
@@ -1889,6 +2058,23 @@ TEST_F(MLIR_ContentSetupTest, SwapAddAndReshape) {
 
     checkReshapeAttr(actualTransformations[0], expectedShape);
     checkAddAttr(actualTransformations[1], 1);
+}
+
+TEST_F(MLIR_ContentSetupTest, DoNotSwapNonSplatRescaleAndReshape) {
+    std::vector<double> vals(24);
+    std::iota(vals.begin(), vals.end(), 0.0);
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx));
+    auto rhsContentAttr = getContentAttr<double>(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float64Type::get(&ctx), vals);
+    auto contentAttrSetup = baseContentAttrSetup.rescale(rhsContentAttr);
+
+    SmallVector<int64_t> expectedShape{1, 24};
+    contentAttrSetup = contentAttrSetup.reshape(ShapeRef(expectedShape));
+
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    EXPECT_EQ(actualTransformations.size(), 2);
+    checkRescaleAttr(actualTransformations[0], vals);
+    checkReshapeAttr(actualTransformations[1], expectedShape);
 }
 
 TEST_F(MLIR_ContentSetupTest, SwapRescaleAndReshape) {
@@ -2544,8 +2730,9 @@ class MLIR_ContentSetupTest_SwapAffineReshapeAndSubView :
 public:
     void SetUp() override {
         const auto& inputShape = GetParam().inputShape;
-        _inType = getTensorType(Shape(inputShape), mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signed),
-                                DimsOrder::fromNumDims(inputShape.size()), nullptr);
+        _inType =
+                getTensorType(ShapeRef(inputShape), mlir::IntegerType::get(getContext(), 32, mlir::IntegerType::Signed),
+                              DimsOrder::fromNumDims(inputShape.size()), nullptr);
         _values = generateValues<int32_t>(_inType.getNumElements());
     }
 

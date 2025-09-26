@@ -19,14 +19,13 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/resources.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/shave_kernel_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
 using namespace vpux;
@@ -233,8 +232,8 @@ private:
             return false;
         }
 
-        auto reshapeBefore = mvnOp->getOperand(0).getDefiningOp<IE::ReshapeOp>();
-        if (!reshapeBefore) {
+        mlir::Operation* reshapeBefore = mvnOp->getOperand(0).getDefiningOp();
+        if (!mlir::isa_and_nonnull<IE::ReshapeOp, IE::AffineReshapeOp>(reshapeBefore)) {
             return false;
         }
         mlir::Operation* reshapeAfter = *mvnOp->getResult(0).getUsers().begin();
@@ -242,8 +241,14 @@ private:
             return false;
         }
 
-        // To be removed after E#123528 gets implemented
-        if (mlir::isa_and_nonnull<IE::AffineReshapeOp>(reshapeAfter)) {
+        // Check Reshapes are symmetrical
+        const auto inType = mlir::cast<vpux::NDTypeInterface>(reshapeBefore->getOperand(0).getType());
+        const auto inC = inType.getShape()[Dims4D::Act::C];
+        const auto outType = mlir::cast<vpux::NDTypeInterface>(reshapeAfter->getResult(0).getType());
+        const auto outC = outType.getShape()[Dims4D::Act::C];
+        if (inC != outC) {
+            // Check pattern Reshape1 -> MVN -> Reshape2 -> GroupConv -> Reshape3
+            // To be removed after E#123528 gets implemented
             mlir::Operation* groupConv = *reshapeAfter->getResult(0).getUsers().begin();
             if (!mlir::isa_and_nonnull<IE::GroupConvolutionOp>(groupConv)) {
                 return false;
@@ -252,16 +257,11 @@ private:
             if (!mlir::isa_and_nonnull<IE::ReshapeOp>(finReshape)) {
                 return false;
             }
-            reshapeAfter = finReshape;
-        }
-
-        // Check Reshapes are symmetrical
-        const auto inType = mlir::cast<vpux::NDTypeInterface>(reshapeBefore->getOperand(0).getType());
-        const auto outType = mlir::cast<vpux::NDTypeInterface>(reshapeAfter->getResult(0).getType());
-        const auto inC = inType.getShape()[Dims4D::Act::C];
-        const auto outC = outType.getShape()[Dims4D::Act::C];
-        if (inC != outC) {
-            return false;
+            const auto newOutType = mlir::cast<vpux::NDTypeInterface>(finReshape->getResult(0).getType());
+            const auto newOutC = newOutType.getShape()[Dims4D::Act::C];
+            if (inC != newOutC) {
+                return false;
+            }
         }
 
         // Check channel constraints
@@ -327,7 +327,7 @@ public:
         };
 
         auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
-        auto tileExec = IE::getTileExecutor(moduleOp);
+        auto tileExec = config::getTileExecutor(moduleOp);
         auto shaveActExec = tileExec.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
         const auto numSplits = tileExec.getCount() * shaveActExec.getCount();
         VPUX_THROW_WHEN(numSplits <= 0, "Number of splits should be a positive integer, while it is {0}", numSplits);
@@ -416,6 +416,7 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::DivideOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::InverseOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::DynamicDequantizeOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        VPU::DequantizeOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::FakeConvertOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::PowerOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         VPU::ModOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
@@ -457,6 +458,8 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::FullyConnectedOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::MatMulOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
         VPU::AvgPoolOp::attachInterface<vpux::VPU::SameInOutDimsOrderOpModelForSW_CHW_HWC_NCHW_NHWC_NCDHW_NDHWC>(*ctx);
+        VPU::AvgPool16Op::attachInterface<vpux::VPU::SameInOutDimsOrderOpModelForSW_CHW_HWC_NCHW_NHWC_NCDHW_NDHWC>(
+                *ctx);
         VPU::ScatterUpdateOp::attachInterface<vpux::VPU::SameInOutDefaultDimsOrderOpModelForSW>(*ctx);
 
         VPU::OneHotOp::attachInterface<vpux::VPU::DefaultDimsOrderOpModelForSW>(*ctx);
@@ -537,7 +540,6 @@ void redirectLayoutOpInterfacesForVPU(mlir::DialectRegistry& registry) {
         VPU::TopKOp::attachInterface<vpux::VPU::TopKSameInOutDimsOrderOpModelForSW>(*ctx);
 
         VPU::QuantizeOp::attachInterface<vpux::VPU::QuantizeDimsOrderOpModelForSW>(*ctx);
-        VPU::DequantizeOp::attachInterface<vpux::VPU::DequantizeDimsOrderOpModelForSW>(*ctx);
 
         VPU::SqueezeOp::attachInterface<vpux::VPU::SqueezeUnsqueezeDimsOrderOpModelForSW>(*ctx);
         VPU::UnsqueezeOp::attachInterface<vpux::VPU::SqueezeUnsqueezeDimsOrderOpModelForSW>(*ctx);
@@ -632,6 +634,8 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::GreaterOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::GreaterEqualOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
         IE::EqualOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        IE::DynamicDequantizeOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
+        IE::DequantizeOp::attachInterface<vpux::VPU::SameAnyDimsOrderOpModelForSW>(*ctx);
 
         IE::StridedSliceOp::attachInterface<vpux::VPU::SameInOutAnyDimsOrderOpModelForSW>(*ctx);
         IE::LRNOp::attachInterface<vpux::VPU::SameInOutAnyDimsOrderOpModelForSW>(*ctx);
@@ -723,7 +727,6 @@ void redirectLayoutOpInterfacesForIE(mlir::DialectRegistry& registry) {
         IE::TopKOp::attachInterface<vpux::VPU::TopKSameInOutDimsOrderOpModelForSW>(*ctx);
 
         IE::QuantizeOp::attachInterface<vpux::VPU::QuantizeDimsOrderOpModelForSW>(*ctx);
-        IE::DequantizeOp::attachInterface<vpux::VPU::DequantizeDimsOrderOpModelForSW>(*ctx);
 
         IE::SqueezeOp::attachInterface<vpux::VPU::SqueezeUnsqueezeDimsOrderOpModelForSW>(*ctx);
         IE::UnsqueezeOp::attachInterface<vpux::VPU::SqueezeUnsqueezeDimsOrderOpModelForSW>(*ctx);

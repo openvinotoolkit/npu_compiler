@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/config/IR/ops_interfaces.hpp"
+#include "vpux/utils/core/mem_size.hpp"
+
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinOps.h>
 

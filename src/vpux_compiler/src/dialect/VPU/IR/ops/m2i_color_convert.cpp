@@ -95,7 +95,7 @@ mlir::LogicalResult vpux::VPU::M2IColorConvertOp::inferReturnTypes(
     // input Height is big enough to include Chroma, so lower for RGB output
     outShape[1] = outShape[1] * 2 / 3;
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

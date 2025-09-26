@@ -30,9 +30,9 @@ mlir::LogicalResult vpux::VPU::NonMaxSuppressionOp::inferReturnTypes(
     const SmallVector<int64_t> outShape{minBoxes * numBatches * numClasses, 3};
     const SmallVector<int64_t> validOutputsShape{1};
 
-    const auto outFloatType = inType.changeShape(Shape(outShape));
-    const auto outIntType = sInt32Type.changeShape(Shape(outShape));
-    const auto validOutputsType = sInt32Type.changeShape(Shape(validOutputsShape));
+    const auto outFloatType = inType.changeShape(ShapeRef(outShape));
+    const auto outIntType = sInt32Type.changeShape(ShapeRef(outShape));
+    const auto validOutputsType = sInt32Type.changeShape(ShapeRef(validOutputsShape));
     inferredReturnTypes.push_back(outIntType);
     inferredReturnTypes.push_back(outFloatType);
     inferredReturnTypes.push_back(validOutputsType);

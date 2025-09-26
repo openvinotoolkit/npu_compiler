@@ -13,6 +13,8 @@ include "vpux/compiler/dialect/core/dialect.td"
 
 def Bool8 : I<8>;
 def I4 : I<4>;
+def I2 : I<2>;
+def U2 : UI<2>;
 
 class Core_Type<string name, list<Trait> traits = []>
     : TypeDef<Core_Dialect, name, traits> {
@@ -23,7 +25,7 @@ def BoundedTensorType : Core_Type<"BoundedTensor"> {
     let extraClassDeclaration = [{
         static bool classof(mlir::Type type);
         static BoundedTensorType get(mlir::Type type, BoundsRef bounds);
-        [[nodiscard]] Bounds getBounds() const;
+        [[nodiscard]] BoundsRef getBounds() const;
         [[nodiscard]] BoundedShape getDynamicShape() const;
         [[nodiscard]] BoundedTensorType changeBounds(BoundsRef bounds) const;
     }];
@@ -33,7 +35,7 @@ def DynamicDimsMaskTensorType : Core_Type<"DynamicDimsMaskTensor"> {
     let extraClassDeclaration = [{
         static bool classof(mlir::Type type);
         static DynamicDimsMaskTensorType get(mlir::Type type, DynamicDimsMaskRef dynamicDimsMask);
-        [[nodiscard]] DynamicDimsMask getDynamicDimsMask() const;
+        [[nodiscard]] DynamicDimsMaskRef getDynamicDimsMask() const;
         [[nodiscard]] DimsMaskedShape getDynamicShape() const;
         [[nodiscard]] DynamicDimsMaskTensorType changeDynamicDimsMask(DynamicDimsMaskRef dynamicDimsMask) const;
     }];

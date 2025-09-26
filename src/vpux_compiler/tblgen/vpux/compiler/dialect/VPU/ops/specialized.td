@@ -6,6 +6,7 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_SPECIALIZED
 #define VPUX_COMPILER_DIALECT_VPU_OPS_SPECIALIZED
 
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
@@ -960,8 +961,54 @@ def VPU_LayoutCastOp :
         AnyTypeOf<[AnyRankedTensor, VPU_SparseTensor, VPU_DistributedTensor]>:$output
     );
 
+    let hasCanonicalizer = 1;
     let hasFolder = 1;
     let hasVerifier = 1;
+}
+
+def VPU_IncrementalSDPAOp :
+        VPU_LayerOp<
+            "IncrementalSDPA",
+            [
+                AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "Implements SDPA computation using FlashAttention-2 algorithm";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32, F64]>:$query,
+        RankedTensorOf<[F16, F32, F64]>:$key,
+        RankedTensorOf<[F16, F32, F64]>:$value,
+
+        RankedTensorOf<[F16, F32, F64]>:$aux_buffer,
+
+        RankedTensorOf<[F16, F32, F64]>:$input_partial_output,
+        RankedTensorOf<[F16, F32, F64]>:$input_running_max,
+        RankedTensorOf<[F16, F32, F64]>:$input_running_sum,
+
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$attention_mask,
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale
+    );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$query,
+            "::mlir::Value":$key,
+            "::mlir::Value":$value,
+            "::mlir::Value":$input_partial_output,
+            "::mlir::Value":$input_running_max,
+            "::mlir::Value":$input_running_sum,
+            "::mlir::Value":$attention_mask,
+            "::mlir::Value":$scale
+        )>
+    ];
+
+
+    let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$result_partial_output,
+        RankedTensorOf<[F16, F32, F64]>:$result_running_max,
+        RankedTensorOf<[F16, F32, F64]>:$result_running_sum
+    );
 }
 
 #endif

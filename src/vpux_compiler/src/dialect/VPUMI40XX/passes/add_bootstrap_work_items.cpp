@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 namespace vpux::VPUMI40XX {
@@ -117,7 +117,8 @@ void AddBootstrapWorkItemsPass::safeRunOnFunc() {
     auto builder = mlir::OpBuilder(mpi.getOperation());
 
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
-    const auto tilesCount = IE::getTileExecutor(parentModule).getCount();
+    const auto tilesCount = config::getTileExecutor(parentModule).getCount();
+    const auto dmaExecutorCount = config::getAvailableExecutor(parentModule, VPU::ExecutorKind::DMA_NN).getCount();
 
     if (workloadManagementModeOpt.hasValue()) {
         _workloadManagementMode = workloadManagementModeOpt.getValue();
@@ -125,28 +126,6 @@ void AddBootstrapWorkItemsPass::safeRunOnFunc() {
 
     // Check if there are any Enqueue DMAs present in the schedule
     mlir::DenseMap<VPUMI40XX::HwQueueType, int64_t> firstEnqueueDmaPerHwQueue;
-
-    if (_workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-        auto dmaTile0List0Task = mpi.getListHead(VPURegMapped::TaskType::DMA, 0, 0).getDefiningOp<VPUMI40XX::NNDMAOp>();
-        do {
-            auto enqueueDmaAttr = dmaTile0List0Task.getEnqueueDmaAttr();
-            if (enqueueDmaAttr.has_value()) {
-                auto taskType = VPUMI40XX::convertExecutorKindToExecutableTaskType(
-                        enqueueDmaAttr.value().getTargetExecutorKindAttr().getValue());
-                auto tileIdx = static_cast<uint32_t>(enqueueDmaAttr.value().getTileIdx().getValue().getSExtValue());
-                auto listIdx = static_cast<uint32_t>(enqueueDmaAttr.value().getListIdx().getValue().getSExtValue());
-                auto hwQueue = VPUMI40XX::HwQueueType{taskType, tileIdx, listIdx};
-
-                if (firstEnqueueDmaPerHwQueue.find(hwQueue) == firstEnqueueDmaPerHwQueue.end()) {
-                    auto firstTaskIdx = enqueueDmaAttr.value().getStartTaskIdx().getValue().getSExtValue();
-                    firstEnqueueDmaPerHwQueue[hwQueue] = firstTaskIdx;
-                    _log.trace("Found Enqueue DMA for task type {0} on tile {1}, list {2} with first task index {3}",
-                               taskType, tileIdx, listIdx, firstTaskIdx);
-                }
-            }
-            dmaTile0List0Task = VPUMI40XX::getNextOp(dmaTile0List0Task);
-        } while (dmaTile0List0Task);
-    }
 
     VPURegMapped::EnqueueOp firstEnqueue = nullptr;
     if (mpi.getWorkItemTasks()) {
@@ -175,21 +154,23 @@ void AddBootstrapWorkItemsPass::safeRunOnFunc() {
              {VPURegMapped::TaskType::DPUVariant, 1},
              {VPURegMapped::TaskType::ActKernelInvocation, shavesCountPerTile}}};
 
-    for (uint32_t tileIdx = 0; tileIdx < tilesCount; tileIdx++) {
-        for (const auto& [taskType, listCount] : taskTypesWithListCountPerTile) {
-            for (uint32_t listIdx = 0; listIdx < listCount; listIdx++) {
-                _log.trace("Check task type {0} on tile {1}, list {2} if bootstrap work items are needed", taskType,
-                           tileIdx, listIdx);
-                auto curHead = mpi.getListHead(taskType, tileIdx, listIdx);
+    for (const auto& [taskType, listCount] : taskTypesWithListCountPerTile) {
+        // In VPURegMapped.Index, DMAs are represented as <tile:list:index>,
+        // but they are not strictly tied to tiles. Since multiple DMA ports
+        // may be used, relying only on tilesCount would miss enqueue additions
+        // for DMAs (e.g., on tile 1).
+        const uint32_t dmaExecutorsOrTilesToProcess =
+                (taskType == VPURegMapped::TaskType::DMA) ? dmaExecutorCount : tilesCount;
 
-                auto hwQueue = VPUMI40XX::HwQueueType{taskType, tileIdx, listIdx};
-                std::optional<int64_t> firstTaskIdxWithEnqueueDma = std::nullopt;
-                if (_workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-                    auto firstTaskIdxWithEnqueueDmaIt = firstEnqueueDmaPerHwQueue.find(hwQueue);
-                    if (firstTaskIdxWithEnqueueDmaIt != firstEnqueueDmaPerHwQueue.end()) {
-                        firstTaskIdxWithEnqueueDma = firstTaskIdxWithEnqueueDmaIt->second;
-                    }
-                }
+        for (uint32_t listIdx = 0; listIdx < listCount; listIdx++) {
+            for (uint32_t dmaExecutorOrTileIdx = 0; dmaExecutorOrTileIdx < dmaExecutorsOrTilesToProcess;
+                 dmaExecutorOrTileIdx++) {
+                _log.trace("Check task type {0} on list {1}, tile {2} if bootstrap work items are needed", taskType,
+                           listIdx, dmaExecutorOrTileIdx);
+
+                auto curHead = mpi.getListHead(taskType, dmaExecutorOrTileIdx, listIdx);
+
+                std::optional<int64_t> firstTaskIdxWithEnqueueDma;
 
                 auto bootstrapWorkItems =
                         addEnqueueForOp(ctx, netFunc, curHead, taskType, firstEnqueue, firstTaskIdxWithEnqueueDma);

@@ -127,20 +127,18 @@ mlir::LogicalResult FuseScaleShifts::matchAndRewrite(IE::ScaleShiftOp scaleShift
         newBiasesVec[idx] = inBiasesVals[idx] * origWeightsVals[idx] + origBiasesVals[idx];
     }
 
-    auto getContentAttr = [&](ArrayRef<float> values, ArrayRef<Const::TransformAttrInterface> transformations,
-                              mlir::Type orgType) {
-        auto baseType = mlir::cast<NDTypeInterface>(orgType).changeElemType(mlir::Float32Type::get(getContext()));
-        auto newAttr = mlir::DenseElementsAttr::get(mlir::cast<mlir::ShapedType>(baseType), values);
-        auto newContentAttr = Const::ContentAttr::get(newAttr, transformations);
+    auto getContentAttr = [&](ArrayRef<float> values, mlir::Type orgType) {
+        auto baseType = mlir::cast<mlir::RankedTensorType>(orgType);
+        auto newAttr = vpux::Const::createConstContent(baseType, values);
+        auto newContentAttr = Const::ContentAttr::get(newAttr);
         return newContentAttr;
     };
 
-    auto newWeightsContentAttr = getContentAttr(newWeightsVec, origWeightsConst.getContentAttr().getTransformations(),
-                                                origWeightsConst.getType());
+    auto newWeightsContentAttr = getContentAttr(newWeightsVec, origWeightsConst.getType());
     auto newWeghtsOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origWeightsConst, origWeightsConst.getType(),
                                                                      std::move(newWeightsContentAttr));
-    auto newBiasesContentAttr = getContentAttr(newBiasesVec, origBiasesConst.getContentAttr().getTransformations(),
-                                               origBiasesConst.getType());
+    auto newBiasesContentAttr = getContentAttr(newBiasesVec, origBiasesConst.getType());
+
     auto newBiasesOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origBiasesConst, origBiasesConst.getType(),
                                                                      std::move(newBiasesContentAttr));
 

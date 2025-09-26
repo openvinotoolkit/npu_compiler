@@ -6,7 +6,6 @@
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/layout_utils.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
 

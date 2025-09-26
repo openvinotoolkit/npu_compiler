@@ -208,88 +208,88 @@ func.func @InPlaceEltwiseWithSiblingsOnBothInputs(
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-!qTypeCMX1 = memref<1x1x207360x1xf16, {order = #NHWC, strides = [409600, 1, 1, 1]}, @CMX_NN>
-!qTypeCMX2 = memref<1x1x202240x1xf16, {order = #NHWC, strides = [409600, 1, 1, 1]}, @CMX_NN>
-!qTypeCMX3 = memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+!qTypeCMX1 = memref<1x1x2048x1xf16, {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN>
+!qTypeCMX2 = memref<1x1x2048x1xf16, {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN>
+!qTypeCMX3 = memref<1x1x4096x1xf16, #NHWC, @CMX_NN>
 
 !DistributedType1 = !VPUIP.DistributedBuffer<
-    1x1x409600x1xf16,
+    1x1x4096x1xf16,
     #NHWC, @CMX_NN, {
         mode = "SEGMENTED",
         num_tiles = [1, 1, 3, 1],
         num_clusters = 3 : i64,
         uniform_distributed_segments,
-        compute_shapes = [[1, 1, 138240, 1], [1, 1, 135680, 1], [1, 1, 135680, 1]],
-        compute_offsets = [[0, 0, 0, 0], [0, 0, 138240, 0], [0, 0, 273920, 0]],
-        memory_shapes = [[1, 1, 138240, 1], [1, 1, 135680, 1], [1, 1, 135680, 1]],
-        memory_offsets = [[0, 0, 0, 0], [0, 0, 138240, 0], [0, 0, 273920, 0]]
+        compute_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        compute_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]],
+        memory_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        memory_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]]
 }>
 
 !DistributedType2 = !VPUIP.DistributedBuffer<
-    1x1x202240x1xf16,
-    {order = #NHWC, strides = [409600, 1, 1, 1]}, @CMX_NN, {
+    1x1x4096x1xf16,
+    {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN, {
         mode = "SEGMENTED",
         num_tiles = [1, 1, 3, 1],
         num_clusters = 3 : i64,
         uniform_distributed_segments,
-        compute_shapes = [[1, 1, 69120, 1], [1, 1, 66560, 1], [1, 1, 66560, 1]],
-        compute_offsets = [[0, 0, 0, 0], [0, 0, 69120, 0], [0, 0, 135680, 0]],
-        memory_shapes = [[1, 1, 69120, 1], [1, 1, 66560, 1], [1, 1, 66560, 1]],
-        memory_offsets = [[0, 0, 0, 0], [0, 0, 69120, 0], [0, 0, 135680, 0]]
+        compute_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        compute_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]],
+        memory_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        memory_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]]
 }>
 
 !DistributedType3 = !VPUIP.DistributedBuffer<
-    1x1x207360x1xf16,
-    {order = #NHWC, strides = [409600, 1, 1, 1]}, @CMX_NN, {
+    1x1x2048x1xf16,
+    {order = #NHWC, strides = [2048, 1, 1, 1]}, @CMX_NN, {
         mode = "SEGMENTED",
         num_tiles = [1, 1, 3, 1],
         num_clusters = 3 : i64,
         uniform_distributed_segments,
-        compute_shapes = [[1, 1, 69120, 1], [1, 1, 69120, 1], [1, 1, 69120, 1]],
-        compute_offsets = [[0, 0, 0, 0], [0, 0, 69120, 0], [0, 0, 138240, 0]],
-        memory_shapes = [[1, 1, 69120, 1], [1, 1, 69120, 1], [1, 1, 69120, 1]],
-        memory_offsets = [[0, 0, 0, 0], [0, 0, 69120, 0], [0, 0, 138240, 0]]
+        compute_shapes = [[1, 1, 682, 1], [1, 1, 682, 1], [1, 1, 684, 1]],
+        compute_offsets = [[0, 0, 0, 0], [0, 0, 682, 0], [0, 0, 1364, 0]],
+        memory_shapes = [[1, 1, 682, 1], [1, 1, 682, 1], [1, 1, 684, 1]],
+        memory_offsets = [[0, 0, 0, 0], [0, 0, 682, 0], [0, 0, 1364, 0]]
 }>
 
 !DistributedType4 = !VPUIP.DistributedBuffer<
-    1x16x160x160xf16,
+    1x1x4096x1xf16,
     #NHWC, @CMX_NN, {
         mode = "SEGMENTED",
         num_tiles = [1, 1, 3, 1],
         num_clusters = 3 : i64,
         uniform_distributed_segments,
-        compute_shapes = [[1, 16, 54, 160], [1, 16, 53, 160], [1, 16, 53, 160]],
-        compute_offsets = [[0, 0, 0, 0], [0, 0, 54, 0], [0, 0, 107, 0]],
-        memory_shapes = [[1, 16, 54, 160], [1, 16, 53, 160], [1, 16, 53, 160]],
-        memory_offsets = [[0, 0, 0, 0], [0, 0, 54, 0], [0, 0, 107, 0]]
+        compute_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        compute_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]],
+        memory_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        memory_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]]
 }>
 
 !DistributedType5 = !VPUIP.DistributedBuffer<
-    1x16x160x160xf16,
+    1x1x4096x1xf16,
     #NHWC, @CMX_NN, {
         mode = "OVERLAPPED",
         num_tiles = [1, 1, 3, 1],
         num_clusters = 3 : i64,
         uniform_distributed_segments,
-        compute_shapes = [[1, 16, 54, 160], [1, 16, 53, 160], [1, 16, 53, 160]],
-        compute_offsets = [[0, 0, 0, 0], [0, 0, 54, 0], [0, 0, 107, 0]],
-        memory_shapes = [[1, 16, 54, 160], [1, 16, 53, 160], [1, 16, 53, 160]],
-        memory_offsets = [[0, 0, 0, 0], [0, 0, 54, 0], [0, 0, 107, 0]]
+        compute_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        compute_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]],
+        memory_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+        memory_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]]
 }>
 
 // CHECK-LABEL: CreateShapeCastOpBeforeDistributedCastOp
-// CHECK-SAME:     [[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x1x207360x1xf16
-// CHECK-SAME:     [[ARG1:%.+]]: !VPUIP.DistributedBuffer<1x1x202240x1xf16
-// CHECK-SAME:     [[ARG2:%.+]]: memref<1x16x160x160xf16, #NHWC, @CMX_NN>)
+// CHECK-SAME: [[ARG0:%.+]]: !VPUIP.DistributedBuffer<1x1x2048x1xf16,
+// CHECK-SAME: [[ARG1:%.+]]: !VPUIP.DistributedBuffer<1x1x4096x1xf16,
+// CHECK-SAME: [[ARG2:%.+]]: memref<1x1x4096x1xf16, #NHWC, @CMX_NN>
 func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %in2 : !DistributedType2, %in3 : !qTypeCMX3) -> (!DistributedType5) {
     %eltwise_1_cmx_buf = VPURT.AllocDistributed -> !DistributedType1
     %eltwise_1_concat = VPUIP.ConcatView
         inputs(%in1, %in2 : !DistributedType3, !DistributedType2)
         outputs(%eltwise_1_cmx_buf : !DistributedType1) -> !DistributedType1
     %eltwise_1_shape_cast = VPUIP.ShapeCast {
-      explicit_output_offsets = [[0, 0, 0, 0], [0, 0, 54, 0], [0, 0, 107, 0]],
-      explicit_output_shapes = [[1, 16, 54, 160], [1, 16, 53, 160], [1, 16, 53, 160]],
-      shape = [1, 16, 160, 160]}
+      explicit_output_offsets = [[0, 0, 0, 0], [0, 0, 1365, 0], [0, 0, 2730, 0]],
+      explicit_output_shapes = [[1, 1, 1365, 1], [1, 1, 1365, 1], [1, 1, 1366, 1]],
+      shape = [1, 1, 4096, 1]}
       inputs(%eltwise_1_concat : !DistributedType1) -> !DistributedType4
     %eltwise_1_distributed_cast = VPUIP.DistributedCast inputs(%eltwise_1_shape_cast : !DistributedType4) -> !DistributedType5
     %eltwise_2_cmx_buf = VPURT.AllocDistributed -> !DistributedType5
@@ -300,9 +300,9 @@ func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %
         parent_output(%eltwise_2_cmx_buf : !DistributedType5)
         outputs(%eltwise_2_cmx_buf : !DistributedType5)
     ->  !DistributedType5 variants : {
-        DPUTask {cluster_id = 0 : i64, inEnd = [159, 53, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [159, 53, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-        DPUTask {cluster_id = 1 : i64, inEnd = [159, 52, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [159, 52, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-        DPUTask {cluster_id = 2 : i64, inEnd = [159, 52, 15], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [159, 52, 15], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+        DPUTask {cluster_id = 0 : i64, inEnd = [4096, 1, 1], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [4096, 1, 1], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+        DPUTask {cluster_id = 1 : i64, inEnd = [4096, 1, 1], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [4096, 1, 1], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+        DPUTask {cluster_id = 2 : i64, inEnd = [4096, 1, 1], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [4096, 1, 1], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
     }
@@ -310,15 +310,11 @@ func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %
     return %eltwise_2 : !DistributedType5
 
   // CHECK: [[ELTWISE_1_INPUT_BUF:%.+]] = VPURT.AllocDistributed
-  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x1x409600x1xf16
+  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x1x4096x1xf16
 
-  // CHECK-NEXT: [[CREATED_SHAPE_CAST:%.+]] = VPUIP.ShapeCast {shape = [1, 16, 160, 160]}
-  // CHECK-SAME: inputs([[ELTWISE_1_INPUT_BUF]] : !VPUIP.DistributedBuffer<1x1x409600x1xf16
-  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x16x160x160xf16
-
-  // CHECK-NEXT: [[CREATED_DISTRIBUTED_CAST:%.+]] = VPUIP.DistributedCast
-  // CHECK-SAME: inputs([[CREATED_SHAPE_CAST]] : !VPUIP.DistributedBuffer<1x16x160x160xf16
-  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x16x160x160xf16
+  // CHECK-NEXT: [[DISTRIBUTED_CAST:%.+]] = VPUIP.DistributedCast
+  // CHECK-SAME: inputs([[ELTWISE_1_INPUT_BUF]] : !VPUIP.DistributedBuffer<1x1x4096x1xf16
+  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x1x4096x1xf16
 
   // CHECK-NEXT: [[ELTWISE_1_CONCAT:%.+]] = VPUIP.ConcatView
   // CHECK-NEXT: [[ELTWISE_1_SHAPE_CAST:%.+]] = VPUIP.ShapeCast
@@ -327,10 +323,10 @@ func.func @CreateShapeCastOpBeforeDistributedCastOp (%in1 : !DistributedType3, %
   // CHECK-NEXT: [[ELTWISE:%.+]] = VPUIP.NCEClusterTask
   // CHECK-SAME: input([[ARG2]]
   // CHECK-SAME: weights([[ELTWISE_1_DISTRIBUTED_CAST]]
-  // CHECK-SAME: outputs([[CREATED_DISTRIBUTED_CAST]]
-  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x16x160x160xf16
+  // CHECK-SAME: outputs([[DISTRIBUTED_CAST]]
+  // CHECK-SAME: -> !VPUIP.DistributedBuffer<1x1x4096x1xf16
 
-  // CHECK: return [[ELTWISE]] : !VPUIP.DistributedBuffer<1x16x160x160xf16
+  // CHECK: return [[ELTWISE]] : !VPUIP.DistributedBuffer<1x1x4096x1xf16
 
 }
 
@@ -433,30 +429,30 @@ func.func @NotCreateShapeCastOpWithLayoutChange () -> (!DistributedType1) {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: CreateShapeCastOpSingleClusterCase
-// CHECK-SAME: ([[IN1:%.+]]: memref<1x1x207360x1xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[IN2:%.+]]: memref<1x1x202240x1xf16, #NHWC, @CMX_NN>,
-// CHECK-SAME:  [[IN3:%.+]]: memref<1x1x409600x1xf16, #NHWC, @CMX_NN>)
-// CHECK-SAME: -> memref<1x16x160x160xf16, #NHWC, @CMX_NN> {
-func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x207360x1xf16, #NHWC, @CMX_NN>, %in2 : memref<1x1x202240x1xf16, #NHWC, @CMX_NN>, %in3 : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>) -> (memref<1x16x160x160xf16, #NHWC, @CMX_NN>) {
-    %buf_0 = memref.alloc() : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>
-    %buf_1 = memref.alloc() : memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+// CHECK-SAME: ([[IN1:%.+]]: memref<1x1x1620x1xf16, #NHWC, @CMX_NN>,
+// CHECK-SAME:  [[IN2:%.+]]: memref<1x1x1580x1xf16, #NHWC, @CMX_NN>,
+// CHECK-SAME:  [[IN3:%.+]]: memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
+// CHECK-SAME: -> memref<1x16x20x10xf16, #NHWC, @CMX_NN> {
+func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x1620x1xf16, #NHWC, @CMX_NN>, %in2 : memref<1x1x1580x1xf16, #NHWC, @CMX_NN>, %in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> (memref<1x16x20x10xf16, #NHWC, @CMX_NN>) {
+    %buf_0 = memref.alloc() : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
+    %buf_1 = memref.alloc() : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
 
     %concat = VPUIP.ConcatView
-      inputs(%in1, %in2 : memref<1x1x207360x1xf16, #NHWC, @CMX_NN>, memref<1x1x202240x1xf16, #NHWC, @CMX_NN>)
-      outputs(%buf_0 : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x409600x1xf16, #NHWC, @CMX_NN>
+      inputs(%in1, %in2 : memref<1x1x1620x1xf16, #NHWC, @CMX_NN>, memref<1x1x1580x1xf16, #NHWC, @CMX_NN>)
+      outputs(%buf_0 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
     %shape_cast = VPUIP.ShapeCast {
-      shape = [1, 16, 160, 160]}
-      inputs(%concat : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+      shape = [1, 16, 20, 10]}
+      inputs(%concat : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
     %eltwise = VPUIP.NCEClusterTask {
           is_inplace = true, minimumHardwareExecutionCost = 10507 : i64, task_type = #VPUIP.nce_task_type<ELTWISE>}
-          input(%in3 : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>)
-          weights(%shape_cast : memref<1x16x160x160xf16, #NHWC, @CMX_NN>)
-          parent_input(%in3 : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>)
-          parent_output(%buf_1 : memref<1x16x160x160xf16, #NHWC, @CMX_NN>)
-          outputs(%buf_1 : memref<1x16x160x160xf16, #NHWC, @CMX_NN>) -> memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+          input(%in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
+          weights(%shape_cast : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
+          parent_input(%in3 : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
+          parent_output(%buf_1 : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
+          outputs(%buf_1 : memref<1x16x20x10xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
           variants : {
             DPUTask {
-              mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [160, 160, 16], outStart = [0, 0, 0],
+              mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [10, 20, 16], outStart = [0, 0, 0],
               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
           } PPE : {
             PPETask {
@@ -464,27 +460,27 @@ func.func @CreateShapeCastOpSingleClusterCase (%in1 : memref<1x1x207360x1xf16, #
               }
           }
 
-    return %eltwise : memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+    return %eltwise : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
 
-  // CHECK: [[BUF_0:%.+]] = memref.alloc() : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>
+  // CHECK: [[BUF_0:%.+]] = memref.alloc() : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
   // CHECK-NOT: [[BUF_1:%.+]] = memref.alloc()
 
   // CHECK-NEXT: [[CREATED_SHAPE_CAST:%.+]] = VPUIP.ShapeCast
-  // CHECK-SAME: {shape = [1, 16, 160, 160]}
-  // CHECK-SAME: inputs([[BUF_0]] : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+  // CHECK-SAME: {shape = [1, 16, 20, 10]}
+  // CHECK-SAME: inputs([[BUF_0]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN>
 
   // CHECK-NEXT: [[CONCAT:%.+]] = VPUIP.ConcatView
-  // CHECK-SAME: outputs([[BUF_0]] : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x409600x1xf16, #NHWC, @CMX_NN>
+  // CHECK-SAME: outputs([[BUF_0]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>) -> memref<1x1x3200x1xf16, #NHWC, @CMX_NN>
   // CHECK-NEXT: [[SHAPE_CAST:%.+]] = VPUIP.ShapeCast
 
   // CHECK-NEXT: [[ELTWISE:%.+]] =  VPUIP.NCEClusterTask
-  // CHECK-SAME: input([[IN3]] : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: weights([[SHAPE_CAST]] : memref<1x16x160x160xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_input([[IN3]] : memref<1x1x409600x1xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: parent_output([[CREATED_SHAPE_CAST]] : memref<1x16x160x160xf16, #NHWC, @CMX_NN>)
-  // CHECK-SAME: outputs([[CREATED_SHAPE_CAST]] : memref<1x16x160x160xf16, #NHWC, @CMX_NN>) -> memref<1x16x160x160xf16, #NHWC, @CMX_NN> variants :
+  // CHECK-SAME: input([[IN3]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
+  // CHECK-SAME: weights([[SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
+  // CHECK-SAME: parent_input([[IN3]] : memref<1x1x3200x1xf16, #NHWC, @CMX_NN>)
+  // CHECK-SAME: parent_output([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>)
+  // CHECK-SAME: outputs([[CREATED_SHAPE_CAST]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>) -> memref<1x16x20x10xf16, #NHWC, @CMX_NN> variants :
 
-  // CHECK: return [[ELTWISE]] : memref<1x16x160x160xf16, #NHWC, @CMX_NN>
+  // CHECK: return [[ELTWISE]] : memref<1x16x20x10xf16, #NHWC, @CMX_NN>
 
 }
 

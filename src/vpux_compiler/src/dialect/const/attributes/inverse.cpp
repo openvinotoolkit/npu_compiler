@@ -19,7 +19,7 @@ NDTypeInterface vpux::Const::ScalarMultInverseAttr::inferOutputType(NDTypeInterf
     return input;
 }
 
-bool vpux::Const::ScalarMultInverseAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::ScalarMultInverseAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

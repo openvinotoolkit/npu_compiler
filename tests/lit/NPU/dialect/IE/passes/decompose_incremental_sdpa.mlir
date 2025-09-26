@@ -12,12 +12,12 @@
 // CHECK-SAME: [[VALUE:%[^, ]+]]: tensor<8x512x64xf16>,
 // CHECK-SAME: [[ATTENTION_MASK:%[^, ]+]]: tensor<8x512x512xf16>
 func.func @DecomposeIncrementalSdpaWithAttentionMaskNoScale(%arg0: tensor<8x512x64xf16>, %arg1: tensor<8x512x64xf16>, %arg2: tensor<8x512x64xf16>, %arg3: tensor<8x512x512xf16>) -> tensor<8x512x64xf16> {
-    %cst = const.Declare tensor<8x512xf16> = dense<0xFC00> : tensor<8x512xf16>
-    %cst_0 = const.Declare tensor<8x512xf16> = dense<0.000000e+00> : tensor<8x512xf16>
-    %cst_1 = const.Declare tensor<8x512x64xf16> = dense<0.000000e+00> : tensor<8x512x64xf16>
-    %output_running_max, %output_running_sum, %output_partial_output = IE.IncrementalSDPA(%arg0, %arg1, %arg2, %cst, %cst_0, %cst_1, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 0>} : tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512xf16>, tensor<8x512xf16>, tensor<8x512x64xf16>, tensor<8x512x512xf16> -> tensor<8x512xf16>, tensor<8x512xf16>, tensor<8x512x64xf16>
-    %0 = IE.Unsqueeze(%output_running_sum) {axes_value = [2]} : tensor<8x512xf16> -> tensor<8x512x1xf16>
-    %1 = IE.Divide(%output_partial_output, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x512x64xf16>, tensor<8x512x1xf16> -> tensor<8x512x64xf16>
+    %cst = const.Declare tensor<8x512x64xf16> = dense<0.000000e+00> : tensor<8x512x64xf16>
+    %cst_0 = const.Declare tensor<8x512xf16> = dense<0xFC00> : tensor<8x512xf16>
+    %cst_1 = const.Declare tensor<8x512xf16> = dense<0.000000e+00> : tensor<8x512xf16>
+    %result_partial_output, %result_running_max, %result_running_sum = IE.IncrementalSDPA(%arg0, %arg1, %arg2, %cst, %cst_0, %cst_1, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 0>} : tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512xf16>, tensor<8x512xf16>, tensor<8x512x512xf16> -> tensor<8x512x64xf16>, tensor<8x512xf16>, tensor<8x512xf16>
+    %0 = IE.Unsqueeze(%result_running_sum) {axes_value = [2]} : tensor<8x512xf16> -> tensor<8x512x1xf16>
+    %1 = IE.Divide(%result_partial_output, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x512x64xf16>, tensor<8x512x1xf16> -> tensor<8x512x64xf16>
     return %1 : tensor<8x512x64xf16>
 
     // CHECK-DAG:   [[MAX_INITIAL:%.+]] = const.Declare tensor<8x512xf16> = dense<0xFC00> : tensor<8x512xf16>

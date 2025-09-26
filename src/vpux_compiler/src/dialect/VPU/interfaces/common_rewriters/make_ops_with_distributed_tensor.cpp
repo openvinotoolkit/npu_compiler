@@ -5,12 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/interfaces/common_rewriters/make_ops_with_distributed_tensor.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/overlap_distribution_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
-#include "vpux/compiler/utils/logging.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
-
-#include "vpux/utils/core/numeric.hpp"
 
 using namespace vpux;
 using namespace VPU;

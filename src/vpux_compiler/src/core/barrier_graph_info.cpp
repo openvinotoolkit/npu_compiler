@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/core/barrier_graph_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/utils/core/range.hpp"
@@ -265,9 +265,8 @@ BarrierInfo& BarrierGraphInfo::getBarrierInfo() {
 }
 
 void BarrierGraphInfo::clearAttributes() {
-    auto taskIndexAttr = mlir::StringAttr::get(_func.getContext(), "task-index");
     _func.walk([&](VPURT::TaskOp taskOp) {
-        taskOp->removeAttr(taskIndexAttr);
+        taskOp.getProperties().setTaskIndex(std::nullopt);
     });
 }
 

@@ -242,7 +242,8 @@ def VPUIP_GatherDMAOp :
         OptionalAttr<VPUIP_DMADescriptorAttr>:$DMADescriptor,
         OptionalAttr<IntAttr>:$dmaHwpId,
 
-        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata
+        OptionalAttr<VPUIP_DmaProfilingMetadataAttr>:$profilingMetadata,
+        OptionalAttr<VPUIP_GatherAddressingMode>:$addressingMode
     );
 
     let results = (outs
@@ -259,6 +260,11 @@ def VPUIP_GatherDMAOp :
             (ins "mlir::Value":$input, "mlir::Value":$indices, "mlir::Value":$outputBuff,
                  "int64_t":$elementSize, "int64_t":$padding,
                  "int64_t":$port)
+        >,
+        OpBuilder<
+            (ins "mlir::Value":$input, "mlir::Value":$indices, "mlir::Value":$outputBuff,
+                 "int64_t":$elementSize, "int64_t":$padding,
+                 "int64_t":$port, "VPUIP::GatherAddressingMode":$addressingMode)
         >
     ];
 
@@ -759,7 +765,7 @@ def VPUIP_NCEClusterTaskOp :
         Optional<AnyTypeOf<[MemRefOf<[UI16]>, VPUIP_DistributedBuffer]>>:$spr_lookup_table,
         Optional<AnyTypeOf<[MemRefOf<[UI16]>, VPUIP_DistributedBuffer]>>:$pallet_lookup_table,
 
-        AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_ITIBuffer]>:$parent_input,
+        Optional<AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_ITIBuffer]>>:$parent_input,
         Optional<AnyTypeOf<[MemRefOf<[I1]>, VPUIP_DistributedBuffer]>>:$parent_input_sparsity_map,
         Optional<AnyTypeOf<[MemRefOf<[I32]>, VPUIP_DistributedBuffer]>>:$parent_input_storage_element_table,
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer, VPUIP_ITIBuffer]>:$parent_output,
@@ -794,7 +800,8 @@ def VPUIP_NCEClusterTaskOp :
         UnitAttr:$is_small_kernel_optimized,
         OptionalAttr<VPUIP_DpuProfilingMetadataAttr>:$profilingMetadata,
         OptionalAttr<VPU_MPEEngineAttr>:$mpe_engine,
-        OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config
+        OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
+        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region
     );
 
     let results = (outs
@@ -952,7 +959,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"mlir::UnitAttr", "nullptr">:$is_small_kernel_optimized,
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
-            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config
+            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
         )>,
 
         OpBuilder<(ins
@@ -985,7 +993,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"mlir::UnitAttr", "nullptr">:$is_small_kernel_optimized,
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
-            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config
+            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
         )>,
 
         OpBuilder<(ins
@@ -1017,7 +1026,8 @@ def VPUIP_NCEClusterTaskOp :
             CArg<"mlir::UnitAttr", "nullptr">:$is_small_kernel_optimized,
             CArg<"VPU::MPEEngineAttr", "nullptr">:$mpe_engine,
             CArg<"VPU::EltwiseTypeAttr", "nullptr">:$eltwise_type,
-            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config
+            CArg<"VPUIP::DynamicScaleConfigAttr", "nullptr">:$dynamic_scale_config,
+            CArg<"VPUIP::LocalRegionAttr", "nullptr">:$local_region
         )>
     ];
 
@@ -2470,7 +2480,8 @@ def VPUIP_ExtractFlatSliceOp :
 
     let arguments = (ins
         AnyTypeOf<[AnyMemRef, VPUIP_DistributedBuffer]>:$source,
-        IntAttr:$offset
+        IntAttr:$offset,
+        DefaultValuedAttr<IntAttr, "1">:$length
     );
 
     let results = (outs

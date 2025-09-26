@@ -27,9 +27,11 @@ class SatisfyOneWaitBarrierPerTaskPass final :
         public VPURT::impl::SatisfyOneWaitBarrierPerTaskBase<SatisfyOneWaitBarrierPerTaskPass> {
 public:
     explicit SatisfyOneWaitBarrierPerTaskPass(std::optional<int> virtualBarrierThresholdForWlm,
-                                              const bool unevenVariantSplitFlag, Logger log)
+                                              const bool unevenVariantSplitFlag,
+                                              std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
             : _virtualBarrierThresholdForWlm(virtualBarrierThresholdForWlm),
-              _unevenVariantSplitFlag(unevenVariantSplitFlag) {
+              _unevenVariantSplitFlag(unevenVariantSplitFlag),
+              _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -39,6 +41,7 @@ private:
     bool _considerTaskExecutorType = false;
     std::optional<int> _virtualBarrierThresholdForWlm;
     bool _unevenVariantSplitFlag;
+    std::optional<WorkloadManagementMode> _workloadManagementMode;
 };
 
 void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
@@ -97,7 +100,10 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(func);
-    VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
+    if (!_workloadManagementMode.has_value() ||
+        _workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        VPUX_THROW_UNLESS(VPURT::verifyBarrierSlots(func, _log), "Barrier slot count check failed");
+    }
     auto hasOneWaitBarrierPerTask = VPURT::verifyOneWaitBarrierPerTask(func, _log);
     if (mergeBarriersIteratively) {
         VPUX_THROW_UNLESS(hasOneWaitBarrierPerTask, "Encountered task with more than one wait barrier");
@@ -111,7 +117,8 @@ void SatisfyOneWaitBarrierPerTaskPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::VPURT::createSatisfyOneWaitBarrierPerTaskPass(
-        std::optional<int> virtualBarrierThresholdForWlm, const bool unevenVariantSplitFlag, Logger log) {
+        std::optional<int> virtualBarrierThresholdForWlm, const bool unevenVariantSplitFlag,
+        std::optional<WorkloadManagementMode> workloadManagementMode, Logger log) {
     return std::make_unique<SatisfyOneWaitBarrierPerTaskPass>(virtualBarrierThresholdForWlm, unevenVariantSplitFlag,
-                                                              log);
+                                                              workloadManagementMode, log);
 }

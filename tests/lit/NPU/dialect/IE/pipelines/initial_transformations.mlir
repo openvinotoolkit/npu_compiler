@@ -65,12 +65,11 @@ func.func @UnrollMatMulAndPropagate(%arg0: tensor<1x8x4096x40xf32>, %arg1: tenso
     %2 = IE.SoftMax(%1) {axisInd = 2 : i64} : tensor<8x4096x4096xf32> -> tensor<8x4096x4096xf32>
     return %2 : tensor<8x4096x4096xf32>
 
-    // CHECK:       %[[FC:.+]] = IE.FullyConnected
-    // CHECK:       %[[AFFINE:.+]] = IE.AffineReshape(%[[FC]])
-    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1], [2]], shape_value = [1, 4096, 4096]} : tensor<4096x4096xf32> -> tensor<1x4096x4096xf32>
-    // CHECK:       %[[SOFTMAX:.+]] = IE.SoftMax(%[[AFFINE]])
-    // CHECK:       %[[CONCAT:.+]] = IE.Concat(%[[SOFTMAX]],
-    // CHECK:       return %[[CONCAT]] : tensor<8x4096x4096xf32>
+    // CHECK:       [[FC:%.+]] = IE.FullyConnected
+    // CHECK:       [[AFFINE:%.+]] = IE.AffineReshape([[FC]])
+    // CHECK-SAME{LITERAL}: {dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 4096, 4096]} : tensor<4096x4096xf32> -> tensor<1x1x4096x4096xf32>
+    // CHECK:       [[SOFTMAX:%.+]] = IE.SoftMax([[AFFINE]])
+    // CHECK:       [[CONCAT:%.+]] = IE.Concat([[SOFTMAX]],
 }
 
 // -----

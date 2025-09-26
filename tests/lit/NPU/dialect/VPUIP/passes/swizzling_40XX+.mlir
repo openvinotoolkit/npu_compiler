@@ -8,9 +8,9 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 1 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x149x150xf16, #NHWC, @DDR>,
@@ -171,9 +171,9 @@ func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x149x150xf16, 
 !WeightsStub_CMX = memref<16x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
 !OutputStub_CMX = memref<1x16x148x148xf16, #NHWC, [@CMX_NN, 0]>
 
-IE.TileResource 1 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !Input_DDR)
@@ -288,9 +288,9 @@ func.func @SetSwizzlingForConstantButNotActivationDueToCmxSizeLimit(%input : !In
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 1 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x5x80xf16, #NHWC, @DDR>,
@@ -485,9 +485,9 @@ func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x
     memory_offsets = [[0, 0, 0, 0, 0], [7, 0, 0, 0, 0], [13, 0, 0, 0, 0], [19, 0, 0, 0, 0]]
 }>
 
-IE.TileResource 1 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @DoNotSwizzle5dTensors(

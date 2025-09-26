@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache 2.0
 
 # Creates C resources file from files in given directory
-function(create_resources dir output)
+function(create_resources dir output mapname extension)
     # Create empty output file
     file(WRITE ${output} "")
 
@@ -16,11 +16,11 @@ function(create_resources dir output)
     )
 
     set(map_sym
-        "std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBinaryResourcesMap {\n"
+        "std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> ${mapname} {\n"
     )
 
     # Iterate through input files
-    file(GLOB bins ${dir}/*)
+    file(GLOB bins ${dir}/*${extension})
     foreach(bin ${bins})
         # Get short filename, replace spaces and extension separator
         string(REGEX MATCH "([^/]+)$" filename ${bin})
@@ -42,4 +42,5 @@ function(create_resources dir output)
 endfunction()
 
 # Embed all the binaries from act_shave_bin folder into generated_shave_binary_resources.cpp
-create_resources("${KERNELS_BIN_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/generated_shave_binary_resources.cpp")
+create_resources("${KERNELS_BIN_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/${GENERATED_FILE}"
+                                      "${MAP_NAME}" ${EXTENSION})

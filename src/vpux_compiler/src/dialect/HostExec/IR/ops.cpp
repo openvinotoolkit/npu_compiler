@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/HostExec/IR/ops.hpp"
-#include <vpux/compiler/dialect/IE/utils/resources.hpp>
+#include <vpux/compiler/dialect/config/IR/resources.hpp>
 #include "vpux/compiler/dialect/HostExec/IR/dialect.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"

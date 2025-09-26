@@ -62,14 +62,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_GroupConvBackpropData2D_ExplicitPadding, GroupCon
                          ::testing::Combine(groupConvBackpropData2DParams_ExplicitPadding,
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes2D)),
-                                            ::testing::ValuesIn(emptyOutputShape), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(emptyOutputShape),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvBackpropLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvBackpropData2D_OutputPadding, GroupConvBackpropLayerTestCommon,
                          ::testing::Combine(groupConvBackpropData2DParams_OutputPadding,
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes2D)),
-                                            ::testing::ValuesIn(emptyOutputShape), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(emptyOutputShape),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvBackpropLayerTestCommon::getTestCaseName);
 
 /* ============= 1D GroupConvBackpropDataOp ============= */
@@ -99,14 +101,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_GroupConvBackpropData1D_ExplicitPadding, GroupCon
                          ::testing::Combine(groupConvBackpropData1DParams_ExplicitPadding,
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1D)),
-                                            ::testing::ValuesIn(emptyOutputShape), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(emptyOutputShape),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvBackpropLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvBackpropData1D_OutputPadding, GroupConvBackpropLayerTestCommon,
                          ::testing::Combine(groupConvBackpropData1DParams_OutputPadding,
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1D)),
-                                            ::testing::ValuesIn(emptyOutputShape), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(emptyOutputShape),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvBackpropLayerTestCommon::getTestCaseName);
 
 }  // namespace

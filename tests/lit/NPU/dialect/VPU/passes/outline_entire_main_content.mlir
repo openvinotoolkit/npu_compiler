@@ -555,10 +555,9 @@ module @OutlineSparseWeights {
         %call = call @fn(%input) : (!TensorType) -> !TensorType
 
         %sparse_weights_cmx = VPU.Copy(%sparse_weights) {out_mem_space = @CMX_NN} : !SparseTypeDDR -> !SparseDistributedType
-        %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
-        %conv = VPU.NCE.Convolution(%call, %sparse_weights_cmx, %weights_table) {
+        %conv = VPU.NCE.Convolution(%call, %sparse_weights_cmx) {
                     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 1, 1], strides = [1, 1]
-                } : !TensorType, !SparseDistributedType, tensor<16x1x1x4xsi32> -> !TensorType {
+                } : !TensorType, !SparseDistributedType -> !TensorType {
                     VPU.DPU.Workload inOffsets [0, 0, 0, 0] inSizes [1, 16, 1, 480] outOffsets [0, 0, 0, 0] outSizes [1, 16, 1, 480] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16> attributes {cluster_id = 0 : i64}
             }
 
@@ -581,8 +580,7 @@ module @OutlineSparseWeights {
     // CHECK-SAME:                               sparsity_map=!VPU.DistributedTensor<16x1x1x128xi1, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64, alignment = [16, 1, 1, 1]}>,
     // CHECK-SAME:                               is_weights,
     // CHECK-SAME:                               #VPU.SparsityCompression<axis = 0 : i64, numElems = dense<[48, 48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : tensor<16xi64>, alignment = 16 : i64>>
-    // CHECK:           [[OUTLINE1_WEIGHTS_TABLE:%.+]] = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
-    // CHECK:           [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[OUTLINE1_SPARSE_WEIGHTS_CMX]], [[OUTLINE1_WEIGHTS_TABLE]])
+    // CHECK:           [[CONV:%.+]] = VPU.NCE.Convolution([[ARG0]], [[OUTLINE1_SPARSE_WEIGHTS_CMX]])
     // CHECK:                -> tensor<1x16x1x480xf16, {order = #NHWC}>
     // CHECK:           return [[CONV]]
     // CHECK:       func.func @main([[INPUT:%.+]]: tensor<1x16x1x480xf16, {order = #NHWC}>) -> (tensor<1x16x1x480xf16, {order = #NHWC}>, tensor<1x16x1x480xf16, {order = #NHWC}>) {

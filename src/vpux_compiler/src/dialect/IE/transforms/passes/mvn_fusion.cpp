@@ -29,26 +29,10 @@ namespace {
 constexpr double EPS_THRESHOLD = 1e-4;
 
 //
-// MVNFusion
+// Helpers
 //
 
-class MVNFusion final : public mlir::OpRewritePattern<IE::DivideOp> {
-public:
-    MVNFusion(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::DivideOp>(ctx), _log(log) {
-        setDebugName("MVNFusion");
-    }
-
-public:
-    std::optional<Shape> canConvertToMVN1(ShapeRef inputShapeRef, ArrayRef<int64_t> axes, bool& isAcrossChannel) const;
-    std::optional<double> getEpsValue(mlir::Value epsInput, bool isOutsideEps) const;
-    mlir::LogicalResult matchAndRewrite(IE::DivideOp origOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    Logger _log;
-};
-
-std::optional<Shape> MVNFusion::canConvertToMVN1(ShapeRef inputShapeRef, ArrayRef<int64_t> axes,
-                                                 bool& isAcrossChannel) const {
+std::optional<Shape> canConvertToMVN1(ShapeRef inputShapeRef, ArrayRef<int64_t> axes, bool& isAcrossChannel) {
     const auto inputRank = inputShapeRef.size();
     const auto inputShape = inputShapeRef.raw();
 
@@ -75,7 +59,7 @@ std::optional<Shape> MVNFusion::canConvertToMVN1(ShapeRef inputShapeRef, ArrayRe
     return std::nullopt;
 }
 
-std::optional<double> MVNFusion::getEpsValue(mlir::Value epsInput, bool isOutsideEps) const {
+std::optional<double> getEpsValue(mlir::Value epsInput, bool isOutsideEps) {
     auto convertOp = epsInput.getDefiningOp<IE::ConvertOp>();
     auto constOp = epsInput.getDefiningOp<Const::DeclareOp>();
     if (convertOp) {
@@ -91,6 +75,32 @@ std::optional<double> MVNFusion::getEpsValue(mlir::Value epsInput, bool isOutsid
     }
     return epsValue;
 }
+
+void normalizeAndSortAxes(SmallVector<int64_t>& axes, int64_t rank) {
+    for (size_t i = 0; i < axes.size(); i++) {
+        if (axes[i] < 0) {
+            axes[i] += rank;
+        }
+    }
+    std::sort(axes.begin(), axes.end());
+}
+
+//
+// MVNFusion
+//
+
+class MVNFusion final : public mlir::OpRewritePattern<IE::DivideOp> {
+public:
+    MVNFusion(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::DivideOp>(ctx), _log(log) {
+        setDebugName("MVNFusion");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::DivideOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
 
 //
 // This pass convert this subgraph
@@ -126,7 +136,7 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
 
     // inside-sqrt or outside-sqrt
     auto insideEpsSqrtOp = origOp.getInput2().getDefiningOp<IE::SqrtOp>();
-    auto outsdieEpsAddOp = origOp.getInput2().getDefiningOp<IE::AddOp>();
+    auto outsideEpsAddOp = origOp.getInput2().getDefiningOp<IE::AddOp>();
 
     IE::SubtractOp squareSubOp = nullptr;
     mlir::Value epsInput;
@@ -143,8 +153,8 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
 
         epsInput = insideEpsAddOp.getInput2();
         isOutsideEps = false;
-    } else if (outsdieEpsAddOp) {
-        auto outsideEpsSqrtOp = outsdieEpsAddOp.getInput1().getDefiningOp<IE::SqrtOp>();
+    } else if (outsideEpsAddOp) {
+        auto outsideEpsSqrtOp = outsideEpsAddOp.getInput1().getDefiningOp<IE::SqrtOp>();
         if (outsideEpsSqrtOp == nullptr) {
             return matchFailed(rewriter, origOp, "No outside-eps SqrtOp found");
         }
@@ -153,7 +163,7 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
             return matchFailed(rewriter, origOp, "No outside-eps SubtractOp found");
         }
 
-        epsInput = outsdieEpsAddOp.getInput2();
+        epsInput = outsideEpsAddOp.getInput2();
         isOutsideEps = true;
     } else {
         return matchFailed(rewriter, origOp, "No inside-eps or outside-eps mode found");
@@ -209,12 +219,150 @@ mlir::LogicalResult MVNFusion::matchAndRewrite(IE::DivideOp origOp, mlir::Patter
         return matchFailed(rewriter, origOp, "Not the same ReduceMean input");
     }
 
-    for (size_t i = 0; i < inputMeanAxesValue.size(); i++) {
-        if (inputMeanAxesValue[i] < 0) {
-            inputMeanAxesValue[i] += inputRank;
-        }
+    normalizeAndSortAxes(inputMeanAxesValue, inputRank);
+
+    bool isAcrossChannel;
+    const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
+    if (!newShapeOpt.has_value()) {
+        return matchFailed(rewriter, origOp, "Cannot convert to mvn");
     }
-    std::sort(inputMeanAxesValue.begin(), inputMeanAxesValue.end());
+
+    const auto ctx = origOp.getContext();
+    auto preReshapeOp = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "in_reshape"), inputMeanOp.getInput(), nullptr,
+                                                       false, getIntArrayAttr(ctx, newShapeOpt.value()));
+
+    const auto normVarianceAttr = mlir::BoolAttr::get(ctx, true);
+    const auto acrossChannelsAttr = mlir::BoolAttr::get(ctx, isAcrossChannel);
+    const auto epsAttr = getFPAttr(ctx, epsValue);
+
+    auto mvnOp = rewriter.create<IE::MVNOp>(origOp.getLoc(), preReshapeOp.getOutput(), acrossChannelsAttr,
+                                            normVarianceAttr, epsAttr);
+
+    _log.trace("Replace '{0}' with new op '{1}'", origOp.getLoc(), mvnOp);
+    auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, mvnOp.getOutput(), nullptr, false,
+                                                                 getIntArrayAttr(ctx, getShape(origOp.getOutput())));
+    extendOpLoc(outReshape, "out_reshape");
+    return mlir::success();
+}
+
+//
+// MVNFusionOvRef
+//
+
+class MVNFusionOvRef final : public mlir::OpRewritePattern<IE::DivideOp> {
+public:
+    MVNFusionOvRef(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::DivideOp>(ctx), _log(log) {
+        setDebugName("MVNFusionOvRef");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::DivideOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// Converts the typical OV MVN decomposed-subgraph back to MVN1
+//   D = x - ReduceMean(x, axes)
+// out = D /  Sqrt(ReduceMean(D ^ 2) + eps), or
+//     = D / (Sqrt(ReduceMean(D ^ 2)      ) + eps)
+//
+
+mlir::LogicalResult MVNFusionOvRef::matchAndRewrite(IE::DivideOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got Divide '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    auto meanSubOp = origOp.getInput1().getDefiningOp<IE::SubtractOp>();
+    if (meanSubOp == nullptr) {
+        return matchFailed(rewriter, origOp, "No SubtractOp found");
+    }
+
+    auto inputMeanOp = meanSubOp.getInput2().getDefiningOp<IE::ReduceMeanOp>();
+    if (inputMeanOp == nullptr) {
+        return matchFailed(rewriter, origOp, "No ReduceMeanOp(x) found");
+    }
+    auto inputMeanAxesValue = IE::extractAxes(origOp.getLoc(), inputMeanOp);
+
+    if (inputMeanOp.getInput() != meanSubOp.getInput1()) {
+        return matchFailed(rewriter, origOp, "No (x - ReduceMeanOp(x)) found");
+    }
+    const auto mvnInput = inputMeanOp.getInput();
+    const auto inputShape = getShape(mvnInput);
+    const auto inputRank = inputShape.size();
+    if (inputRank < 2 || inputRank > 4) {
+        return matchFailed(rewriter, origOp, "Invalid input shape rank");
+    }
+
+    // inside-sqrt or outside-sqrt
+    auto insideEpsSqrtOp = origOp.getInput2().getDefiningOp<IE::SqrtOp>();
+    auto outsideEpsAddOp = origOp.getInput2().getDefiningOp<IE::AddOp>();
+
+    mlir::Value epsInput;
+    mlir::Operation* reduceMean2 = nullptr;
+    bool isOutsideEps;
+    if (insideEpsSqrtOp) {
+        auto insideEpsAddOp = insideEpsSqrtOp.getInput().getDefiningOp<IE::AddOp>();
+        if (insideEpsAddOp == nullptr) {
+            return matchFailed(rewriter, origOp, "No inside-eps AddOp found");
+        }
+        epsInput = insideEpsAddOp.getInput2();
+        reduceMean2 = insideEpsAddOp.getInput1().getDefiningOp();
+        isOutsideEps = false;
+    } else if (outsideEpsAddOp) {
+        auto outsideEpsSqrtOp = outsideEpsAddOp.getInput1().getDefiningOp<IE::SqrtOp>();
+        if (outsideEpsSqrtOp == nullptr) {
+            return matchFailed(rewriter, origOp, "No outside-eps SqrtOp found");
+        }
+        epsInput = outsideEpsAddOp.getInput2();
+        reduceMean2 = outsideEpsSqrtOp.getInput().getDefiningOp();
+        isOutsideEps = true;
+    } else {
+        return matchFailed(rewriter, origOp, "No inside-eps or outside-eps mode found");
+    }
+
+    auto epsValueOpt = getEpsValue(epsInput, isOutsideEps);
+    if (!epsValueOpt.has_value()) {
+        return matchFailed(rewriter, origOp, "No valid eps found");
+    }
+    const auto epsValue = epsValueOpt.value();
+
+    VPUX_THROW_UNLESS(reduceMean2, "Checked Add/Sqrt op (mandatory inputs) has nullptr input");
+
+    auto squareMeanOp = mlir::dyn_cast<IE::ReduceMeanOp>(*reduceMean2);
+    if (squareMeanOp == nullptr) {
+        return matchFailed(rewriter, origOp, "No square ReduceMeanOp found");
+    }
+    auto squareMeanAxesValue = IE::extractAxes(origOp.getLoc(), squareMeanOp);
+
+    if (inputMeanAxesValue != squareMeanAxesValue) {
+        return matchFailed(rewriter, origOp, "ReduceMean ops have different axes");
+    }
+
+    // detect Pow(x,2) or Multiply(x,x)
+    auto getSquareOp = [](mlir::Operation* op) -> mlir::Operation* {
+        if (auto power = mlir::dyn_cast<IE::PowerOp>(*op)) {
+            auto constOp = power.getInput2().getDefiningOp<Const::DeclareOp>();
+            if (constOp == nullptr || !constOp.getContentAttr().isSplat()) {
+                return nullptr;
+            }
+            const auto coefContent = constOp.getContent();
+            const auto coefValue = coefContent.getSplatValue<double>();
+            return (coefValue == 2.0) ? op : nullptr;
+        } else if (auto mul = mlir::dyn_cast<IE::MultiplyOp>(op)) {
+            return mul.getInput1() == mul.getInput2() ? op : nullptr;
+        }
+        return nullptr;
+    };
+
+    mlir::Operation* squareOp = getSquareOp(squareMeanOp.getInput().getDefiningOp());
+    if (squareOp == nullptr) {
+        return matchFailed(rewriter, origOp, "No Squaring op found");
+    }
+    if (squareOp->getOperand(0).getDefiningOp() != meanSubOp) {
+        return matchFailed(rewriter, origOp, "Subtract->SquareOp link not found");
+    }
+
+    normalizeAndSortAxes(inputMeanAxesValue, inputRank);
 
     bool isAcrossChannel;
     const auto newShapeOpt = canConvertToMVN1(inputShape, inputMeanAxesValue, isAcrossChannel);
@@ -263,6 +411,7 @@ void MVNFusionPass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<MVNFusion>(&ctx, _log);
+    patterns.add<MVNFusionOvRef>(&ctx, _log);
 
     auto func = getOperation();
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {

@@ -4,6 +4,7 @@
 //
 
 #include "vpu_ov2_layer_test.hpp"
+#include "common/npu_test_env_cfg.hpp"
 #include "vpu_test_report.hpp"
 
 #include <gtest/internal/gtest-internal.h>
@@ -32,7 +33,6 @@ VpuOv2LayerTest::VpuOv2LayerTest(): testTool(envConfig) {
 
     _log.setName("VPUTest");
     _log.setLevel(vpux::LogLevel::Info);
-    this->targetDevice = DEVICE_NPU;
 
     if (!envConfig.IE_NPU_TESTS_LOG_LEVEL.empty()) {
         const auto logLevel = ::intel_npu::OptionParser<ov::log::Level>::parse(envConfig.IE_NPU_TESTS_LOG_LEVEL);
@@ -132,6 +132,7 @@ void VpuOv2LayerTest::run(const std::string_view platform) {
 }
 
 void VpuOv2LayerTest::run() {
+    targetDevice = test_utils::TARGET_DEVICE;
     summary.setDeviceName(targetDevice);
 
     if (ov::test::utils::current_test_is_disabled()) {
@@ -246,7 +247,6 @@ void VpuOv2LayerTest::validate() {
     std::vector<ov::Tensor> expectedOutputs, actualOutputs;
 
     if (envConfig.IE_NPU_TESTS_RUN_INFER) {
-        _log.info("Infer using '{0}' backend", getBackendName(*core));
         actualOutputs = get_plugin_outputs();
     }
     expectedOutputs = calculate_refs();
@@ -379,10 +379,6 @@ void VpuOv2LayerTest::setSingleClusterMode() {
 
 void VpuOv2LayerTest::setPerformanceHintLatency() {
     configuration[ov::hint::performance_mode.name()] = "LATENCY";
-}
-
-void VpuOv2LayerTest::setShaveCodeGenMode() {
-    configuration[ov::intel_npu::compilation_mode.name()] = "ShaveCodeGen";
 }
 
 void VpuOv2LayerTest::enableProfiling() {

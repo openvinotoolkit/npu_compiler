@@ -8,7 +8,6 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/attributes/attributes.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -83,7 +82,8 @@ Const::DeclareOp ReshapeGroupConvInput::broadcastConst(mlir::Value activation, i
         const auto& contentAttr = cst.getContentAttr();
         const auto& baseContent = contentAttr.getBaseContent();
         Const::ContentSetup setup(baseContent.getType());  // content-only copy
-        setup = setup.reshape(Shape(origInShape.size(), int64_t(1)));
+        Shape shape(origInShape.size(), int64_t(1));
+        setup = setup.reshape(shape);
 
         for (auto attr : contentAttr.getTransformations()) {
             if (Const::canChangeShape(attr)) {

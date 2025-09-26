@@ -119,6 +119,7 @@ def VPU_MVNOp :
         BoolAttr:$normalize_variance,
         F64Attr:$eps,
         OptionalAttr<I64ArrayAttr>:$internal_reshape,
+        DefaultValuedOptionalAttr<BoolAttr, "false">:$high_precision_normalize,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -128,7 +129,6 @@ def VPU_MVNOp :
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
 
         DimArr getNonNormDims();
@@ -148,6 +148,14 @@ def VPU_MVNOp :
             "::mlir::BoolAttr":$normalize_variance,
             "::mlir::FloatAttr":$eps,
             "::mlir::ArrayAttr":$internal_reshape
+        )>,
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::BoolAttr":$across_channels,
+            "::mlir::BoolAttr":$normalize_variance,
+            "::mlir::FloatAttr":$eps,
+            "::mlir::ArrayAttr":$internal_reshape,
+            "::mlir::BoolAttr":$high_precision_normalize
         )>
     ];
 
@@ -311,6 +319,7 @@ def VPU_MVN1NormalizeOp :
 
         BoolAttr:$across_channels,
         BoolAttr:$normalize_variance,
+        DefaultValuedOptionalAttr<BoolAttr, "false">:$high_precision_normalize,
         OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
@@ -320,7 +329,6 @@ def VPU_MVN1NormalizeOp :
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
     }] # baseExtraClassDeclaration;
 
@@ -330,6 +338,13 @@ def VPU_MVN1NormalizeOp :
             "::mlir::Value":$meanVar,
             "::mlir::BoolAttr":$across_channels,
             "::mlir::BoolAttr":$normalize_variance
+        )>,
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::Value":$meanVar,
+            "::mlir::BoolAttr":$across_channels,
+            "::mlir::BoolAttr":$normalize_variance,
+            "::mlir::BoolAttr":$high_precision_normalize
         )>
     ];
 
@@ -400,7 +415,8 @@ def VPU_NormalizeL2Op :
             [
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
             ]
         > {
     let summary = "NormalizeL2 VPU layer";

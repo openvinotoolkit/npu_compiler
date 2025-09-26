@@ -7,15 +7,15 @@
 // REQUIRES: arch-NPU40XX
 
 module @OneDMAWithoutAttributes attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 2 of @SHAVE_ACT
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-  IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-  IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 2 of @SHAVE_ACT
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+  config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<1x2x3x4xf16>
   } outputsInfo : {

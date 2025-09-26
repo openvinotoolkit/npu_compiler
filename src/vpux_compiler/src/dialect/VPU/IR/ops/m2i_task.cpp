@@ -94,7 +94,7 @@ mlir::LogicalResult vpux::VPU::M2ITaskOp::inferReturnTypes(mlir::MLIRContext* ct
         outElemType = mlir::Float16Type::get(ctx);
     }
 
-    const auto outType = inType.changeElemType(outElemType).changeShape(Shape(outShape));
+    const auto outType = inType.changeElemType(outElemType).changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

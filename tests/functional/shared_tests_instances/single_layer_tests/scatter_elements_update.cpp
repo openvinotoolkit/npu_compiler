@@ -63,7 +63,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate, ScatterElementsUpdateLayer
                          testing::Combine(testing::ValuesIn(combineShapes(axesShapeInShape)),
                                           testing::ValuesIn(indicesValue), testing::Values(ov::element::f16),
                                           testing::Values(ov::element::i32),
-                                          testing::Values(ov::test::utils::DEVICE_NPU)),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          ScatterElementsUpdateLayerTestCommon::getTestCaseName);
 
 }  // namespace
@@ -89,7 +89,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_ScatterElementsUpdate12, ScatterElementsUpdate12L
                                             ::testing::ValuesIn(idxWithNegativeValues),
                                             ::testing::ValuesIn(reductionModes), ::testing::ValuesIn({true, false}),
                                             ::testing::Values(ov::element::f16), ::testing::Values(ov::element::i32),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ScatterElementsUpdate12LayerTestCommon::getTestCaseName);
 
 }  // namespace

@@ -7,8 +7,6 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
-#include "vpux/utils/core/error.hpp"
-
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 

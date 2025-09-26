@@ -9,7 +9,9 @@
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/relocation_functions.hpp"
+#include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops_interfaces.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
 using namespace vpux;
@@ -105,8 +107,24 @@ void ELF::RelocManager::createRelocations(mlir::Operation* op, ELF::SymbolOp sou
         VPUX_THROW_UNLESS(offset < descriptor.size(), "Offset is outside of descriptor!");
 
         relocFunc->second(reinterpret_cast<void*>(descriptor.begin() + offset), sourceSym.getValue().value(), addend);
+        return;
+    }
 
-    } else {
+    // Kernel params op is a special op that does not get lowered to NPUReg.
+    // It can however have CMX relocations that can be resolved at this point.
+    auto kernelParamsOp = mlir::dyn_cast<VPUASM::KernelParamsOp>(op);
+    if (sourceSym.getValue().has_value() && kernelParamsOp) {
+        auto kernelParams = kernelParamsOp.getProperties().kernel_params.getStorage();
+        auto relocFunc = relocationMap.find(relocType);
+        VPUX_THROW_UNLESS(relocFunc != relocationMap.end(), "Relocation type {0} not known!",
+                          stringifyRelocationType(relocType));
+        VPUX_THROW_UNLESS(offset < kernelParams.size(), "Offset is outside of params!");
+        relocFunc->second(reinterpret_cast<void*>(kernelParams.begin() + offset), sourceSym.getValue().value(), addend);
+        return;
+    }
+
+    // default for any other relocation
+    {
         ELF::CreateSymbolTableSectionOp symTab =
                 mlir::dyn_cast<ELF::CreateSymbolTableSectionOp>(sourceSym->getParentOp());
         auto symForReloc = ELF::composeSectionObjectSymRef(symTab, sourceSym.getOperation());

@@ -399,6 +399,66 @@ private:
 };
 
 template <typename ConcreteOp>
+ConcreteOp buildCustomOp(ConcreteOp op, mlir::PatternRewriter& rewriter, mlir::Value input,
+                         vpux::NDTypeInterface /*outType*/) {
+    mlir::IRMapping mapper;
+    mapper.map(op.getInput(), input);
+    return mlir::dyn_cast<ConcreteOp>(rewriter.clone(*op, mapper));
+}
+
+template <>
+IE::ConvolutionOp buildCustomOp(IE::ConvolutionOp op, mlir::PatternRewriter& rewriter, mlir::Value input,
+                                vpux::NDTypeInterface outType) {
+    return rewriter.create<IE::ConvolutionOp>(
+            appendLoc(op->getLoc(), "aligned"), outType, input, op.getFilter(), op.getBias(), op.getStrides(),
+            op.getPadsBegin(), op.getPadsEnd(), op.getDilations(), op.getPostOpAttr(), op.getClampAttr(),
+            op.getStaticScaleAttr(), op.getOutputPaddingAttr(), op.getInputPaddingAttr());
+}
+
+template <>
+IE::GroupConvolutionOp buildCustomOp(IE::GroupConvolutionOp op, mlir::PatternRewriter& rewriter, mlir::Value input,
+                                     vpux::NDTypeInterface outType) {
+    return rewriter.create<IE::GroupConvolutionOp>(
+            appendLoc(op->getLoc(), "aligned"), outType, input, op.getFilter(), op.getBias(), op.getStrides(),
+            op.getPadsBegin(), op.getPadsEnd(), op.getDilations(), op.getGroupsAttr(), op.getPostOpAttr(),
+            op.getClampAttr(), op.getOutputPaddingAttr(), op.getInputPaddingAttr());
+}
+
+template <typename ConcreteOp>
+mlir::FailureOr<ConcreteOp> expandDimToReshape(ConcreteOp op, mlir::PatternRewriter& rewriter, Dim dimToExpand,
+                                               Logger log) {
+    // Expand H or W to support shape balancing for better DPU efficiency
+    auto inputShape = getShape(op.getInput());
+    auto outputShape = getShape(op.getOutput());
+    auto newSizeDimToExpand = alignValUp(inputShape[dimToExpand], VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
+    auto targetShape = Shape(inputShape);
+    targetShape[dimToExpand] = newSizeDimToExpand;
+    log.debug("Expanding shape for op {0} {1} from {2} to {3}", op->getName(), op->getLoc(), inputShape, targetShape);
+    // Rewrite Conv from [N, C, H, 1] to [N, C, new_H, 1], or [N, C, 1, W] to [N, C, 1, new_W]
+    // Expand -> Conv -> Slice
+    auto padBegin = mlir::SmallVector<int64_t>(inputShape.size(), 0);
+    auto padEnd = mlir::SmallVector<int64_t>(inputShape.size(), 0);
+    padEnd[dimToExpand.ind()] = newSizeDimToExpand - inputShape[dimToExpand];
+    auto inputExpandOp = rewriter.create<IE::ExpandOp>(appendLoc(op->getLoc(), "expand"), op.getInput(),
+                                                       getIntArrayAttr(rewriter, ArrayRef(padBegin)),
+                                                       getIntArrayAttr(rewriter, ArrayRef(padEnd)));
+
+    auto targetOutType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
+    auto targetOutShape = Shape(getShape(op.getOutput()));
+    targetOutShape[dimToExpand] = targetShape[dimToExpand];
+    targetOutType = targetOutType.changeShape(targetOutShape);
+    auto newOp = buildCustomOp(op, rewriter, inputExpandOp, targetOutType);
+
+    auto offsets = SmallVector<int64_t>(outputShape.size(), 0);
+    auto sizes = SmallVector<int64_t>(outputShape.begin(), outputShape.end());
+    auto outputSliceOp =
+            rewriter.create<IE::SliceOp>(appendLoc(op->getLoc(), "slice"), newOp, getIntArrayAttr(rewriter, offsets),
+                                         getIntArrayAttr(rewriter, sizes));
+    rewriter.replaceOp(op, outputSliceOp);
+    return newOp;
+}
+
+template <typename ConcreteOp>
 mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp convOp,
                                                                   mlir::PatternRewriter& rewriter) const {
     /*
@@ -429,7 +489,7 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
     */
     auto nestedLog = _log.nest();
     auto ctx = convOp->getContext();
-    const auto inputShape = getShape(convOp.getInput());
+    auto inputShape = getShape(convOp.getInput());
     const auto filterShape = getShape(convOp.getFilter());
 
     // Current logic only works with input and filter shape with 4 dimensions
@@ -484,10 +544,19 @@ mlir::LogicalResult ReshapeConvInput<ConcreteOp>::matchAndRewrite(ConcreteOp con
         }
 
         if (factor == 1) {
-            return matchFailed(nestedLog, rewriter, convOp, "Could not find factor for shape adjustment.");
+            nestedLog.debug("Need to align H or W first for {0}", convOp->getLoc());
+            auto alignedNewConvRes =
+                    expandDimToReshape(convOp, rewriter, alignOnH ? Dims4D::Act::W : Dims4D::Act::H, nestedLog);
+            if (mlir::failed(alignedNewConvRes)) {
+                return matchFailed(nestedLog, rewriter, convOp, "Could not find factor for shape adjustment.");
+            } else {
+                convOp = alignedNewConvRes.value();
+            }
         }
     }
 
+    rewriter.setInsertionPoint(convOp);
+    inputShape = getShape(convOp.getInput());
     nestedLog.debug("Adjust input shape for convolution at '{0}'", convOp->getLoc());
 
     // Try to move larger dim size to H as it is more likely to lead to beneficial tiling & multiclustering
@@ -723,7 +792,7 @@ mlir::LogicalResult ReshapeExpandDWConvInput::matchAndRewrite(IE::GroupConvoluti
                                               return checked_cast<int64_t>(val);
                                           }));
     const auto origOutType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
-    const auto convOutType = unExpandedType.changeShapeElemType(Shape(shapeI64), origOutType);
+    const auto convOutType = unExpandedType.changeShapeElemType(ShapeRef(shapeI64), origOutType);
     auto groupsAttr = getIntAttr(rewriter, newIC);
     auto grpConv = rewriter.create<IE::GroupConvolutionOp>(
             origOp->getLoc(), convOutType, shapeCastInputOp, newConstInput, origOp.getBias(), origOp.getStridesAttr(),

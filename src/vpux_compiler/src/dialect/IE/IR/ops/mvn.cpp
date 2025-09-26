@@ -32,8 +32,6 @@ mlir::LogicalResult vpux::IE::MVNOp::inferReturnTypeComponents(
         return errorAt(loc, "First input tensor should have 4 or 5 dimensions");
     }
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::MVNOp::getOperationName());
     const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
     inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
 
@@ -47,7 +45,13 @@ mlir::LogicalResult vpux::IE::MVNOp::inferReturnTypeComponents(
 void vpux::IE::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                             ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
                             ::mlir::FloatAttr eps) {
-    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, {});
+    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, {}, {});
+}
+
+void vpux::IE::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
+                            ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
+                            ::mlir::FloatAttr eps, ::mlir::ArrayAttr internal_reshape) {
+    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, internal_reshape, {});
 }
 
 //
@@ -82,6 +86,48 @@ mlir::LogicalResult LegalizeEpsAttr::matchAndRewrite(IE::MVNOp origOp, mlir::Pat
     return mlir::success();
 }
 
+//
+// ReshapeBatched
+//
+
+class ReshapeBatched final : public mlir::OpRewritePattern<IE::MVNOp> {
+public:
+    using mlir::OpRewritePattern<IE::MVNOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::MVNOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult ReshapeBatched::matchAndRewrite(IE::MVNOp origOp, mlir::PatternRewriter& rewriter) const {
+    const auto acrossChannels = origOp.getAcrossChannelsAttr().getValue();
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
+    auto origShape = inputType.getShape();
+    if (acrossChannels == false || inputType.getRank() != 4 || origShape[Dims4D::Act::N] == 1) {
+        return mlir::failure();
+    }
+
+    // acrossChannel batched MVN with shape [N,C,H,W] can be converted into
+    // non-acrossChannel non-batched MVN with shape [1,N,C,H*W]
+    SmallVector<int64_t> newShape(inputType.getRank(), 1);
+    newShape[Dims4D::Act::C.ind()] = origShape[Dims4D::Act::N];
+    newShape[Dims4D::Act::H.ind()] = origShape[Dims4D::Act::C];
+    newShape[Dims4D::Act::W.ind()] = origShape[Dims4D::Act::H] * origShape[Dims4D::Act::W];
+    const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
+    auto inputReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
+                                                             nullptr, false, newShapeAttr);
+
+    auto newMvnOp = rewriter.create<IE::MVNOp>(origOp->getLoc(), inputReshape,
+                                               mlir::BoolAttr::get(rewriter.getContext(), false),
+                                               origOp.getNormalizeVarianceAttr(), origOp.getEpsAttr());
+
+    const auto origShapeAttr = getIntArrayAttr(origOp->getContext(), origShape);
+    auto outputReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out"), newMvnOp, nullptr,
+                                                              false, origShapeAttr);
+
+    rewriter.replaceOp(origOp, outputReshape);
+    return mlir::success();
+}
+
 }  // namespace
 
 //
@@ -90,4 +136,5 @@ mlir::LogicalResult LegalizeEpsAttr::matchAndRewrite(IE::MVNOp origOp, mlir::Pat
 
 void vpux::IE::MVNOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
     patterns.add<LegalizeEpsAttr>(ctx);
+    patterns.add<ReshapeBatched>(ctx);
 }

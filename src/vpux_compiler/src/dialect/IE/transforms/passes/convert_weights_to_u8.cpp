@@ -8,12 +8,14 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/IRMapping.h>
+#include <mlir/IR/Operation.h>
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -146,9 +148,14 @@ inline bool isFloatInputQuantWeightsMixedPrecisionOperation(mlir::Operation* op)
     // The above logic is doing a Reorder on the original Constant
     // After solving [E#124175] we can delete SplitOp and ConcatOp from the above check.
 
-    while (mlir::isa_and_nonnull<IE::ViewLikeOpInterface, IE::TransposeOp, IE::SplitOp, IE::ConcatOp>(op)) {
+    while (mlir::isa_and_nonnull<IE::ViewLikeOpInterface, IE::TransposeOp, IE::SplitOp, IE::ConcatOp, IE::SliceOp>(
+            op)) {
         if (!op->getResult(0).hasOneUse()) {
-            return false;
+            if (llvm::any_of(op->getUsers(), [](mlir::Operation* userOp) {
+                    return !isFloatInputQuantWeightsMixedPrecisionOperation(userOp);
+                })) {
+                return false;
+            }
         }
 
         const auto quantizationType = mlir::dyn_cast<mlir::quant::QuantizedType>(
@@ -157,7 +164,12 @@ inline bool isFloatInputQuantWeightsMixedPrecisionOperation(mlir::Operation* op)
             return false;
         }
 
-        op = *op->getUsers().begin();
+        // Check if there are any users before accessing them
+        auto users = op->getUsers();
+        if (users.empty()) {
+            break;
+        }
+        op = *users.begin();
     }
 
     if (!mlir::isa<IE::ConvolutionOp, IE::GroupConvolutionOp>(op)) {
@@ -274,18 +286,8 @@ void ConvertWeightsToU8Pass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<Const::DeclareOp>(isLegalConstDeclareOp);
     target.markUnknownOpDynamicallyLegal([&](mlir::Operation* op) {
         if (mlir::isa<IE::LayerOpInterface>(op)) {
-            // Skip the conversion for quantizeCast->dequantize pattern to solve accuracy issue. See details in #E140906
-            if (auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(op)) {
-                for (auto user : quantizeCastOp.getOutput().getUsers()) {
-                    if (mlir::isa_and_nonnull<IE::DequantizeOp>(user)) {
-                        return true;
-                    }
-                }
-            }
-            if (auto dequantizeOp = mlir::dyn_cast<IE::DequantizeOp>(op)) {
-                if (mlir::isa_and_nonnull<IE::QuantizeCastOp>(dequantizeOp.getInput().getDefiningOp())) {
-                    return true;
-                }
+            if (IE::keepIntTypeForSIWeightsAsInput(op)) {
+                return true;
             }
 
             if (!isFloatInputQuantWeightsMixedPrecisionOperation(op)) {

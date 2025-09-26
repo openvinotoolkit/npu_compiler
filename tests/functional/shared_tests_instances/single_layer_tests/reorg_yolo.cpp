@@ -66,10 +66,10 @@ const std::vector<size_t> stridesB = {3};
 const std::vector<ov::element::Type> modelTypes = {ov::element::f16};
 
 const auto paramsA = testing::Combine(testing::ValuesIn(inputShapesA), testing::ValuesIn(stridesA),
-                                      testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                                      testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsB = testing::Combine(testing::ValuesIn(inputShapesB), testing::ValuesIn(stridesB),
-                                      testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                                      testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ReorgYolo_a, ReorgYoloLayerTestCommon, paramsA,
                          ReorgYoloLayerTestCommon::getTestCaseName);

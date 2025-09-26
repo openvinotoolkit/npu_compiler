@@ -6,7 +6,7 @@
 #include "vpux/compiler/core/profiling.hpp"
 #include "vpux/compiler/core/act_profiling.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -96,7 +96,7 @@ void ActShaveProfilingPass::safeRunOnModule() {
     }
 
     std::unique_ptr<BaseActShaveProfiler> profiler;
-    const auto tileCount = static_cast<unsigned>(IE::getTileExecutor(module).getCount());
+    const auto tileCount = static_cast<unsigned>(config::getTileExecutor(module).getCount());
     auto nameUniqifier = std::make_shared<NameUniqifier>(_log);
     if (isClusteredActShavePresent) {
         // If at least 1 ActShave task is tiled use approach where profiling buffer is distributed between clusters

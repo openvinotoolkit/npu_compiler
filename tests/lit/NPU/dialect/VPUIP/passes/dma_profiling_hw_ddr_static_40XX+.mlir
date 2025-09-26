@@ -9,10 +9,10 @@
 !dataType = memref<1x16x4x4xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
 
 module @DMAGraph {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0
+        config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
     }
   }

@@ -117,8 +117,8 @@ void setEnableMemorySideCaching(DMARegister& initValues) {
     initValues.write<Fields::dma_cfg_fields_axi_user_bits_cfg>(DMA_AUB_SRC_DST);
 }
 
-void setGatherMode(ELF::SymbolReferenceMap& symRefMap, const ::mlir::SymbolRefAttr& indices, DMARegister& initValues,
-                   const mlir::MemRefType& outputType, Bit elemOutSize) {
+void setGatherMode(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap, const ::mlir::SymbolRefAttr& indices,
+                   DMARegister& initValues, const mlir::MemRefType& outputType, Bit elemOutSize) {
     mlir::MemRefType indicesType;
     auto indicesBufferRep = symRefMap.lookupSymbol(indices);
     if (mlir::isa<VPUASM::DeclareBufferOp>(indicesBufferRep)) {
@@ -133,7 +133,17 @@ void setGatherMode(ELF::SymbolReferenceMap& symRefMap, const ::mlir::SymbolRefAt
     const auto dma_element_size =
             (outputType.getNumElements() / indicesType.getNumElements()) * elemOutSize.to<Byte>().count();
 
-    initValues.write<Fields::dma_cfg_fields_src_list_cfg>(DMA_LIST_REL_INDEX);
+    auto addressingMode = origOp.getAddressingMode().has_value() ? origOp.getAddressingMode().value()
+                                                                 : VPUIP::GatherAddressingMode::INDEXED;
+    switch (addressingMode) {
+    case VPUIP::GatherAddressingMode::ABSOLUTE:
+        initValues.write<Fields::dma_cfg_fields_src_list_cfg>(DMA_LIST_ABS_INDEX);
+        break;
+    case VPUIP::GatherAddressingMode::INDEXED:
+    default:
+        initValues.write<Fields::dma_cfg_fields_src_list_cfg>(DMA_LIST_REL_INDEX);
+        break;
+    }
     initValues.write<Fields::dma_cfg_fields_dst_list_cfg>(0);
     initValues.write<Fields::dma_list_size_src>(indicesType.getNumElements());
     initValues.write<Fields::dma_stride_dst_1>(dma_element_size);
@@ -314,7 +324,7 @@ DMARegister compose(VPUASM::NNDMAOp origOp, ELF::SymbolReferenceMap& symRefMap) 
 
         auto indices = origOp.getIndices();
         if (indices.has_value()) {
-            setGatherMode(symRefMap, indices.value(), descriptor, outputType, elemOutSize);
+            setGatherMode(origOp, symRefMap, indices.value(), descriptor, outputType, elemOutSize);
         }
     }
 

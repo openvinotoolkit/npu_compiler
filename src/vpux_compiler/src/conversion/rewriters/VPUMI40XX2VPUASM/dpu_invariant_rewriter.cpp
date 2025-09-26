@@ -42,7 +42,7 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
         return sym;
     };
 
-    auto inputSym = findSym(op.getInput());
+    auto inputSym = optionalSym(op.getInput());
     auto inputSparsityMapSym = optionalSym(op.getInputSparsityMap());
     auto inputSETableSym = optionalSym(op.getInputStorageElementTable());
 
@@ -158,7 +158,8 @@ mlir::FailureOr<SymbolizationResult> DPUInvariantRewriter::symbolize(VPUMI40XX::
             op.getInputChannelsCompressionAttr(), op.getIsZeroOffsetWeightsTableAttr(), op.getOutChannelOffsetAttr(),
             op.getIsSuperdenseAttr(), op.getIsInplaceAttr(), op.getInputSeSizeAttr(), op.getOutputSeSizeAttr(),
             op.getIsPermuteQuantizeAttr(), op.getIsSmallKernelOptimizedAttr(), op.getDynamicScaleConfigAttr(),
-            op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr, firstVariantAttr, lastVariantAttr);
+            op.getLocalRegionAttr(), op.getStartAfterAttr(), op.getCleanAfterAttr(), variantsInGroupAttr,
+            firstVariantAttr, lastVariantAttr);
     {
         auto& ppeRegion = invariant.getPpe();
         ppeRegion.emplaceBlock();

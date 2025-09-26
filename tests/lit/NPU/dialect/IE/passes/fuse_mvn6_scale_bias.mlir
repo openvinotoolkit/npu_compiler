@@ -61,3 +61,18 @@ func.func @FuseMVN6WithBias(%arg0: tensor<1x150x64x8xf16>, %arg1: tensor<1x150x6
     // CHECK: [[OUT:%.+]]  = IE.Add([[MVN6]], [[SIGM]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x150x64x8xf16>, tensor<1x150x64x8xf16> -> tensor<1x150x64x8xf16>
     // CHECK: return [[OUT]] : tensor<1x150x64x8xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @FuseMVN6WithScaleBiasRanks
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<151x1x768xf16>, [[SCALE:%.+]]: tensor<768xf16>, [[BIAS:%.+]]: tensor<1x1x768xf16>
+  func.func @FuseMVN6WithScaleBiasRanks(%input: tensor<151x1x768xf16>, %scale: tensor<768xf16>, %bias: tensor<1x1x768xf16>) -> tensor<151x1x768xf16> {
+    %0 = IE.MVN6(%input) {axes_value = [-1], eps = 5.000000e-07 : f64, eps_mode = #IE.mvn_eps_mode<INSIDE_SQRT>, normalize_variance = true, operandSegmentSizes = array<i32: 1, 0, 0, 0>} : tensor<151x1x768xf16> -> tensor<151x1x768xf16>
+    %1 = IE.Multiply(%0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x768xf16>, tensor<768xf16> -> tensor<151x1x768xf16>
+    %2 = IE.Add(%1, %bias) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x768xf16>, tensor<1x1x768xf16> -> tensor<151x1x768xf16>
+    return %2 : tensor<151x1x768xf16>
+
+    // CHECK:       [[OUTPUT:%.+]] =  IE.MVN6([[INPUT]], [[SCALE]], [[BIAS]]) {axes_value = [-1], eps = 5.000000e-07 : f64, eps_mode = #IE.mvn_eps_mode<INSIDE_SQRT>, normalize_variance = true, operandSegmentSizes = array<i32: 1, 1, 1, 0>}
+    // CHECK-SAME:                    : tensor<151x1x768xf16>, tensor<768xf16>, tensor<1x1x768xf16> -> tensor<151x1x768xf16>
+    // CHECK:       return [[OUTPUT]] : tensor<151x1x768xf16>
+}

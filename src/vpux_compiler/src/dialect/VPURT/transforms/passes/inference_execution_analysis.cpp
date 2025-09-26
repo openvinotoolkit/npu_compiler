@@ -2,15 +2,19 @@
 // Copyright (C) 2023-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+
+#include "vpux/compiler/core/cycle_cost_info.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/strings.hpp"
-
-#include "vpux/compiler/core/cycle_cost_info.hpp"
 #include "vpux/utils/profiling/reports/api.hpp"
+
+#include <fstream>
 
 namespace vpux::VPURT {
 #define GEN_PASS_DECL_INFERENCEEXECUTIONANALYSIS
@@ -168,15 +172,14 @@ void InferenceExecutionAnalysisPass::safeRunOnFunc() {
     // All cycles returned from VPUNN cost model are provided with respect to DPU clock
     // Get frequency information to allow translation to time units
     double freqInMHz = 0;
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     if (tileOp != nullptr) {
-        // TODO: dpu freq should be gotten from vpunn
         freqInMHz = tileOp.getProcessorFrequency().getValueAsDouble();
     }
     VPUX_THROW_WHEN(freqInMHz == 0, "Frequency was not configured");
 
     auto estimatedLatencyInUs = convertCyclesToNanoSeconds(totalCycles, freqInMHz) / 1000;
-    _log.info("Estimated inference latency: {0}us", estimatedLatencyInUs);
+    _log.info("Estimated inference latency: {0} us in dpu frequency {1} MHz", estimatedLatencyInUs, freqInMHz);
     if (auto tasksCountWithInvalidCost = cycleCostInfo.getNumberOfTasksWithInvalidCost()) {
         _log.warning("There are {0} tasks with invalid cost, estimation might not be valid", tasksCountWithInvalidCost);
 
@@ -213,7 +216,7 @@ void InferenceExecutionAnalysisPass::safeRunOnFunc() {
                           netInfoOps.size());
         auto netInfo = netInfoOps.front();
         netInfo.setInferenceTiming(std::optional<int64_t>(totalCycles));
-        _log.info("[Energy] inferenceTiming {0} cycles by DPU freq {1} MHz", totalCycles, freqInMHz);
+        _log.info("[Energy] inferenceTiming {0} cycles (DPU cycle unit)", totalCycles);
     }
 
     if (_dumpToJson) {

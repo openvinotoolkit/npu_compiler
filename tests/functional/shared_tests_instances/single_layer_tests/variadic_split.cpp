@@ -69,35 +69,35 @@ const auto variadicSplitParams0 = testing::Combine(
         ::testing::Values(1),                                                              // axis
         ::testing::ValuesIn(modelTypes),                                                   // modelTypes
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapes)),  // inputShapes
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 const auto variadicSplitParams1 =
         testing::Combine(::testing::Values(std::vector<size_t>{1, 1}),  // numSplits
                          ::testing::Values(-1),                         // axis
                          ::testing::ValuesIn(modelTypes),               // modelTypes
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>{{{1, 384, 2}}})),  // inputShapes
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 const auto variadicSplitParams2 =
         testing::Combine(::testing::Values(std::vector<size_t>{1, 1}),  // numSplits
                          ::testing::Values(-1),                         // axis
                          ::testing::ValuesIn(modelTypes),               // modelTypes
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>{{{1, 384, 2}}})),  // inputShapes
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 const auto variadicSplitParams3 =
         testing::Combine(::testing::Values(std::vector<size_t>{2, 4, 4}),  // numSplits
                          ::testing::Values(0, 1, 2, 3),                    // axis
                          ::testing::ValuesIn(modelTypes),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>{{{10, 10, 10, 10}}})),  // inputShapes
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 const auto variadicSplitParams4 =
         testing::Combine(::testing::Values(std::vector<size_t>{1, 1}),  // numSplits
                          ::testing::Values(-1),                         // axis
                          ::testing::ValuesIn(modelTypes),               // modelTypes
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>{{{1, 4, 2}}})),  // inputShapes
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_VariadicSplit, VariadicSplitLayerTestCommon, variadicSplitParams0,
                          VariadicSplitLayerTestCommon::getTestCaseName);

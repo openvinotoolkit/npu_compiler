@@ -15,10 +15,14 @@
 
 #include "intel_npu/config/options.hpp"
 #include "npu_driver_compiler.h"
+#include "openvino/op/group_query_attention.hpp"
 #include "ov_ops/rms.hpp"
 #include "ov_ops/rotary_positional_embeddings.hpp"
 #include "vcl_compiler.hpp"
 #include "vpux/utils/IE/private_properties.hpp"
+
+#include <openvino/core/rt_info/weightless_caching_attributes.hpp>
+#include <openvino/op/constant.hpp>
 
 namespace {
 
@@ -153,6 +157,50 @@ std::string getValidTileValue(std::map<std::string, std::string>& config, vcl_de
 
     // If maxTile does not exist in the user config, use the value from deviceDesc
     return std::to_string(deviceDesc.tileCount);
+}
+
+/**
+ * @brief Restore the original WeightlessCache attributes from the model.
+ *
+ * @note The WeightlessCache attribute is used to mark original constants. The IR frontend always populates the OV model
+ * with the WeightlessCache attribute. But since the model can be changed before it is passed to the driver, the new
+ * attributes will not match the original model when deserialised.
+ *
+ * @param model The OV model passed for compilation
+ * @param vclLogger The logger of current compiler
+ */
+void restoreWeightsOffsets(const std::shared_ptr<ov::Model> model, VCLLogger* vclLogger) {
+    // E#103359: replace log level with trace
+    vclLogger->info("Remove all \"fake\" WeightlessCache attributes that appeared after second deserialization of the "
+                    "model");
+    vclLogger->info("And restore original WeightlessCache attributes");
+
+    ov::RTMap& modelRuntimeInfoMap = model->get_rt_info();
+
+    size_t constantId = 0;
+    for (auto&& node : model->get_ordered_ops()) {
+        if (ov::is_type<ov::op::v0::Constant>(node)) {
+            ov::RTMap& nodeRuntimeInfoMap = node->get_rt_info();
+            const auto& nodeWeightlessCacheAttrIt =
+                    nodeRuntimeInfoMap.find(ov::WeightlessCacheAttribute::get_type_info_static());
+            if (nodeWeightlessCacheAttrIt != nodeRuntimeInfoMap.end()) {
+                // Delete the "fake" value
+                nodeRuntimeInfoMap.erase(nodeWeightlessCacheAttrIt);
+            }
+
+            const std::string constantIdString = std::to_string(constantId++);
+            const auto& modelBinOffsetIt = modelRuntimeInfoMap.find("ws_bin_offset_" + constantIdString);
+            const auto& modelOriginalSizeIt = modelRuntimeInfoMap.find("ws_original_size_" + constantIdString);
+            const auto& modelOriginalDtypeIt = modelRuntimeInfoMap.find("ws_original_dtype_" + constantIdString);
+            if (modelBinOffsetIt != modelRuntimeInfoMap.end() && modelOriginalSizeIt != modelRuntimeInfoMap.end() &&
+                modelOriginalDtypeIt != modelRuntimeInfoMap.end()) {
+                // Restore the bin offset value
+                nodeRuntimeInfoMap[ov::WeightlessCacheAttribute::get_type_info_static()] = ov::WeightlessCacheAttribute(
+                        modelOriginalSizeIt->second.as<size_t>(), modelBinOffsetIt->second.as<size_t>(),
+                        modelOriginalDtypeIt->second.as<ov::element::Type>());
+            }
+        }
+    }
 }
 
 BuildInfo::BuildInfo(VPUXCompilerL0* pvc): pvc(pvc), parsedConfig(pvc->getOptions()), logger(pvc->getLogger()) {
@@ -594,9 +642,10 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
         ov::Core core;
         // core needs to add internal operators via extensions
         // might need to refactor if extension list will have many elements
-        core.add_extension(
-                std::vector<ov::Extension::Ptr>({std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
-                                                 std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>()}));
+        core.add_extension(std::vector<ov::Extension::Ptr>(
+                {std::make_shared<ov::OpExtension<ov::op::internal::RMS>>(),
+                 std::make_shared<ov::OpExtension<ov::op::internal::RoPE>>(),
+                 std::make_shared<ov::OpExtension<ov::op::internal::GroupQueryAttention>>()}));
 
         StopWatch stopWatch;
         if (enableProfiling) {
@@ -609,6 +658,12 @@ vcl_result_t BuildInfo::prepareModel(const uint8_t* modelIR, uint64_t modelIRSiz
             stopWatch.stop();
             logger->info("The time to convert data to model: {0} ms", stopWatch.delta_ms());
         }
+
+#ifdef VPUX_DEVELOPER_BUILD
+        // E#103359: WS is only available in developer builds
+        restoreWeightsOffsets(model, logger);
+#endif  // VPUX_DEVELOPER_BUILD
+
     } catch (const std::exception& error) {
         logger->outputError(formatv("Failed to read/deserialize model. Used OpenVino version {0}.",
                                     pvc->getCompilerProp().supportedOpsets));

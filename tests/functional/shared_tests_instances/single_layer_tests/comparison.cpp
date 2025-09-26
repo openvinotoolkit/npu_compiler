@@ -84,7 +84,11 @@ class ComparisonLayerTestDynamic : public ComparisonLayerTest, virtual public Vp
 };
 
 class ComparisonLayerTest_Tiling : public ComparisonLayerTestCommon {};
-class ShaveCodeGenComparisonLayerTestCommon : public ComparisonLayerTestCommon {};
+class ShaveCodeGenComparisonLayerTestCommon : public ComparisonLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 TEST_P(ComparisonLayerTestCommon, NPU3720_SW) {
     setReferenceSoftwareMode();
@@ -112,7 +116,7 @@ TEST_P(ComparisonLayerTestDynamic, NPU4000_SW) {
 }
 
 TEST_P(ShaveCodeGenComparisonLayerTestCommon, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -175,27 +179,30 @@ std::vector<ov::element::Type> precision = {
 };
 
 auto inputShapesComparisonParams = input_shape_converter(combineParams(inputShapes));
-const auto comparison_params = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesComparisonParams)),
-        ::testing::ValuesIn(comparisonOpTypes_MLIR), ::testing::ValuesIn(secondInputTypes),
-        ::testing::ValuesIn(precision), ::testing::Values(DEVICE_NPU), ::testing::Values(additionalConfig));
+const auto comparison_params =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesComparisonParams)),
+                           ::testing::ValuesIn(comparisonOpTypes_MLIR), ::testing::ValuesIn(secondInputTypes),
+                           ::testing::ValuesIn(precision), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additionalConfig));
 
 auto inputShapesPrecommit = input_shape_converter(combineParams(precommit_inShapes));
-const auto precommit_comparison_params = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesPrecommit)),
-        ::testing::ValuesIn(comparisonOpTypes_MLIR), ::testing::ValuesIn(secondInputTypes),
-        ::testing::ValuesIn(precision), ::testing::Values(DEVICE_NPU), ::testing::Values(additionalConfig));
+const auto precommit_comparison_params =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesPrecommit)),
+                           ::testing::ValuesIn(comparisonOpTypes_MLIR), ::testing::ValuesIn(secondInputTypes),
+                           ::testing::ValuesIn(precision), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additionalConfig));
 
 auto inputShapesTiling = input_shape_converter(combineParams(tiling_inShapes));
-const auto tiling_comparison_params = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesTiling)),
-        ::testing::Values(ComparisonTypes::EQUAL), ::testing::ValuesIn(secondInputTypes),
-        ::testing::Values(ov::element::f16), ::testing::Values(DEVICE_NPU), ::testing::Values(additionalConfig));
+const auto tiling_comparison_params =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesTiling)),
+                           ::testing::Values(ComparisonTypes::EQUAL), ::testing::ValuesIn(secondInputTypes),
+                           ::testing::Values(ov::element::f16), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additionalConfig));
 
 const auto comparison_params_dynamic = ::testing::Combine(
         ::testing::ValuesIn(in_shapes_dynamic_4D), ::testing::ValuesIn(comparisonOpTypesDynamic_MLIR),
-        ::testing::ValuesIn(secondInputTypes), ::testing::ValuesIn(precision), ::testing::Values(DEVICE_NPU),
-        ::testing::Values(additionalConfig));
+        ::testing::ValuesIn(secondInputTypes), ::testing::ValuesIn(precision),
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additionalConfig));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Comparison, ComparisonLayerTestCommon, comparison_params,
                          ComparisonLayerTestCommon::getTestCaseName);

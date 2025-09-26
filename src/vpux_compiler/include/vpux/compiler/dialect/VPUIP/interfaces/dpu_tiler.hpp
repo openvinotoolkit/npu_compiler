@@ -9,7 +9,7 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 
-#include <vpu_cost_model.h>
+#include <vpu/dpu_types.h>
 
 #include <set>
 #include <tuple>
@@ -51,6 +51,7 @@ struct WorkloadCostParams {
     VPU::MultiClusterStrategy layerStrategy = VPU::MultiClusterStrategy::Clustering;
     VPU::PPEAttr ppeAttr = nullptr;
     bool isNcePermute = false;
+    bool isNceCompressConv = false;
 };
 
 enum class SplitDimension { SPLIT_OVER_H = 0, SPLIT_OVER_W = 1, SPLIT_OVER_HW = 2 };

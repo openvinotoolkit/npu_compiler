@@ -6,7 +6,6 @@
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
-#include "vpux/utils/core/error.hpp"
 
 #include <algorithm>
 #include <cstddef>

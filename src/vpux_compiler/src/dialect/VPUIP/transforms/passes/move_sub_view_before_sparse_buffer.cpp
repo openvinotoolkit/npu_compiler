@@ -76,8 +76,8 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
     auto seAttr = groupSparseBuffer.getSeAttr().value_or(nullptr);
     auto sparsityCompressionAttr = groupSparseBuffer.getSparsityCompression().value_or(nullptr);
     if (sparsityCompressionAttr != nullptr) {
-        sparsityCompressionAttr =
-                VPUIP::tileSparsityCompression(sparsityCompressionAttr, Shape(subViewOffsets), Shape(subViewSizes));
+        sparsityCompressionAttr = VPUIP::tileSparsityCompression(sparsityCompressionAttr, ShapeRef(subViewOffsets),
+                                                                 ShapeRef(subViewSizes));
     }
 
     auto rewriteInput = [&](mlir::Value value, vpux::ShapeRef offsets, vpux::ShapeRef sizes) {
@@ -101,7 +101,7 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
     auto newDataSizes = Shape(subViewSizes);
     if (seAttr != nullptr) {
         // Extract tile and get new shape for input data
-        seAttr = seAttr.extractTile(Shape(subViewOffsets), Shape(subViewSizes),
+        seAttr = seAttr.extractTile(ShapeRef(subViewOffsets), ShapeRef(subViewSizes),
                                     mlir::cast<vpux::NDTypeInterface>(origDataValue.getType()).getShape(),
                                     newDataOffsets, newDataSizes);
     }
@@ -110,7 +110,7 @@ mlir::LogicalResult MoveViewOpUp::matchAndRewrite(VPUIP::SubViewOp origSubViewOp
     // SM
     mlir::Value newSparsityMapValue = nullptr;
     if (sparsityMapValue != nullptr) {
-        newSparsityMapValue = rewriteInput(sparsityMapValue, Shape(subViewOffsets), Shape(subViewSizes));
+        newSparsityMapValue = rewriteInput(sparsityMapValue, ShapeRef(subViewOffsets), ShapeRef(subViewSizes));
     }
 
     // SETable

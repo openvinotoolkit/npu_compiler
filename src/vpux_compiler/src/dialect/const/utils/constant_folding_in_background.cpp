@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 
+#include <mutex>
+
 using namespace vpux;
 using namespace vpux::Const;
 

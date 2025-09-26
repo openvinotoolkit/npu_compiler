@@ -79,7 +79,8 @@ const auto combine = [](const std::vector<std::vector<size_t>>& inputShapes,
                         const std::vector<std::vector<int64_t>>& axes,
                         const std::vector<std::vector<int64_t>>& signalSizes) {
     return testing::Combine(testing::ValuesIn(inputShapes), testing::ValuesIn(modelTypes), testing::ValuesIn(axes),
-                            testing::ValuesIn(signalSizes), testing::ValuesIn(opTypes), testing::Values(DEVICE_NPU));
+                            testing::ValuesIn(signalSizes), testing::ValuesIn(opTypes),
+                            testing::Values(test_utils::TARGET_DEVICE));
 };
 
 // RDFT can support 1d
@@ -87,14 +88,15 @@ INSTANTIATE_TEST_SUITE_P(smoke_RDFT_1d, RdftLayerTestCommon,
                          testing::Combine(testing::Values(std::vector<size_t>{10}), testing::ValuesIn(modelTypes),
                                           testing::Values(std::vector<int64_t>{0}),
                                           testing::Values(std::vector<int64_t>{}), testing::Values(DFTOpType::FORWARD),
-                                          testing::Values(DEVICE_NPU)),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          RDFTLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_RDFT_2d, RdftLayerTestCommon,
                          testing::Combine(testing::Values(std::vector<size_t>{10, 2}), testing::ValuesIn(modelTypes),
                                           testing::ValuesIn(std::vector<std::vector<int64_t>>{{0}}),
                                           testing::ValuesIn(std::vector<std::vector<int64_t>>{{}, {3}, {12}}),
-                                          testing::Values(DFTOpType::FORWARD), testing::Values(DEVICE_NPU)),
+                                          testing::Values(DFTOpType::FORWARD),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          RDFTLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_RDFT_2dx, RdftLayerTestCommon,
@@ -133,19 +135,20 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_RDFT_5d, RdftLayerTestCommon,
                                           testing::ValuesIn(modelTypes),
                                           testing::ValuesIn(std::vector<std::vector<int64_t>>{{{0, 1, 2, 3}}}),
                                           testing::ValuesIn(std::vector<std::vector<int64_t>>{{}, {3, 10, 8, 6}}),
-                                          testing::Values(DFTOpType::INVERSE), testing::Values(DEVICE_NPU)),
+                                          testing::Values(DFTOpType::INVERSE),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          RDFTLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_RDFT_tile_FORWARD, RdftLayerTestCommon,
                          testing::Combine(testing::Values(std::vector<size_t>{1, 80, 64, 64}),
                                           testing::ValuesIn(modelTypes), testing::Values(std::vector<int64_t>{2, 3}),
                                           testing::Values(std::vector<int64_t>{}), testing::Values(DFTOpType::FORWARD),
-                                          testing::Values(DEVICE_NPU)),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          RDFTLayerTest::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_RDFT_tile_INVERSE, RdftLayerTestCommon,
                          testing::Combine(testing::Values(std::vector<size_t>{1, 120, 64, 33, 2}),
                                           testing::ValuesIn(modelTypes), testing::Values(std::vector<int64_t>{2, 3}),
                                           testing::Values(std::vector<int64_t>{}), testing::Values(DFTOpType::INVERSE),
-                                          testing::Values(DEVICE_NPU)),
+                                          testing::Values(test_utils::TARGET_DEVICE)),
                          RDFTLayerTest::getTestCaseName);
 
 }  // namespace

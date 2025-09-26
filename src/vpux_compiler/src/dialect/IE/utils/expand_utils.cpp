@@ -4,15 +4,19 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -464,6 +468,18 @@ bool isEligibleConvertToConv(IE::ExpandOp expandOp, Logger log, StringRef debugN
         log.trace("[{0}]: Expand at {1} has batch {2}. Expected to have 1", debugName, expandOp.getLoc(),
                   expandInShape[Dims4D::Act::N]);
         return false;
+    }
+
+    if (VPU::inputCompatibleWithAutoPad(expandInType) && VPU::hasAutoPaddingIDU(getModuleOp(expandOp))) {
+        const auto hasConvUser = llvm::any_of(expandOp.getOutput().getUsers(), [](mlir::Operation* userOp) {
+            return mlir::isa<IE::ConvolutionOp>(userOp);
+        });
+        if (hasConvUser) {
+            log.trace("[{0}]: Expand at {1} has a candidate user which could use IDU autopad. Converting to "
+                      "convolution is not beneficial",
+                      debugName, expandOp.getLoc());
+            return false;
+        }
     }
 
     return true;

@@ -16,6 +16,7 @@
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/scope_exit.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/MLIRContext.h>
@@ -68,6 +69,9 @@ TEST_P(SETablePatchTests, patchSETableValue) {
 
     // Create a constant operation
     auto constOp = builder.create<Const::DeclareOp>(loc, seTableType, seTableConstant);
+    VPUX_SCOPE_EXIT {
+        constOp->erase();
+    };
 
     // Create NCE Input distribution attribute
     auto distributionModeAttr = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED);
@@ -96,7 +100,11 @@ TEST_P(SETablePatchTests, patchSETableValue) {
     for (int64_t clusterId = 0; clusterId < params.numClusters; ++clusterId) {
         auto targetMemoryShape = params.seTableMemoryShapes[clusterId];
         auto targetMemoryOffset = params.seTableMemoryOffsets[clusterId];
+        builder.setInsertionPointAfter(constOp);
         auto subviewOp = builder.createOrFold<VPUIP::SubViewOp>(loc, constOp, targetMemoryOffset, targetMemoryShape);
+        VPUX_SCOPE_EXIT {
+            subviewOp.getDefiningOp()->erase();
+        };
 
         auto subviewConstOp = subviewOp.getDefiningOp<Const::DeclareOp>();
 
@@ -105,6 +113,9 @@ TEST_P(SETablePatchTests, patchSETableValue) {
 
         // Extract the patched SE table values
         auto patchedConstOp = mlir::cast<Const::DeclareOp>(patchedValue.getDefiningOp());
+        VPUX_SCOPE_EXIT {
+            patchedConstOp->erase();
+        };
         auto patchedContent = patchedConstOp.getContent();
         auto patchedValues = to_small_vector(patchedContent.getValues<int32_t>());
 

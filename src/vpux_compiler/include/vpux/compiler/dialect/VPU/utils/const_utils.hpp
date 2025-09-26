@@ -126,11 +126,11 @@ struct NewWeightsTableTensors {
     NewWeightsTableTensors(bool useNewWeightTableFormat, mlir::OpBuilder& builder, mlir::Location loc,
                            mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights,
                            const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
-                           VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale);
+                           VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale = nullptr);
     NewWeightsTableTensors(bool useNewWeightTableFormat, mlir::OpBuilder& builder, mlir::Location loc,
                            mlir::Value opInput, mlir::Value opOutput, mlir::Value weights,
                            const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
-                           VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale);
+                           VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale = nullptr);
 
     mlir::Value dataPointerTensor = nullptr, sparsityPointerTensor = nullptr, scaleTensor = nullptr,
                 biasTensor = nullptr, zeroPointTensor = nullptr;

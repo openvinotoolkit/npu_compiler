@@ -7,7 +7,6 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_LEGALIZEDYNAMICSHAPECONCATFORSWLAYERS

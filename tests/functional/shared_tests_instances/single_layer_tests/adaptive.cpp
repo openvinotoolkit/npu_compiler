@@ -53,13 +53,13 @@ const auto AdaPoolCase3D =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inShape3DSingleCases)),
                            ::testing::ValuesIn(std::vector<std::vector<int>>{{1}, {3}}),
                            ::testing::ValuesIn(std::vector<std::string>{"avg", "max"}),
-                           ::testing::ValuesIn(netPrecisions), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(netPrecisions), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto AdaPoolCase4D =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inShape4DSingleCases)),
                            ::testing::ValuesIn(std::vector<std::vector<int>>{{2, 2}, {3, 3}, {6, 6}}),
                            ::testing::ValuesIn(std::vector<std::string>{"avg", "max"}),
-                           ::testing::ValuesIn(netPrecisions), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(netPrecisions), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TestsAdaPool3D, AdaPoolLayerTestCommon, AdaPoolCase3D,
                          AdaPoolLayerTestCommon::getTestCaseName);

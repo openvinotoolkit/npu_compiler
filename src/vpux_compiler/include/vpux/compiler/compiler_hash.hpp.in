@@ -1,0 +1,10 @@
+//
+// Copyright (C) 2025 Intel Corporation.
+// SPDX-License-Identifier: Apache-2.0
+//
+
+#pragma once
+
+namespace vpux::ELF {
+static constexpr auto NPU_COMPILER_GIT_COMMIT_HASH = "@CURRENT_COMMIT_HASH@";
+}  // namespace vpux::ELF

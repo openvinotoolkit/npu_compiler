@@ -3,11 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU40XX/dialect/VPURT/interfaces/barrier_pages_split.hpp"
+#include "vpux/compiler/dialect/VPURT/interfaces/barrier_pages_split.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/utils/wlm_legalization_utils.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 
@@ -30,12 +34,10 @@ vpux::VPURT::BarrierPagesSplitHandler::BarrierPagesSplitHandler(
           _taskQueueTypeMap(taskQueueTypeMap),
           _barrierFifoDepth(_barrierFifoDepth),
           _log(log) {
-    _pageCount = _barrierInfo.getNumOfBarrierOps() / _pageSize;
-    if (_barrierInfo.getNumOfBarrierOps() % _pageSize) {
-        _pageCount++;
-    }
     _startBarrierIndex = 0;
+    _getNumberOfWorkloadsFromTaskOpFlag = false;
 
+    initializeBarrierToPageAssignment();
     initializeTaskToPageAssignment();
     initializeBoundaryTasksData();
 
@@ -57,7 +59,16 @@ void vpux::VPURT::BarrierPagesSplitHandler::reconfigureBarrierFifoDepth(size_t b
 // Configure the barrier page split handler for assignment of barriers and tasks to pages
 void vpux::VPURT::BarrierPagesSplitHandler::initializeForAssignment(mlir::func::FuncOp func) {
     _taskQueueTypeMap = VPURT::getTaskOpQueues(func, _barrierInfo);
-    _pageCount = (_barrierInfo.getNumOfBarrierOps() + _pageSize - 1) / _pageSize;
+
+    mlir::DenseSet<vpux::VPU::ExecutorKind> executorKind = {
+            VPU::ExecutorKind::DPU,
+            VPU::ExecutorKind::DMA_NN,
+            VPU::ExecutorKind::SHAVE_ACT,
+    };
+    _barrierInfo.initializeTaskQueueTypeMap(executorKind);
+    _barrierInfo.buildTaskQueueTypeMap();
+
+    initializeBarrierToPageAssignment();
     initializeTaskToPageAssignment();
 }
 
@@ -70,8 +81,6 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeForLegalization() {
     };
     _barrierInfo.initializeTaskQueueTypeMap(executorKind);
     _barrierInfo.buildTaskQueueTypeMap();
-
-    _readPageAssignmentFromIr = true;
 
     // Get number of pages based on information in IR. Read page assignment from last barrier in IR
     auto lastBarOp = _barrierInfo.getBarrierOpAtIndex(_barrierInfo.getNumOfBarrierOps() - 1);
@@ -97,8 +106,6 @@ void vpux::VPURT::BarrierPagesSplitHandler::findShvTasksWithDpu() {
             }
         }
     }
-    // Support for DPUs from SHV is not yet fully enabled - E#170833
-    VPUX_THROW_UNLESS(_shvTasksWithDpuPerTile.empty(), "Full WLM does not yet support SHV tasks which submit DPUs");
 }
 
 // Configure the barrier page split handler for finding enqueue DMA data
@@ -119,6 +126,12 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeForEnqueue(mlir::func::Fun
     });
 }
 
+// Configure the barrier page split handler for performing final verification
+void vpux::VPURT::BarrierPagesSplitHandler::initializeForVerification(mlir::func::FuncOp func) {
+    // Requires same initialization as for enqueue search
+    initializeForEnqueue(func);
+}
+
 void vpux::VPURT::BarrierPagesSplitHandler::readBarrierPageAssignmentFromIr() {
     _barrierToPageAssignment.resize(_barrierInfo.getNumOfBarrierOps());
 
@@ -131,12 +144,55 @@ void vpux::VPURT::BarrierPagesSplitHandler::readBarrierPageAssignmentFromIr() {
 }
 
 size_t vpux::VPURT::BarrierPagesSplitHandler::getBarrierPage(size_t barInd) {
-    if (_readPageAssignmentFromIr) {
-        VPUX_THROW_UNLESS(barInd < _barrierToPageAssignment.size(), "Barrier index {0} out of range {1}", barInd,
-                          _barrierToPageAssignment.size());
-        return _barrierToPageAssignment[barInd];
+    VPUX_THROW_UNLESS(barInd < _barrierToPageAssignment.size(), "Barrier index {0} out of range {1}", barInd,
+                      _barrierToPageAssignment.size());
+    return _barrierToPageAssignment[barInd];
+}
+
+void vpux::VPURT::BarrierPagesSplitHandler::initializeBarrierToPageAssignment() {
+    _log.trace("Initializing barrier to page assignment");
+    _barrierToPageAssignment.resize(_barrierInfo.getNumOfBarrierOps());
+
+    size_t pageInd = 0;
+    size_t barriersInPage = 0;
+    BarrierInfo::TaskSet processedSyncPoints;
+
+    // First barrier is always in page 0
+    _firstBarrierInPage.push_back(0);
+
+    for (size_t barInd = 0; barInd < _barrierInfo.getNumOfBarrierOps(); barInd++) {
+        // If there are already max number of barriers assigned to page
+        // then switch to next page for current barrier
+        if (barriersInPage == _pageSize) {
+            barriersInPage = 0;
+            pageInd++;
+            _firstBarrierInPage.push_back(barInd);
+        } else {
+            // Perform a check if barrier is produced by a sync task
+            // In such case increment page index for next barrier
+            // so that sync task is also a boundary task of page split
+            auto barrierProducers = _barrierInfo.getBarrierProducers(barInd);
+            for (auto producer : barrierProducers) {
+                if (!_barrierInfo.isSyncPoint(producer)) {
+                    continue;
+                }
+                if (processedSyncPoints.count(producer) > 0) {
+                    // If this sync point was already processed, then no need to
+                    // increment page index
+                    continue;
+                }
+
+                pageInd++;
+                barriersInPage = 0;
+                processedSyncPoints.insert(producer);
+                _firstBarrierInPage.push_back(barInd);
+            }
+        }
+        _barrierToPageAssignment[barInd] = pageInd;
+        barriersInPage++;
     }
-    return static_cast<size_t>(barInd / _pageSize);
+
+    _pageCount = pageInd + 1;
 }
 
 // Calculate in which page each task starts. Configure this based on task wait barrier and
@@ -294,6 +350,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::initializeBoundaryTasksData() {
             // If in rare case there is no boundary task for page - task that starts at PageN and updates
             // barrier from PageN+1 then need to create one artificially. Pick lates task in PageN and find
             // some wait barrier from PageN+1 and create dependency.
+            VPUX_THROW_WHEN(!_firstAndLastTaskPerPage[pageInd].has_value(), "No first and last task set for page {0}",
+                            pageInd);
             auto lastTaskOnPage = _firstAndLastTaskPerPage[pageInd].value().second;
             std::optional<size_t> nextPageBarrier;
             auto nextTask = lastTaskOnPage + 1;
@@ -429,6 +487,33 @@ void vpux::VPURT::BarrierPagesSplitHandler::readTaskPageAssignmentFromIr() {
     }
 }
 
+// Identify pages that do not have any tasks assigned to this page
+// All legalization steps expect each page to have at least one task so during page
+// split it is expected that pages without tasks will have dummy tasks inserted using information
+// returned from this method.
+SmallVector<VPURT::BarrierPagesSplitHandler::PagesWithNoTaskData>
+vpux::VPURT::BarrierPagesSplitHandler::getPagesWithNoTasksData() {
+    llvm::BitVector pagesWithNoTasks(_pageCount - 1, true);
+
+    SmallVector<PagesWithNoTaskData> pagesWithNoTasksData;
+
+    for (size_t taskInd = 0; taskInd < _barrierInfo.getNumOfTasks(); taskInd++) {
+        auto taskPage = _taskPageAssignment[taskInd];
+        // Skip last page as it is OK if it doesn't have tasks
+        if (taskPage == _pageCount - 1) {
+            continue;
+        }
+        pagesWithNoTasks.reset(taskPage);
+    }
+
+    for (auto pageWithNoTasks : pagesWithNoTasks.set_bits()) {
+        auto nextPageFirstBar = _firstBarrierInPage[pageWithNoTasks + 1];
+        auto pageLastBar = nextPageFirstBar - 1;
+        pagesWithNoTasksData.push_back({pageWithNoTasks, pageLastBar, nextPageFirstBar});
+    }
+    return pagesWithNoTasksData;
+}
+
 // Check if given task has illegal dependencies from page split point of view
 // If task is in pageN then:
 // - if wait barrier is in earlier page (pageX, and X < N)
@@ -523,6 +608,8 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizeWaitBarrierDependency(size_t
 
     VPUX_THROW_WHEN(!waitBarOnSamePage.has_value(), "No wait bar on page {0} for task {1}(page {2})", taskPage, taskInd,
                     taskPage);
+    VPUX_THROW_WHEN(!taskWithWaitBarOnSamePageOpt.has_value(),
+                    "No task with wait bar on same page for task {0}(page {1})", taskInd, taskPage);
 
     auto waitBarOnSamePageInd = waitBarOnSamePage.value();
     auto taskWithWaitBarOnSamePage = taskWithWaitBarOnSamePageOpt.value();
@@ -718,6 +805,10 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizeUpdateBarrierDependency(size
                     taskPage + 1);
 
     auto pageBoundaryTaskWithWaitBar = pageBoundaryTaskWithWaitBarOpt.value();
+
+    VPUX_THROW_WHEN(!pageBoundaryTaskWaitBarIndOpt.has_value(), "No wait barrier found for boundary task {0}(page {1})",
+                    pageBoundaryTaskWithWaitBar, taskPage + 1);
+
     auto boundaryTaskWaitBarInd = pageBoundaryTaskWaitBarIndOpt.value();
 
     _log.trace("Use boundary task {0}(page {1}) and its wait barrier {2}(page {3})", pageBoundaryTaskWithWaitBar,
@@ -794,6 +885,13 @@ bool vpux::VPURT::BarrierPagesSplitHandler::isDepFromTaskAToTaskB(size_t taskA, 
 // needs to execute before barrier is produced - there is topological dependency
 bool vpux::VPURT::BarrierPagesSplitHandler::isDepFromTaskToBarrier(size_t taskInd, size_t barInd) {
     return _barrierInfo.isDepFromTaskToBarrier(taskInd, barInd, _taskControlMapAndOffset, _blockIdxOfTaskControlMap);
+}
+
+// Check if there is a dependency from barrier to task by checking if there is a dependency
+// from any consumer of this barrier to this task. If yes then there is a guarantee that task
+// can execute only after barrier is produced - there is topological dependency.
+bool vpux::VPURT::BarrierPagesSplitHandler::isDepFromBarrierToTask(size_t barInd, size_t taskInd) {
+    return _barrierInfo.isDepFromBarrierToTask(barInd, taskInd, _taskControlMapAndOffset, _blockIdxOfTaskControlMap);
 }
 
 // Check if there is a dependency from barA to barB by checking if there is any dependency
@@ -922,7 +1020,7 @@ bool vpux::VPURT::BarrierPagesSplitHandler::isSplitToPagesValid() {
 
 // Based on barriers that will be used as wait barriers (pageStartBars) and update barriers (pageEndBars) of barrier DMA
 // find a place in IR (index of operation) after which this DMA can be inserted
-size_t vpux::VPURT::BarrierPagesSplitHandler::getInsertionPointForDmaProgrammingBarriers(
+std::optional<size_t> vpux::VPURT::BarrierPagesSplitHandler::getInsertionPointForDmaProgrammingBarriers(
         const BarrierInfo::TaskSet& pageStartBars, const BarrierInfo::TaskSet& pageEndBars) {
     auto startPoint = _barrierInfo.getBarriersLatestProducer(pageStartBars);
     auto endPoint = _barrierInfo.getBarriersEarliestConsumer(pageEndBars);
@@ -988,10 +1086,11 @@ size_t vpux::VPURT::BarrierPagesSplitHandler::getInsertionPointForDmaProgramming
         }
     }
 
-    // Theoretically we should not run into below exception as pageStartBar dependency on pageEndBars
-    // was checked during legalization so there should be a way to correctly insert BarProgDMA
-    VPUX_THROW_WHEN(isAnyPageEndBarsConsumersOnSameFifo && isAnyPageStartBarsProducersOnSameFifo,
-                    "Both pageStartBars and pageEndBars have producers/consumers on the same FIFO as BarProgDMA");
+    // No valid insertion point was found with provided set of page start and end barriers
+    if (isAnyPageEndBarsConsumersOnSameFifo && isAnyPageStartBarsProducersOnSameFifo) {
+        _log.trace("Both pageStartBars and pageEndBars have producers/consumers on the same FIFO as BarProgDMA");
+        return std::nullopt;
+    }
 
     if (isAnyPageEndBarsConsumersOnSameFifo) {
         _log.trace("Insert BarProgDMA before task {0}", endPoint);
@@ -1059,6 +1158,7 @@ void vpux::VPURT::BarrierPagesSplitHandler::adjustPageStartAndEndPointsIfOnBlock
 BarrierInfo::TaskSet vpux::VPURT::BarrierPagesSplitHandler::getPageStartBarsDependingOnPageEndBars(
         BarrierInfo::TaskSet& pageStartBars, BarrierInfo::TaskSet& pageEndBars) {
     BarrierInfo::TaskSet pageStartBarsToLegalize;
+    auto pageStartBarsToCheck = pageStartBars;
     for (auto pageStartBar : pageStartBars) {
         for (auto pageEndBar : pageEndBars) {
             if (!isDepFromBarAToBarB(pageEndBar, pageStartBar)) {
@@ -1066,9 +1166,72 @@ BarrierInfo::TaskSet vpux::VPURT::BarrierPagesSplitHandler::getPageStartBarsDepe
             }
             _log.nest().trace("There is dep from page end bar {0} to page start bar {1}", pageEndBar, pageStartBar);
             pageStartBarsToLegalize.insert(pageStartBar);
+            pageStartBarsToCheck.erase(pageStartBar);
             break;
         }
     }
+
+    if (pageStartBarsToCheck.empty()) {
+        return pageStartBarsToLegalize;
+    }
+
+    // Check if previous DMA on Port 0 Channel DDR does not depend on page end barriers
+    // This is to verify if with given set of start and end barriers and determined
+    // insertion point, dependency of page end bar on page start bar will not appear after
+    // Barrier Programming DMA is inserted due to created FIFO dependency with previous DMA
+    // If such dependency is created move largest index start barrier to legalization set
+    // and reiterate to check again
+    auto pageStartBarMax = *std::max_element(pageStartBarsToCheck.begin(), pageStartBarsToCheck.end());
+    auto pageEndBarMin = *std::min_element(pageEndBars.begin(), pageEndBars.end());
+    const VPURT::TaskQueueType dmaP0ChDdrQueueType = {VPU::ExecutorKind::DMA_NN,
+                                                      getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
+    while (pageStartBarMax > pageEndBarMin) {
+        auto insertionPointOpt = getInsertionPointForDmaProgrammingBarriers(pageStartBarsToCheck, pageEndBars);
+        if (!insertionPointOpt.has_value()) {
+            _log.nest().trace("No insertion point found. Legalize page start bar {0}", pageStartBarMax);
+            pageStartBarsToCheck.erase(pageStartBarMax);
+            VPUX_THROW_UNLESS(!pageStartBarsToCheck.empty(), "No page start bars left to check");
+            pageStartBarMax = *std::max_element(pageStartBarsToCheck.begin(), pageStartBarsToCheck.end());
+            continue;
+        }
+
+        _log.nest().trace("Check if there is dependency from pageEndBars to previous task on same FIFO based on "
+                          "insertion point {0}",
+                          insertionPointOpt.value());
+
+        size_t taskOnSameFifoAsBarProgDma;
+        if (_barrierInfo.getTaskQueueType(insertionPointOpt.value()) == dmaP0ChDdrQueueType) {
+            taskOnSameFifoAsBarProgDma = insertionPointOpt.value();
+        } else {
+            auto prevTaskOnSameFifoAsBarProgDmaOpt =
+                    _barrierInfo.getPrevTaskOnQueue(insertionPointOpt.value(), dmaP0ChDdrQueueType);
+
+            if (!prevTaskOnSameFifoAsBarProgDmaOpt.has_value()) {
+                break;
+            }
+            taskOnSameFifoAsBarProgDma = prevTaskOnSameFifoAsBarProgDmaOpt.value();
+        }
+
+        bool isDep = false;
+        for (auto pageEndBar : pageEndBars) {
+            if (isDepFromBarrierToTask(pageEndBar, taskOnSameFifoAsBarProgDma)) {
+                isDep = true;
+                _log.nest().trace("There is dep from page end bar {0} to task {1}. Legalize page start bar {2}",
+                                  pageEndBar, taskOnSameFifoAsBarProgDma, pageStartBarMax);
+                pageStartBarsToLegalize.insert(pageStartBarMax);
+
+                pageStartBarsToCheck.erase(pageStartBarMax);
+                break;
+            }
+        }
+
+        if (!isDep || pageStartBarsToCheck.empty()) {
+            break;
+        }
+
+        pageStartBarMax = *std::max_element(pageStartBarsToCheck.begin(), pageStartBarsToCheck.end());
+    }
+
     return pageStartBarsToLegalize;
 }
 
@@ -1151,10 +1314,11 @@ void vpux::VPURT::BarrierPagesSplitHandler::getPageEndTasksAndBars(size_t pageIn
     VPUX_THROW_WHEN(_firstAndLastBoundaryTaskForEachPagePerFifo[pageInd].empty(), "No boundary tasks set for page {0}",
                     pageInd);
     for (auto& [taskQueueType, firstLastTaskInd] : _firstAndLastBoundaryTaskForEachPagePerFifo[pageInd]) {
-        _log.trace("Get page end tasks and bars for queue {0}:{1}", stringifyEnum(taskQueueType.type).data(),
-                   taskQueueType.id);
         auto pageEndTask = firstLastTaskInd.first;
         auto taskWaitBars = _barrierInfo.getWaitBarriers(pageEndTask);
+
+        _log.trace("Get page end tasks and bars for queue {0}:{1} start from task {2}",
+                   stringifyEnum(taskQueueType.type).data(), taskQueueType.id, pageEndTask);
 
         if (taskWaitBars.empty()) {
             auto taskWithWaitBarOnSamePageOpt = _barrierInfo.getPrevTaskOnSameQueueWithWaitBar(pageEndTask);
@@ -1217,9 +1381,12 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizeForDmaProgrammingBarriers() 
 
     auto setBarProgDmaData = [&](size_t pageInd, const BarrierInfo::TaskSet& pageStartBars,
                                  const BarrierInfo::TaskSet& pageEndBars) {
+        auto insertionPointOpt = getInsertionPointForDmaProgrammingBarriers(pageStartBars, pageEndBars);
+        VPUX_THROW_UNLESS(insertionPointOpt.has_value(),
+                          "No insertion point for barrier programming DMA for page {0} found", pageInd);
         _barProgDmaPosVec[pageInd] = {true, SmallVector<size_t>(pageStartBars.begin(), pageStartBars.end()),
                                       SmallVector<size_t>(pageEndBars.begin(), pageEndBars.end()),
-                                      getInsertionPointForDmaProgrammingBarriers(pageStartBars, pageEndBars)};
+                                      insertionPointOpt.value()};
 
         llvm::sort(_barProgDmaPosVec[pageInd].waitBars);
         llvm::sort(_barProgDmaPosVec[pageInd].updateBars);
@@ -1289,6 +1456,13 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizeForDmaProgrammingBarriers() 
             }
         };
 
+        _log.trace("Page start bars {0}", to_small_vector(pageStartBars));
+        _log.trace("Page end bars {0}", to_small_vector(pageEndBars));
+        _log.trace("Page end all bars {0}", to_small_vector(pageEndAllBars));
+        _log.trace("Page start only bars {0}", to_small_vector(pageStartOnlyBars));
+        _log.trace("Page start bars to legalize {0}", to_small_vector(pageStartBarsToLegalize));
+        _log.trace("Common start end bars {0}", to_small_vector(commonStartEndBars));
+
         if (!pageStartOnlyBars.empty()) {
             legalizePageStartBarsDependingOnPageEndBars(pageStartTasks, pageStartOnlyBars, pageStartBarsToLegalize);
 
@@ -1352,98 +1526,146 @@ void vpux::VPURT::BarrierPagesSplitHandler::legalizeForDmaProgrammingBarriers() 
         // ----------------------------------------
         // Case 3: There are no start only barriers
         // ----------------------------------------
-        // If there is no start only bars then pick one from the set of common start and end bars, treat it as
-        // start only barrier dependencies for tasks using this barrier
-        //
-        //  boundaryTask0PageN-1                     boundaryTask0PageN-1
-        //     |                                              |
-        //  startEndBar -.......->  someTask            newStartBar -......-> someTask
-        //     |                      |                                         |
-        //     |                  otherEndBar   =>                         otherEndBar
-        //     |                     |                                      |        |
-        //  boundaryTask1PageN  boundaryTask2PageN          boundaryTask1PageN  boundaryTask2PageN
-        //
+
         _log.trace("No start only bars");
 
         auto newStartBar = *std::min_element(commonStartEndBars.begin(), commonStartEndBars.end());
-        _log.trace("New start bar {0}", newStartBar);
+        if (newStartBar <= *std::min_element(pageEndBars.begin(), pageEndBars.end()) && pageEndAllBars.size() > 1) {
+            // ----------------------------------------
+            // Case 3a: Use start barrier from common start and end barriers
+            // ----------------------------------------
+            // If there is no start only bars then pick one from the set of common start and end bars, treat it as
+            // start only barrier dependencies for tasks using this barrier
+            _log.trace("New start bar {0} picked from common start/end bars", newStartBar);
+        } else {
+            // ----------------------------------------
+            // Case 3b: Create new start bar from earliest barrier in the page
+            // ----------------------------------------
+            // In case newStartBar has larger index than any pageEndBar then there
+            // is a risk newStartBar depends on pageEndBar. To simplify legalization in this case
+            // just pick newStartBar as earliest barrier in page as a safe choice to be used as a start barrier
+            // If this barrier is also end barrier will need to legalize
+            while (getBarrierPage(newStartBar - 1) == pageInd) {
+                newStartBar--;
+            }
 
-        // Remove barrier from end bars
-        pageEndBars.erase(newStartBar);
-        pageEndAllBars.erase(newStartBar);
+            _log.trace("New start bar {0} which is earliest barrier in page", newStartBar);
+        }
 
-        // Find all boundary tasks that is consumers of newStartBar
-        auto startBarConsumersToBeLegalized = to_small_vector(_barrierInfo.getBarrierConsumers(newStartBar));
-        // Leave only consumers which are boundary tasks
-        startBarConsumersToBeLegalized.erase(llvm::remove_if(startBarConsumersToBeLegalized,
+        if (pageEndBars.contains(newStartBar)) {
+            // Perform legalization of start barrier in case it is also end barrier
+            //
+            //  boundaryTask0PageN-1                     boundaryTask0PageN-1
+            //     |                                              |
+            //  startEndBar -.......->  someTask            newStartBar -......-> someTask
+            //     |                      |                                         |
+            //     |                  otherEndBar   =>                         otherEndBar
+            //     |                     |                                      |        |
+            //  boundaryTask1PageN  boundaryTask2PageN          boundaryTask1PageN  boundaryTask2PageN
+            //
+
+            // Remove barrier from end bars
+            pageEndBars.erase(newStartBar);
+            pageEndAllBars.erase(newStartBar);
+
+            // Find all boundary tasks that is consumers of newStartBar
+            auto boundaryTasksToBeLegalized = to_small_vector(_barrierInfo.getBarrierConsumers(newStartBar));
+            // Leave only consumers which are boundary tasks
+            boundaryTasksToBeLegalized.erase(llvm::remove_if(boundaryTasksToBeLegalized,
                                                              [&](auto taskInd) {
                                                                  return llvm::find(pageEndTasks, taskInd) ==
                                                                         pageEndTasks.end();
                                                              }),
-                                             startBarConsumersToBeLegalized.end());
+                                             boundaryTasksToBeLegalized.end());
 
-        // Remove boundary task consumers from start barrier
-        // and reattach them to some other end barrier
-        auto endBar = *std::min_element(pageEndAllBars.begin(), pageEndAllBars.end());
+            // Remove boundary task consumers from start barrier
+            // and reattach them to some other end barrier
+            VPUX_THROW_WHEN(pageEndAllBars.empty(), "No end barriers to attach boundary tasks to");
+            auto endBar = *std::min_element(pageEndAllBars.begin(), pageEndAllBars.end());
 
-        _log.trace("End bar of legalization {0}", endBar);
+            _log.trace("End barrier for legalization {0}", endBar);
 
-        BarrierInfo::TaskSet startBarConsumersWhichCannotConsumeEndBar;
-        for (auto startBarConsumer : startBarConsumersToBeLegalized) {
-            // Check if boundary task to be legalized also updates endBar or endBar production depend on it
-            // In such case it cannot be consumer of endBar and has to be legalized in a different way
-            if (_barrierInfo.getUpdateBarriers(startBarConsumer).contains(endBar) ||
-                isDepFromTaskToBarrier(startBarConsumer, endBar)) {
-                startBarConsumersWhichCannotConsumeEndBar.insert(startBarConsumer);
-                continue;
+            while (!boundaryTasksToBeLegalized.empty()) {
+                _log.trace("Boundary tasks dependent on start barrier that need to be legalized {0}",
+                           boundaryTasksToBeLegalized);
+
+                BarrierInfo::TaskSet startBarConsumersWhichCannotConsumeEndBar;
+                for (auto startBarConsumer : boundaryTasksToBeLegalized) {
+                    // Check if boundary task to be legalized also updates endBar or endBar production depend on it
+                    // In such case it cannot be consumer of endBar and has to be legalized in a different way
+                    if (_barrierInfo.getUpdateBarriers(startBarConsumer).contains(endBar) ||
+                        isDepFromTaskToBarrier(startBarConsumer, endBar)) {
+                        startBarConsumersWhichCannotConsumeEndBar.insert(startBarConsumer);
+                        continue;
+                    }
+
+                    _barrierInfo.removeConsumer(newStartBar, startBarConsumer);
+                    barrierDepsChangedHandler(newStartBar, startBarConsumer);
+                    _log.trace("Remove consumer {0} from barrier {1}", startBarConsumer, newStartBar);
+                    _barrierInfo.addConsumer(endBar, startBarConsumer);
+                    barrierDepsChangedHandler(endBar, startBarConsumer);
+                    _log.trace("Add consumer {0} to barrier {1}", startBarConsumer, endBar);
+                }
+                pageEndBars.insert(endBar);
+
+                auto endBarConsumer = _barrierInfo.getBarrierEarliestConsumer(endBar);
+                _log.trace("End barrier earliest consumer {0}", endBarConsumer);
+
+                // Legalize tasks which are boundary tasks and also update endBar
+                // Get barriers from next page produced by such task and have endBarConsumer
+                // update those barriers
+                //
+                //    boundaryTask -> endBar -> endBarConsumer
+                //               \-------------------------------> barFromNextPage
+                //
+                //  Legalize to:
+                //
+                //    boundaryTask -> endBar -> endBarConsumer
+                //                                           \---> barFromNextPage
+                //
+                _log.trace("New start barrier consumers which cannot consume end barrier - {0}",
+                           to_small_vector(startBarConsumersWhichCannotConsumeEndBar));
+
+                for (auto startBarConsumer : startBarConsumersWhichCannotConsumeEndBar) {
+                    auto updBarsToLegalizeVec = to_small_vector(_barrierInfo.getUpdateBarriers(startBarConsumer));
+                    // Leave only barriers which are from next pages as only those need to be legalize
+                    // and updated by other boundary task - endBarConsumer
+                    updBarsToLegalizeVec.erase(llvm::remove_if(updBarsToLegalizeVec,
+                                                               [&](auto barInd) {
+                                                                   return getBarrierPage(barInd) == pageInd;
+                                                               }),
+                                               updBarsToLegalizeVec.end());
+
+                    for (auto updBarToLegalize : updBarsToLegalizeVec) {
+                        _barrierInfo.addProducer(updBarToLegalize, endBarConsumer);
+                        barrierDepsChangedHandler(updBarToLegalize, endBarConsumer);
+                        _log.trace("Add producer {0} to barrier {1}", endBarConsumer, updBarToLegalize);
+                        _barrierInfo.removeProducer(updBarToLegalize, startBarConsumer);
+                        barrierDepsChangedHandler(updBarToLegalize, startBarConsumer);
+                        _log.trace("Remove producer {0} from barrier {1}", startBarConsumer, updBarToLegalize);
+                    }
+                    // Such task is now no longer a boundary task
+                    pageEndTasks.erase(startBarConsumer);
+                }
+
+                // Check next boundary task on the FIFO. They need to be checked if legalization is needed
+                // same as previous boundary tasks. All of them need to be guarded by BarProgDma or not have
+                // any update barrier in next page
+                SmallVector<size_t> nextBatchOfBoundaryTasksToBeLegalized;
+                for (auto startBarConsumerWhichCannotConsumeEndBar : startBarConsumersWhichCannotConsumeEndBar) {
+                    auto nextTaskOnSameQueueOpt =
+                            _barrierInfo.getNextTaskOnSameQueue(startBarConsumerWhichCannotConsumeEndBar);
+                    if (nextTaskOnSameQueueOpt.has_value() &&
+                        _taskPageAssignment[nextTaskOnSameQueueOpt.value()] == pageInd) {
+                        // If next task on same queue with same page is also a boundary task
+                        nextBatchOfBoundaryTasksToBeLegalized.push_back(nextTaskOnSameQueueOpt.value());
+                    }
+                }
+                boundaryTasksToBeLegalized = std::move(nextBatchOfBoundaryTasksToBeLegalized);
             }
-
-            _barrierInfo.removeConsumer(newStartBar, startBarConsumer);
-            barrierDepsChangedHandler(newStartBar, startBarConsumer);
-            _log.trace("Remove consumer {0} from barrier {1}", startBarConsumer, newStartBar);
-            _barrierInfo.addConsumer(endBar, startBarConsumer);
-            barrierDepsChangedHandler(endBar, startBarConsumer);
-            _log.trace("Add consumer {0} to barrier {1}", startBarConsumer, endBar);
-        }
-        pageEndBars.insert(endBar);
-
-        auto endBarConsumer = _barrierInfo.getBarrierEarliestConsumer(endBar);
-
-        // Legalize tasks which are boundary tasks and also update endBar
-        // Get barriers from next page produced by such task and have endBarConsumer
-        // update those barriers
-        //
-        //    boundaryTask -> endBar -> endBarConsumer
-        //               \-------------------------------> barFromNextPage
-        //
-        //  Legalize to:
-        //
-        //    boundaryTask -> endBar -> endBarConsumer
-        //                                           \---> barFromNextPage
-        //
-        for (auto startBarConsumer : startBarConsumersWhichCannotConsumeEndBar) {
-            auto updBarsToLegalizeVec = to_small_vector(_barrierInfo.getUpdateBarriers(startBarConsumer));
-
-            // Leave only barriers which are from next pages as only those need to be legalize
-            // and updated by other boundary task - endBarConsumer
-            updBarsToLegalizeVec.erase(llvm::remove_if(updBarsToLegalizeVec,
-                                                       [&](auto barInd) {
-                                                           return getBarrierPage(barInd) == pageInd;
-                                                       }),
-                                       updBarsToLegalizeVec.end());
-
-            for (auto updBarToLegalize : updBarsToLegalizeVec) {
-                _barrierInfo.addProducer(updBarToLegalize, endBarConsumer);
-                barrierDepsChangedHandler(updBarToLegalize, endBarConsumer);
-                _log.trace("Add producer {0} to barrier {1}", endBarConsumer, updBarToLegalize);
-                _barrierInfo.removeProducer(updBarToLegalize, startBarConsumer);
-                barrierDepsChangedHandler(updBarToLegalize, startBarConsumer);
-                _log.trace("Remove producer {0} from barrier {1}", startBarConsumer, updBarToLegalize);
-            }
-            // Such task is now no longer a boundary task
-            pageEndTasks.erase(startBarConsumer);
         }
 
+        _log.trace(" Add dependencies for page start task to new start barrier");
         // All start boundary tasks should update newStartBar so that it is guaranteed that
         // on this barrier all tasks from previous page finished and we are ready to reprogram those barriers
         for (auto pageStartTask : pageStartTasks) {
@@ -1480,10 +1702,12 @@ vpux::VPURT::BarrierPagesSplitHandler::getDmaProgrammingBarrierPositions() {
     return _barProgDmaPosVec;
 }
 
-// After inserting barrier reprogramming DMAs some subsequent tasks might need to have their page assignment
-// updated so that wlmPage index never decrements on same FIFO when looking into next tasks
+// After inserting operations (dummy DMA, BarProgDMA) some subsequent tasks without wait barrier might need to have
+// their page assignment updated so that wlmPage index never decrements on same FIFO when looking into next task. In
+// case task has wait barrier it needs to be moved in IR earlier as its page assignment cannot be changed.
 void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForQueue(size_t startTaskIndex, size_t newPageIndex,
-                                                                             VPURT::TaskQueueType queueType) {
+                                                                             VPURT::TaskQueueType queueType,
+                                                                             VPURT::TaskOp moveBeforeOp) {
     for (size_t taskInd = startTaskIndex; taskInd < _taskPageAssignment.size(); taskInd++) {
         if (_barrierInfo.getTaskQueueType(taskInd) != queueType) {
             // Skip tasks that are not on the same queue type
@@ -1497,6 +1721,15 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForQueue(siz
                         "New page index {0} should not be greater than current page index {1} + 1 for task {2}",
                         newPageIndex, _taskPageAssignment[taskInd], taskInd);
 
+        if (!_barrierInfo.getWaitBarriers(taskInd).empty()) {
+            // If task has wait barriers then it cannot be reassigned to a different page
+            _log.trace("Task {0} with wait barriers needs to be relocated. Move it before {1}", taskInd,
+                       moveBeforeOp->getLoc());
+            auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
+            taskOp->moveBefore(moveBeforeOp);
+            continue;
+        }
+
         _log.trace("Update task {0} page assignment from {1} to {2} for queue {3}:{4}", taskInd,
                    _taskPageAssignment[taskInd], newPageIndex, stringifyEnum(queueType.type).data(), queueType.id);
         _taskPageAssignment[taskInd] = newPageIndex;
@@ -1504,6 +1737,29 @@ void vpux::VPURT::BarrierPagesSplitHandler::updateTaskPageAssignmentForQueue(siz
         auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
         taskOp.setWlmPage(newPageIndex);
     }
+}
+
+// Identify pages which have only single barrier in them, except last
+// page which can have single barrier (final barrier) only.
+// Return those barriers
+SmallVector<size_t> VPURT::BarrierPagesSplitHandler::getBarrierOfSingleBarrierPages() {
+    SmallVector<size_t> barrierOfSingleBarrierPagesVec;
+    SmallVector<size_t> barrierCountPerPage(_pageCount);
+    SmallVector<size_t> lastBarrierPerPage(_pageCount);
+
+    for (size_t barInd = 0; barInd < _barrierInfo.getNumOfBarrierOps(); barInd++) {
+        auto barPage = getBarrierPage(barInd);
+        barrierCountPerPage[barPage]++;
+        lastBarrierPerPage[barPage] = barInd;
+    }
+
+    for (size_t pageInd = 0; pageInd < _pageCount - 1; pageInd++) {
+        if (barrierCountPerPage[pageInd] == 1) {
+            barrierOfSingleBarrierPagesVec.push_back(lastBarrierPerPage[pageInd]);
+        }
+    }
+
+    return barrierOfSingleBarrierPagesVec;
 }
 
 // Check if dummy DMA is needed in case there is no DMA of this type in this page
@@ -1568,22 +1824,22 @@ vpux::BarrierInfo::TaskSet VPURT::BarrierPagesSplitHandler::getDummyDmaWaitBars(
 
     // Check if wait barrier is used by control graph sync point then it cannot be used as wait barrier
     // of dummy DMA because there will be no update barrier to use that will not break control graph split
-    bool isWaitBarUsedBySyncPoint = false;
+    std::optional<size_t> syncPointTaskOpt = std::nullopt;
     for (auto waitBar : dummyDmaProposedWaitBars) {
         for (auto waitBarUser : _barrierInfo.getBarrierConsumers(waitBar)) {
-            isWaitBarUsedBySyncPoint = _barrierInfo.isSyncPoint(waitBarUser);
-            if (isWaitBarUsedBySyncPoint) {
+            if (_barrierInfo.isSyncPoint(waitBarUser)) {
+                syncPointTaskOpt = waitBarUser;
                 _log.nest().trace("Wait barrier {0} is used by control graph sync point {1}", waitBar, waitBarUser);
                 break;
             }
         }
-        if (isWaitBarUsedBySyncPoint) {
+        if (syncPointTaskOpt.has_value()) {
             break;
         }
     }
 
     // In the case of wait barrier used by sync point use different wait barriers for dummy DMA
-    if (isWaitBarUsedBySyncPoint) {
+    if (syncPointTaskOpt.has_value()) {
         // Store information about prev page boundary tasks that will need to be legalized - they
         // no longer can update barrier consumed by sync task but update barrier that will
         // be consumed by dummy DMA
@@ -1604,10 +1860,18 @@ vpux::BarrierInfo::TaskSet VPURT::BarrierPagesSplitHandler::getDummyDmaWaitBars(
             _log.nest(2).trace("Page {0} boundary task {1} update barriers {2}", prevPageInd, prevPageBoundaryTask,
                                to_small_vector(prevPageBoundaryTaskUpdBars));
 
+            // Previous page boundary task may have update barrier both from previous page
+            // and current page. Leave only barrier from current page as only such can be a candidate
+            // for dummy dma wait barrier to not violate page split restrictions - task can wait only
+            // on barrier from its page.
             // Check if barrier is consumed by sync point task. In that case it cannot be used
             // as later this barrier will be used as update barrier of dummy DMA
             auto prevPageBoundaryTaskValidUpdBars = prevPageBoundaryTaskUpdBars;
             for (auto prevPageBoundaryTaskUpdBar : prevPageBoundaryTaskUpdBars) {
+                if (getBarrierPage(prevPageBoundaryTaskUpdBar) != pageInd) {
+                    prevPageBoundaryTaskValidUpdBars.erase(prevPageBoundaryTaskUpdBar);
+                    continue;
+                }
                 if (llvm::any_of(_barrierInfo.getBarrierConsumers(prevPageBoundaryTaskUpdBar), [&](auto userTask) {
                         return _barrierInfo.isSyncPoint(userTask);
                     })) {
@@ -1628,6 +1892,36 @@ vpux::BarrierInfo::TaskSet VPURT::BarrierPagesSplitHandler::getDummyDmaWaitBars(
             // so that dummy DMA will depend on earliest barriers possible
             dummyDmaProposedWaitBars.insert(*std::min_element(prevPageBoundaryTaskValidUpdBars.begin(),
                                                               prevPageBoundaryTaskValidUpdBars.end()));
+        }
+
+        if (dummyDmaProposedWaitBars.empty()) {
+            _log.nest().trace("No wait barriers for dummy DMA in page {0} found", pageInd);
+            // If no barrier was found pick some earlier barrier before control block sync point
+            auto syncPointWaitBars = to_small_vector(_barrierInfo.getWaitBarriers(syncPointTaskOpt.value()));
+            _log.nest().trace("Use barrier earlier than sync point {0} wait barriers {1}", syncPointTaskOpt.value(),
+                              syncPointWaitBars);
+            size_t newBarInd = *std::max_element(syncPointWaitBars.begin(), syncPointWaitBars.end()) - 1;
+            while (true) {
+                _log.nest(2).trace("Check barrier {0}(page {1}) for dummy DMA wait", newBarInd,
+                                   getBarrierPage(newBarInd));
+                if (getBarrierPage(newBarInd) < pageInd) {
+                    break;
+                }
+
+                if (llvm::any_of(_barrierInfo.getBarrierConsumers(newBarInd), [&](auto userTask) {
+                        return _barrierInfo.isSyncPoint(userTask);
+                    })) {
+                    newBarInd--;
+                    continue;
+                }
+
+                VPUX_THROW_UNLESS(isDepFromBarrierToTask(newBarInd, syncPointTaskOpt.value()),
+                                  "No dependency from barrier {0} to sync task {1}", newBarInd,
+                                  syncPointTaskOpt.value());
+                _log.nest(2).trace("Use barrier {0} as wait barrier for dummy DMA", newBarInd);
+                dummyDmaProposedWaitBars.insert(newBarInd);
+                break;
+            }
         }
 
         VPUX_THROW_WHEN(dummyDmaProposedWaitBars.empty(), "No wait barriers for dummy DMA in page {0} found", pageInd);
@@ -1656,6 +1950,29 @@ vpux::BarrierInfo::TaskSet VPURT::BarrierPagesSplitHandler::getDummyDmaWaitBars(
         }
     }
 
+    // Check if there is a dependency from prev page boundary task to any proposed wait barrier
+    auto prevPageBoundaryTasks = getLastBoundaryTasksForPage(pageInd - 1);
+    for (auto prevPageBoundaryTask : prevPageBoundaryTasks) {
+        bool isDep = false;
+        for (auto proposedWaitBar : dummyDmaProposedWaitBars) {
+            if (isDepFromTaskToBarrier(prevPageBoundaryTask, proposedWaitBar)) {
+                isDep = true;
+                break;
+            }
+        }
+        if (isDep) {
+            continue;
+        }
+        _log.nest().trace(
+                "No dependency from prev page boundary task {0} to any of proposed wait barriers {1}. Create one.",
+                prevPageBoundaryTask, to_small_vector(dummyDmaProposedWaitBars));
+        // There is a boundary task on which none of proposed wait barriers depend
+        // Create such dependency
+        _barrierInfo.addProducer(*dummyDmaProposedWaitBars.begin(), prevPageBoundaryTask);
+        _log.nest().trace("Add update barrier {0} for task {1}", *dummyDmaProposedWaitBars.begin(),
+                          prevPageBoundaryTask);
+    }
+
     return dummyDmaProposedWaitBars;
 }
 
@@ -1676,53 +1993,6 @@ size_t VPURT::BarrierPagesSplitHandler::getDummyDmaInsertionPoint(
     }
 
     return insertionPoint;
-}
-
-// Method that prepares update barrier data for dummy DMA
-vpux::BarrierInfo::TaskSet VPURT::BarrierPagesSplitHandler::getDummyDmaUpdateBars(
-        size_t pageInd, size_t insertionPoint, SmallVector<std::pair<size_t, size_t>>& firstAndLastBarIndPerPage) {
-    // As update barrier use some barrier from next page. Pick one which has
-    // earliest consumer later than insertion point of dummy DMA
-    // Scan range of barriers from the end till beginning of next page. In case of
-    // last page start from last barrier except the final barrier
-    // TODO: Usage of update barrier might no longer be needed after E#167504 is implemented
-    auto barIndStart = firstAndLastBarIndPerPage[pageInd + 1].first;
-    auto barIndEnd = firstAndLastBarIndPerPage[pageInd + 1].second;
-    if (pageInd + 1 == _pageCount - 1) {
-        // If this is last page do not check final barrier
-        barIndEnd--;
-    }
-    _log.nest().trace("Update barriers search in range {0} - {1}", barIndStart, barIndEnd);
-    BarrierInfo::TaskSet dummyDmaProposedUpdateBars;
-    auto dummyDmaBlockIndex = _barrierInfo.getControlGraphBlockIndex(insertionPoint + 1);
-    for (int barInd = barIndEnd; barInd >= static_cast<int>(barIndStart); barInd--) {
-        auto earliestConsumer = _barrierInfo.getBarrierEarliestConsumer(barInd);
-        if (earliestConsumer > insertionPoint) {
-            auto earliestConsumerBlockIndex = _barrierInfo.getControlGraphBlockIndex(earliestConsumer);
-            if (earliestConsumerBlockIndex > dummyDmaBlockIndex) {
-                // If identified consumer is on different control block, then
-                // use sync task wait barrier as update barrier to not break
-                // control graph split requirement
-                auto syncTaskOpt = _barrierInfo.getControlGraphSyncPoint(insertionPoint);
-                VPUX_THROW_UNLESS(syncTaskOpt.has_value(), "No control block sync task for task {0}", insertionPoint);
-
-                auto syncTaskWaitBars = _barrierInfo.getWaitBarriers(syncTaskOpt.value());
-                VPUX_THROW_UNLESS(!syncTaskWaitBars.empty(), "No wait barriers for control graph sync task {0} found",
-                                  syncTaskOpt.value());
-                auto newBarInd = *std::max_element(syncTaskWaitBars.begin(), syncTaskWaitBars.end());
-                _log.nest(2).trace("Change update barrier {0} to {1} due to crossing control graph block "
-                                   "boundary set by task {2}",
-                                   barInd, newBarInd, syncTaskOpt.value());
-                dummyDmaProposedUpdateBars.insert(newBarInd);
-            } else {
-                dummyDmaProposedUpdateBars.insert(barInd);
-            }
-            break;
-        }
-    }
-    VPUX_THROW_WHEN(dummyDmaProposedUpdateBars.empty(), "No update barriers for dummy DMA in page {0} found", pageInd);
-
-    return dummyDmaProposedUpdateBars;
 }
 
 // Get information for each page about last DMA of each type
@@ -1830,18 +2100,6 @@ VPURT::BarrierPagesSplitHandler::getAndLegalizeDummyDmaInsertionData() {
             _log.nest().trace("Insert after op {0}", dummyDmaInsertionData.insertAfter);
             _log.nest().trace("Wait barriers: {0}", dummyDmaInsertionData.waitBars);
 
-            auto dummyDmaProposedUpdateBars = getDummyDmaUpdateBars(pageInd, insertionPoint, firstAndLastBarIndPerPage);
-            dummyDmaInsertionData.updateBars = to_small_vector(dummyDmaProposedUpdateBars);
-
-            _log.nest().trace("Update barriers: {0}", dummyDmaInsertionData.updateBars);
-
-            // Below exception was added to catch case when same barrier is used as both wait and update barrier
-            // what creates cyclic dependency. This is caused by adjusting update barrier to not break control graph
-            // split. Revisit this once update barriers are no longer needed when E#162444 and E#166675 is implemented
-            VPUX_THROW_UNLESS(llvm::set_intersection(dummyDmaProposedWaitBars, dummyDmaProposedUpdateBars).empty(),
-                              "Common wait ({0}) and update barrier ({1})", dummyDmaInsertionData.waitBars,
-                              dummyDmaInsertionData.updateBars);
-
             dummyDmaInsertionDataVec.push_back(dummyDmaInsertionData);
             _log = _log.unnest();
         }
@@ -1903,6 +2161,143 @@ VPURT::BarrierPagesSplitHandler::getDummyBarriersInsertionData() {
     return dummyBarrierDataVec;
 }
 
+// Identify all tasks that are the last on FIFO in each page and do not have update barriers but have wait
+// barrier as such tasks if started later may delay consumption of a barrier. If they do not have
+// update barrier potential next page barrier programming DMA will not be able to correctly identify
+// barriers whose production guarantee that previous page barriers have been consumed. Because of that
+// each HW FIFO task list present in a given page need to have an update barrier that will be a signal
+// for consuming wait barrier on this FIFO.
+SmallVector<size_t> vpux::VPURT::BarrierPagesSplitHandler::getLastTasksOnFifoPerPageWithNoUpdBar() {
+    SmallVector<mlir::DenseMap<VPURT::TaskQueueType, size_t>> lastTaskTypePerPageWithWaitBar(_pageCount);
+    SmallVector<mlir::DenseMap<VPURT::TaskQueueType, size_t>> lastTaskTypePerPageWithUpdateBar(_pageCount);
+    for (size_t taskInd = 0; taskInd < _taskPageAssignment.size(); taskInd++) {
+        auto pageInd = _taskPageAssignment[taskInd];
+        auto taskQueueType = _barrierInfo.getTaskQueueType(taskInd);
+
+        if (!_barrierInfo.getWaitBarriers(taskInd).empty()) {
+            lastTaskTypePerPageWithWaitBar[pageInd][taskQueueType] = taskInd;
+        }
+        if (!_barrierInfo.getUpdateBarriers(taskInd).empty()) {
+            lastTaskTypePerPageWithUpdateBar[pageInd][taskQueueType] = taskInd;
+        }
+    }
+
+    SmallVector<size_t> lastTaskTypePerPageWithNoUpdBar;
+    for (size_t pageInd = 0; pageInd < _pageCount; pageInd++) {
+        for (auto& [queueType, taskInd] : lastTaskTypePerPageWithWaitBar[pageInd]) {
+            bool needUpdateBar = true;
+            // Check if there is any next task on this page with update barrier
+            auto lastTaskWithUpdateBarIt = lastTaskTypePerPageWithUpdateBar[pageInd].find(queueType);
+            if (lastTaskWithUpdateBarIt != lastTaskTypePerPageWithUpdateBar[pageInd].end()) {
+                auto lastTaskWithUpdateBar = lastTaskWithUpdateBarIt->second;
+                if (lastTaskWithUpdateBar >= taskInd) {
+                    needUpdateBar = false;
+                }
+            }
+
+            if (needUpdateBar) {
+                lastTaskTypePerPageWithNoUpdBar.push_back(taskInd);
+            }
+        }
+    }
+
+    return lastTaskTypePerPageWithNoUpdBar;
+}
+
+// For identified per page last tasks with no update barriers add new dependency to
+// to some wait barrier of boundary task on this page or if this is not possible
+// use barrier from next page and make this task a new boundary task
+void vpux::VPURT::BarrierPagesSplitHandler::addUpdateBarriersForLastTaskOnFifoInPage(
+        SmallVector<size_t>& lastTaskTypePerPageWithNoUpdBar) {
+    _log.trace("Add update barriers for last task on FIFO in each page");
+
+    if (lastTaskTypePerPageWithNoUpdBar.empty() || _pageCount <= 2) {
+        return;
+    }
+
+    SmallVector<std::optional<size_t>> updateBarrierToUseOnPage(_pageCount);
+
+    BarrierInfo::TaskSet pagesWithBoundaryTasksChanged;
+
+    for (auto taskInd : lastTaskTypePerPageWithNoUpdBar) {
+        auto pageInd = _taskPageAssignment[taskInd];
+        if (!updateBarrierToUseOnPage[pageInd].has_value()) {
+            // Find boundary tasks wait barriers
+            BarrierInfo::TaskSet boundaryTasksWaitBars;
+            auto firstBoundaryTasksOnPage = getFirstBoundaryTasksForPage(pageInd);
+            for (auto pageBoundaryTask : firstBoundaryTasksOnPage) {
+                auto pageBoundaryTaskWaitBars = _barrierInfo.getWaitBarriers(pageBoundaryTask);
+                if (pageBoundaryTaskWaitBars.empty()) {
+                    auto prevTaskOpt = _barrierInfo.getPrevTaskOnSameQueueWithWaitBar(pageBoundaryTask);
+                    if (prevTaskOpt.has_value()) {
+                        pageBoundaryTaskWaitBars = _barrierInfo.getWaitBarriers(prevTaskOpt.value());
+                    }
+                }
+                boundaryTasksWaitBars.insert(pageBoundaryTaskWaitBars.begin(), pageBoundaryTaskWaitBars.end());
+            }
+
+            VPUX_THROW_WHEN(boundaryTasksWaitBars.empty(), "No wait barriers used by boundary tasks on page {0}",
+                            pageInd);
+            // As an update barrier use latest barrier from identified set. It gives highest likelihood
+            // of finding a barrier within this page which the task itself does not depend on.
+            updateBarrierToUseOnPage[pageInd] =
+                    *std::max_element(boundaryTasksWaitBars.begin(), boundaryTasksWaitBars.end());
+            auto barPage = getBarrierPage(updateBarrierToUseOnPage[pageInd].value());
+            VPUX_THROW_UNLESS(barPage == pageInd, "Barrier {0} page {1} invalid. Expected {2}",
+                              updateBarrierToUseOnPage[pageInd].value(), barPage, pageInd);
+        }
+
+        auto updateBar = updateBarrierToUseOnPage[pageInd].value();
+
+        BarrierInfo::TaskSet updateBars;
+
+        // Check if task depends on proposed barrier
+        if (isDepFromBarrierToTask(updateBar, taskInd)) {
+            // If this task cannot depend on this barrier then need to pick another barrier
+            // Solution is to make this task a boundary task for this page
+            _log.trace("Task {0} already depends on update barrier {1} on page {2}. Pick next barrier from next page",
+                       taskInd, updateBar, pageInd);
+
+            // Use first barrier from next page
+            while (getBarrierPage(updateBar) == pageInd) {
+                updateBar++;
+            }
+            pagesWithBoundaryTasksChanged.insert(pageInd);
+
+            // If task is going to be a boundary task then need to pick barriers
+            // from other boundary tasks so that page split constraints - next page boundary
+            // tasks PageN+1 dependencies on boundary tasks from PageN are satisfied
+            // without the need to do legalization
+            for (auto pageBoundaryTask : getLastBoundaryTasksForPage(pageInd)) {
+                // Get page boundary tasks update bars
+                auto pageBoundaryTaskUpdateBars = to_small_vector(_barrierInfo.getUpdateBarriers(pageBoundaryTask));
+
+                pageBoundaryTaskUpdateBars.erase(llvm::remove_if(pageBoundaryTaskUpdateBars,
+                                                                 [&](auto barInd) {
+                                                                     return getBarrierPage(barInd) == pageInd;
+                                                                 }),
+                                                 pageBoundaryTaskUpdateBars.end());
+
+                updateBars.insert(pageBoundaryTaskUpdateBars.begin(), pageBoundaryTaskUpdateBars.end());
+            }
+        }
+        updateBars.insert(updateBar);
+
+        auto taskQueueType = _barrierInfo.getTaskQueueType(taskInd);
+        _log.trace("Add update barrier for task {0} on queue {1}:{2} in page {3}", taskInd,
+                   stringifyEnum(taskQueueType.type).data(), taskQueueType.id, pageInd);
+
+        for (auto bar : updateBars) {
+            _barrierInfo.addProducer(bar, taskInd);
+            _log.nest().trace("Add update barrier {0} for task {1}", bar, taskInd);
+        }
+    }
+
+    for (auto pageWithBoundaryTasksChanged : pagesWithBoundaryTasksChanged) {
+        updateBoundaryTasksDataForPage(pageWithBoundaryTasksChanged);
+    }
+}
+
 void vpux::VPURT::BarrierPagesSplitHandler::initPrevPhysBarrierData(SmallVector<size_t>& barrierToPidVec) {
     size_t numOfBarriers = _barrierInfo.getNumOfBarrierOps();
 
@@ -1935,40 +2330,126 @@ void vpux::VPURT::BarrierPagesSplitHandler::initPrevPhysBarrierData(mlir::func::
     initPrevPhysBarrierData(barrierToPidVec);
 }
 
-// This method  enqueue information in case fo Full WLM for each task
-// Return enqueue barrier for each task
-// TODO: In next stage this method will return information about enqueue DMAs (E#170833)
-SmallVector<std::optional<size_t>> vpux::VPURT::BarrierPagesSplitHandler::prepareEnqueueDmaBarForFullWlm(
-        const mlir::DenseSet<vpux::VPU::ExecutorKind>& executorEnqAtBootstrap) {
-    VPUX_THROW_WHEN(_barrierPidPrevUsageVec.empty(), "Barrier PID previous usage vector is not initialized.");
-    SmallVector<std::optional<size_t>> tasksEnqBar(_barrierInfo.getNumOfTasks());
+SmallVector<size_t> vpux::VPURT::BarrierPagesSplitHandler::getBarrierPidPrevUsageVec(BarrierInfo::TaskSet& barriers) {
+    SmallVector<size_t> barrierPidPrevUsageVec;
+    for (auto barInd : barriers) {
+        auto prevBar = _barrierPidPrevUsageVec[barInd];
+        if (prevBar.has_value()) {
+            barrierPidPrevUsageVec.push_back(prevBar.value());
+        }
+    }
+    return barrierPidPrevUsageVec;
+}
 
+// Get number of workloads under single processed task
+// In case of DPU it is number of DPU variants
+// In case of SHV it is number of SHV kernel run ops
+// For other return 1
+size_t vpux::VPURT::BarrierPagesSplitHandler::getNumberOfWorkloads(size_t taskInd) {
+    if (!_getNumberOfWorkloadsFromTaskOpFlag) {
+        return 1;
+    }
+
+    auto taskOp = _barrierInfo.getTaskOpAtIndex(taskInd);
+
+    if (taskOp.getExecutorKind() == VPU::ExecutorKind::DPU) {
+        auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(taskOp.getInnerTaskOp());
+        VPUX_THROW_UNLESS(nceOp != nullptr, "Could not cast to NCE task");
+        return nceOp.getNumVariants();
+    }
+
+    if (taskOp.getExecutorKind() == VPU::ExecutorKind::SHAVE_ACT) {
+        if (auto swKernelOp = mlir::dyn_cast<VPUIP::SwKernelOp>(taskOp.getInnerTaskOp())) {
+            auto swKernelRun = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+            return std::distance(swKernelRun.begin(), swKernelRun.end());
+        }
+        return 1;
+    }
+
+    if (taskOp.getExecutorKind() == VPU::ExecutorKind::DMA_NN || taskOp.getExecutorKind() == VPU::ExecutorKind::M2I) {
+        return 1;
+    }
+
+    VPUX_THROW("Unsupported executor: {0}", taskOp.getExecutorKind());
+}
+
+VPURT::BarrierPagesSplitHandler::EnqueueDmaData vpux::VPURT::BarrierPagesSplitHandler::getDataForNewEnqueueDmaForTask(
+        size_t taskInd, size_t taskWorkloadStartIdx, size_t taskWorkloadEndIdx, VPURT::TaskQueueType queueType,
+        SmallVector<mlir::DenseMap<VPURT::TaskQueueType, size_t>>& lastDmaOfTypePerPage) {
     const VPURT::TaskQueueType dmaP0ChDdrQueueType = {VPU::ExecutorKind::DMA_NN,
                                                       getDMAQueueIdEncoding(/*port*/ 0, VPUIP::DmaChannelType::DDR)};
+    auto taskPage = _taskPageAssignment[taskInd];
+    auto lastDmaP0ChDdr = lastDmaOfTypePerPage[taskPage - 1][dmaP0ChDdrQueueType];
+    auto waitBars = _barrierInfo.getWaitBarriers(lastDmaP0ChDdr);
+
+    if (waitBars.empty()) {
+        auto prevTaskOpt = _barrierInfo.getPrevTaskOnSameQueueWithWaitBar(lastDmaP0ChDdr);
+        if (prevTaskOpt.has_value()) {
+            lastDmaP0ChDdr = prevTaskOpt.value();
+            waitBars = _barrierInfo.getWaitBarriers(lastDmaP0ChDdr);
+            _log.nest(2).trace("Use wait barriers of task {0}(page {1}) - {2}", lastDmaP0ChDdr,
+                               _taskPageAssignment[lastDmaP0ChDdr], to_small_vector(waitBars));
+        }
+    }
+
+    VPUX_THROW_UNLESS(!waitBars.empty(), "No wait barriers for last DMA {0}(page {1}) found", lastDmaP0ChDdr,
+                      taskPage - 1);
+
+    EnqueueDmaData newEnq;
+    newEnq.pageInd = taskPage - 1;
+    newEnq.queueType = queueType;
+    newEnq.startTaskIdx = taskWorkloadStartIdx;
+    newEnq.endTaskIdx = taskWorkloadEndIdx;
+    newEnq.waitBars = to_small_vector(waitBars);
+    newEnq.insertBefore = lastDmaP0ChDdr;
+
+    return newEnq;
+}
+
+// This method prepares enqueue information in case of Full WLM for each task
+// Return enqueue barrier for each task
+// TODO: In next stage this method will return information about enqueue DMAs (E#170833)
+SmallVector<VPURT::BarrierPagesSplitHandler::EnqueueDmaData> vpux::VPURT::BarrierPagesSplitHandler::getEnqueueDmaData(
+        const ExecutionGroupAnalysis& execGroupAnalysis,
+        const mlir::DenseSet<vpux::VPU::ExecutorKind>& executorEnqAtBootstrap) {
+    VPUX_THROW_WHEN(_barrierPidPrevUsageVec.empty(), "Barrier PID previous usage vector is not initialized.");
+    SmallVector<EnqueueDmaData> enqDmaDataVec;
+
     auto lastDmaOfTypePerPage = getLastDmaOfTypePerPage();
 
     for (auto& [queueType, taskVec] : _taskQueueTypeMap) {
         _log.trace("Enqueue tasks for {0}:{1}", VPU::stringifyExecutorKind(queueType.type), queueType.id);
 
         // Check if for given queue it is requested to enqueue all tasks at bootstrap
-        // In that case skip processing of this queue as default _tasksEnqBar value is nullopt = BOOTSTRAP
+        // In that case skip processing of this queue as no enqueue DMA is needed
         if (executorEnqAtBootstrap.contains(queueType.type)) {
             _log.nest().trace("Enqueue task from that queue at bootstrap");
             continue;
         }
 
         // DMA tasks can be enqueued at bootstrap as they do not require
-        // descriptor fetching but DPU and SHV need to be enqueued at start barrier as earliest point
+        // descriptor fetching but DPU and SHV need to be enqueued after start barrier as earliest point
+        // as before it there is space for descriptor fetching DMA
         // TODO: This theoretically is no longer needed for Full WLM if we make sure descriptor fetching DMA is
         // before enqueue DMA. To be removed in future
-        bool supportEnqAtBootstrap = (queueType.type == VPU::ExecutorKind::DMA_NN);
+        bool needsEnqAfterStartBar = (queueType.type != VPU::ExecutorKind::DMA_NN);
 
-        // Earliest enqueue barrier for queue
-        std::optional<size_t> earliestEnqBarOpt = std::nullopt;
-        if (!supportEnqAtBootstrap) {
-            VPUX_THROW_UNLESS(_startBarrierIndex.has_value(), "Start barrier index is not set");
-            earliestEnqBarOpt = _startBarrierIndex;
-        }
+        // Earliest enqueue DMA for queue
+        EnqueueDmaData earliestEnqDma;
+        earliestEnqDma.pageInd = 0;
+        earliestEnqDma.queueType = queueType;
+        VPUX_THROW_UNLESS(_startBarrierIndex.has_value(), "Start barrier index is not set");
+        VPUX_THROW_UNLESS(needsEnqAfterStartBar,
+                          "Enqueue DMA logic is intended only for queues that need to be enqueued after start bar. "
+                          "Queue {0} is not supported",
+                          queueType.type);
+
+        // Get earliest start barrier consumer and set enqueue DMA before it
+        auto startBarEarliestConsumer = _barrierInfo.getBarrierEarliestConsumer(_startBarrierIndex.value());
+        earliestEnqDma.insertBefore = startBarEarliestConsumer;
+        earliestEnqDma.waitBars.push_back(_startBarrierIndex.value());
+
+        SmallVector<EnqueueDmaData> enqDmaDataPerQueueVec;
 
         // Check if there is a need to check enqueue of each DPU if it would not block
         // submission of DPUs from SHV
@@ -1979,125 +2460,187 @@ SmallVector<std::optional<size_t>> vpux::VPURT::BarrierPagesSplitHandler::prepar
                        _shvTasksWithDpuPerTile[queueType.id].size(), queueType.id);
         }
 
-        std::optional<size_t> previousEnqBarOpt = std::nullopt;
         std::optional<size_t> previousTaskIndOpt = std::nullopt;
         std::optional<size_t> prevTaskPage = std::nullopt;
 
+        // At this point we're either going over DPU or SHV queues
+        ExecutionGroupListMap executionGrouplistMap;
+        if (queueType.type == VPU::ExecutorKind::DPU) {
+            executionGrouplistMap = execGroupAnalysis.getDPUExecutionGroups();
+        } else {
+            executionGrouplistMap = execGroupAnalysis.getActShvExecutionGroups();
+        }
+
+        auto executionGroups = executionGrouplistMap[queueType];
+
         _log = _log.nest();
         // Iterate over all tasks of this queue type and find enqueue barrier for each task
+        size_t enqueuedWorkloads = 0;
         for (auto taskInd : taskVec) {
             auto taskPage = _taskPageAssignment[taskInd];
 
-            auto waitBars = _barrierInfo.getWaitBarriers(taskInd);
+            auto taskWorkloadsCount = getNumberOfWorkloads(taskInd);
+            auto taskWorkloadStartIdx = enqueuedWorkloads;
+            auto taskWorkloadEndIdx = enqueuedWorkloads + taskWorkloadsCount - 1;
 
-            std::optional<size_t> enqBarOpt = std::nullopt;
+            auto waitBars = _barrierInfo.getWaitBarriers(taskInd);
 
             _log.trace("Find enqueue for task {0}(page {1}) with wait bars {2}", taskInd, taskPage,
                        to_small_vector(waitBars));
 
-            // Find enqueue barrier based on conditions
-            if (taskPage < 2) {
-                // Case 1:
-                // Tasks from Page 0 and 1 can be enqueued at bootstrap
-                enqBarOpt = earliestEnqBarOpt;
-                _log.nest().trace("Page 0 and 1 tasks can be enqueued at {0}",
-                                  (enqBarOpt.has_value() ? std::to_string(enqBarOpt.value()) : "BOOTSTRAP"));
-            } else if (prevTaskPage.has_value() && prevTaskPage.value() == taskPage) {
-                // Case 2:
-                // If task is on same page as previous task then enqueue it together
-                enqBarOpt = previousEnqBarOpt;
-                _log.nest().trace("Task has same page as previous. Enqueue together with previous: {0}",
-                                  (enqBarOpt.has_value() ? std::to_string(enqBarOpt.value()) : "BOOTSTRAP"));
+            bool enqueueIdentified = false;
+            auto executionGroupIndex = execGroupAnalysis.getGroupIndexForTask(taskInd, queueType);
+            VPUX_THROW_WHEN(!executionGroupIndex.has_value(), "Could not find execution group index for task {0}",
+                            taskInd);
+
+            // Requirement to have separate enqueue:
+            //
+            // Case 1: Parent group has multiple tasks
+            // ----------------------------------------
+            // We legalize the barriers like this:
+            //
+            //     [LastTaskOfGrandParent]
+            //         -> [FirstTaskOfParent]
+            //         -> FetchTravelingGroup
+            //         -> ... [LastTaskOfParent = TaskX - 1]
+            //         -> [FirstTaskOfTravelingGroup = TaskX]
+            //
+            // In this case, the first task of the traveling group is guaranteed to start
+            // only after the parent group has made sufficient progress (at least one task executed).
+            // This ensures buffer A is not overwritten prematurely by the management DMA thus we can enqueue all tasks
+            // with previous.
+            //
+            // Case 2: Parent group has only one task
+            // --------------------------------------
+            // We cannot have the FetchTravelingGroup in parallel to parent tasks , so we legalize like:
+            //
+            //     [LastTaskOfGrandParent]
+            //         -> FetchTravelingGroup
+            //         -> [FirstAndLastTaskOfParent = TaskX - 1]
+            //         -> [FirstTaskOfTravelingGroup = TaskX]
+            //
+            // In this edge case, if preemption happens after the last task of grand parent
+            // management DMA is unblocked and will replaces descriptors in A
+            // Having a separate enqueue avoids this issue
+            //
+            auto executionGroupIndexValue = executionGroupIndex.value();
+            if (executionGroupIndexValue > 1 && executionGroups[executionGroupIndexValue][0] == taskInd &&
+                executionGroups[executionGroupIndexValue - 1].size() == 1) {
+                auto newEnqueueDmaData = getDataForNewEnqueueDmaForTask(
+                        taskInd, taskWorkloadStartIdx, taskWorkloadEndIdx, queueType, lastDmaOfTypePerPage);
+                enqDmaDataPerQueueVec.push_back(newEnqueueDmaData);
+                _log.nest().trace("Created separate enqueue for task {0} (page {1}) after wait barriers {2}", taskInd,
+                                  taskPage, newEnqueueDmaData.waitBars);
             } else {
-                // Case 3:
-                // Find enqueue barrier based on task wait barriers
-                SmallVector<size_t> prevBars;
-                for (auto barInd : waitBars) {
-                    auto prevBar = _barrierPidPrevUsageVec[barInd];
-                    if (prevBar.has_value()) {
-                        prevBars.push_back(prevBar.value());
-                    }
-                }
-
-                if (prevBars.empty()) {
-                    // Case 3a:
-                    // If task has no previous instances of wait barriers
-                    if (previousEnqBarOpt.has_value()) {
-                        _log.nest().trace("Task has no previous barrier instances. Enqueue together with previous");
-                        enqBarOpt = previousEnqBarOpt;
+                // Find enqueue barrier based on conditions
+                if (taskPage < 2) {
+                    // Case 1:
+                    // Tasks from Page 0 and 1 can be enqueued right after startBarrier
+                    if (enqDmaDataPerQueueVec.empty()) {
+                        // If no task has been enqueue before then insert first enqueue DMA
+                        // with task indexes range for current task
+                        earliestEnqDma.startTaskIdx = taskWorkloadStartIdx;
+                        earliestEnqDma.endTaskIdx = taskWorkloadEndIdx;
+                        enqDmaDataPerQueueVec.push_back(earliestEnqDma);
                     } else {
-                        _log.nest().trace("Task has no previous barrier instances. Enqueue at bootstrap/startbarrier");
-                        enqBarOpt = earliestEnqBarOpt;
+                        // If there is already enqueue DMA for this queue then end task index
+                        // range to cover also current task
+                        enqDmaDataPerQueueVec.back().endTaskIdx = taskWorkloadEndIdx;
                     }
-                }
 
-                if (!enqBarOpt.has_value() && previousEnqBarOpt.has_value() && previousTaskIndOpt.has_value()) {
-                    // Case 3b:
-                    // Check if task can be enqueued with previous by checking if there is dependency from all previous
-                    // instances of wait barriers users to previous task
-                    bool canBeMerged = true;
-                    auto prevTask = previousTaskIndOpt.value();
-                    _log.nest().trace("Check if task can be merged with previous - {0}(page {1})", prevTask,
-                                      _taskPageAssignment[prevTask]);
-                    for (auto prevBar : prevBars) {
-                        auto prevBarUsers = _barrierInfo.getBarrierConsumers(prevBar);
-                        _log.nest(2).trace("Check dependencies from prev bar {0} users: {1} to prevTask {2}", prevBar,
-                                           to_small_vector(prevBarUsers), prevTask);
-                        for (auto prevBarUser : prevBarUsers) {
-                            if (!isDepFromTaskAToTaskB(prevBarUser, prevTask)) {
-                                _log.nest(2).trace("Cannot be enqueued with previous because there is no dependency "
-                                                   "from {0} to {1}",
-                                                   prevBarUser, prevTask);
-                                canBeMerged = false;
+                    enqueueIdentified = true;
+                    _log.nest().trace("Page 0 and 1 tasks can be enqueued at schedule start after barriers {0}",
+                                      earliestEnqDma.waitBars);
+                } else if (prevTaskPage.has_value() && prevTaskPage.value() == taskPage) {
+                    // Case 2:
+                    // If task is on same page as previous task then enqueue it together - update end task range
+                    VPUX_THROW_WHEN(enqDmaDataPerQueueVec.empty(), "Enqueue DMA data vector is empty");
+                    enqDmaDataPerQueueVec.back().endTaskIdx = taskWorkloadEndIdx;
+
+                    enqueueIdentified = true;
+                    _log.nest().trace(
+                            "Task has same page as previous. Enqueue together with previous after barriers {0}",
+                            enqDmaDataPerQueueVec.back().waitBars);
+                } else {
+                    // Case 3:
+                    // Find enqueue barrier based on task wait barriers
+                    auto prevBars = getBarrierPidPrevUsageVec(waitBars);
+
+                    if (prevBars.empty()) {
+                        // Case 3a:
+                        // If task has no previous instances of wait barriers
+                        if (prevTaskPage.has_value()) {
+                            _log.nest().trace("Task has no previous barrier instances. Enqueue together with previous");
+                            VPUX_THROW_WHEN(enqDmaDataPerQueueVec.empty(), "Enqueue DMA data vector is empty");
+                            enqDmaDataPerQueueVec.back().endTaskIdx = taskWorkloadEndIdx;
+
+                            enqueueIdentified = true;
+                        } else {
+                            VPUX_THROW_UNLESS(enqDmaDataPerQueueVec.empty(),
+                                              "Enqueue DMA data vector is not empty at point of enqueue task {0}",
+                                              taskInd);
+                            // If no task has been enqueue before then insert first enqueue DMA
+                            // with task indexes range for current task
+                            earliestEnqDma.startTaskIdx = taskWorkloadStartIdx;
+                            earliestEnqDma.endTaskIdx = taskWorkloadEndIdx;
+                            enqDmaDataPerQueueVec.push_back(earliestEnqDma);
+
+                            _log.nest().trace("Task has no previous barrier instances. Enqueue at schedule start after "
+                                              "barriers {0}",
+                                              earliestEnqDma.waitBars);
+                            enqueueIdentified = true;
+                        }
+                    }
+
+                    if (!enqueueIdentified && previousTaskIndOpt.has_value()) {
+                        // Case 3b:
+                        // Check if task can be enqueued with previous by checking if there is dependency from all
+                        // previous instances of wait barriers users to previous task
+                        bool canBeMerged = true;
+                        auto prevTask = previousTaskIndOpt.value();
+                        _log.nest().trace("Check if task can be merged with previous - {0}(page {1})", prevTask,
+                                          _taskPageAssignment[prevTask]);
+                        for (auto prevBar : prevBars) {
+                            auto prevBarUsers = _barrierInfo.getBarrierConsumers(prevBar);
+                            _log.nest(2).trace("Check dependencies from prev bar {0} users: {1} to prevTask {2}",
+                                               prevBar, to_small_vector(prevBarUsers), prevTask);
+                            for (auto prevBarUser : prevBarUsers) {
+                                _log.nest(2).trace("Check dependency from {0} to {1}", prevBarUser, prevTask);
+                                if (!isDepFromTaskAToTaskB(prevBarUser, prevTask)) {
+                                    _log.nest(2).trace(
+                                            "Cannot be enqueued with previous because there is no dependency "
+                                            "from {0} to {1}",
+                                            prevBarUser, prevTask);
+                                    canBeMerged = false;
+                                    break;
+                                }
+                            }
+                            if (!canBeMerged) {
                                 break;
                             }
                         }
-                        if (!canBeMerged) {
-                            break;
+
+                        if (canBeMerged) {
+                            enqDmaDataPerQueueVec.back().endTaskIdx = taskWorkloadEndIdx;
+
+                            enqueueIdentified = true;
+                            _log.nest().trace("Can be enqueued with previous task after barriers {0}",
+                                              enqDmaDataPerQueueVec.back().waitBars);
                         }
                     }
 
-                    if (canBeMerged) {
-                        enqBarOpt = previousEnqBarOpt;
-                        _log.nest().trace("Can be enqueued with previous task on barrier {0}",
-                                          (enqBarOpt.has_value() ? std::to_string(enqBarOpt.value()) : "BOOTSTRAP"));
+                    if (!enqueueIdentified) {
+                        // Case 3c:
+                        // Safe enqueue for task in PageN is to use last DMA of Page N-1 as previous pass which insert
+                        // dummy DMAs makes sure such DMA will execute after all barriers from PageN-2 has been consumed
+                        // TODO: Experiment with more optimal solutions and find earlier possible enqueue point.
+                        // This will be needed in case this method would inject enqueue DMAs directly (E#170833)
+                        auto newEnqueueDmaData = getDataForNewEnqueueDmaForTask(
+                                taskInd, taskWorkloadStartIdx, taskWorkloadEndIdx, queueType, lastDmaOfTypePerPage);
+                        enqDmaDataPerQueueVec.push_back(newEnqueueDmaData);
+
+                        _log.nest().trace("Enqueue task after barriers {0}", enqDmaDataPerQueueVec.back().waitBars);
                     }
-                }
-
-                if (!enqBarOpt.has_value()) {
-                    // Case 3c:
-                    // Safe enqueue for task in PageN is to use last DMA of Page N-1 as previous pass which insert dummy
-                    // DMAs makes sure such DMA will execute after all barriers from PageN-2 has been consumed
-                    // TODO: Experiment with more optimal solutions and find earlier possible enqueue point.
-                    // This will be needed in case this method would inject enqueue DMAs directly (E#170833)
-                    auto lastDmaP0ChDdr = lastDmaOfTypePerPage[taskPage - 1][dmaP0ChDdrQueueType];
-                    _log.nest().trace("Last DMA P0 CH:DDR on prev page - {0}(page {1})", lastDmaP0ChDdr,
-                                      _taskPageAssignment[lastDmaP0ChDdr]);
-
-                    auto lastDmaP0ChDdrWaitBars = _barrierInfo.getWaitBarriers(lastDmaP0ChDdr);
-
-                    if (lastDmaP0ChDdrWaitBars.empty()) {
-                        auto prevTaskOpt = _barrierInfo.getPrevTaskOnSameQueueWithWaitBar(lastDmaP0ChDdr);
-                        if (prevTaskOpt.has_value()) {
-                            lastDmaP0ChDdrWaitBars = _barrierInfo.getWaitBarriers(prevTaskOpt.value());
-                            _log.nest(2).trace("Use wait barriers of task {0}(page {1}) - {2}", prevTaskOpt.value(),
-                                               _taskPageAssignment[prevTaskOpt.value()],
-                                               to_small_vector(lastDmaP0ChDdrWaitBars));
-                        }
-                    }
-
-                    VPUX_THROW_UNLESS(!lastDmaP0ChDdrWaitBars.empty(),
-                                      "No wait barriers for last DMA {0}(page {1}) found", lastDmaP0ChDdr,
-                                      taskPage - 1);
-
-                    enqBarOpt = *std::min_element(lastDmaP0ChDdrWaitBars.begin(), lastDmaP0ChDdrWaitBars.end());
-
-                    auto enqBarPage = getBarrierPage(enqBarOpt.value());
-                    VPUX_THROW_WHEN(enqBarPage >= taskPage,
-                                    "Enqueue barrier {0}{page {1}} is not on earlier page than task", enqBarOpt.value(),
-                                    enqBarPage);
-
-                    _log.nest().trace("Enqueue task at {0}(page {1})", enqBarOpt.value(), enqBarPage);
                 }
             }
 
@@ -2105,43 +2648,92 @@ SmallVector<std::optional<size_t>> vpux::VPURT::BarrierPagesSplitHandler::prepar
             if (dpuEnqCheckForShv) {
                 for (auto shvTaskInd : _shvTasksWithDpuPerTile[queueType.id]) {
                     if (isDepFromTaskAToTaskB(shvTaskInd, taskInd)) {
-                        // DPU task depends on SHV. Check if DPU enq barrier is after SHV
-                        _log.nest().trace("DPU task {0} with enqueue at {1} depends on SHV task {2} which submits DPU",
-                                          taskInd, enqBarOpt.value(), shvTaskInd);
-                        if (!isDepFromTaskToBarrier(shvTaskInd, enqBarOpt.value())) {
+                        // DPU task depends on SHV. Check if DPU enqueue DMA barrier is after SHV task
+                        _log.nest().trace("DPU task {0} depends on SHV task {1} which submits DPU", taskInd,
+                                          shvTaskInd);
+
+                        auto& lastEnqDmaData = enqDmaDataPerQueueVec.back();
+
+                        bool isEnqDmaAfterShv = false;
+                        for (auto dpuEnqBar : lastEnqDmaData.waitBars) {
+                            if (isDepFromTaskToBarrier(shvTaskInd, dpuEnqBar)) {
+                                // If SHV task is before enqueue DMA barrier then it is safe to enqueue
+                                _log.nest().trace("SHV task {0} is before enqueue DMA barrier {1} for task {2}",
+                                                  shvTaskInd, dpuEnqBar, taskInd);
+                                isEnqDmaAfterShv = true;
+                                break;
+                            }
+                        }
+
+                        if (!isEnqDmaAfterShv) {
                             // If enqueue is not after SHV task completion then delay it
                             // Check on which barrier to delay. Currently it is guaranteed by previous
                             // passes that SHV with DPU will have following sequence:
                             //  .. -> SHV(DPU) -> BAR -> SyncDMA -> ...
                             // In such case it is safe to delay on BAR barrier
-                            enqBarOpt = *_barrierInfo.getUpdateBarriers(shvTaskInd).begin();
+                            auto shvTaskUpdBars = _barrierInfo.getUpdateBarriers(shvTaskInd);
+                            VPUX_THROW_WHEN(shvTaskUpdBars.empty(),
+                                            "SHV task {0} has no update barriers. Cannot delay enqueue for task {1}",
+                                            shvTaskInd, taskInd);
+                            auto newEnqDmaBar = *std::min_element(shvTaskUpdBars.begin(), shvTaskUpdBars.end());
+                            auto newInsertBefore = _barrierInfo.getBarrierLatestProducer(newEnqDmaBar) + 1;
                             _log.nest().trace(
                                     "Delay enqueue of task {0} to {1} due to dependency on SHV task {2} which "
                                     "submits DPU",
-                                    taskInd, enqBarOpt.value(), shvTaskInd);
+                                    taskInd, newEnqDmaBar, shvTaskInd);
+
+                            // Check if last enqueue is just for this task and can be updated
+                            // or if new one needs to be created
+                            if (taskWorkloadStartIdx == lastEnqDmaData.startTaskIdx) {
+                                // Update last enqueue DMA to use new wait barrier that is produced
+                                // by SHV. Insert this DMA after SHV task
+                                lastEnqDmaData.waitBars = {newEnqDmaBar};
+                                lastEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
+                                lastEnqDmaData.insertBefore = newInsertBefore;
+                                _log.nest().trace("Update last enqueue DMA for task {0} to use barriers {1}", taskInd,
+                                                  lastEnqDmaData.waitBars);
+                            } else {
+                                // Remove this task from previous one and create new one
+                                lastEnqDmaData.endTaskIdx = lastEnqDmaData.endTaskIdx - taskWorkloadsCount;
+
+                                EnqueueDmaData newEnqDmaData;
+                                newEnqDmaData.pageInd = getBarrierPage(newEnqDmaBar);
+                                newEnqDmaData.queueType = queueType;
+                                newEnqDmaData.startTaskIdx = taskWorkloadStartIdx;
+                                newEnqDmaData.endTaskIdx = taskWorkloadEndIdx;
+                                newEnqDmaData.waitBars = {newEnqDmaBar};
+                                newEnqDmaData.insertBefore = newInsertBefore;
+
+                                enqDmaDataPerQueueVec.push_back(newEnqDmaData);
+                                _log.nest().trace("Create new enqueue DMA for task {0} with barriers {1}", taskInd,
+                                                  enqDmaDataPerQueueVec.back().waitBars);
+                            }
                         }
                     }
                 }
             }
 
-            tasksEnqBar[taskInd] = enqBarOpt;
-            previousEnqBarOpt = enqBarOpt;
+            enqueuedWorkloads += taskWorkloadsCount;
             previousTaskIndOpt = taskInd;
             prevTaskPage = taskPage;
         }
+
+        enqDmaDataVec.insert(enqDmaDataVec.end(), enqDmaDataPerQueueVec.begin(), enqDmaDataPerQueueVec.end());
         _log = _log.unnest();
     }
-    return tasksEnqBar;
+    return enqDmaDataVec;
 }
 
-void vpux::VPURT::BarrierPagesSplitHandler::cleanupRedundantBarriers() {
+// Cleanup redundant barriers
+// If barrier has no consumers, remove its producers. Ignore final barrier (last barrier)
+// Return status if redundant barriers were found
+bool vpux::VPURT::BarrierPagesSplitHandler::cleanupRedundantBarriers() {
     _log.trace("Cleaning up redundant barriers");
-    // Cleanup redundant barriers
-    // If barrier has no consumers, remove its producers. Ignore final barrier (last barrier)
-    // If barrier has no producers, remove its consumers
+    bool foundRedundantBarriers = false;
     for (size_t barInd = 0; barInd < _barrierInfo.getNumOfBarrierOps() - 1; barInd++) {
         if (_barrierInfo.getBarrierConsumers(barInd).empty()) {
             _log.trace("No consumers for barrier {0}(page {1})", barInd, getBarrierPage(barInd));
+            foundRedundantBarriers = true;
             auto barProdTasks = _barrierInfo.getBarrierProducers(barInd);
             for (auto barProdTask : barProdTasks) {
                 _log.trace("Remove producer {0}(page {1}) from barrier {2}(page {3})", barProdTask,
@@ -2149,14 +2741,26 @@ void vpux::VPURT::BarrierPagesSplitHandler::cleanupRedundantBarriers() {
                 _barrierInfo.removeProducer(barInd, barProdTask);
             }
         }
+    }
+    return foundRedundantBarriers;
+}
+
+void vpux::VPURT::BarrierPagesSplitHandler::ensureBarrierHasProducer() {
+    _log.trace("Make sure barrier has producer");
+
+    // If barrier has no producers, add new dummy producer for it
+    for (size_t barInd = 0; barInd < _barrierInfo.getNumOfBarrierOps() - 1; barInd++) {
+        auto barPage = getBarrierPage(barInd);
+
         if (_barrierInfo.getBarrierProducers(barInd).empty()) {
-            _log.trace("No producer for barrier {0}(page {1})", barInd, getBarrierPage(barInd));
-            auto barConsTasks = _barrierInfo.getBarrierConsumers(barInd);
-            for (auto barConsTask : barConsTasks) {
-                _log.trace("Remove consumer {0}(page {1}) from barrier {2}(page {3})", barConsTask,
-                           _taskPageAssignment[barConsTask], barInd, getBarrierPage(barInd));
-                _barrierInfo.removeConsumer(barInd, barConsTask);
+            _log.trace("No producer for barrier {0}(page {1}). Attach dummy producer", barInd, barPage);
+            // If barrier has no producers use first boundary task from previous page
+            size_t firstTask = 0;
+            if (barPage > 0) {
+                firstTask = getFirstBoundaryTasksForPage(barPage - 1).front();
             }
+            _barrierInfo.addProducer(barInd, firstTask);
+            _log.nest().trace("Add producer {0} to barrier {1}", firstTask, barInd);
         }
     }
 }
@@ -2168,28 +2772,20 @@ void vpux::VPURT::BarrierPagesSplitHandler::verifyTaskBarrierPagesAreValid() {
         auto waitBars = _barrierInfo.getWaitBarriers(taskInd);
         auto updateBars = _barrierInfo.getUpdateBarriers(taskInd);
 
-        llvm::DenseSet<size_t> waitPages;
-        llvm::for_each(waitBars, [&](auto& bar) {
-            waitPages.insert(getBarrierPage(bar));
-        });
-
-        llvm::DenseSet<size_t> updatePages;
-        llvm::for_each(updateBars, [&](auto& bar) {
-            updatePages.insert(getBarrierPage(bar));
-        });
-
         auto taskPage = _taskPageAssignment[taskInd];
 
-        if (!waitPages.empty()) {
-            auto maxWaitPage = *std::max_element(waitPages.begin(), waitPages.end());
-            VPUX_THROW_UNLESS(maxWaitPage <= taskPage, "Task {0} page {1} has wait barrier from page {2}", taskInd,
-                              taskPage, maxWaitPage);
+        for (auto waitBar : waitBars) {
+            auto waitBarPage = getBarrierPage(waitBar);
+            VPUX_THROW_WHEN(waitBarPage != taskPage,
+                            "For task {0}(page {1}) its wait barrier {2}(page {3}) is not on the same page", taskInd,
+                            taskPage, waitBar, waitBarPage);
         }
 
-        if (!updatePages.empty()) {
-            auto minUpdatePage = *std::min_element(updatePages.begin(), updatePages.end());
-            VPUX_THROW_UNLESS(minUpdatePage >= taskPage, "Task {0} page {1} has update barrier from page {2}", taskInd,
-                              taskPage, minUpdatePage);
+        for (auto updateBar : updateBars) {
+            auto updateBarPage = getBarrierPage(updateBar);
+            VPUX_THROW_WHEN(updateBarPage != taskPage && updateBarPage != taskPage + 1,
+                            "For task {0}(page {1}) its update barrier {2}(page {3}) is not on the same or next page",
+                            taskInd, taskPage, updateBar, updateBarPage);
         }
     }
 }
@@ -2228,29 +2824,450 @@ void vpux::VPURT::BarrierPagesSplitHandler::verifyNoCyclicDeps() {
     }
 }
 
-// Perform complete legalization of schedule for barrier pages split
-// - legalize long dependencies of tasks
-// - ensure boundary tasks from neighbor pages are dependent
-void vpux::VPURT::BarrierPagesSplitHandler::legalizeScheduleForBarrierPagesSplit() {
-    _log.trace("Legalizing schedule for barrier pages split");
-    if (!areNoDepsGoingBeyondNeighborPage()) {
-        auto tasksToLegalize = getTasksWithNonAdjacentPageDependencyToLegalize();
-        legalizeNonAdjacentPageDependencies(tasksToLegalize);
+bool vpux::VPURT::BarrierPagesSplitHandler::verifyFetchDmaDependencies(mlir::func::FuncOp func,
+                                                                       ExecutionGroupListMap& executionGroupListMap) {
+    SmallVector<size_t> fetchTasks;
+    DenseMap<VPUIP::FetchDMAAttr, size_t> fetchTaskMap;
+
+    // Get all Fetch Tasks
+    func.walk([&](VPURT::TaskOp taskOp) {
+        if (auto fetchDMAOp = taskOp.getInnerTaskOpOfType<VPUIP::FetchDMAOp>()) {
+            fetchTasks.push_back(_barrierInfo.getIndex(taskOp));
+        }
+    });
+
+    // Create a map for lookup
+    for (auto fetchTask : fetchTasks) {
+        auto fetchTaskOp = _barrierInfo.getTaskOpAtIndex(fetchTask);
+        auto fetchDMAOp = fetchTaskOp.getInnerTaskOpOfType<VPUIP::FetchDMAOp>();
+        fetchTaskMap[fetchDMAOp.getFetchDmaAttr()] = fetchTask;
     }
 
-    if (!areBoundaryTasksFromNeighborPagesDependent()) {
-        auto boundaryTaskPairsMissingDepInBetween = getBoundaryTaskPairsMissingDepInBetween();
-        legalizeDepsForBoundaryTasks(boundaryTaskPairsMissingDepInBetween);
-    }
+    // For all taskOpQueues go over each execution group and verify the correctness of corresponding FetchTask in the IR
+    for (auto& [_, executionGroups] : executionGroupListMap) {
+        // 0 and 1 can be fetch simultaneously
+        if (executionGroups.size() < 3) {
+            continue;
+        }
+        size_t groupIdx = 2;
+        auto grandParentGroup = executionGroups.front();
+        auto parentGroup = executionGroups[1];
+        auto travelingGroup = executionGroups[groupIdx];
+        SmallVector<size_t> nextGroup;
+        if (groupIdx != executionGroups.size() - 1) {
+            // For the last group there is no next group
+            nextGroup = executionGroups[groupIdx + 1];
+        }
 
-    cleanupRedundantBarriers();
-    verifyTaskBarrierPagesAreValid();
-    verifyNoCyclicDeps();
-    _log.trace("Successfully legalized schedule for barrier pages split");
+        while (groupIdx < executionGroups.size()) {
+            auto fetchTaskAttr = getFetchDMAAttr(groupIdx, _barrierInfo, executionGroups[groupIdx].front());
+            auto fetchTask = fetchTaskMap[fetchTaskAttr];
+            // Is FetchTask for Group N dependent on last task of Group N-2
+            if (!isDepFromTaskAToTaskB(grandParentGroup[grandParentGroup.size() - 1], fetchTask)) {
+                _log.trace("Fetch task {0} is not dependent on last task of Group N-2 {1}", fetchTask,
+                           grandParentGroup[grandParentGroup.size() - 1]);
+                return false;
+            }
+
+            // Is last task of group N+1 dependent on fetchTask for group N
+            if (!nextGroup.empty()) {
+                if (!isDepFromTaskAToTaskB(fetchTask, nextGroup[nextGroup.size() - 1])) {
+                    _log.trace("Last task of Group N+1 {0} is not dependent on fetch task {1}",
+                               nextGroup[nextGroup.size() - 1], fetchTask);
+                    return false;
+                }
+            }
+
+            ++groupIdx;
+            grandParentGroup = parentGroup;
+            parentGroup = travelingGroup;
+            if (groupIdx < executionGroups.size()) {
+                travelingGroup = executionGroups[groupIdx];
+                if (groupIdx != executionGroups.size() - 1) {
+                    nextGroup = executionGroups[groupIdx + 1];
+                }
+            }
+        }
+    }
+    return true;
 }
 
-void vpux::VPURT::BarrierPagesSplitHandler::updateIR() {
-    _barrierInfo.updateIR();
+// For all physical barriers check if given virtual barrier using PIDx
+// is updated after ALL consumers of previous barrier using same PIDx are guaranteed
+// to start
+void vpux::VPURT::BarrierPagesSplitHandler::verifyPhysicalBarsDependencies() {
+    VPUX_THROW_UNLESS(_barrierPidPrevUsageVec.size() == _barrierInfo.getNumOfBarrierOps(),
+                      "Barrier PID previous usage vector size {0} does not match number of barriers {1}",
+                      _barrierPidPrevUsageVec.size(), _barrierInfo.getNumOfBarrierOps());
+
+    for (size_t barInd = 0; barInd < _barrierInfo.getNumOfBarrierOps(); barInd++) {
+        auto prevBarInd = _barrierPidPrevUsageVec[barInd];
+
+        if (!prevBarInd.has_value()) {
+            continue;
+        }
+
+        auto prevBarConsumers = _barrierInfo.getBarrierConsumers(prevBarInd.value());
+        auto barProducers = _barrierInfo.getBarrierProducers(barInd);
+
+        // Check if each bar producer depends on all consumers of previous barrier
+        // This way it will guarantee that barrier is consumed and reloaded for next usage
+        // no matter the timings of tasks
+        for (auto barProd : barProducers) {
+            for (auto prevBarConsumer : prevBarConsumers) {
+                if (!isDepFromTaskAToTaskB(prevBarConsumer, barProd)) {
+                    VPUX_THROW("VID {0} is not guaranteed to be consumed before VID {1} is produced. No dependency "
+                               "from {2} to {3}",
+                               prevBarInd.value(), barInd, prevBarConsumer, barProd);
+                }
+            }
+        }
+    }
+}
+
+// Verify dependencies around Barrier Programming DMA:
+// - BarProgDMAOp is guaranteed to be after all barriers from previous page
+// - BarProgDMAOp is guaranteed to be before all barriers from next page
+// - BarProgDMAOp has correct physical barrier range assigned
+// This is needed to guarantee that all barriers are programmed before any task that uses them
+// and that no task can use barriers from next page before they are programmed
+void vpux::VPURT::BarrierPagesSplitHandler::verifyBarProgDmaDependencies(mlir::func::FuncOp func) {
+    if (_pageCount <= 2) {
+        _log.trace("No need to verify BarProgDMA dependencies if model has {0} <= 2 pages", _pageCount);
+        return;
+    }
+
+    // Identify BarProgDmas indexes
+    SmallVector<size_t> barProgDmas;
+    func->walk([&](VPURT::TaskOp taskOp) {
+        auto barProgDmaOp = mlir::dyn_cast<VPUIP::BarProgDMAOp>(taskOp.getInnerTaskOp());
+        if (barProgDmaOp == nullptr) {
+            return;
+        }
+
+        auto pageOpt = taskOp.getWlmPage();
+        VPUX_THROW_UNLESS(pageOpt.has_value(), "BarProgDMAOp '{0}' does not have WLM page assigned", taskOp.getLoc());
+        auto pageInd = pageOpt.value();
+        auto physBarRangeAttr = barProgDmaOp.getPhysicalBarrierRange();
+        auto pidStart = physBarRangeAttr.getStart().getValue().getSExtValue();
+        auto pidEnd = physBarRangeAttr.getEnd().getValue().getSExtValue();
+
+        _log.trace("Found BarProgDMAOp at page {0} with physical barrier range {1}-{2}", pageInd, pidStart, pidEnd);
+
+        auto pidOffset = ((pageInd - 1) % 2) * _pageSize;
+        int64_t expectedPageStart = 0 + pidOffset;
+        int64_t expectedPageEnd = _pageSize - 1 + pidOffset;
+        VPUX_THROW_WHEN(pidStart != expectedPageStart || pidEnd != expectedPageEnd,
+                        "BarProgDMAOp at page {0} has unexpected physical barrier range {1}-{2}, expected "
+                        "page range {3}-{4}",
+                        pageInd, pidStart, pidEnd, expectedPageStart, expectedPageEnd);
+
+        barProgDmas.push_back(_barrierInfo.getIndex(taskOp));
+    });
+
+    if (barProgDmas.empty()) {
+        return;
+    }
+
+    // Collect information about barriers used by pages
+    SmallVector<SmallVector<size_t>> barriersPerPage(_pageCount, SmallVector<size_t>());
+
+    func.walk([&](VPURT::ConfigureBarrierOp barOp) {
+        auto vid = _barrierInfo.getIndex(barOp);
+        auto pageInd = getBarrierPage(vid);
+        barriersPerPage[pageInd].push_back(vid);
+    });
+
+    // Check if each page has exactly _pageSize barriers
+    for (size_t pageInd = 0; pageInd < _pageCount - 2; ++pageInd) {
+        auto barriers = barriersPerPage[pageInd];
+        VPUX_THROW_WHEN(barriers.size() != _pageSize, "Page {0} has {1} barriers, expected {2}", pageInd,
+                        barriers.size(), _pageSize);
+    }
+
+    // Check if each BarProgDma is after all barriers from previous page and before
+    // all barriers from next page
+    for (auto barProgDma : barProgDmas) {
+        auto pageInd = _taskPageAssignment[barProgDma];
+        _log.trace("Check BarProgDMA {0} at page {1}", barProgDma, pageInd);
+
+        // Check prev page barrier consumers if barrier programming DMA depends on them
+        for (auto prevPageBar : barriersPerPage[pageInd - 1]) {
+            auto prevPageBarConsumers = _barrierInfo.getBarrierConsumers(prevPageBar);
+            for (auto prevPageBarConsumer : prevPageBarConsumers) {
+                VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(prevPageBarConsumer, barProgDma),
+                                  "BarProgDMA {0} at page {1} is not guaranteed to be after consumer {2} of barrier "
+                                  "{3} from previous page",
+                                  barProgDma, pageInd, prevPageBarConsumer, prevPageBar);
+            }
+        }
+
+        // Check next page barrier producers if it depends on barrier programming DMA
+        for (auto nextPageBar : barriersPerPage[pageInd + 1]) {
+            auto nextPageBarProducers = _barrierInfo.getBarrierProducers(nextPageBar);
+            for (auto nextPageBarProducer : nextPageBarProducers) {
+                VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(barProgDma, nextPageBarProducer),
+                                  "BarProgDMA {0} at page {1} is not guaranteed to be before producer {2} of barrier "
+                                  "{3} from next page",
+                                  barProgDma, pageInd, nextPageBarProducer, nextPageBar);
+            }
+        }
+    }
+}
+
+// Check all enqueue DMAs and verify if tasks enqueued by them do not violate enqueue restrictions:
+// - task can be enqueued only at moment when all its wait prev bar instances are consumed at that point
+// - OR if execution of previous task on the same queue guarantees the same
+// This function also checks if enqueued task update barriers are ready at the moment of task execution
+void vpux::VPURT::BarrierPagesSplitHandler::verifyEnqueueDmas(mlir::func::FuncOp func) {
+    auto module = func->getParentOfType<mlir::ModuleOp>();
+
+    const auto arch = config::getArch(module);
+    auto numClusters = config::getTileExecutor(module).getCount();
+
+    // Identify DPU and SHV queues and store corresponding task idexes.
+    // This is needed to later be able to map EnqueueDMAOp enqueued range of workloads to task indexes
+    mlir::DenseMap<std::tuple<VPU::ExecutorKind, size_t, size_t>, SmallVector<size_t>> taskIndexesPerQueueType;
+    func->walk([&](VPURT::TaskOp taskOp) {
+        auto taskInd = _barrierInfo.getIndex(taskOp);
+        auto queueType = _barrierInfo.getTaskQueueType(taskInd);
+        if (queueType.type != VPU::ExecutorKind::DPU && queueType.type != VPU::ExecutorKind::SHAVE_ACT) {
+            return;
+        }
+
+        auto [tileIdx, listIdx] = VPURT::getTileAndListIndex(queueType, numClusters, arch);
+        auto execKindAndTileAndList = std::make_tuple(queueType.type, tileIdx, listIdx);
+        // Ops may have multiple workloads. For example DPU tasks have multiple variants
+        // Eventually all of them are enqueued together so they all correspond to the same
+        // task index (e.g. same NCEClusterTaskOp)
+        for (size_t workloadIdx = 0; workloadIdx < getNumberOfWorkloads(taskInd); ++workloadIdx) {
+            taskIndexesPerQueueType[execKindAndTileAndList].push_back(taskInd);
+        }
+    });
+
+    mlir::DenseMap<std::tuple<VPU::ExecutorKind, size_t, size_t>, size_t> lastTaskIndexesEnqueuedPerQueueType;
+
+    // Identify EnqueueDmas indexes and task indexes that are enqueued by it
+    SmallVector<std::pair<size_t, SmallVector<size_t>>> enqueueDmasAndTaskIndexes;
+    func->walk([&](VPURT::TaskOp taskOp) {
+        auto enqueueDmaOp = mlir::dyn_cast<VPUIP::EnqueueDMAOp>(taskOp.getInnerTaskOp());
+        if (enqueueDmaOp == nullptr) {
+            return;
+        }
+
+        auto pageOpt = taskOp.getWlmPage();
+        VPUX_THROW_UNLESS(pageOpt.has_value(), "EnqueueDMAOp '{0}' does not have WLM page assigned", taskOp.getLoc());
+        auto pageInd = pageOpt.value();
+        auto enqueueDmaIdx = _barrierInfo.getIndex(taskOp);
+        auto enqueueDmaAttr = enqueueDmaOp.getEnqueueDmaAttr();
+
+        auto executorKind = enqueueDmaAttr.getTargetExecutorKindAttr().getValue();
+        auto tileIdx = enqueueDmaAttr.getTileIdx().getValue().getSExtValue();
+        auto listIdx = enqueueDmaAttr.getListIdx().getValue().getSExtValue();
+        auto startTaskIdx = enqueueDmaAttr.getStartTaskIdx().getValue().getSExtValue();
+        auto endTaskIdx = enqueueDmaAttr.getEndTaskIdx().getValue().getSExtValue();
+
+        _log.trace("Found EnqueueDMAOp task {0} at page {1} for tasks {2}:{3}:{4}:{5}-{6}", pageInd,
+                   stringifyEnum(executorKind), enqueueDmaIdx, tileIdx, listIdx, startTaskIdx, endTaskIdx);
+
+        // Identify task indexes fr this enqueue op
+        SmallVector<size_t> taskIndexes;
+
+        auto execKindAndTileAndList = std::make_tuple(executorKind, tileIdx, listIdx);
+
+        // Make sure enqueued task indexes are in growing order and that no task is missed
+        if (lastTaskIndexesEnqueuedPerQueueType.count(execKindAndTileAndList) > 0) {
+            VPUX_THROW_WHEN(
+                    static_cast<size_t>(startTaskIdx) <= lastTaskIndexesEnqueuedPerQueueType[execKindAndTileAndList],
+                    "EnqueueDMAOp {0} has start task index {1} that is less than or equal to last "
+                    "enqueued task index {2} for queue type {3}:{4}:{5}",
+                    enqueueDmaIdx, startTaskIdx, lastTaskIndexesEnqueuedPerQueueType[execKindAndTileAndList],
+                    VPU::stringifyExecutorKind(executorKind), tileIdx, listIdx);
+            VPUX_THROW_WHEN(static_cast<size_t>(startTaskIdx) !=
+                                    lastTaskIndexesEnqueuedPerQueueType[execKindAndTileAndList] + 1,
+                            "EnqueueDMAOp {0} has start task index {1} that is not equal to last enqueued task "
+                            "index {2} + 1 for queue type {3}:{4}:{5}",
+                            enqueueDmaIdx, startTaskIdx, lastTaskIndexesEnqueuedPerQueueType[execKindAndTileAndList],
+                            VPU::stringifyExecutorKind(executorKind), tileIdx, listIdx);
+        }
+        lastTaskIndexesEnqueuedPerQueueType[execKindAndTileAndList] = endTaskIdx;
+
+        for (size_t perQueueTaskInd = startTaskIdx; perQueueTaskInd <= static_cast<size_t>(endTaskIdx);
+             ++perQueueTaskInd) {
+            VPUX_THROW_UNLESS(taskIndexesPerQueueType.count(execKindAndTileAndList) > 0,
+                              "No task indexes found for queue type {0} at page {1}",
+                              VPU::stringifyExecutorKind(executorKind), pageInd);
+            VPUX_THROW_UNLESS(perQueueTaskInd < taskIndexesPerQueueType[execKindAndTileAndList].size(),
+                              "Task index {0} is out of range ({1}) for queue type {2} at page {3}", perQueueTaskInd,
+                              taskIndexesPerQueueType[execKindAndTileAndList].size(),
+                              VPU::stringifyExecutorKind(executorKind), pageInd);
+            taskIndexes.push_back(taskIndexesPerQueueType[execKindAndTileAndList][perQueueTaskInd]);
+        }
+
+        enqueueDmasAndTaskIndexes.push_back(std::make_pair(_barrierInfo.getIndex(taskOp), taskIndexes));
+    });
+
+    if (enqueueDmasAndTaskIndexes.empty()) {
+        return;
+    }
+
+    // For each identified enqueue DMA check if enqueued tasks do not violate enqueue restrictions:
+    // - task can be enqueued only at moment when all its wait prev bar instances are consumed at that point
+    // - OR if execution of previous task on the same queue guarantees the same
+    for (auto& [enqueueDmaInd, taskIndexes] : enqueueDmasAndTaskIndexes) {
+        _log.trace("Check EnqueueDMAOp {0} for tasks {1}", enqueueDmaInd, to_small_vector(taskIndexes));
+
+        size_t prevTaskInd = 0;
+        size_t taskInd = 0;
+        for (size_t i = 0; i < taskIndexes.size(); prevTaskInd = taskInd, i += getNumberOfWorkloads(taskInd)) {
+            taskInd = taskIndexes[i];
+            auto taskPage = _taskPageAssignment[taskInd];
+            _log.trace("Check task {0}(page {1})", taskInd, taskPage);
+
+            // Get wait barriers for the task
+            auto waitBars = _barrierInfo.getWaitBarriers(taskInd);
+            auto prevWaitBars = getBarrierPidPrevUsageVec(waitBars);
+
+            if (!prevWaitBars.empty()) {
+                size_t taskToCheckDeps = 0;
+                if (taskInd == taskIndexes.front()) {
+                    _log.nest().trace("Task {0} is first enqueued by DMA", taskInd);
+                    // Check if all previous wait barriers consumers are guaranteed to run before enqueue DMA
+                    taskToCheckDeps = enqueueDmaInd;
+
+                } else {
+                    _log.nest().trace("Task {0} is enqueued together with previous {1}", taskInd, prevTaskInd);
+                    // Check if all previous wait barriers consumers are guaranteed to run before previous task
+                    taskToCheckDeps = prevTaskInd;
+                }
+
+                for (auto prevBar : prevWaitBars) {
+                    auto prevBarConsumers = _barrierInfo.getBarrierConsumers(prevBar);
+                    _log.nest(2).trace("Check consumers of previous wait barrier {0}", prevBar);
+                    for (auto prevBarConsumer : prevBarConsumers) {
+                        _log.nest(3).trace("Check dependency from {0} to {1}", prevBarConsumer, taskToCheckDeps);
+                        VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(prevBarConsumer, taskToCheckDeps),
+                                          "Task {0}(page {1})\n{2}\n cannot be enqueued at {3}(page {4})\n{5}\n "
+                                          "because it is not "
+                                          "guaranteed that previous wait barriers consumer {6}(page {7})\n{8}\n is "
+                                          "executed before "
+                                          "enqueue or previous task {9}(page {10})\n{11}\n is executed",
+                                          taskInd, _taskPageAssignment[taskInd], _barrierInfo.getTaskOpAtIndex(taskInd),
+                                          enqueueDmaInd, _taskPageAssignment[enqueueDmaInd],
+                                          _barrierInfo.getTaskOpAtIndex(enqueueDmaInd), prevBarConsumer,
+                                          _taskPageAssignment[prevBarConsumer],
+                                          _barrierInfo.getTaskOpAtIndex(prevBarConsumer), prevTaskInd,
+                                          _taskPageAssignment[prevTaskInd], _barrierInfo.getTaskOpAtIndex(prevTaskInd));
+                    }
+                }
+            }
+
+            // Check if when task runs all previous instances of update barriers were consumed
+            auto updateBars = _barrierInfo.getUpdateBarriers(taskInd);
+            auto prevUpdateBars = getBarrierPidPrevUsageVec(updateBars);
+
+            if (prevUpdateBars.empty()) {
+                continue;
+            }
+
+            for (auto prevBar : prevUpdateBars) {
+                auto prevBarConsumers = _barrierInfo.getBarrierConsumers(prevBar);
+                _log.nest(2).trace("Check consumers of previous update barrier {0}", prevBar);
+                for (auto prevBarConsumer : prevBarConsumers) {
+                    _log.nest(3).trace("Check dependency from {0} to {1}", prevBarConsumer, taskInd);
+                    VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(prevBarConsumer, taskInd),
+                                      "Consumer {0} of previous instance of update barrier {1} is not guaranteed to be "
+                                      "consumed when task {2} starts",
+                                      prevBarConsumer, prevBar, taskInd);
+                }
+            }
+        }
+    }
+}
+
+// Verify enqueue of DMAs. All DMAs are expected to be enqueued at bootstrap as a single link list.
+// Check if first DMA of each queue if exists is present in Page0 or Page1
+// For all next DMAs check that execution of previous task on the same queue guarantees that all
+// its wait prev barrier instances are consumed before it
+// This function also checks if task update barriers are ready at the moment of task execution
+void vpux::VPURT::BarrierPagesSplitHandler::verifyEnqueueOfDmas(mlir::func::FuncOp func) {
+    auto taskQueues = VPURT::getTaskOpQueues(func, _barrierInfo);
+    _log.trace("Verifying enqueue of DMA tasks");
+    for (const auto& [queueType, taskOps] : taskQueues) {
+        if (queueType.type != VPU::ExecutorKind::DMA_NN) {
+            continue;
+        }
+
+        _log.trace("Check queue type {0}:{1} with {2} tasks", VPU::stringifyExecutorKind(queueType.type), queueType.id,
+                   taskOps.size());
+
+        // First task needs to be present if Page0 or Page1
+        auto pageInd = _taskPageAssignment[taskOps.front()];
+        VPUX_THROW_UNLESS(pageInd <= 1, "First task in DMA queue {0}:{1} is not on Page0 or Page1, but on Page{2}.",
+                          VPU::stringifyExecutorKind(queueType.type), queueType.id, pageInd);
+
+        for (size_t i = 1; i < taskOps.size(); ++i) {
+            auto prevTaskInd = taskOps[i - 1];
+            auto taskInd = taskOps[i];
+
+            // Check if prev instances of wait barriers of current task are guaranteed to be
+            // consumed when previous task runs
+            // Get wait barriers for the task
+            auto waitBars = _barrierInfo.getWaitBarriers(taskInd);
+            auto prevWaitBars = getBarrierPidPrevUsageVec(waitBars);
+
+            if (!prevWaitBars.empty()) {
+                for (auto prevBar : prevWaitBars) {
+                    auto prevBarConsumers = _barrierInfo.getBarrierConsumers(prevBar);
+                    _log.nest(2).trace("Check consumers of previous wait barrier {0}", prevBar);
+                    for (auto prevBarConsumer : prevBarConsumers) {
+                        _log.nest(3).trace("Check dependency from {0} to {1}", prevBarConsumer, prevTaskInd);
+                        VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(prevBarConsumer, prevTaskInd),
+                                          "Task {0} cannot be enqueued together with {1} because it is not "
+                                          "guaranteed that previous wait barriers consumer {2} is executed before "
+                                          "previous task {1} is executed",
+                                          taskInd, prevTaskInd, prevBarConsumer);
+                    }
+                }
+            }
+
+            // Check if when task runs all previous instances of update barriers were consumed
+            auto updateBars = _barrierInfo.getUpdateBarriers(taskInd);
+            auto prevUpdateBars = getBarrierPidPrevUsageVec(updateBars);
+
+            if (prevUpdateBars.empty()) {
+                continue;
+            }
+
+            for (auto prevBar : prevUpdateBars) {
+                auto prevBarConsumers = _barrierInfo.getBarrierConsumers(prevBar);
+                _log.nest(2).trace("Check consumers of previous update barrier {0}", prevBar);
+                for (auto prevBarConsumer : prevBarConsumers) {
+                    _log.nest(3).trace("Check dependency from {0} to {1}", prevBarConsumer, taskInd);
+                    VPUX_THROW_UNLESS(isDepFromTaskAToTaskB(prevBarConsumer, taskInd),
+                                      "Consumer {0} of previous instance of update barrier {1} is not guaranteed to be "
+                                      "consumed when task {2} starts",
+                                      prevBarConsumer, prevBar, taskInd);
+                }
+            }
+        }
+    }
+}
+
+// Perform  legalization of long dependencies of tasks
+void vpux::VPURT::BarrierPagesSplitHandler::legalizeLongDependenciesForBarrierPagesSplit() {
+    auto tasksToLegalize = getTasksWithNonAdjacentPageDependencyToLegalize();
+    legalizeNonAdjacentPageDependencies(tasksToLegalize);
+}
+
+// Make sure boundary tasks from neighbor pages are dependent
+void vpux::VPURT::BarrierPagesSplitHandler::legalizeBoundaryTasksForBarrierPagesSplit() {
+    auto boundaryTaskPairsMissingDepInBetween = getBoundaryTaskPairsMissingDepInBetween();
+    legalizeDepsForBoundaryTasks(boundaryTaskPairsMissingDepInBetween);
+}
+
+vpux::BarrierInfo vpux::VPURT::BarrierPagesSplitHandler::getUpdatedBarrierInfo() {
+    return _barrierInfo;
 }
 
 // Helper method for unit testing BarrierPagesSplitHandler

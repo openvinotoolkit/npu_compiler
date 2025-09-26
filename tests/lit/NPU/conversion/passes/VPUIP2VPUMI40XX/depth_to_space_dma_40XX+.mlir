@@ -21,7 +21,7 @@ module @depthToSpace {
   func.func @UnrollDepthToSpaceDMABlockFirstNHWC(%arg0: memref<1x16x3x6xf16, #NHWC>, %arg1: memref<1x4x6x12xf16, #NHWC>) -> memref<1x4x6x12xf16, #NHWC> {
     %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
     %1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-    %2 = VPURT.ConfigureBarrier<2> {isFinalBarrier} -> !VPURT.Barrier
+    %2 = VPURT.ConfigureBarrier<2> <{isFinalBarrier}> -> !VPURT.Barrier
 
     %3 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
     %4 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
@@ -36,7 +36,7 @@ module @depthToSpace {
     //CHECK:    [[BARRIER_0:%.+]] = VPUMI40XX.ConfigureBarrier
     //CHECK:    [[BARRIER_1:%.+]] = VPUMI40XX.ConfigureBarrier
     //CHECK:    [[BARRIER_2:%.+]] = VPUMI40XX.ConfigureBarrier
-    
+
     //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x3x6xf16, #NHWC, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x1x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>
     //CHECK:    [[INPUT_BUFFER_2:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <192> -> memref<1x16x2x6xf16, {order = #NHWC, strides = [288, 1, 96, 16]}, [@CMX_NN, 0]>

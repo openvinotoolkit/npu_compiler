@@ -446,6 +446,38 @@ func.func @ExpandGroupConvToShapeCastGroupConvWithReshapeAttribute(%arg0: tensor
 
 // -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ExpandGroupConvToShapeCastGroupConvWithAffineReshapeAttribute
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x12x56x56xf16>
+func.func @ExpandGroupConvToShapeCastGroupConvWithAffineReshapeAttribute(%arg0: tensor<1x12x56x56xf16>) -> tensor<1x16x56x56xf16> {
+    %cst_0 = const.Declare tensor<16x1x1x1xf16> = dense<0.0232320447> : tensor<1x1x1x1xf16>, [#const.Broadcast<1 : i64, 12 : i64>, #const.AffineReshape<[[0], [0], [1], [2, 3]], [12, 1, 1, 1]>, #const.PadWithZero<[0, 0, 0, 0], [4, 0, 0, 0]>]
+    %cst_1 = const.Declare tensor<1x16x1x1xf16> = dense<-2.4650476> : tensor<1x1x1x1xf16>, [#const.Broadcast<1 : i64, 16 : i64>]
+
+    %0 = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 4, 0, 0]} : tensor<1x12x56x56xf16> -> tensor<1x16x56x56xf16>
+    %1 = IE.GroupConvolution(%0, %cst_0, %cst_1) {dilations = [1, 1], groups = 16 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x56x56xf16>, tensor<16x1x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x56x56xf16>
+
+    return %1 : tensor<1x16x56x56xf16>
+
+    // CHECK-DAG:    [[CST:%.+]] = const.Declare tensor<16x1x1x1xf16> = dense<2.323910e-02> : tensor<1x1x1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>, #const.Broadcast<0 : i64, 16 : i64>, #const.Reshape<[16, 1, 1, 1]>]
+    // CHECK-DAG:    [[CST_1:%.+]] = const.Declare tensor<1x16x1x1xf16> = dense<-2.464840e+00> : tensor<1x1x1x1xf16>, [#const.Broadcast<1 : i64, 16 : i64>, #const.Reshape<[1, 16, 1, 1]>]
+    // CHECK:        [[SHAPECAST_1:%.+]] = IE.ShapeCast {shape = [1, 16, 49, 48]} inputs(%arg0 : tensor<1x12x56x56xf16>) -> tensor<1x16x49x48xf16>
+
+    // CHECK:        [[GROUP_CONV:%.+]] = IE.GroupConvolution([[SHAPECAST_1]], [[CST]], [[CST_1]]) {
+    // CHECK-SAME:      dilations = [1, 1],
+    // CHECK-SAME:      groups = 16 : i64, pads_begin = [0, 0],
+    // CHECK-SAME:      pads_end = [0, 0], strides = [1, 1]
+    // CHECK-SAME:      } : tensor<1x16x49x48xf16>, tensor<16x1x1x1xf16>, tensor<1x16x1x1xf16>
+    // CHECK-SAME:          -> tensor<1x16x49x48xf16>
+    // CHECK:        [[SHAPECAST_2:%.+]] = IE.ShapeCast {shape = [1, 12, 56, 56]} inputs([[GROUP_CONV]] : tensor<1x16x49x48xf16>) -> tensor<1x12x56x56xf16>
+    // CHECK:        [[EXPAND:%.+]] = IE.Expand([[SHAPECAST_2]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 4, 0, 0]} : tensor<1x12x56x56xf16> -> tensor<1x16x56x56xf16>
+
+    // CHECK:       return [[EXPAND]]
+
+}
+
+// -----
+
 // CHECK-LABEL: @NotAdjustGroupConvToShapeCastGroupConv
 // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x3x32x32xf16>
 func.func @NotAdjustGroupConvToShapeCastGroupConv(%arg0: tensor<1x3x32x32xf16>) -> tensor<1x16x31x31xf16> {
@@ -1373,30 +1405,6 @@ func.func @AdjustAvgPoolingWithBatchSizeNot1(%arg0: tensor<1024x77x1x1xf16, {ord
 
 // -----
 
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
-#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
-
-// CHECK-LABEL: @AdjustInputShapeForNHCWMemPermute
-// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x380x720x1xf16>
-func.func @AdjustInputShapeForNHCWMemPermute(%arg0: tensor<1x380x720x1xf16>) -> tensor<1x720x380x1xf16> {
-    %0 = IE.MemPermute(%arg0) {dstElemType = f16, dst_order = #NCHW, mem_perm = #NHCW} :
-        tensor<1x380x720x1xf16> -> tensor<1x720x380x1xf16>
-
-    return %0 : tensor<1x720x380x1xf16>
-
-    // CHECK:   [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 1, 380, 720]} inputs([[INPUT]] : tensor<1x380x720x1xf16>)
-    // CHECK-SAME:      -> tensor<1x1x380x720xf16>
-    // CHECK:   [[MEM_PERMUTE:%.+]] = IE.MemPermute([[SHAPECAST_IN]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x380x720xf16>
-    // CHECK-SAME:      -> tensor<1x1x720x380xf16>
-    // CHECK:   [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 720, 380, 1]} inputs([[MEM_PERMUTE]] : tensor<1x1x720x380xf16>)
-    // CHECK-SAME:      -> tensor<1x720x380x1xf16>
-
-    // CHECK:   return [[SHAPECAST_OUT]] : tensor<1x720x380x1xf16>
-}
-
-// -----
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @AdjustInputShapeWithMinimalDimChange
@@ -1416,30 +1424,6 @@ func.func @AdjustInputShapeWithMinimalDimChange(%arg0: tensor<1x4x1600x2560xf16,
     // CHECK:       [[CAST_OUTPUT:%.+]] = IE.ShapeCast {shape = [1, 4, 1600, 2560]} inputs([[ADD]] : tensor<1x16x1600x640xf16, {order = #NHWC}>) -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
     // CHECK:       [[EXPAND_OUTPUT:%.+]] = IE.Expand([[CAST_OUTPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 12, 0, 0]} : tensor<1x4x1600x2560xf16, {order = #NHWC}> -> tensor<1x16x1600x2560xf16, {order = #NHWC}>
     // CHECK:       return [[EXPAND_OUTPUT]]
-}
-
-// -----
-
-#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
-
-// CHECK-LABEL: @AdjustInputShapeForMemPermuteWithDimN
-// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x75x16x64xf16>
-func.func @AdjustInputShapeForMemPermuteWithDimN(%arg0: tensor<4x75x16x64xf16>) -> tensor<4x16x64x75xf16> {
-    %0 = IE.MemPermute(%arg0) {dstElemType = f16, dst_order = #NCHW, mem_perm = #NHWC} :
-        tensor<4x75x16x64xf16> -> tensor<4x16x64x75xf16>
-
-    return %0 : tensor<4x16x64x75xf16>
-
-    // CHECK:   [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 4, 75, 1024]} inputs([[INPUT]] : tensor<4x75x16x64xf16>)
-    // CHECK-SAME:      -> tensor<1x4x75x1024xf16>
-    // CHECK:   [[MEM_PERMUTE:%.+]] = IE.MemPermute([[SHAPECAST_IN]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x4x75x1024xf16>
-    // CHECK-SAME:      -> tensor<1x4x1024x75xf16>
-    // CHECK:   [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [4, 16, 64, 75]} inputs([[MEM_PERMUTE]] : tensor<1x4x1024x75xf16>)
-    // CHECK-SAME:      -> tensor<4x16x64x75xf16>
-
-    // CHECK:   return [[SHAPECAST_OUT]] : tensor<4x16x64x75xf16>
 }
 
 // -----

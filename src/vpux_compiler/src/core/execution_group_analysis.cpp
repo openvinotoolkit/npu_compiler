@@ -5,9 +5,9 @@
 //
 
 #include "vpux/compiler/core/execution_group_analysis.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include <mlir/Pass/AnalysisManager.h>
 
@@ -18,7 +18,7 @@ ExecutionGroupAnalysis::ExecutionGroupAnalysis(mlir::func::FuncOp func)
           _func(func),
           _barrierInfo(std::make_shared<BarrierInfo>(func)) {
     _taskQueueTypeMap = VPURT::getTaskOpQueues(_func, *_barrierInfo);
-    _tilesCount = static_cast<size_t>(IE::getTileExecutor(_func).getCount());
+    _tilesCount = static_cast<size_t>(config::getTileExecutor(_func).getCount());
 
     _maxKernelInvocationCount = VPU::getConstraint(_func, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2;
     _maxKernelRangeCount = VPU::getConstraint(_func, VPU::METADATA_MAX_KERNEL_RANGE_COUNT) / 2;

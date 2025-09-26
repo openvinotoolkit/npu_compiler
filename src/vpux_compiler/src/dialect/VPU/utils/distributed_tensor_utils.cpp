@@ -4,9 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/Operation.h>
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/core/tiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
@@ -17,6 +19,7 @@
 #include "vpux/compiler/dialect/VPU/utils/overlap_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -27,6 +30,8 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Operation.h>
+
+#include <deque>
 
 using namespace vpux;
 using namespace VPU;
@@ -747,7 +752,7 @@ bool vpux::VPU::isSWOpChannelAlignmentCompatible(VPU::ClusteredOpInterface swOp,
         return (actInputC % alignment == 0) && (actOutputC % alignment == 0);
     } else if (strategy.value() == VPU::MultiClusterStrategy::SplitOverKernel) {
         auto module = swOp->getParentOfType<mlir::ModuleOp>();
-        auto tileCount = IE::getTileExecutor(module).getCount();
+        auto tileCount = config::getTileExecutor(module).getCount();
         if (actInputC % (alignment * tileCount) == 0 && actOutputC % (alignment * tileCount) == 0) {
             // Input and output can be divided evenly into each tile
             return true;
@@ -1010,6 +1015,9 @@ SmallVector<int64_t> vpux::VPU::getOutputTensorNumTiles(VPU::ClusteredOpInterfac
     const auto outputShape =
             outputType != nullptr ? outputType.getShape()
                                   : mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType()).getShape();
+    if (outputShape.isStatic() && outputShape.totalSize() == 1) {
+        return {1, 1, 1, 1};
+    }
     if (strategy == VPU::MultiClusterStrategy::SplitOverHeightOverlapped ||
         strategy == VPU::MultiClusterStrategy::SplitOverHeight || strategy == VPU::MultiClusterStrategy::HKSwitch) {
         return {1, 1, numClustersAvailableForCompilation, 1};
@@ -1379,6 +1387,10 @@ DistributionMode vpux::VPU::getWeightsTensorDistributionMode(VPU::MultiClusterSt
 DistributionMode vpux::VPU::getOutputTensorDistributionMode(VPU::ClusteredOpInterface clusteredOp,
                                                             VPU::MultiClusterStrategy strategy,
                                                             vpux::NDTypeInterface outputType) {
+    if (outputType != nullptr && outputType.getShape().isStatic() && outputType.getShape().totalSize() == 1) {
+        return DistributionMode::DUPLICATED;
+    }
+
     if (strategy == VPU::MultiClusterStrategy::SplitOverHeightOverlapped ||
         strategy == VPU::MultiClusterStrategy::SplitOverHeight ||
         strategy == VPU::MultiClusterStrategy::SplitOverWidth) {
@@ -1485,7 +1497,7 @@ bool vpux::VPU::isSOHSupportedByDPU(vpux::NDTypeInterface inputType, ShapeRef in
     auto sparseInputType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(inputType);
     const auto isInputSparse = sparseInputType != nullptr;
     if (isInputSparse) {
-        auto inputDataShape = mlir::cast<vpux::NDTypeInterface>(sparseInputType.getData()).getShape();
+        auto inputDataShape = getBoundedShape(sparseInputType.getData());
         // The input could be sparse with the data smaller than the storage element table
         // In that case, the SOH segments are created based on the table
         // If the data has fewer lines than the number of clusters, more clusters would read the data from other
@@ -1534,7 +1546,7 @@ int64_t vpux::VPU::getOptimalNumClusters(mlir::Operation* operation, ShapeRef ou
     // Both ACT Shaves and DPUs are grouped together in NCE clusters, in a symmetric manner.
     // For VPUX37XX and subsequent, each NCE cluster 1 DPU and 2 ACT shaves.
     // Thus shaves have the availability for distributing across clusters similar to DPUs.
-    auto numClustersAvailableForCompilation = IE::getTileExecutor(module).getCount();
+    auto numClustersAvailableForCompilation = config::getTileExecutor(module).getCount();
     auto optimalNumberOfClusters = numClustersAvailableForCompilation;
 
     // For DetectionOutputSortOp, there are some cases where the height dimension of the tiles
@@ -1661,12 +1673,12 @@ VPU::DistributedTensorType vpux::VPU::createExplicitDistributedTensorType(
     const auto order = mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx));
     auto elemType = inputType.getElementType();
 
+    auto boundedShape = getBoundedShape(inputType);
     return DistributedTensorType::get(
-            ctx, inputType.getShape().raw(), elemType, order, memSpace,
-            VPU::DistributionInfo::getAttrFromClass(
-                    ctx, clusteredOp.getExplicitDistributionInfoAttr(inputType.getShape(), distributionMode, numTiles,
-                                                                     numClusters, alignment, uniformDistributedSegments,
-                                                                     overlapParams)),
+            ctx, boundedShape.raw(), elemType, order, memSpace,
+            VPU::DistributionInfo::getAttrFromClass(ctx, clusteredOp.getExplicitDistributionInfoAttr(
+                                                                 boundedShape, distributionMode, numTiles, numClusters,
+                                                                 alignment, uniformDistributedSegments, overlapParams)),
             getDynamicDimsMaskAttr(inputType));
 }
 
@@ -1780,11 +1792,12 @@ VPU::SparseTensorType vpux::VPU::createSparseTensorDistributedType(
             uniformDistributedSegments, hasExplicitDistributedAttr, overlapParams);
     const auto effectiveDataDistribution = distributedEffectiveData.getDistribution();
 
-    auto dataDistribution = getExplicitDistrAttrForSparseData(effectiveDataDistribution, dataType.getShape(),
+    auto boundedDataShape = getBoundedShape(dataType);
+    auto dataDistribution = getExplicitDistrAttrForSparseData(effectiveDataDistribution, boundedDataShape,
                                                               sparseInputType.getSeAttr(), ctx);
     const auto distributedDataType = VPU::DistributedTensorType::get(
-            ctx, dataType.getShape().raw(), distributedEffectiveData.getElementType(),
-            distributedEffectiveData.getOrder(), distributedEffectiveData.getMemSpace(), dataDistribution);
+            ctx, boundedDataShape.raw(), distributedEffectiveData.getElementType(), distributedEffectiveData.getOrder(),
+            distributedEffectiveData.getMemSpace(), dataDistribution);
 
     mlir::Type distributedSMType = nullptr;
     auto smType = mlir::dyn_cast_or_null<NDTypeInterface>(sparseInputType.getSparsityMap());
@@ -3081,7 +3094,8 @@ vpux::Byte vpux::VPU::getTotalAllocSizeWithDistribution(vpux::NDTypeInterface ty
                                                         const VPU::DistributionInfo& distribution) {
     SmallVector<Shape> perClusterShapes{};
     if (distribution.getMemoryShapes().size() == 0) {
-        auto optionalPerClusterMemoryShapes = VPU::getPerClusterMemoryShapes(type.getShape(), distribution);
+        const auto boundedShape = getBoundedShape(type);
+        auto optionalPerClusterMemoryShapes = VPU::getPerClusterMemoryShapes(boundedShape, distribution);
         VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                           "Cannot get per cluster memory shapes. Shape {0}, Unsupported distribution: {1}",
                           type.getShape(), distribution);

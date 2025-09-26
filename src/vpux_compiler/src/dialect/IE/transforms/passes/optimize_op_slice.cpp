@@ -374,7 +374,8 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         std::swap(permVec[dimsOrder.dimPos(concatAxis.value())], permVec[dimsOrder.dimPos(refSliceAxis.value())]);
         const auto newOrder = DimsOrder::fromAffineMap(mlir::AffineMap::getPermutationMap(ArrayRef(permVec), ctx));
         const auto memPerm = vpux::getPermutationFromOrders(dimsOrder, newOrder, ctx);
-        if (!isTrivialPermute(inType.getMemShape(), memPerm)) {
+        const auto memShape = inType.getMemShape();
+        if (!isTrivialPermute(memShape, memPerm)) {
             return matchFailed(rewriter, origOp,
                                "Could not add permuteCast when slice axis and concat axis is different");
         }

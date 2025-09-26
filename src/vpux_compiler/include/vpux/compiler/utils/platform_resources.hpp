@@ -18,8 +18,7 @@ constexpr Byte VPUX37XX_CMX_WORKSPACE_SIZE = Byte(1936_KB);
 constexpr Byte VPUX37XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
         static_cast<int64_t>(static_cast<double>(VPUX37XX_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
 
-constexpr Byte VPUX40XX_CMX_WORKSPACE_SIZE =
-        Byte(1440_KB);  // Error from feasibleAllication if 1449_KB; See E62792 and E60873
+constexpr Byte VPUX40XX_CMX_WORKSPACE_SIZE = Byte(1439_KB);
 constexpr Byte VPUX40XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE = Byte(
         static_cast<int64_t>(static_cast<double>(VPUX40XX_CMX_WORKSPACE_SIZE.count()) * FRAGMENTATION_AVOID_RATIO));
 constexpr int VPUX37XX_MAX_DPU_GROUPS = 2;

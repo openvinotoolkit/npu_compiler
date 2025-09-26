@@ -125,7 +125,8 @@ std::vector<ELF::RelocationInfo> NPUReg40XX::NNDMAOp::getRelocationInfo(ELF::Sym
 void NPUReg40XX::NNDMAOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName,
                                 vpux::NPUReg40XX::Descriptors::DMARegister&& descriptor, mlir::SymbolRefAttr input,
                                 mlir::ArrayAttr outputBuffs, mlir::SymbolRefAttr nextLink,
-                                mlir::SymbolRefAttr actCompressionSizeEntry, mlir::SymbolRefAttr indices) {
+                                mlir::SymbolRefAttr actCompressionSizeEntry, mlir::SymbolRefAttr indices,
+                                VPUIP::GatherAddressingModeAttr addressingMode) {
     auto& props = state.getOrAddProperties<Properties>();
 
     props.sym_name = symName;
@@ -135,4 +136,5 @@ void NPUReg40XX::NNDMAOp::build(mlir::OpBuilder&, mlir::OperationState& state, m
     props.next_link = nextLink;
     props.act_compression_size_entry = actCompressionSizeEntry;
     props.indices = indices;
+    props.addressing_mode = addressingMode;
 }

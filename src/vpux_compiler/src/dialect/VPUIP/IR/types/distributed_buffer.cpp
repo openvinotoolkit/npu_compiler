@@ -452,7 +452,8 @@ mlir::MemRefType VPUIP::DistributedBufferType::getCompactType() const {
                 VPUIP::SwizzlingSchemeAttr::get(ctx, swizzlingSchemeAttr.getKey(), getIntAttr(ctx, alignment));
     }
 
-    return vpux::getMemRefType(getShape(), getElementType(), getDimsOrder(), getMemSpace(), getStrides(),
+    const auto strides = getStrides();
+    return vpux::getMemRefType(getShape(), getElementType(), getDimsOrder(), getMemSpace(), strides,
                                swizzlingSchemeAttr, VPUIP::getSparsityCompressionAttr(*this));
 }
 
@@ -616,7 +617,8 @@ SmallVector<PadInfo> VPUIP::DistributedBufferType::getPerClusterPadding(PadInfo 
 // of broadcasting.
 SmallVector<StridedShape> VPUIP::DistributedBufferType::getPerClusterMemoryStridedShapes() const {
     const auto memoryShapes = getPerClusterMemoryShapes();
-    return VPU::getPerClusterMemoryStridedShapes(getShape(), getStrides(), getDimsOrder(), getDistribution().getMode(),
+    const auto strides = getStrides();
+    return VPU::getPerClusterMemoryStridedShapes(getShape(), strides, getDimsOrder(), getDistribution().getMode(),
                                                  memoryShapes);
 }
 
@@ -1003,7 +1005,7 @@ Byte VPUIP::DistributedBufferType::getCompactAllocSize() const {
     Shape tiledOffsets(SmallVector<int64_t>(shape.size(), 0));
     if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::DUPLICATED) ||
         VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::MULTICASTED)) {
-        const auto tiledShape = alignTiledShape(Shape(shape.raw()));
+        const auto tiledShape = alignTiledShape(shape);
         allocSizeByte = getAllocSize(tiledShape, tiledOffsets);
     } else if (VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::SEGMENTED) ||
                VPU::bitEnumContainsAny(distributionMode, VPU::DistributionMode::OVERLAPPED)) {
@@ -1017,7 +1019,7 @@ Byte VPUIP::DistributedBufferType::getCompactAllocSize() const {
         }
     } else {
         // No distribution mode.
-        const auto tiledShape = alignTiledShape(Shape(shape.raw()));
+        const auto tiledShape = alignTiledShape(shape);
         allocSizeByte = getAllocSize(tiledShape, tiledOffsets);
     }
 

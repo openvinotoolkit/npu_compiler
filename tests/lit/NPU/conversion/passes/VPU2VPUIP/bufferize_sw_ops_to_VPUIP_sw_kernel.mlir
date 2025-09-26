@@ -7,7 +7,8 @@
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func private @builtin_Convert(memref<*xi8, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func private @builtin_Convert(memref<*xi8, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {
+// CHECK-SAME:                                       VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func private @builtin_Equal(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xi8, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "eltwise_equal.cpp", VPU.kernel_entry = "eltwise_equal", VPU.kernel_name = "eltwise_equal", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
@@ -138,7 +139,8 @@ func.func @ActivationLog(%input: tensor<1x50x1x1xf16>) -> tensor<1x50x1x1xf16> {
 // -----
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func private @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert", VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func private @builtin_Convert(memref<*xf16, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {
+// CHECK-SAME:                                       VPU.kernel_name = "convert", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:  }
 
@@ -645,7 +647,7 @@ func.func @MaxPool8SWLayer(%arg0: tensor<1x3x30x30xf16>) -> (tensor<1x3x13x26xf1
     // CHECK-SAME: outputs([[ALLOC0]] as {{[^:]+}}: memref<1x3x13x26xf16, [@CMX_NN, 0]>, [[ALLOC1]] as {{[^:]+}}: memref<1x3x13x26xsi32, [@CMX_NN, 0]>) on tile 0 -> (memref<1x3x13x26xf16, [@CMX_NN, 0]>, memref<1x3x13x26xsi32, [@CMX_NN, 0]>){
 
     // CHECK: VPUIP.SW.Kernel.run
-    // CHECK-SAME{LITERAL}: {attrs = [[1, 3, 5], [1, 2, 1], [1, 2, 2], [0, 0, 2], [0, 0, 2], 3]}
+    // CHECK-SAME{LITERAL}: {attrs = [[1, 3, 5], [1, 2, 1], [1, 2, 2], [0, 0, 2], [0, 0, 2], 0]}
     // CHECK-SAME: memref<1x3x30x30xf16, [@CMX_NN, 0]>, memref<1x3x13x26xf16, [@CMX_NN, 0]>, memref<1x3x13x26xsi32, [@CMX_NN, 0]>
     // CHECK: }
 }
@@ -1446,7 +1448,7 @@ func.func @RoPE(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1x1x64xf32>,
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // module @executors {
-// IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+// config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 !InputTensor0 = !VPU.DistributedTensor<
     1x32x44x44xf16, #NCHW, @CMX_NN, {

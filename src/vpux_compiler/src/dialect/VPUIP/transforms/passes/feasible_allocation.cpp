@@ -11,12 +11,12 @@
 #include "vpux/compiler/core/mem_live_range_info.hpp"
 #include "vpux/compiler/core/prefetch_data_ops.hpp"
 #include "vpux/compiler/core/schedule_analysis_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -28,6 +28,10 @@
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 #include "vpux/compiler/core/developer_build_utils.hpp"
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
+
+#include <vpu_cost_model.h>
+
+#include <queue>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_FEASIBLEALLOCATION
@@ -626,22 +630,22 @@ void FeasibleAllocationPass::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
     // cluster information
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
     auto tileCount = tileOp.getCount();
 
-    auto dmaPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     VPUX_THROW_UNLESS(dmaPorts != nullptr, "Failed to get DMA information");
     auto dmaCount = dmaPorts.getCount();
 
     // linear scan
-    auto available = IE::getAvailableMemory(module, _memKindAttr);
+    auto available = config::getAvailableMemory(module, _memKindAttr);
     const auto maxSize = available.size();
     uint64_t alignment = vpux::DEFAULT_CMX_ALIGNMENT;
 
     // Check for reserved memory which memory scheduler should take into account
     // so that they not overlap with other buffers
-    auto reservedMemVec = IE::getReservedMemOffsetAndSizeVec(module, _memKindAttr);
+    auto reservedMemVec = config::getReservedMemOffsetAndSizeVec(module, _memKindAttr);
 
     LinearScan<mlir::Value, LinearScanHandler> scan(maxSize.count(), reservedMemVec, alignment);
     auto& aliasesInfo = getAnalysis<AliasesInfoMemType<VPU::MemoryKind::CMX_NN>>();
@@ -690,6 +694,7 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                                                           _enableScheduleStatistics, _optimizeFragmentation);
             scheduledOps = schedulerWithPrefetch.generateSchedule();
             scan = std::move(prefetchScan);
+            scheduler.cleanUpAndLogSchedule(scheduledOps);
         }
     }
 
@@ -760,7 +765,9 @@ void FeasibleAllocationPass::safeRunOnFunc() {
                                 dynamicSpillingAfterSpillOptimizations);
 
         // create a tracing JSON
-        createTracingJSON(func);
+        aliasesInfo = AliasesInfoMemType<VPU::MemoryKind::CMX_NN>(func);
+        auto traceLiveRangeInfo = MemLiveRangeInfoMemType<VPU::MemoryKind::CMX_NN>{func, aliasesInfo};
+        createTracingJSON(func, traceLiveRangeInfo, scan, maxSize.count());
     }
 
     // 7. convert to allocated ops

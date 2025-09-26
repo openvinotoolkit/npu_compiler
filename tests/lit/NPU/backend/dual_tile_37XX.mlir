@@ -25,12 +25,12 @@ module @dual_tile attributes {config.arch = #config.arch_kind<NPU37XX>, config.c
       DataInfo "output_0" : tensor<2x16x16x16xf16>
     }
 
-  IE.MemoryResource 31457280 bytes of @DDR {config.bandwidth = 8, config.derateFactor = 6.000000e-01}
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.TileResource 1 of @NCE {
-      IE.MemoryResource 2097152 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-      IE.ExecutorResource 1 of @SHAVE_ACT
-      IE.ExecutorResource 1 of @DPU
+  config.MemoryResource 31457280 bytes of @DDR {config.bandwidth = 8, config.derateFactor = 6.000000e-01}
+  config.ExecutorResource 2 of @DMA_NN
+  config.Resources 1 of @NCE {
+      config.MemoryResource 2097152 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+      config.ExecutorResource 1 of @SHAVE_ACT
+      config.ExecutorResource 1 of @DPU
   }
 
   func.func @main(

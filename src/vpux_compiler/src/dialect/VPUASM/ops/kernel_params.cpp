@@ -7,9 +7,11 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
-#include "vpux/compiler/utils/symbolization.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <kernels/inc/common_types.h>
+
+#include <cstdint>
 
 using namespace vpux;
 
@@ -45,14 +47,12 @@ vpux::NDTypeInterface getNdTypeFromBufferSymRef(mlir::Operation* op, mlir::Symbo
 
 void vpux::VPUASM::KernelParamsOp::serializeCached(elf::writer::BinaryDataSection<uint8_t>& binDataSection,
                                                    ELF::SymbolReferenceMap& symRefMap) {
-    auto params = getKernelParams();
-    auto denseElemData = params.getValues<uint8_t>();
-    auto dataVector = std::vector<uint8_t>(denseElemData.begin(), denseElemData.end());
+    const auto params = getProperties().kernel_params.getStorage();
 
     // serialize pre-computed kernel params structs
     // will either be sw_params::MemRefData for pre-compiled kernels
     // or LLVM depictions of MemRef args for ShaveCodeGen
-    binDataSection.appendData(dataVector.data(), dataVector.size());
+    binDataSection.appendData(params.data(), params.size());
 
     // E#81501: this logic should be present either at VPUMI lowering or VPUASM lowering... doing it here temporarily
     // for pre-compiled kernels, we need to also serialize dims & strides vectors as trailing data to the MemRefData
@@ -111,7 +111,6 @@ void vpux::VPUASM::KernelParamsOp::serializeCached(elf::writer::BinaryDataSectio
         binDataSection.appendData(outputDimsVector.data(), outputDimsVector.size());
         binDataSection.appendData(outputStridesVector.data(), outputStridesVector.size());
     }
-    return;
 }
 
 size_t vpux::VPUASM::KernelParamsOp::getBinarySizeCached(ELF::SymbolReferenceMap& symRefMap, config::ArchKind) {
@@ -149,11 +148,8 @@ size_t vpux::VPUASM::KernelParamsOp::getBinarySizeCached(ELF::SymbolReferenceMap
 }
 
 size_t vpux::VPUASM::KernelParamsOp::getParamsStructSize() {
-    auto params = getKernelParams();
-    auto dense_elem_data = params.getValues<uint8_t>();
-    auto data_vector = std::vector<uint8_t>(dense_elem_data.begin(), dense_elem_data.end());
-
-    return data_vector.size();
+    const auto params = getProperties().kernel_params.getStorage();
+    return params.size();
 }
 
 // The parameter structs for the sw layers must be 64Byte aligned as an ActShave requirement
@@ -177,8 +173,9 @@ bool vpux::VPUASM::KernelParamsOp::hasMemoryFootprint() {
     return true;
 }
 
+// Kernel params does not get to be lowered to NPUReg due to code duplication and no requirements of HW specific
+// descriptors. For this reason relocation info has not been moved to NPUReg dialect.
 std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo(ELF::SymbolReferenceMap& symRefMap) {
-    // To be removed after E#100513
     std::vector<ELF::RelocationInfo> relocs;
 
     ELF::ElfSectionInterface targetSection = mlir::dyn_cast<ELF::ElfSectionInterface>(getOperation()->getParentOp());
@@ -354,4 +351,22 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
     }
 
     return relocs;
+}
+
+void vpux::VPUASM::KernelParamsOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName,
+                                         mlir::ArrayAttr inputs, mlir::ArrayAttr outputs,
+                                         mlir::ArrayAttr dynamicInputShapes, mlir::ArrayAttr dynamicOutputShapes,
+                                         mlir::StringAttr kernelType, KernelParamsProperty&& kernelParams,
+                                         mlir::UnitAttr isOutputBroadcasted = nullptr,
+                                         mlir::UnitAttr isJitCompiled = nullptr) {
+    auto& props = state.getOrAddProperties<Properties>();
+    props.sym_name = symName;
+    props.kernel_params = std::move(kernelParams);
+    props.inputs = inputs;
+    props.outputs = outputs;
+    props.dynamicInputShapes = dynamicInputShapes;
+    props.dynamicOutputShapes = dynamicOutputShapes;
+    props.kernel_type = kernelType;
+    props.is_output_broadcasted = isOutputBroadcasted;
+    props.isJitCompiled = isJitCompiled;
 }

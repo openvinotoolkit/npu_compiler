@@ -16,6 +16,8 @@
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops_interfaces.hpp"
 
+#include "vpux/compiler/ShaveCodeGen/ops_interfaces.hpp"
+
 namespace vpux {
 
 void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry) {
@@ -47,6 +49,8 @@ void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry)
     VPUIPDPU::arch40xx::registerVerifiersOpInterfaces(registry);
     // NB: arch37xx::ICostModelUtilsInterface can be re-used for 40XX
     VPU::arch37xx::registerICostModelUtilsInterface(registry);
+    VPU::arch37xx::registerSWTilingInfoOpInterface(registry);
+    ShaveCodeGen::registerShaveCodeGenOpInterfaces(registry);
 }
 
 }  // namespace vpux

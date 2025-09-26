@@ -20,8 +20,8 @@ module @SimpleGraph {
 
     // reserve dummy memory at the end of CMX
 
-    // CHECK:     IE.TileResource
+    // CHECK:     config.Resources
     // CHECK:       ReservedMemory
     // CHECK:         SWKernelPrefetchingReservedMemory
-    // CHECK:           IE.MemoryResource 256 bytes of @CMX_NN offset 1982208
+    // CHECK:           config.MemoryResource 256 bytes of @CMX_NN offset 1982208
 }

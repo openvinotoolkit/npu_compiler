@@ -30,7 +30,7 @@ mlir::LogicalResult vpux::IE::DynamicBroadcastOp::inferReturnTypeComponents(
         outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), vpux::getMemorySpace(inType));
     } else {
         outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), vpux::getMemorySpace(inType),
-                                      Bounds(outBounds));
+                                      BoundsRef(outBounds));
     }
 
     inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);

@@ -17,7 +17,7 @@ module @Module0 {
 
   func.func @EnqueueDma(%arg0: memref<1x16x3x6xf16>, %arg1: memref<1x16x3x6xf16>) -> memref<1x16x3x6xf16> {
     %bar0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
-    %bar1 = VPURT.ConfigureBarrier<1> {isFinalBarrier} -> !VPURT.Barrier
+    %bar1 = VPURT.ConfigureBarrier<1> <{isFinalBarrier}> -> !VPURT.Barrier
 
     %dummy_in = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
     %dummy_out = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>

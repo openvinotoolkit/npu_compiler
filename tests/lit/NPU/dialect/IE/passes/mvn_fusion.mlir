@@ -157,3 +157,77 @@ func.func @FuseMVNAcrossChannel(%arg0: tensor<1x16x1500x512xf32>) -> tensor<1x16
     // CHECK-SAME:    normalize_variance = true} : tensor<1x16x1500x512xf32> -> tensor<1x16x1500x512xf32>
     // CHECK:  return [[MVN]] : tensor<1x16x1500x512xf32>
 }
+
+// -----
+
+// CHECK-LABEL: @FuseOvRefMvnPow
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x32x15x64xf16>
+func.func @FuseOvRefMvnPow(%arg0: tensor<1x32x15x64xf16>) -> tensor<1x32x15x64xf16> {
+    %cst_axes = const.Declare tensor<2xsi32> = dense<[2,-1]> : tensor<2xsi32>
+    %cst_two = const.Declare tensor<1xf16> = dense<2.0>  : tensor<1xf16> isSplat
+    %cst_eps = const.Declare tensor<1xf16> = dense<0.00002>  : tensor<1xf16> isSplat
+
+    %0 = IE.ReduceMean(%arg0, %cst_axes) {keep_dims} : tensor<1x32x15x64xf16>, tensor<2xsi32> -> tensor<1x32x1x1xf16>
+    %1 = IE.Subtract(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x15x64xf16>
+    %2 = IE.Power(%1, %cst_two) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1xf16> -> tensor<1x32x15x64xf16>
+    %3 = IE.ReduceMean(%2, %cst_axes) {keep_dims} : tensor<1x32x15x64xf16>, tensor<2xsi32> -> tensor<1x32x1x1xf16>
+    %4 = IE.Add(%3, %cst_eps) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x1x1xf16>, tensor<1xf16> -> tensor<1x32x1x1xf16>
+    %5 = IE.Sqrt(%4) : tensor<1x32x1x1xf16> -> tensor<1x32x1x1xf16>
+    %6 = IE.Divide(%1, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1x32x1x1xf16> -> tensor<1x32x15x64xf16>
+
+    return %6 : tensor<1x32x15x64xf16>
+
+    // CHECK:      [[MVN:%.+]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 2.002716064453125E-5 : f64, normalize_variance = true}
+    // CHECK-SAME:                : tensor<1x32x15x64xf16> -> tensor<1x32x15x64xf16>
+    // CHECK:      return [[MVN]] : tensor<1x32x15x64xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseOvRefMvnMul
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x32x15x64xf16>
+func.func @FuseOvRefMvnMul(%arg0: tensor<1x32x15x64xf16>) -> tensor<1x32x15x64xf16> {
+    %cst_axes = const.Declare tensor<3xsi32> = dense<[1,2,3]> : tensor<3xsi32>
+    %cst_eps = const.Declare tensor<1xf16> = dense<0.00002>  : tensor<1xf16> isSplat
+
+    %0 = IE.ReduceMean(%arg0, %cst_axes) {keep_dims} : tensor<1x32x15x64xf16>, tensor<3xsi32> -> tensor<1x1x1x1xf16>
+    %1 = IE.Subtract(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x15x64xf16>
+    %2 = IE.Multiply(%1, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1x32x15x64xf16> -> tensor<1x32x15x64xf16>
+    %3 = IE.ReduceMean(%2, %cst_axes) {keep_dims} : tensor<1x32x15x64xf16>, tensor<3xsi32> -> tensor<1x1x1x1xf16>
+    %4 = IE.Add(%3, %cst_eps) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf16>, tensor<1xf16> -> tensor<1x1x1x1xf16>
+    %5 = IE.Sqrt(%4) : tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
+    %6 = IE.Divide(%1, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x15x64xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x15x64xf16>
+
+    return %6 : tensor<1x32x15x64xf16>
+
+    // CHECK:      [[MVN:%.+]] = IE.MVN([[INPUT]]) {across_channels = true, eps = 2.002716064453125E-5 : f64, normalize_variance = true}
+    // CHECK-SAME:                : tensor<1x32x15x64xf16> -> tensor<1x32x15x64xf16>
+    // CHECK:      return [[MVN]] : tensor<1x32x15x64xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseOvRefMvn3D
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<151x1x768xf32>
+func.func @FuseOvRefMvn3D(%arg0: tensor<151x1x768xf32>) -> tensor<151x1x768xf32> {
+    %cst_two = const.Declare tensor<1x1x1xf32> = dense<2.0>  : tensor<1x1x1xf32> isSplat
+    %cst_eps = const.Declare tensor<1xf32> = dense<0.00002>  : tensor<1xf32> isSplat
+
+    %0 = IE.ReduceMean(%arg0) {axes_value = [2], keep_dims} : tensor<151x1x768xf32> -> tensor<151x1x1xf32>
+    %1 = IE.Subtract(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x768xf32>, tensor<151x1x1xf32> -> tensor<151x1x768xf32>
+    %2 = IE.Power(%1, %cst_two) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x768xf32>, tensor<1x1x1xf32> -> tensor<151x1x768xf32>
+    %3 = IE.ReduceMean(%2) {axes_value = [2], keep_dims} : tensor<151x1x768xf32> -> tensor<151x1x1xf32>
+    %4 = IE.Add(%3, %cst_eps) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x1xf32>, tensor<1xf32> -> tensor<151x1x1xf32>
+    %5 = IE.Sqrt(%4) : tensor<151x1x1xf32> -> tensor<151x1x1xf32>
+    %6 = IE.Divide(%1, %5) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<151x1x768xf32>, tensor<151x1x1xf32> -> tensor<151x1x768xf32>
+
+    return %6 : tensor<151x1x768xf32>
+
+    // CHECK:      [[RESHAPE_IN:%.+]] = IE.AffineReshape([[INPUT]])
+    // CHECK-SAME:                      tensor<151x1x768xf32> -> tensor<151x1x768x1xf32>
+    // CHECK:      [[MVN:%.+]] = IE.MVN([[RESHAPE_IN]]) {across_channels = false, eps = 1.9999999494757503E-5 : f64, normalize_variance = true}
+    // CHECK-SAME:                    : tensor<151x1x768x1xf32> -> tensor<151x1x768x1xf32>
+    // CHECK:      [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[MVN]])
+    // CHECK-SAME:                      tensor<151x1x768x1xf32> -> tensor<151x1x768xf32>
+    // CHECK:        return [[RESHAPE_OUT]] : tensor<151x1x768xf32>
+}

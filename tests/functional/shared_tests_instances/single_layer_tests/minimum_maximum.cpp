@@ -15,7 +15,11 @@ namespace ov {
 namespace test {
 
 class MaxMinLayerTestCommon : public MaxMinLayerTest, virtual public VpuOv2LayerTest {};
-class ShaveCodeGenMaxMinLayerTestCommon : public MaxMinLayerTest, virtual public VpuOv2LayerTest {};
+class ShaveCodeGenMaxMinLayerTestCommon : public MaxMinLayerTest, virtual public VpuOv2LayerTest {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 class MaxMinLayerTestDynamic : public MaxMinLayerTest, virtual public VpuOv2LayerTest {
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         VpuOv2LayerTest::inputs.clear();
@@ -70,7 +74,7 @@ TEST_P(MaxMinLayerTestCommon, NPU4000_SW) {
 }
 
 TEST_P(ShaveCodeGenMaxMinLayerTestCommon, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -103,20 +107,20 @@ const std::vector<std::vector<ov::Shape>> inShapesGeneric = {{{1, 1, 16, 32}, {1
 
 const auto params0 = testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inShapes4D)),
                                       ::testing::ValuesIn(opType), ::testing::ValuesIn(modelTypes),
-                                      ::testing::ValuesIn(inputType), ::testing::Values(DEVICE_NPU));
+                                      ::testing::ValuesIn(inputType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params1 = testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inShapes3D)),
                                       ::testing::ValuesIn(opType), ::testing::ValuesIn(modelTypes),
-                                      ::testing::ValuesIn(inputType), ::testing::Values(DEVICE_NPU));
+                                      ::testing::ValuesIn(inputType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params2 = testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inShapesGeneric)),
                                       ::testing::ValuesIn(opType), ::testing::ValuesIn(modelTypes),
-                                      ::testing::ValuesIn(inputType), ::testing::Values(DEVICE_NPU));
+                                      ::testing::ValuesIn(inputType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params3 = testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(
                                               std::vector<std::vector<ov::Shape>>({{{1, 1, 1, 3}, {1}}}))),
                                       ::testing::ValuesIn(opType), ::testing::ValuesIn(modelTypes),
-                                      ::testing::ValuesIn(inputType), ::testing::Values(DEVICE_NPU));
+                                      ::testing::ValuesIn(inputType), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Min_Max_test0, MaxMinLayerTestCommon, params0, MaxMinLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_Min_Max_test1, MaxMinLayerTestCommon, params1, MaxMinLayerTestCommon::getTestCaseName);
@@ -129,7 +133,7 @@ const std::vector<ov::test::InputShape> params_dynamic = {
 
 const auto paramsDynamic = testing::Combine(::testing::Values(params_dynamic), ::testing::ValuesIn(opType),
                                             ::testing::ValuesIn(modelTypes), ::testing::ValuesIn(inputType),
-                                            ::testing::Values(DEVICE_NPU));
+                                            ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Min_Max_test_dynamic, MaxMinLayerTestDynamic, paramsDynamic,
                          MaxMinLayerTestDynamic::getTestCaseName);

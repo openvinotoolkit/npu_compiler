@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --optimize-slice-expand %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --optimize-slice-expand %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK-LABEL: @OptimizeSliceExpand
@@ -95,6 +95,34 @@ func.func @main(%arg0: tensor<1x16x28x28x!qElemType>) -> tensor<1x4x28x28x!qElem
 
 // -----
 
+!qElemType = !quant.uniform<u8:f16, 3.1445073146446075E-5>
+!qElemType1 = !quant.uniform<u8:f16, 1.5722536573223038E-5>
+
+// CHECK-LABEL: @DoNotOptimizeSliceQuantizeCastExpandUserCanUseAutopad
+module @DoNotOptimizeSliceQuantizeCastExpandUserCanUseAutopad {
+config.PipelineOptions @Options {
+   config.Option @VPU.AutoPaddingIDU : true
+}
+// CHECK: ([[INPUT:%.+]]: tensor<1x16x64x64x!qElemType>)
+func.func @main(%arg0: tensor<1x16x64x64x!qElemType>) -> tensor<1x16x64x64x!qElemType1> {
+    %filter = const.Declare tensor<16x16x1x1xf16> = dense<1.0> : tensor<16x16x1x1xf16>
+    %slice = IE.Slice %arg0 [0, 0, 0, 0] [1, 3, 64, 64] : tensor<1x16x64x64x!qElemType> to tensor<1x3x64x64x!qElemType>
+    %cast = IE.QuantizeCast(%slice) {dstElemType = !qElemType1} : tensor<1x3x64x64x!qElemType> -> tensor<1x3x64x64x!qElemType1>
+    %expand = IE.Expand(%cast) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x64x64x!qElemType1> -> tensor<1x16x64x64x!qElemType1>
+    %conv = IE.Convolution(%expand, %filter) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x64x64x!qElemType1>, tensor<16x16x1x1xf16> -> tensor<1x16x64x64x!qElemType1>
+    return %conv : tensor<1x16x64x64x!qElemType1>
+
+    // CHECK: [[FILTER:%.+]] = const.Declare tensor<16x16x1x1xf16>
+    // CHECK: [[SLICE:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 3, 64, 64]
+    // CHECK: [[CAST:%.+]] = IE.QuantizeCast([[SLICE]]) {dstElemType = !qElemType1}
+    // CHECK: [[EXPAND:%.+]] = IE.Expand([[CAST]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]}
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[EXPAND]], [[FILTER]])
+    // CHECK: return [[CONV]]
+}
+
+}
+
+// -----
 
 // CHECK-LABEL: @OptimizeSliceConcatExpand
 module @OptimizeSliceConcatExpand {
@@ -1150,6 +1178,21 @@ func.func @fuseSliceSoftmaxExpand(%arg0: tensor<1x80x8x16xf16, {order = #NHWC}>)
 
 // -----
 
+// CHECK-LABEL: @fuseSliceSoftmaxExpand_NCHW
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x192x225x240xf16>)
+func.func @fuseSliceSoftmaxExpand_NCHW(%arg0: tensor<1x192x225x240xf16>) -> tensor<1x192x225x240xf16> {
+    %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 192, 225, 225] : tensor<1x192x225x240xf16> to tensor<1x192x225x225xf16>
+    %1 = IE.SoftMax(%0) {axisInd = 3 : i64} : tensor<1x192x225x225xf16> -> tensor<1x192x225x225xf16>
+    %2 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 15]} : tensor<1x192x225x225xf16> -> tensor<1x192x225x240xf16>
+
+    return %2 : tensor<1x192x225x240xf16>
+
+    // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[ARG0]]) {axisInd = 3 : i64, padSize = 15 : i64} : tensor<1x192x225x240xf16> -> tensor<1x192x225x240xf16>
+    // CHECK: return [[SOFTMAX]] : tensor<1x192x225x240xf16>
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @notOptimizeSliceSoftmaxExpand
@@ -1213,7 +1256,6 @@ func.func @notFuseSliceSoftmaxExpandWithOffsetOfSliceNotAllZero(%arg0: tensor<1x
 
 // -----
 
-
 !qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.956:128, 0.785:128, 0.567:128}>
 !qElemType1 = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128}>
 !qElemType2 = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.567:128, 0.567:128, 0.567:128}>
@@ -1237,4 +1279,22 @@ func.func @OptimizeSliceConcatExpandForQuantizedType(%arg0: tensor<1x6x32x56x!qE
    // CHECK:       return [[VAR0]] : tensor<2x6x32x56x!qElemType>
 
 }
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @OptimizeExpandSlicePattern
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x16x32x32xf16>
+func.func @OptimizeExpandSlicePattern(%arg0: tensor<1x16x32x32xf16>) -> tensor<1x16x32x32xf16, {order = #NHWC}> {
+   %0 = IE.Slice %arg0 [0, 0, 0, 0] [1, 3, 32, 32] : tensor<1x16x32x32xf16> to tensor<1x3x32x32xf16>
+   %1 = IE.LayoutCast(%0) {dst_order = #NHWC} : tensor<1x3x32x32xf16> -> tensor<1x3x32x32xf16, {order = #NHWC}>
+   %2 = IE.Expand(%1) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x32x32xf16, {order = #NHWC}> -> tensor<1x16x32x32xf16, {order = #NHWC}>
+   return %2 : tensor<1x16x32x32xf16, {order = #NHWC}>
+
+   // CHECK-NOT:    IE.Expand
+   // CHECK-NOT:    IE.Slice
+   // CHECK:        [[LAYOUTCAST:%.+]] = IE.LayoutCast([[INPUT]])
+   // CHECK:        return [[LAYOUTCAST]] : tensor<1x16x32x32xf16, {order = #NHWC}>
 }

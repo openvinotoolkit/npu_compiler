@@ -762,27 +762,28 @@ TEST_P(PreProcessTest_M2I_f16_csc, NPU4000_HW) {
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_PrePostProcess, PreProcessTestCommon,
-                         ::testing::Combine(::testing::ValuesIn(preprocess_functions()), ::testing::Values(DEVICE_NPU)),
+                         ::testing::Combine(::testing::ValuesIn(preprocess_functions()),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          PreProcessTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_PrePostProcess_M2I_u8_single_op, PreProcessTest_M2I_u8_single_op,
                          ::testing::Combine(::testing::ValuesIn(preprocess_functions_m2i_u8_single_op()),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          PreProcessTest_M2I_u8_single_op::getTestCaseName);
 
 // [Tracking number: E#103855]
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_PrePostProcess_M2I_u8_fused_op, PreProcessTest_M2I_u8_fused_op,
                          ::testing::Combine(::testing::ValuesIn(preprocess_functions_m2i_u8_fused_op()),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          PreProcessTest_M2I_u8_fused_op::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_PrePostProcess_M2I_f16_no_csc, PreProcessTest_M2I_f16_no_csc,
                          ::testing::Combine(::testing::ValuesIn(preprocess_functions_m2i_f16_no_csc()),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          PreProcessTest_M2I_f16_no_csc::getTestCaseName);
 
 // [Tracking number: E#101592]
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_PrePostProcess_M2I_f16_csc, PreProcessTest_M2I_f16_csc,
                          ::testing::Combine(::testing::ValuesIn(preprocess_functions_m2i_f16_csc()),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          PreProcessTest_M2I_f16_csc::getTestCaseName);

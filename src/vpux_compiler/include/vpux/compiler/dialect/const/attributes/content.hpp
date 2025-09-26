@@ -110,6 +110,7 @@ public:
     [[nodiscard]] SpecializedContentSetup convertElemType(mlir::Type newElemType);
     [[nodiscard]] SpecializedContentSetup dequantize();
     [[nodiscard]] SpecializedContentSetup rescale(double scale);
+    [[nodiscard]] SpecializedContentSetup rescale(vpux::Const::ContentAttr attr);
     [[nodiscard]] SpecializedContentSetup relocateWeightsTablePointers(
             ArrayRef<uint32_t> weightsPtr, uint64_t sparsityPtr, vpux::ShapeRef offsets, uint64_t weightsTableSize,
             uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset,
@@ -121,7 +122,6 @@ public:
     [[nodiscard]] SpecializedContentSetup reorder(vpux::DimsOrder newOrder);
     [[nodiscard]] SpecializedContentSetup padWithZero(vpux::ShapeRef padBefore, vpux::ShapeRef padAfter);
     [[nodiscard]] SpecializedContentSetup subview(vpux::ShapeRef offset, vpux::ShapeRef shape);
-    [[nodiscard]] SpecializedContentSetup bitPack(int64_t width);
     [[nodiscard]] SpecializedContentSetup transpose(vpux::DimsOrder newOrder);
     [[nodiscard]] SpecializedContentSetup memPermute(vpux::DimsOrder dstOrder, vpux::DimsOrder memPerm);
     [[nodiscard]] SpecializedContentSetup layoutCast(vpux::DimsOrder dstOrder);
@@ -138,6 +138,11 @@ public:
                                                const std::vector<ContentAttr>& constants);
     [[nodiscard]] SpecializedContentSetup quantize(mlir::quant::QuantizedType newElemType);
     [[nodiscard]] SpecializedContentSetup affineReshape(mlir::ArrayAttr dimMapping, mlir::ArrayAttr shapeValue);
+    [[nodiscard]] SpecializedContentSetup interpolate(mlir::ArrayAttr axes, mlir::ArrayAttr sizes,
+                                                      mlir::StringAttr mode, mlir::StringAttr coordMode,
+                                                      mlir::StringAttr nearestMode, mlir::BoolAttr antialias,
+                                                      mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd,
+                                                      mlir::FloatAttr cubeCoeff);
 
     // Note: this method only exists when there's an explicit "Get" method
     // provided by the user.

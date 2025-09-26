@@ -370,3 +370,57 @@ func.func @OptimizeSharedClusteredInputCopyForConcatOnTwoAxes(%input0: !Input_Di
     // CHECK-SAME{LITERAL}:            {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : !VPU.DistributedTensor<1x128x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x128x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> -> !VPU.DistributedTensor<1x256x24x24xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
     // CHECK:    return [[CMX_CONCAT0]], [[CMX_CONCAT1]]
 }
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+
+!Input_CMX = tensor<1x128x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>
+!Output_CMX = tensor<1x256x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+// CHECK-LABEL: @DoNotOptimizeForDimsHigherThanThreshold
+// CHECK-SAME: ([[INPUT0:%.+]]: tensor<1x128x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x128x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+func.func @DoNotOptimizeForDimsHigherThanThreshold(%input0: !Input_CMX, %input1: !Input_CMX) -> (!Output_CMX, !Output_CMX) {
+    %cst0 = const.Declare tensor<1x128x16x24576xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x128x16x24576xf16>, [#const.Reorder<#NHWC>]
+    %cst1 = const.Declare tensor<1x128x16x24576xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x128x16x24576xf16>, [#const.Reorder<#NHWC>]
+
+    %conv_out0 = VPU.Copy(%input0) {out_mem_space = @DDR} : !Input_CMX -> tensor<1x128x16x12288xf16, {order = #NHWC}>
+    %conv_out1 = VPU.Copy(%input1) {out_mem_space = @DDR} : !Input_CMX -> tensor<1x128x16x12288xf16, {order = #NHWC}>
+
+    %concat_output = VPU.Concat(%conv_out0, %conv_out1) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 12288]]} : tensor<1x128x16x12288xf16, {order = #NHWC}>, tensor<1x128x16x12288xf16, {order = #NHWC}> -> tensor<1x128x16x24576xf16, {order = #NHWC}>
+
+    %concat0 = VPU.Concat(%concat_output , %cst0) {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x16x24576xf16, {order = #NHWC}>, tensor<1x128x16x24576xf16, {order = #NHWC}> -> tensor<1x256x16x24576xf16, {order = #NHWC}>
+    %concat1 = VPU.Concat(%concat_output , %cst1) {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x16x24576xf16, {order = #NHWC}>, tensor<1x128x16x24576xf16, {order = #NHWC}> -> tensor<1x256x16x24576xf16, {order = #NHWC}>
+
+    %slice0 = VPU.Slice %concat0 [0, 0, 0, 0] [1, 256, 16, 12288] : tensor<1x256x16x24576xf16, {order = #NHWC}> to tensor<1x256x16x12288xf16, {order = #NHWC}>
+    %slice1 = VPU.Slice %concat1 [0, 0, 0, 0] [1, 256, 16, 12288] : tensor<1x256x16x24576xf16, {order = #NHWC}> to tensor<1x256x16x12288xf16, {order = #NHWC}>
+
+    %output0 = VPU.Copy(%slice0) { out_mem_space = @CMX_NN } : tensor<1x256x16x12288xf16, {order = #NHWC}> -> !Output_CMX
+    %output1 = VPU.Copy(%slice1) { out_mem_space = @CMX_NN } : tensor<1x256x16x12288xf16, {order = #NHWC}> -> !Output_CMX
+    return %output0, %output1 : !Output_CMX, !Output_CMX
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x128x16x24576xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x128x16x24576xf16>, [#const.Reorder<#NHWC>]
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x128x16x24576xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<1x128x16x24576xf16>, [#const.Reorder<#NHWC>]
+
+    // CHECK:     [[COPY0:%.+]] = VPU.Copy([[INPUT0]]) {out_mem_space = @DDR} : tensor<1x128x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x128x16x12288xf16, {order = #NHWC}>
+    // CHECK:     [[COPY1:%.+]] = VPU.Copy([[INPUT1]]) {out_mem_space = @DDR} : tensor<1x128x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x128x16x12288xf16, {order = #NHWC}>
+
+    // CHECK:     [[CONCAT2:%.+]] = VPU.Concat([[COPY0]], [[COPY1]])
+    // CHECK-SAME{LITERAL}:         {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 12288]]} : tensor<1x128x16x12288xf16, {order = #NHWC}>, tensor<1x128x16x12288xf16, {order = #NHWC}> -> tensor<1x128x16x24576xf16, {order = #NHWC}>
+
+    // CHECK:     [[CONCAT3:%.+]] = VPU.Concat([[CONCAT2]], [[CST]])
+    // CHECK-SAME{LITERAL}:         {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x16x24576xf16, {order = #NHWC}>, tensor<1x128x16x24576xf16, {order = #NHWC}> -> tensor<1x256x16x24576xf16, {order = #NHWC}>
+    // CHECK:     [[CONCAT4:%.+]] = VPU.Concat([[CONCAT2]], [[CST_0]])
+    // CHECK-SAME{LITERAL}:         {static_offsets = [[0, 0, 0, 0], [0, 128, 0, 0]]} : tensor<1x128x16x24576xf16, {order = #NHWC}>, tensor<1x128x16x24576xf16, {order = #NHWC}> -> tensor<1x256x16x24576xf16, {order = #NHWC}>
+
+    // CHECK:     [[SLICE5:%.+]] = VPU.Slice [[CONCAT3]] [0, 0, 0, 0] [1, 256, 16, 12288] : tensor<1x256x16x24576xf16, {order = #NHWC}> to tensor<1x256x16x12288xf16, {order = #NHWC}>
+    // CHECK:     [[SLICE6:%.+]] = VPU.Slice [[CONCAT4]] [0, 0, 0, 0] [1, 256, 16, 12288] : tensor<1x256x16x24576xf16, {order = #NHWC}> to tensor<1x256x16x12288xf16, {order = #NHWC}>
+
+    // CHECK:     [[COPY7:%.+]] = VPU.Copy([[SLICE5]]) {out_mem_space = @CMX_NN} : tensor<1x256x16x12288xf16, {order = #NHWC}> -> tensor<1x256x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    // CHECK:     [[COPY8:%.+]] = VPU.Copy([[SLICE6]]) {out_mem_space = @CMX_NN} : tensor<1x256x16x12288xf16, {order = #NHWC}> -> tensor<1x256x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    // CHECK:     return [[COPY7]], [[COPY8]] : tensor<1x256x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x256x16x12288xf16, {mem_space = @CMX_NN, order = #NHWC}>
+}

@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -308,8 +309,15 @@ mlir::LogicalResult NormalizeL2Rewrite::matchAndRewrite(IE::NormalizeL2Op origOp
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("Found NormalizeL2 Operation '{0}'", origOp->getLoc());
 
-    rewriter.replaceOpWithNewOp<VPU::NormalizeL2Op>(origOp, origOp.getData(), origOp.getAxesValueAttr(),
-                                                    origOp.getEpsAttr(), origOp.getEpsModeAttr(),
+    const float minEpsilonForFP16 = 0.000000001f;
+    auto epsilonAttr = origOp.getEpsAttr();
+    auto epsilon = origOp.getEps().convertToDouble();
+    if (epsilon < minEpsilonForFP16) {
+        epsilonAttr = getFPAttr(origOp->getContext(), minEpsilonForFP16);
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::NormalizeL2Op>(origOp, origOp.getData(), origOp.getAxesValueAttr(), epsilonAttr,
+                                                    origOp.getEpsModeAttr(),
                                                     /*multiClusterStrategy=*/nullptr);
 
     return mlir::success();
@@ -552,6 +560,21 @@ mlir::LogicalResult ExternalKernelRewrite::matchAndRewrite(IE::ExternalKernelOp 
     return mlir::success();
 }
 
+//
+// IncrementalSDPARewrite
+//
+
+mlir::LogicalResult IncrementalSDPARewrite::matchAndRewrite(IE::IncrementalSDPAOp origOp,
+                                                            mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found IncrementalSDPA Operation '{0}'", origOp->getLoc());
+
+    rewriter.replaceOpWithNewOp<VPU::IncrementalSDPAOp>(
+            origOp, origOp.getQuery(), origOp.getKey(), origOp.getValue(), origOp.getInputPartialOutput(),
+            origOp.getInputRunningMax(), origOp.getInputRunningSum(), origOp.getAttentionMask(), origOp.getScale());
+
+    return mlir::success();
+}
+
 namespace {
 
 //
@@ -609,6 +632,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<DynamicQuantizeRewrite>(&ctx, _log);
     patterns.add<AddRewrite>(&ctx, _log);
     patterns.add<ExternalKernelRewrite>(&ctx, _log);
+    patterns.add<IncrementalSDPARewrite>(&ctx, _log);
     populateWithGenerated(patterns);
 
     if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {

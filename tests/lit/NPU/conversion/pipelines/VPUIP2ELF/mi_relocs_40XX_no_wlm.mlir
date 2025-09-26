@@ -18,10 +18,10 @@ net.NetworkInfo
         DataInfo "hswish" : tensor<1x1000xf16>
     }
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
   builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-      IE.MemoryResource 512 bytes of @CMX_NN offset 0
+      config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
   }
 }

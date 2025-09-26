@@ -6,7 +6,7 @@
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/nce_cluster_task_rewriter.hpp"
 #include "vpux/compiler/conversion/passes/VPUIP2VPUMI40XX/buffer_conversion.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
@@ -71,7 +71,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     uint32_t tileIndex = 0;
     if ((*dpuTasks.begin()).getClusterId().has_value()) {
         tileIndex = (*dpuTasks.begin()).getClusterId().value();
-    } else {
+    } else if (origOp.getInput()) {
         auto bufferOp = mlir::cast<VPURT::DeclareBufferOp>(origOp.getInput().getDefiningOp());
         if (bufferOp.getSection() == VPURT::BufferSection::CMX_NN) {
             if (bufferOp.getSectionIndex().has_value() && !bufferOp.getSectionIndex().value().empty()) {
@@ -123,7 +123,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             zeroUI64Attr,                 // cleanAfter
             nullptr,                      // enqueueBarrier
             origTaskOp.getWlmPageAttr(),  // wlmPageAttr
-            adaptor.getDynamicScaleConfigAttr()
+            adaptor.getDynamicScaleConfigAttr(), adaptor.getLocalRegionAttr()
 
     );
 
@@ -144,7 +144,7 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
     auto dpuTasksIt = dpuTasks.begin();
 
     if (sprLookupTable || palletLookupTable) {
-        // Processing dummy DPU task (see more info in AddDummyDPUTaskForMetadataPrefetch pass)
+        // Processing dummy DPU task (see more info in InsertDelayDPUVariant pass)
         createVPUMI40XXVariant(*(dpuTasksIt++));
 
         // For the first variant that goes after the dummy one, two additional registers are set:

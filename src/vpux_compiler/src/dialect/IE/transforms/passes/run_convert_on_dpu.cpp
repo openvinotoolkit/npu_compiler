@@ -7,10 +7,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/fuse_convert_to_dpu_checker.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/Builders.h>

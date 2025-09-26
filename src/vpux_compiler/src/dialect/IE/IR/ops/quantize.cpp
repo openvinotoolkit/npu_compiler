@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"

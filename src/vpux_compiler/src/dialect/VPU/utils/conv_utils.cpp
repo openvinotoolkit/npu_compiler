@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
@@ -142,7 +143,7 @@ bool isSupportedSEPTransposedConvImpl(mlir::Operation* op, NDTypeInterface input
 
     const auto outputPadding = Shape(parseIntArrayAttr<int64_t>(outputPaddingAttr));
 
-    const auto inputShape = inputType.getShape();
+    const auto inputShape = getBoundedShape(inputType);
     const auto origKernelStrides = Shape(parseIntArrayAttr<int64_t>(kernelStridesAttr));
     const auto zerosY = origKernelStrides[Dims4D::Strides::Y] - 1;
     const auto zerosX = origKernelStrides[Dims4D::Strides::X] - 1;
@@ -154,15 +155,37 @@ bool isSupportedSEPTransposedConvImpl(mlir::Operation* op, NDTypeInterface input
     const auto newX = inputShape[Dims4D::Act::W] + zerosX * (inputShape[Dims4D::Act::W] - 1) + newPadLeft + newPadRight;
 
     const Shape newInputShape{inputShape[Dims4D::Act::N], inputShape[Dims4D::Act::C], newY, newX};
-    inputType = inputType.changeShape(newInputShape);
+
+    // In case of dynamic bounded types, check that the NCEConv is legal on the bounded shape
+    mlir::Type convInputType = inputType;
+    if (mlir::isa<Core::BoundedTensorType>(convInputType)) {
+        convInputType = vpux::getTensorType(newInputShape, inputType.getElementType(), inputType.getDimsOrder(),
+                                            inputType.getMemSpace(), /*Bounds=*/{}, /*DynamicDimsMask=*/{});
+    } else {
+        convInputType = mlir::cast<NDTypeInterface>(convInputType).changeShape(newInputShape);
+    }
+
+    mlir::Type convFilterType = filterType;
+    if (mlir::isa<Core::BoundedTensorType>(convFilterType)) {
+        convFilterType = vpux::getTensorType(getBoundedShape(convFilterType), filterType.getElementType(),
+                                             filterType.getDimsOrder(), filterType.getMemSpace(), /*Bounds=*/{},
+                                             /*DynamicDimsMask=*/{});
+    }
+
+    mlir::Type convOutputType = outputType;
+    if (mlir::isa<Core::BoundedTensorType>(convOutputType)) {
+        convOutputType = vpux::getTensorType(getBoundedShape(convOutputType), outputType.getElementType(),
+                                             outputType.getDimsOrder(), outputType.getMemSpace(), /*Bounds=*/{},
+                                             /*DynamicDimsMask=*/{});
+    }
 
     const int64_t SY = 1;
     const int64_t SX = 1;
 
     PadInfo pads(0, 0, 0, 0);
 
-    return VPU::isNCEConvSupported(op, inputType, filterType, outputType, dilations, KY, KX, SY, SX, pads, checkLayout,
-                                   checkChannelAlignment, logCb, supportsInputActCompression);
+    return VPU::isNCEConvSupported(op, convInputType, convFilterType, convOutputType, dilations, KY, KX, SY, SX, pads,
+                                   checkLayout, checkChannelAlignment, logCb, supportsInputActCompression);
 }
 
 }  // namespace

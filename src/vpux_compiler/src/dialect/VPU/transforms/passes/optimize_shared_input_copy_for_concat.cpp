@@ -9,10 +9,8 @@
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 
-#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -202,9 +200,18 @@ bool SharedCopyInputRewriter::meetConcatPattern(VPU::ConcatOp concatOp) const {
         }
 
         auto userOp = *maybeSliceOp->getUsers().begin();
+
         if (!isCopyDDR2CMX(userOp)) {
             return false;
         }
+
+        auto outputType = mlir::cast<vpux::NDTypeInterface>(userOp->getResult(0).getType());
+        if (vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(outputType.getShape())) {
+            _log.trace("Dimension sizes over VPU_DIMENSION_LIMIT are not supported for output shape {0}",
+                       outputType.getShape());
+            return false;
+        }
+
         auto distributedOutput = mlir::dyn_cast_or_null<VPU::DistributedTensorType>(userOp->getResult(0).getType());
         if (distributedOutput != nullptr) {
             const auto distAttr = distributedOutput.getDistribution();
@@ -265,7 +272,14 @@ std::optional<mlir::Value> SharedCopyInputRewriter::createNewBranchInput(mlir::V
     auto newSlice = rewriter.create<VPU::SliceOp>(sliceUser.getLoc(), concatInput, newSliceOffset, newSliceSize);
 
     auto userCopyOp = *sliceUser->getUsers().begin();
+
     auto copyOutType = mlir::cast<vpux::NDTypeInterface>(userCopyOp->getResult(0).getType());
+
+    if (vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(copyOutType.getShape())) {
+        _log.trace("Dimension sizes over VPU_DIMENSION_LIMIT are not supported for copy output shape {0}",
+                   copyOutType.getShape());
+        return std::nullopt;
+    }
 
     if (!mlir::isa<VPU::DistributedTensorType>(copyOutType)) {
         return rewriter.create<VPU::CopyOp>(userCopyOp->getLoc(), newSlice, copyOutType.getMemSpace());

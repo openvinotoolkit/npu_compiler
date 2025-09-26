@@ -1244,7 +1244,7 @@ func.func @NotConvertPermuteAddWithODUPermuteWithInputMultiUser(%arg0 : tensor<1
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 // CHECK-LABEL: @PropagateForMultiplyWithShapecast
-// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x8x4x96xf16> 
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x8x4x96xf16>
 // CHECK-SAME:  [[INPUT_1:%.+]]: tensor<1x4x8x96xf16>
 func.func @PropagateForMultiplyWithShapecast(%arg0 : tensor<1x8x4x96xf16>, %arg1 : tensor<1x4x8x96xf16>) -> tensor<1x8x4x96xf16> {
     %LHS_MEM_PERMUTE = IE.MemPermute(%arg0) {
@@ -1342,7 +1342,7 @@ func.func @PropagateForMultiply(%arg0 : tensor<1x4x512x256xf16>, %arg1 : tensor<
 #NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 
 // CHECK-LABEL: @PropagateForMultiplyWithDifferentPermutation
-// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x4x512x256xf16>, [[INPUT_1:%.+]]: tensor<1x512x4x256xf16> 
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x4x512x256xf16>, [[INPUT_1:%.+]]: tensor<1x512x4x256xf16>
 func.func @PropagateForMultiplyWithDifferentPermutation(%arg0 : tensor<1x4x512x256xf16>, %arg1 : tensor<1x512x4x256xf16>) -> tensor<1x4x512x256xf16> {
     %LHS_MEM_PERMUTE = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x4x512x256xf16> -> tensor<1x4x512x256xf16, {order = #NHWC}>
 
@@ -1372,7 +1372,7 @@ func.func @PropagateForMultiplyWithDifferentPermutation(%arg0 : tensor<1x4x512x2
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 // CHECK-LABEL: @PropagateForAddWithSoftmax
-// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x2x512x512xf16>, [[INPUT_1:%.+]]: tensor<1x2x512x512xf16> 
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x2x512x512xf16>, [[INPUT_1:%.+]]: tensor<1x2x512x512xf16>
 func.func @PropagateForAddWithSoftmax(%arg0 : tensor<1x2x512x512xf16>, %arg1 : tensor<1x2x512x512xf16>) -> tensor<1x2x512x512xf16> {
     %LHS_PERMUTEQUANTIZE = IE.PermuteQuantize(%arg0) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x2x512x512xf16> -> tensor<1x2x512x512xf16, {order = #NHWC}>
     %RHS_PERMUTEQUANTIZE = IE.PermuteQuantize(%arg1) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x2x512x512xf16> -> tensor<1x2x512x512xf16, {order = #NHWC}>
@@ -1518,6 +1518,58 @@ func.func @PropagateForBroadCastMultiplyAndAdd(%arg0 : tensor<1x4x512x512xf16>, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
+!qElemType = !quant.uniform<u8:f16, 0.081444568260043274>
+!qElemType1 = !quant.uniform<u8:f16, 0.0019852942111445409>
+!qElemType2 = !quant.uniform<u8:f16, 0.0063430973127776499:134>
+!qElemType3 = !quant.uniform<u8:f16, 0.012491718928019205:128>
+!qElemType4 = !quant.uniform<u8:f16, 0.0039705884222890819>
+
+// CHECK-LABEL: @PropagateForBroadCastMultiplyAndAddQuantized
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x4x512x512x!qElemType>, [[INPUT_1:%.+]]: tensor<1x1x512x512x!qElemType1>, [[INPUT_2:%.+]]: tensor<1x4x512x512x!qElemType2>
+func.func @PropagateForBroadCastMultiplyAndAddQuantized(%arg0: tensor<1x4x512x512x!qElemType>, %arg1: tensor<1x1x512x512x!qElemType1>, %arg2: tensor<1x4x512x512x!qElemType2>) -> tensor<1x4x512x512x!quant.uniform<u8:f16, 0.012491718928019205:128>> {
+    %LHS_MEM_PERMUTE = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x4x512x512x!qElemType> -> tensor<1x4x512x512x!qElemType, {order = #NHWC}>
+    %RHS_MEM_PERMUTE = IE.MemPermute(%arg1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x1x512x512x!qElemType1> -> tensor<1x1x512x512x!qElemType1, {order = #NHWC}>
+    %MULTIPLY = IE.Multiply(%LHS_MEM_PERMUTE, %RHS_MEM_PERMUTE) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x512x512x!qElemType, {order = #NHWC}>, tensor<1x1x512x512x!qElemType1, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType4, {order = #NHWC}>
+
+    %ADD_RHS_PERMUTE = IE.MemPermute(%arg2) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x4x512x512x!qElemType2> -> tensor<1x4x512x512x!qElemType2, {order = #NHWC}>
+    %ADD = IE.Add(%MULTIPLY, %ADD_RHS_PERMUTE) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x4x512x512x!qElemType4, {order = #NHWC}>, tensor<1x4x512x512x!qElemType2, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3, {order = #NHWC}>
+
+    %OUT_MEM_PERMUTE = IE.MemPermute(%ADD) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x4x512x512x!qElemType3, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3>
+    return %OUT_MEM_PERMUTE : tensor<1x4x512x512x!quant.uniform<u8:f16, 0.012491718928019205:128>>
+
+    // CHECK:   [[LHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x4x512x512x!qElemType> -> tensor<1x4x512x512x!qElemType, {order = #NHWC}>
+    // CHECK:   [[RHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_1]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x1x512x512x!qElemType1> -> tensor<1x1x512x512x!qElemType1, {order = #NHWC}>
+
+    // CHECK:   [[MUL_LHS_PERMUTE:%.+]] = IE.MemPermute([[LHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x4x512x512x!qElemType, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType, {order = #NHWC}>
+    // CHECK:   [[MUL_RHS_PERMUTE:%.+]] = IE.MemPermute([[RHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x1x512x512x!qElemType1, {order = #NHWC}> -> tensor<1x512x1x512x!qElemType1, {order = #NHWC}>
+    // CHECK:   [[MULTIPLY:%.+]] = IE.Multiply([[MUL_LHS_PERMUTE]], [[MUL_RHS_PERMUTE]])
+    // CHECK:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:       tensor<1x512x4x512x!qElemType, {order = #NHWC}>, tensor<1x512x1x512x!qElemType1, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType4, {order = #NHWC}>
+
+    // CHECK:   [[IN_ADD_RHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_2]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x4x512x512x!qElemType2> -> tensor<1x4x512x512x!qElemType2, {order = #NHWC}>
+    // CHECK:   [[ADD_RHS_PERMUTE:%.+]] = IE.MemPermute([[IN_ADD_RHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x4x512x512x!qElemType2, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType2, {order = #NHWC}>
+
+    // CHECK:   [[ADD:%.+]] = IE.Add([[MULTIPLY]], [[ADD_RHS_PERMUTE]])
+    // CHECK:       {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+    // CHECK:       tensor<1x512x4x512x!qElemType4, {order = #NHWC}>, tensor<1x512x4x512x!qElemType2, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType3, {order = #NHWC}>
+
+    // CHECK:   [[OUT_CAST:%.+]] = IE.PermuteCast([[ADD]]) {dst_order = #NCHW, mem_perm = #NCHW}
+    // CHECK:       tensor<1x512x4x512x!qElemType3, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3>
+    // CHECK:   return [[OUT_CAST]] : tensor<1x4x512x512x!qElemType3>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
 // CHECK-LABEL: @PropagateForBroadCastMultiplyAndMultiply
 // CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x4x512x512xf16>, [[INPUT_1:%.+]]: tensor<1x1x512x512xf16>, [[INPUT_2:%.+]]: tensor<1x4x512x512xf16>
 func.func @PropagateForBroadCastMultiplyAndMultiply(%arg0 : tensor<1x4x512x512xf16>, %arg1 : tensor<1x1x512x512xf16>, %arg2 : tensor<1x4x512x512xf16>) -> tensor<1x4x512x512xf16> {
@@ -1556,6 +1608,55 @@ func.func @PropagateForBroadCastMultiplyAndMultiply(%arg0 : tensor<1x4x512x512xf
     // CHECK:   [[OUT_CAST:%.+]] = IE.PermuteCast([[MUL1]])
     // CHECK:       {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x512x4x512xf16, {order = #NHWC}> -> tensor<1x4x512x512xf16>
     // CHECK:   return [[OUT_CAST]] : tensor<1x4x512x512xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.081444568260043274>
+!qElemType1 = !quant.uniform<u8:f16, 0.0019852942111445409>
+!qElemType2 = !quant.uniform<u8:f16, 0.0063430973127776499:134>
+!qElemType3 = !quant.uniform<u8:f16, 0.012491718928019205:128>
+!qElemType4 = !quant.uniform<u8:f16, 0.0039705884222890819>
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @PropagateForAddAndBroadCastMultiplyQuantized
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x4x512x512x!qElemType>, [[INPUT_1:%.+]]: tensor<1x4x512x512x!qElemType1>, [[INPUT_2:%.+]]: tensor<1x1x512x512x!qElemType2>
+func.func @PropagateForAddAndBroadCastMultiplyQuantized(%arg0 : tensor<1x4x512x512x!qElemType>, %arg1 : tensor<1x4x512x512x!qElemType1>, %arg2 : tensor<1x1x512x512x!qElemType2>) -> tensor<1x4x512x512x!qElemType3> {
+    %ADD_LHS_PERMUTE = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x4x512x512x!qElemType> -> tensor<1x4x512x512x!qElemType, {order = #NHWC}>
+    %ADD_RHS_PERMUTE = IE.MemPermute(%arg1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x4x512x512x!qElemType1> -> tensor<1x4x512x512x!qElemType1, {order = #NHWC}>
+    %ADD = IE.Add(%ADD_LHS_PERMUTE, %ADD_RHS_PERMUTE) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x4x512x512x!qElemType, {order = #NHWC}>, tensor<1x4x512x512x!qElemType1, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType4, {order = #NHWC}>
+
+    %MUL_RHS_PERMUTE = IE.MemPermute(%arg2) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x1x512x512x!qElemType2> -> tensor<1x1x512x512x!qElemType2, {order = #NHWC}>
+    %MULTIPLY = IE.Multiply(%ADD, %MUL_RHS_PERMUTE) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x512x512x!qElemType4, {order = #NHWC}>, tensor<1x1x512x512x!qElemType2, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3, {order = #NHWC}>
+
+    %OUT_MEM_PERMUTE = IE.MemPermute(%MULTIPLY) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x4x512x512x!qElemType3, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3>
+    return %OUT_MEM_PERMUTE : tensor<1x4x512x512x!qElemType3>
+
+    // CHECK:   [[LHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x4x512x512x!qElemType> -> tensor<1x4x512x512x!qElemType, {order = #NHWC}>
+    // CHECK:   [[RHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_1]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x4x512x512x!qElemType1> -> tensor<1x4x512x512x!qElemType1, {order = #NHWC}>
+
+    // CHECK:   [[ADD_LHS_PERMUTE:%.+]] = IE.MemPermute([[LHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x4x512x512x!qElemType, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType, {order = #NHWC}>
+    // CHECK:   [[ADD_RHS_PERMUTE:%.+]] = IE.MemPermute([[RHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x4x512x512x!qElemType1, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType1, {order = #NHWC}>
+    // CHECK:   [[ADD:%.+]] = IE.Add([[ADD_LHS_PERMUTE]], [[ADD_RHS_PERMUTE]])
+    // CHECK:       {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>}
+    // CHECK:       tensor<1x512x4x512x!qElemType, {order = #NHWC}>, tensor<1x512x4x512x!qElemType1, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType4, {order = #NHWC}>
+    // CHECK:   [[IN_MUL_RHS_PERMUTE:%.+]] = IE.MemPermute([[INPUT_2]]) {dst_order = #NHWC, mem_perm = #NHWC}
+    // CHECK:       tensor<1x1x512x512x!qElemType2> -> tensor<1x1x512x512x!qElemType2, {order = #NHWC}>
+    // CHECK:   [[MUL_IN_CAST_RHS:%.+]] = IE.MemPermute([[IN_MUL_RHS_PERMUTE]]) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK:       tensor<1x1x512x512x!qElemType2, {order = #NHWC}> -> tensor<1x512x1x512x!qElemType2, {order = #NHWC}>
+    // CHECK:   [[MUL:%.+]] = IE.Multiply([[ADD]], [[MUL_IN_CAST_RHS]])
+    // CHECK:       {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:       tensor<1x512x4x512x!qElemType4, {order = #NHWC}>, tensor<1x512x1x512x!qElemType2, {order = #NHWC}> -> tensor<1x512x4x512x!qElemType3, {order = #NHWC}>
+    // CHECK:   [[OUT_CAST:%.+]] = IE.PermuteCast([[MUL]]) {dst_order = #NCHW, mem_perm = #NCHW}
+    // CHECK:       tensor<1x512x4x512x!qElemType3, {order = #NHWC}> -> tensor<1x4x512x512x!qElemType3>
+    // CHECK:   return [[OUT_CAST]] : tensor<1x4x512x512x!qElemType3>
 }
 
 // -----
@@ -1846,7 +1947,7 @@ func.func @PropagatePermuteThroughMaxPoolWithLayoutCast(%arg0 : tensor<1x16x1575
 func.func @PropagatePermuteThroughAvgPoolWithShapeCast(%arg0 : tensor<1x768x1152x3xf16>) -> tensor<1x3x768x1152x!quant.uniform<u8:f16, 1.0287820255055147>, {order = #NHWC}> {
     %0 = IE.PermuteQuantize(%arg0) {
                 dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]
-            } : tensor<1x768x1152x3xf16> -> tensor<1x768x1152x3xf16, {order = #NHWC}>   
+            } : tensor<1x768x1152x3xf16> -> tensor<1x768x1152x3xf16, {order = #NHWC}>
     %1 = IE.AvgPool(%0) {
                 exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]
             } : tensor<1x768x1152x3xf16, {order = #NHWC}> -> tensor<1x768x1152x3x!quant.uniform<u8:f16, 1.0287820255055147>, {order = #NHWC}>
@@ -1883,7 +1984,7 @@ func.func @PropagatePermuteThroughMaxPoolWithShapeCastAndLayoutCast(%arg0 : tens
                             -> tensor<1x1152x768x3x!quant.uniform<u8:f16, 1.0287820255055147>, {order = #NHCW}> {
     %0 = IE.PermuteQuantize(%arg0) {
                 dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]
-            } : tensor<1x768x1152x3xf16> -> tensor<1x768x1152x3xf16, {order = #NHWC}>   
+            } : tensor<1x768x1152x3xf16> -> tensor<1x768x1152x3xf16, {order = #NHWC}>
     %1 = IE.MaxPool(%0) {
                 exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]
             } : tensor<1x768x1152x3xf16, {order = #NHWC}> -> tensor<1x768x1152x3x!quant.uniform<u8:f16, 1.0287820255055147>, {order = #NHWC}>
@@ -1925,17 +2026,17 @@ func.func @DoNotPropagateMemPermuteWithMultipleUsers(%arg0: tensor<1x4x1600x2560
   %1 = IE.Gelu(%0) : tensor<1x4x1600x2560xf16, {order = #NHWC}>  -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
   %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
                     : tensor<1x4x1600x2560xf16, {order = #NHWC}>, tensor<1x4x1600x2560xf16, {order = #NHWC}> -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
-  %3 = IE.MemPermute(%2) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = #NWCH} 
+  %3 = IE.MemPermute(%2) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = #NWCH}
                     : tensor<1x4x1600x2560xf16, {order = #NHWC}> -> tensor<1x4x1600x2560xf16>
   return %3 : tensor<1x4x1600x2560xf16>
 
-  // CHECK:  [[MEM_PERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NHWC, mem_perm = #NHWC} 
+  // CHECK:  [[MEM_PERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NHWC, mem_perm = #NHWC}
   // CHECK-SAME:                : tensor<1x4x1600x2560xf16> -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
   // CHECK:  [[GELU:%.+]] = IE.Gelu([[MEM_PERMUTE]]) : tensor<1x4x1600x2560xf16, {order = #NHWC}>
   // CHECK-SAME:                -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
-  // CHECK:  [[ADD:%.+]] = IE.Add([[MEM_PERMUTE]], [[GELU]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} 
+  // CHECK:  [[ADD:%.+]] = IE.Add([[MEM_PERMUTE]], [[GELU]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
   // CHECK-SAME:                : tensor<1x4x1600x2560xf16, {order = #NHWC}>, tensor<1x4x1600x2560xf16, {order = #NHWC}> -> tensor<1x4x1600x2560xf16, {order = #NHWC}>
-  // CHECK:  [[OUT_MEM_PERMUTE:%.+]] = IE.MemPermute([[ADD]]) {dst_order = #NCHW, mem_perm = #NWCH} 
+  // CHECK:  [[OUT_MEM_PERMUTE:%.+]] = IE.MemPermute([[ADD]]) {dst_order = #NCHW, mem_perm = #NWCH}
   // CHECK-SAME:                : tensor<1x4x1600x2560xf16, {order = #NHWC}> -> tensor<1x4x1600x2560xf16>
   // CHECK:  return [[OUT_MEM_PERMUTE]] : tensor<1x4x1600x2560xf16>
 }
@@ -2066,3 +2167,41 @@ func.func @NotPropagatePermuteWhenDimNOfOneInputIsNotOneSameHW(%arg0 : tensor<4x
 
     // CHECK:   return [[PERMUTE_2]] : tensor<4x1x32x56xf16, {order = #NHWC}>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @PermuteQuantizeAddDynamic
+func.func @PermuteQuantizeAddDynamic(%arg0: tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>,
+                %arg1: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>)
+                -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = IE.Convert(%arg0) {dstElemType = f16} : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>
+    %1 = IE.PermuteQuantize(%0) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    %14 = IE.Add(%arg1, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>, tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    %15 = IE.MemPermute(%14) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> -> tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>
+    return %15 : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>
+
+}
+    // Check that bounds order also modified same way as the logical order
+
+    // CHECK: IE.MemPermute({{.*}}) {dst_order = #NHWC, mem_perm = #NWCH}
+    // CHECK-SAME: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> ->
+    // CHECK-SAME: tensor<1x?x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK: IE.MemPermute({{.*}})
+    // CHECK-SAME: tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}> ->
+    // CHECK-SAME: tensor<1x?x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK: IE.Add({{.*}}, {{.*}}) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+    // CHECK-SAME: tensor<1x?x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}>,
+    // CHECK-SAME: tensor<1x?x3x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}> ->
+    // CHECK-SAME: tensor<1x?x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK: IE.PermuteCast({{.*}})
+    // CHECK-SAME: tensor<1x?x3x?xf32, {bounds = #const.OpaqueI64Elements<[1, 2560, 3, 1600]> : tensor<4xsi64>, order = #NHWC}> ->
+    // CHECK-SAME: tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: return {{.*}} : tensor<1x3x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 3, 1600, 2560]> : tensor<4xsi64>, order = #NCHW}>

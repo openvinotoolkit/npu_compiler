@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -35,14 +36,17 @@ using namespace vpux;
 
 bool vpux::VPU::NCEDepthConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter,
                                                   vpux::NDTypeInterface output, Byte reservedMem) {
+    SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize()};
     const auto OC = output.getShape()[Dims4D::Act::C];
 
-    SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize(),
-                                 NCEInvariant::getWeightsTableSize(OC)};
+    const auto op = getOperation();
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
 
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
-                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
-    auto arch = config::getArch(getOperation());
+    auto totalAvailableCMXSize =
+            reservedMem.count() == 0 ? getTotalCMXSize(op).count() : getTotalCMXFragmentationAwareSize(op).count();
+    auto arch = config::getArch(op);
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffers).count() + reservedMem.count() <=
            totalAvailableCMXSize;
 }
@@ -135,7 +139,7 @@ bool vpux::VPU::NCEDepthConvolutionOp::isSupported(IE::GroupConvolutionOp op, Lo
 //
 
 mlir::LogicalResult verifyDepthConv(mlir::Location loc, mlir::Operation* op,
-                                    VPU::NCEDepthConvolutionOpAdaptor opAdaptor, mlir::Value output) {
+                                    VPU::NCEDepthConvolutionOpAdaptor& opAdaptor, mlir::Value output) {
     const auto logCb = [loc](const llvm::formatv_object_base& msg) {
         std::ignore = errorAt(loc, "{0}", msg.str());
     };
@@ -162,11 +166,13 @@ mlir::LogicalResult verifyDepthConv(mlir::Location loc, mlir::Operation* op,
     const auto OC =
             VPU::canAutopadOutput(op) ? vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT : outputShape[Dims4D::Act::C];
 
-    const auto weightsTableShape = getShape(opAdaptor.getWeightsTable());
+    const auto weightsTableShape = opAdaptor.getWeightsTable() == nullptr
+                                           ? std::nullopt
+                                           : std::optional<vpux::ShapeRef>(getShape(opAdaptor.getWeightsTable()));
     const auto expectedWeightsTableShape = VPU::NCESparsity::inferWeightsTableShape(OC);
 
-    if (weightsTableShape != expectedWeightsTableShape) {
-        return errorAt(loc, "Got wrong shape for 'weightsTable' '{0}', expected '{1}'", weightsTableShape,
+    if (weightsTableShape.has_value() && weightsTableShape.value() != expectedWeightsTableShape) {
+        return errorAt(loc, "Got wrong shape for 'weightsTable' '{0}', expected '{1}'", weightsTableShape.value(),
                        expectedWeightsTableShape);
     }
 
@@ -182,12 +188,16 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::verify() {
         return mlir::success();
     }
 
+    if (mlir::failed(VPU::NCEInvariant::verifyWeightTables(op))) {
+        return mlir::failure();
+    }
+
     if (mlir::failed(vpux::VPU::verifyNCEOp(op))) {
         return mlir::failure();
     }
 
-    const NCEDepthConvolutionOpAdaptor convAdaptor(op->getOperands(), op->getAttrDictionary(),
-                                                   op->getPropertiesStorage(), op->getRegions());
+    VPU::NCEDepthConvolutionOpAdaptor convAdaptor(op->getOperands(), op->getAttrDictionary(),
+                                                  op->getPropertiesStorage(), op->getRegions());
     if (mlir::failed(verifyDepthConv(op->getLoc(), op, convAdaptor, getOutput()))) {
         return mlir::failure();
     }
@@ -245,7 +255,7 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::inferReturnTypes(
     const auto fIC = filterShape[Dims4D::Filter::IC];
 
     if (fIC != 1) {
-        return errorAt(loc, "Non depthwize convolution case");
+        return errorAt(loc, "Non depthwise convolution case");
     }
 
     const auto windowStrides = parseIntArrayAttr<int64_t>(op.getStrides());
@@ -269,11 +279,12 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::inferReturnTypes(
     inShapeInfo.shape[Dims4D::Act::C.ind()] = 1;
     filterShapeInfo.shape = parseIntArrayAttr<int64_t>(op.getRawFilterShape());
 
-    auto shapeInfo = inferConvoutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow,
-                                                    dataPaddingAbove, windowDilations);
+    auto shapeInfo = inferConvolutionOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides, dataPaddingBelow,
+                                                     dataPaddingAbove, windowDilations);
 
-    auto outputType = mlir::RankedTensorType::get(shapeInfo.shape, inputType.getElementType(),
-                                                  createTensorAttrFromType(inputType));
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(shapeInfo.bounds));
+    const auto outputType = mlir::RankedTensorType::get(shapeInfo.shape, inputType.getElementType(), outDesc);
 
     inferredReturnTypes.push_back(outputType);
     return mlir::success();
@@ -285,7 +296,7 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::inferReturnTypes(
 
 vpux::InputTiling vpux::VPU::NCEDepthConvolutionOp::backInferTileInfo(const vpux::TileInfo& outputTile,
                                                                       vpux::Logger log) {
-    const auto origInputShape = getShape(getInput());
+    const auto origInputShape = getBoundedShape(getInput());
     const auto origPadding = toPadInfo(getPad());
     const auto origFilterShape = Shape(parseIntArrayAttr<int64_t>(getRawFilterShape()));
 
@@ -314,8 +325,17 @@ vpux::InputTiling vpux::VPU::NCEDepthConvolutionOp::backInferTileInfo(const vpux
     inputTiling.tiles[1].shape = getShape(getFilter()).toValues();
     inputTiling.tiles[1].shape[Dims4D::Filter::OC] = outputTile.shape[Dims4D::Act::C];
 
-    inputTiling.tiles.push_back(
-            VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    auto nceOp = mlir::cast<VPU::NCEDepthConvolutionOp>(getOperation());
+    if (nceOp.getWeightsTable()) {
+        inputTiling.tiles.push_back(
+                VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
+    }
+    if (nceOp.getWeightTableScale()) {
+        inputTiling.tiles.push_back(VPU::getScaleTableTile(this, outputTile));
+    }
+    if (nceOp.getWeightTableBias()) {
+        inputTiling.tiles.push_back(VPU::getBiasTableTile(this, outputTile));
+    }
 
     return inputTiling;
 }
@@ -366,18 +386,18 @@ bool VPU::NCEDepthConvolutionOp::isOperationSplitOverHeightCompatible(const vpux
     auto offset = ShapeRef(oriOutputTile.offsets);
     auto axis = ShapeRef(oriOutputTile.axis);
     if (outputShape.empty()) {
-        outputShape = getShape(getOutput());
+        outputShape = getBoundedShape(getOutput());
     }
     vpux::TileInfo outputTile{outputShape, offset, axis, oriOutputTile.isCompletedTile};
     if (!VPU::isOperationSplitOverHeightCompatible(getOperation(), outputTile)) {
         return false;
     }
 
-    auto nceOp = mlir::cast<NCEDepthConvolutionOp>(getOperation());
+    auto nceOp = mlir::cast<VPU::NCEDepthConvolutionOp>(getOperation());
     Shape inputShape = getShape(nceOp.getInput()).toValues();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(nceOp.getInput().getType());
     // If has custom output shape, infer the input shape
-    if (outputShape != getShape(nceOp->getResult(0))) {
+    if (outputShape != getBoundedShape(nceOp->getResult(0))) {
         VPUX_THROW_WHEN(offset.empty() || axis.empty(),
                         "Offsets and axis must have value when create TileInfo. Loc: {0}", nceOp->getLoc());
         outputTile.isCompletedTile = true;
@@ -388,7 +408,7 @@ bool VPU::NCEDepthConvolutionOp::isOperationSplitOverHeightCompatible(const vpux
     }
 
     auto moduleOp = nceOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
 
     return isSOHSupportedByDPU(inputType, inputShape, numTiles, true, config::getArch(nceOp.getOperation()));
@@ -424,20 +444,23 @@ bool VPU::NCEDepthConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy s
                     getFilterDistributionAttrFromOp(nceOpInterface, getFilter().getType(), numClusters, strategy)),
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                           strategy, siblingsAnalysis)),
-            NCEInvariant::getWeightsTableSize(OC)};
+                                                                           strategy, siblingsAnalysis))};
+    const auto op = getOperation();
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
 
-    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
-                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
+    auto totalAvailableCMXSize = reservedMem.count() == 0 ? VPU::getTotalCMXSize(op).count()
+                                                          : VPU::getTotalCMXFragmentationAwareSize(op).count();
 
-    auto arch = config::getArch(getOperation());
+    auto arch = config::getArch(op);
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(arch, buffers).count() + reservedMem.count() <=
            totalAvailableCMXSize;
 }
 
 bool VPU::NCEDepthConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
         VPU::MultiClusterStrategy strategy, VPU::DistributedTypeInterface newDistributedTensorType) {
-    auto nceOp = mlir::cast<NCEDepthConvolutionOp>(getOperation());
+    auto nceOp = mlir::cast<VPU::NCEDepthConvolutionOp>(getOperation());
     auto nceOpInterface = mlir::cast<VPU::NCEOpInterface>(getOperation());
     auto numClusters = VPU::getOptimalNumClusters(
             nceOp, mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType()).getShape(), strategy);
@@ -451,7 +474,7 @@ bool VPU::NCEDepthConvolutionOp::doesLayerChangeOutputAlignmentFitIntoCMX(
 vpux::NDTypeInterface vpux::VPU::NCEDepthConvolutionOp::getDistributedTypeForOpOperand(
         mlir::OpOperand& operand, bool hasExplicitDistributedAttr, SiblingOpsAnalysis& siblingsAnalysis) {
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(getOperation());
-    auto origOp = mlir::cast<NCEDepthConvolutionOp>(getOperation());
+    auto origOp = mlir::cast<VPU::NCEDepthConvolutionOp>(getOperation());
     const auto strategy = clusteredOp.getMultiClusterStrategy().value();
     auto outputTensorType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
     auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTensorType.getShape(), strategy);
@@ -482,17 +505,18 @@ vpux::NDTypeInterface vpux::VPU::NCEDepthConvolutionOp::getDistributedTypeForOpO
         return getDistributedTypeFromInput(clusteredOp, origOp.getFilter(), weightsTensorDistributionMode,
                                            weightsTensorNumTiles, weightAlignmentAttr, strategy,
                                            hasExplicitDistributedAttr, siblingsAnalysis);
-    } else if (operand.get() == origOp.getWeightsTable()) {
+    } else if (operand.get() == origOp.getWeightsTable() || operand.get() == origOp.getWeightTableScale() ||
+               operand.get() == origOp.getWeightTableBias()) {
         auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
         mlir::ArrayAttr weightAlignmentAttr = nullptr;
+        const auto weightsTableTensorDistributionMode = getWeightsTensorDistributionMode(strategy);
+        const auto weightsTableTensorNumTiles =
+                getIntArrayAttr(ctx, getWeightsTableTensorNumTiles(clusteredOp, outputType, numClusters, strategy));
         const auto weightAlignment = getWeightsTensorAlignment(strategy);
         if (weightAlignment.has_value()) {
             weightAlignmentAttr = getIntArrayAttr(ctx, weightAlignment.value());
         }
-        const auto weightsTableTensorDistributionMode = getWeightsTensorDistributionMode(strategy);
-        const auto weightsTableTensorNumTiles =
-                getIntArrayAttr(ctx, getWeightsTableTensorNumTiles(clusteredOp, outputType, numClusters, strategy));
-        return getDistributedTypeFromInput(clusteredOp, origOp.getWeightsTable(), weightsTableTensorDistributionMode,
+        return getDistributedTypeFromInput(clusteredOp, operand.get(), weightsTableTensorDistributionMode,
                                            weightsTableTensorNumTiles, weightAlignmentAttr, strategy,
                                            hasExplicitDistributedAttr, siblingsAnalysis);
     }
@@ -590,8 +614,9 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::verifyGroupConvCMX(mlir::L
     const auto padding = (remainder > 0) ? (alignment - remainder) : 0;
     const auto alignedWeightShape = SmallVector<int64_t>{OC, 1, 1, filtersPerInChan * KY * KX + padding};
     const auto alignedFilterType = mlir::RankedTensorType::get(alignedWeightShape, filterType.getElementType());
-
-    const auto requiredCMX = VPU::getRequiredCMXSizeForNCEOps({inputType, alignedFilterType, outputType}, OC);
+    auto dwConvOp = mlir::cast<VPU::NCEDepthConvolutionOp>(module.getOperation());
+    const auto requiredCMX = VPU::getRequiredCMXSizeForNCEOps(
+            {inputType, alignedFilterType, outputType}, OC, VPU::countElementsPerOutputChannelInWeightTable(dwConvOp));
 
     const auto cmxSize = vpux::VPU::getTotalCMXSize(module);
     if (requiredCMX > cmxSize) {
@@ -600,5 +625,33 @@ mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::verifyGroupConvCMX(mlir::L
         return mlir::failure();
     }
 
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::NCEDepthConvolutionOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    // Parse attributes
+    const auto strides = parseIntArrayAttr<int64_t>(getStrides());
+
+    const auto padTop = getPad().getTop().getValue().getSExtValue();
+    const auto padBottom = getPad().getBottom().getValue().getSExtValue();
+    const auto padLeft = getPad().getLeft().getValue().getSExtValue();
+    const auto padRight = getPad().getRight().getValue().getSExtValue();
+
+    const auto dataPaddingBelow = SmallVector<int64_t>({padTop, padLeft});
+    const auto dataPaddingAbove = SmallVector<int64_t>({padBottom, padRight});
+
+    auto kernelShape = mlir::cast<vpux::NDTypeInterface>(getFilter().getType()).getShape();
+    SmallVector<int64_t> kernelSize{kernelShape[Dims4D::Filter::KY], kernelShape[Dims4D::Filter::KX]};
+
+    // Compute output shape using utility
+    auto outShape = reifyConvPoolTensors(builder, getInput(), getOutput(), getFilter(), kernelSize, strides,
+                                         dataPaddingBelow, dataPaddingAbove, getLoc());
+
+    if (mlir::failed(outShape)) {
+        return outShape;
+    }
+
+    reifiedReturnShapes.emplace_back(std::move(outShape.value()));
     return mlir::success();
 }

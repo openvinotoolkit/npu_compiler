@@ -17,5 +17,5 @@ module @SimpleGraph {
   }
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DmaProfilingReservedMemory
-    // CHECK-NEXT:         IE.MemoryResource 512 bytes of @CMX_NN
+    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN
 }

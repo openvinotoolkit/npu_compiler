@@ -4,10 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/sep_utils.hpp"
-#include "vpux/compiler/dialect/config/IR/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
-#include "vpux/utils/core/error.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <algorithm>

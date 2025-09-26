@@ -6,9 +6,8 @@
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -61,13 +60,63 @@ int64_t getExpandedCMXUsagePerGroup(IE::MatMulOp matmulOp, ShapeRef input1Shape,
 
 bool isGroupBiggerThanTileCount(IE::MatMulOp matmulOp, ShapeRef inputShape) {
     const auto module = getModuleOp(matmulOp);
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     const auto numOfTiles = tileOp.getCount();
     auto batchSize = inputShape.size() == 3 ? inputShape[Dims3D::Act::B]
                                             : inputShape[Dims4D::Act::C] * inputShape[Dims4D::Act::N];
     // E-153097:
     // If the batch size is equal to the number of tiles we can at least fit it into CMX
     return numOfTiles == 3 ? batchSize > numOfTiles : batchSize >= numOfTiles;
+}
+
+bool isMatmulSoftmaxMatmulAndNotAligned(IE::MatMulOp matmulOp) {
+    // If Matmul->Softmax-Matmul pattern, if the first Matmul is beneficial to unroll, the second Matmul is not
+    // beneficial and it's not aligned. It will introduce extra slice and expand for alignment. This may be inefficient,
+    // to avoid this, such matmuls will be unrolled and wont use grouped matmul optimization.
+    auto softmaxOp = matmulOp.getInput1().getDefiningOp<IE::SoftMaxOp>();
+    if (softmaxOp == nullptr) {
+        softmaxOp = matmulOp.getInput2().getDefiningOp<IE::SoftMaxOp>();
+    }
+    if (softmaxOp == nullptr) {
+        return false;
+    }
+
+    auto producerOp = softmaxOp.getInput().getDefiningOp();
+    IE::ConcatOp concatOp(nullptr);
+    while (mlir::isa_and_nonnull<IE::ViewLikeOpInterface>(producerOp) && producerOp->getResult(0).hasOneUse()) {
+        producerOp = producerOp->getOperand(0).getDefiningOp();
+
+        if (mlir::isa_and_nonnull<IE::ConcatOp>(producerOp)) {
+            concatOp = mlir::dyn_cast<IE::ConcatOp>(*producerOp);
+            break;
+        }
+    }
+    if (concatOp == nullptr) {
+        return false;
+    }
+    auto allInputsAreMatMul = llvm::all_of(concatOp->getOperands(), [](mlir::Value operand) {
+        return mlir::isa<IE::MatMulOp>(operand.getDefiningOp());
+    });
+
+    // check matmulOp channel alignment.
+    const auto input2Type = mlir::cast<vpux::NDTypeInterface>(matmulOp.getInput2().getType());
+    auto input2Dims = input2Type.getShape().toValues();
+    auto input2Rank = input2Type.getRank();
+
+    auto inputChannelDim = input2Dims[matmulOp.getTransposeB() ? Dim(input2Rank - 1) : Dim(input2Rank - 2)];
+    auto outputChannelDim = input2Dims[matmulOp.getTransposeB() ? Dim(input2Rank - 2) : Dim(input2Rank - 1)];
+
+    bool isAligned = (inputChannelDim % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0) &&
+                     (outputChannelDim % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0);
+
+    // Small batch size is more efficient to unroll.
+    static constexpr int64_t BATCH_SIZE_TO_UNROLL = 10;
+
+    if (!isAligned && input2Dims[Dim(input2Rank - 3)] < BATCH_SIZE_TO_UNROLL && allInputsAreMatMul) {
+        return true;
+    }
+
+    return false;
 }
 
 // Does single group (2D MatMul) fit into CMX
@@ -86,6 +135,10 @@ bool isGroupedMatMulBeneficial(IE::MatMulOp matmulOp, ShapeRef input1Shape, Shap
 
     // Get CMX usage for full operation
     auto expandedCMXUsagePerGroup = IE::getExpandedCMXUsagePerGroup(matmulOp, input1Shape3d, input2Shape3d);
+
+    if (IE::isMatmulSoftmaxMatmulAndNotAligned(matmulOp)) {
+        return false;
+    }
 
     // Currently NCE.Matmul multicluster strategy is not compatible with other layers so spill will happen, we do not
     // prefer grouped matmul execution when spill is more expensive than grouped matmul execution benefits, expensive

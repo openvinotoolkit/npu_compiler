@@ -74,6 +74,9 @@ public:
 
     void cacheRawDataAndSplatness(mlir::DenseResourceElementsAttr denseResource);
     ValueType getRawDataAndSplatness(mlir::DenseResourceElementsAttr denseResource);
+
+private:
+    std::recursive_mutex _cacheMutex{};  // Note: recursive because "get" can call "cache"
 };
 
 template <typename Cache>
@@ -309,6 +312,7 @@ void SplatnessCache::cacheRawDataAndSplatness(mlir::DenseResourceElementsAttr de
     // dense resource doesn't support splat detection in MLIR itself
     auto blob = denseResource.getRawHandle().getBlob();
     if (blob != nullptr) {
+        std::lock_guard<std::recursive_mutex> lock(_cacheMutex);
         _cache[key] = detectSplatManually(denseResource.getShapedType(), blob->getData());
     }
 }
@@ -316,6 +320,7 @@ void SplatnessCache::cacheRawDataAndSplatness(mlir::DenseResourceElementsAttr de
 typename SplatnessCache::ValueType SplatnessCache::getRawDataAndSplatness(
         mlir::DenseResourceElementsAttr denseResource) {
     auto key = denseResource.getRawHandle().getKey();
+    std::lock_guard<std::recursive_mutex> lock(_cacheMutex);
     auto it = _cache.find(key);
     if (it == _cache.end()) {
         cacheRawDataAndSplatness(denseResource);

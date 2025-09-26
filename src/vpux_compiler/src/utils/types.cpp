@@ -138,6 +138,10 @@ mlir::IntegerType vpux::getBool8Type(mlir::MLIRContext* ctx) {
     return mlir::IntegerType::get(ctx, 8, mlir::IntegerType::Signless);
 }
 
+mlir::Float16Type vpux::getFp16Type(mlir::MLIRContext* ctx) {
+    return mlir::Float16Type::get(ctx);
+}
+
 //
 // TypeSize
 //

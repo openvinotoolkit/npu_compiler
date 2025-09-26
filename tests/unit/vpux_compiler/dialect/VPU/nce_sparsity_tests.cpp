@@ -25,8 +25,8 @@ using namespace VPU::NCESparsity;
 
 namespace {
 
-Const::DeclareOp createConstOp(mlir::MLIRContext* context, const std::initializer_list<int64_t>& rawShape,
-                               double ratio) {
+mlir::OwningOpRef<Const::DeclareOp> createConstOp(mlir::MLIRContext* context,
+                                                  const std::initializer_list<int64_t>& rawShape, double ratio) {
     const Shape shape(rawShape);
     const auto dataType = mlir::RankedTensorType::get(shape.raw(), mlir::Float32Type::get(context));
 
@@ -82,10 +82,10 @@ void ratioBasedStrategyTestTemplate(double threshold, bool isFloat, mlir::Dialec
 
     auto lowSparsity = createConstOp(&ctx, {1, 64, 32, 32}, defaultFloatRatioThreshold._lowerThreshold);
     auto highSparsity = createConstOp(&ctx, {1, 64, 32, 32}, defaultFloatRatioThreshold._upperThreshold);
-    const auto lowSparsityType = mlir::cast<vpux::NDTypeInterface>(lowSparsity.getType());
-    const auto highSparsityType = mlir::cast<vpux::NDTypeInterface>(highSparsity.getType());
-    const auto lowSparsityNumElems = getNumElemsPerOC(lowSparsity);
-    const auto highSparsityNumElems = getNumElemsPerOC(highSparsity);
+    const auto lowSparsityType = mlir::cast<vpux::NDTypeInterface>(lowSparsity->getType());
+    const auto highSparsityType = mlir::cast<vpux::NDTypeInterface>(highSparsity->getType());
+    const auto lowSparsityNumElems = getNumElemsPerOC(lowSparsity.get());
+    const auto highSparsityNumElems = getNumElemsPerOC(highSparsity.get());
 
     // LOWER_FLOAT_THRESHOLD < threshold -> no sparsity
     EXPECT_EQ(getRatioBasedStrategy()->shouldSparsifyWeights(log, lowSparsityType, lowSparsityNumElems, isFloat),
@@ -118,10 +118,10 @@ TEST_F(MLIR_WeightsSparsity, CMXBasedStrategy) {
 
     auto lightWeightAlmostDense = createConstOp(&ctx, {1, 1, 32, 32}, 0.01);
     auto lightWeightAlmostSparse = createConstOp(&ctx, {1, 1, 32, 32}, 0.99);
-    const auto lightWeightAlmostDenseType = mlir::cast<vpux::NDTypeInterface>(lightWeightAlmostDense.getType());
-    const auto lightWeightAlmostSparseType = mlir::cast<vpux::NDTypeInterface>(lightWeightAlmostSparse.getType());
-    const auto lightWeightAlmostDenseNumElems = getNumElemsPerOC(lightWeightAlmostDense);
-    const auto lightWeightAlmostSparseNumElems = getNumElemsPerOC(lightWeightAlmostSparse);
+    const auto lightWeightAlmostDenseType = mlir::cast<vpux::NDTypeInterface>(lightWeightAlmostDense->getType());
+    const auto lightWeightAlmostSparseType = mlir::cast<vpux::NDTypeInterface>(lightWeightAlmostSparse->getType());
+    const auto lightWeightAlmostDenseNumElems = getNumElemsPerOC(lightWeightAlmostDense.get());
+    const auto lightWeightAlmostSparseNumElems = getNumElemsPerOC(lightWeightAlmostSparse.get());
 
     const auto bigCMX = static_cast<int64_t>(4. * 32. * 32. / (firstInterval._cmxSizeRatio + 0.0001) * 2.);
 
@@ -145,13 +145,13 @@ TEST_F(MLIR_WeightsSparsity, CMXBasedStrategy) {
         const auto cmxSize = static_cast<int64_t>(4 * 32. * 32. / targetCMXRatio);
 
         auto denseOp = createConstOp(&ctx, {1, 1, 32, 32}, sparsityThreshold._lowerThreshold);
-        const auto denseType = mlir::cast<vpux::NDTypeInterface>(denseOp.getType());
-        const auto denseNumElems = getNumElemsPerOC(denseOp);
+        const auto denseType = mlir::cast<vpux::NDTypeInterface>(denseOp->getType());
+        const auto denseNumElems = getNumElemsPerOC(denseOp.get());
         EXPECT_EQ(getCMXBasedStrategy(cmxSize)->shouldSparsifyWeights(log, denseType, denseNumElems, false), false);
 
         auto sparseOp = createConstOp(&ctx, {1, 1, 32, 32}, sparsityThreshold._upperThreshold);
-        const auto sparseType = mlir::cast<vpux::NDTypeInterface>(sparseOp.getType());
-        const auto sparseNumElems = getNumElemsPerOC(sparseOp);
+        const auto sparseType = mlir::cast<vpux::NDTypeInterface>(sparseOp->getType());
+        const auto sparseNumElems = getNumElemsPerOC(sparseOp.get());
         EXPECT_EQ(getCMXBasedStrategy(cmxSize)->shouldSparsifyWeights(log, sparseType, sparseNumElems, false), true);
     }
 }

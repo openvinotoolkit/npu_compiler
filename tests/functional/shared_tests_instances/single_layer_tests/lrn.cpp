@@ -58,7 +58,7 @@ const auto lrnParams_FP16 = ::testing::Combine(
         ::testing::ValuesIn(axes), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 3, 2}}}))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto lrnGooglenetV1Params_FP16 = ::testing::Combine(
         ::testing::Values(9.9e-05),                    // alpha
@@ -69,7 +69,7 @@ const auto lrnGooglenetV1Params_FP16 = ::testing::Combine(
         ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 64, 56, 56}}}))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto lrnParams_FP32 = ::testing::Combine(::testing::Values(9.9e-05),                    // alpha
                                                ::testing::Values(0.75),                       // beta
@@ -79,7 +79,7 @@ const auto lrnParams_FP32 = ::testing::Combine(::testing::Values(9.9e-05),      
                                                ::testing::Values(ov::element::f32),
                                                ::testing::ValuesIn(static_shapes_to_test_representation(
                                                        std::vector<std::vector<ov::Shape>>({{{1, 32, 56, 56}}}))),
-                                               ::testing::Values(DEVICE_NPU));
+                                               ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LrnCheck, LrnLayerTestCommon_FP16, lrnParams_FP16,
                          LrnLayerTestCommon_FP16::getTestCaseName);

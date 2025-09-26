@@ -79,6 +79,35 @@ def IE_AvgPoolOp :
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 }
 
+def IE_AvgPool16Op :
+        IE_LayerOp<
+            "AvgPool16"
+        > {
+    let summary = "InferenceEngine AvgPool16 layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32, SI64, SI8, UI8]>:$input,
+
+        I64ArrayAttr:$kernel_size,
+        I64ArrayAttr:$strides,
+        I64ArrayAttr:$dilations,
+        I64ArrayAttr:$pads_begin,
+        I64ArrayAttr:$pads_end,
+        IE_RoundingTypeAttr:$rounding_type,
+        UnitAttr:$exclude_pads,
+
+        OptionalAttr<IE_PostOpAttr>:$post_op,
+        OptionalAttr<DictionaryAttr>:$clamp,
+        OptionalAttr<F32Attr>:$static_scale,
+        OptionalAttr<I64ArrayAttr>:$output_padding,
+        OptionalAttr<I64ArrayAttr>:$input_padding
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32, F64, quant_QuantizedType, SI32, SI64, SI8, UI8]>:$output
+    );
+}
+
 def IE_MaxPoolOp :
         IE_LayerOp<
             "MaxPool",

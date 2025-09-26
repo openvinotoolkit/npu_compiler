@@ -9,22 +9,22 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: func.func @WrapSingleOpChannelsNotPow2
-// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x48x48x16xf16, {order = #NHWC}>, [[WEIGHTS:%.+]]: tensor<48x48x1x1xf16, {order = #NHWC}>,
-// CHECK-SAME:     [[WEIGHTS_TABLE:%.+]]: tensor<48x1x1x4xsi32>)
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x48x48x16xf16, {order = #NHWC}>, [[WEIGHTS:%.+]]: tensor<48x48x1x1xf16, {order = #NHWC}>
+// CHECK-SAME:)
 func.func @WrapSingleOpChannelsNotPow2(
-        %input: tensor<1x48x48x16xf16, {order = #NHWC}>, %weights: tensor<48x48x1x1xf16, {order = #NHWC}>, %weights_table: tensor<48x1x1x4xsi32>
+        %input: tensor<1x48x48x16xf16, {order = #NHWC}>, %weights: tensor<48x48x1x1xf16, {order = #NHWC}>
     ) -> tensor<1x48x48x16xf16, {order = #NHWC}> {
-    %conv = VPU.NCE.Convolution(%input, %weights, %weights_table) {
+    %conv = VPU.NCE.Convolution(%input, %weights) {
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             rawFilterShape = [48, 48, 1, 1],
             strides = [1, 1]
-        } : tensor<1x48x48x16xf16, {order = #NHWC}>, tensor<48x48x1x1xf16, {order = #NHWC}>, tensor<48x1x1x4xsi32> -> tensor<1x48x48x16xf16, {order = #NHWC}>
+        } : tensor<1x48x48x16xf16, {order = #NHWC}>, tensor<48x48x1x1xf16, {order = #NHWC}> -> tensor<1x48x48x16xf16, {order = #NHWC}>
 
     return %conv : tensor<1x48x48x16xf16, {order = #NHWC}>
 
     // CHECK:       [[IN_SPARSIFY:%.+]] = VPU.Sparsify([[INPUT]])
-    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[IN_SPARSIFY]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+    // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[IN_SPARSIFY]], [[WEIGHTS]])
     // CHECK-NOT:       -> !VPU.SparseTensor
     // CHECK-SAME:      -> tensor<1x48x48x16xf16, {order = #NHWC}>
     // CHECK:       [[OUT_SPARSIFY:%.+]] = VPU.Sparsify([[CONV]])

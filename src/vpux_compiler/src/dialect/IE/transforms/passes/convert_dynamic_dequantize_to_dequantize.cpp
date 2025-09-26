@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -78,7 +79,13 @@ bool isOptimizableDynamicDequantizeOp(IE::DynamicDequantizeOp origOp) {
     }
 
     auto quantStorageType = uniformType.getStorageType();
-    if (quantStorageType.isInteger(CHAR_BIT)) {
+    auto isNF4Quantized = [](mlir::Type type) -> bool {
+        const auto qType = mlir::cast<mlir::quant::QuantizedType>(type);
+        const auto bitWidth = qType.getStorageTypeIntegralWidth();
+        return (bitWidth == 4) && mlir::isa<mlir::quant::QuantileQuantizedType>(qType);
+    }(inputType.getElementType());
+
+    if (isNF4Quantized || quantStorageType.isInteger(CHAR_BIT) || vpux::isFloat8(quantStorageType)) {
         auto quantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
         if (quantCastOp == nullptr) {
             return false;
@@ -332,39 +339,86 @@ mlir::LogicalResult ConvertDynamicDequantizeToDequantize::matchAndRewrite(IE::Dy
     auto scale = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "_reshape_scale"), origOp.getScale(), nullptr, false,
                                                 outShapeAttr)
                          .getOutput();
+    auto isNF4Quantized = [](mlir::Type type) -> bool {
+        const auto qType = mlir::cast<mlir::quant::QuantizedType>(type);
+        const auto bitWidth = qType.getStorageTypeIntegralWidth();
+        return (bitWidth == 4) && mlir::isa<mlir::quant::QuantileQuantizedType>(qType);
+    }(inputType.getElementType());
 
-    if (quantStorageType.isInteger(CHAR_BIT)) {
-        // Rescale scales by x16 and weights by /16 to scale down the I8 weights into I4 range to avoid overflow in the
-        // following MatMul/FullyConnected/Convolution. See details in #E161479
+    if (isNF4Quantized || quantStorageType.isInteger(CHAR_BIT) || vpux::isFloat8(quantStorageType)) {
+        // Rescale scales by descaler and weights by rescaler to scale down the I8/FP8/NF4 weights into I4 range to
+        // avoid overflow in the following FullyConnected. See details in #E161479
 
-        const auto rescaler = 0.0625;
-        const auto descaler = 16.f;  // 1/rescaler
+        _log.trace("Found DynamicDequantizeOp for I8/FP8/NF4, try to rescale it into I4 range");
+        const float minI4 = -8.f;
+        const float maxI4 = 7.f;
 
-        auto quantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
-        auto quantTypeI8Rescaled = mlir::quant::UniformQuantizedType::get(
-                mlir::quant::QuantizationFlags::Signed, getSInt8Type(uniformType.getContext()),
-                uniformType.getExpressedType(), rescaler,
-                /*zp=*/0, /*min=*/uniformType.getStorageTypeMin(),
-                /*max=*/uniformType.getStorageTypeMax());
-        auto quantCastOpI8Rescaled =
-                rewriter.create<IE::QuantizeCastOp>(appendLoc(origOp->getLoc(), "_quant_cast_i8_with_rescaler"),
-                                                    quantCastOp.getInput(), quantTypeI8Rescaled);
-        rewriter.replaceOp(quantCastOp, quantCastOpI8Rescaled.getOutput());
+        float minComputationValue = uniformType.getStorageTypeMin();
+        float maxComputationValue = uniformType.getStorageTypeMax();
+        if (isNF4Quantized) {
+            const auto quantLUT = mlir::cast<mlir::quant::QuantileQuantizedType>(uniformType).getQuantiles();
+            minComputationValue = *std::min_element(quantLUT.begin(), quantLUT.end());
+            maxComputationValue = *std::max_element(quantLUT.begin(), quantLUT.end());
+        }
+        auto rescaleForMin = minI4 / minComputationValue;
+        auto rescaleForMax = maxI4 / maxComputationValue;
+        _log.trace("rescaleForMin = minI4/minComputationValue = {0}/{1} = {2};", minI4, minComputationValue,
+                   rescaleForMin);
+        _log.trace("rescaleForMax = maxI4/maxComputationValue = {0}/{1} = {2};", maxI4, maxComputationValue,
+                   rescaleForMax);
+        auto rescaler = [&]() -> float {
+            VPUX_THROW_WHEN((rescaleForMin <= 0.f) && (rescaleForMax <= 0.f),
+                            "Both rescaleForMin and rescaleForMax are negative, which is not expected. "
+                            "rescaleForMin: {0}, rescaleForMax: {1}",
+                            rescaleForMin, rescaleForMax);
+            if (rescaleForMin <= 0.f) {
+                return rescaleForMax;
+            } else if (rescaleForMax <= 0.f) {
+                return rescaleForMin;
+            } else {
+                return std::min(rescaleForMin, rescaleForMax);
+            }
+        }();
+        if (rescaler >= 1.f) {
+            _log.trace("rescaler = {0} >= 1.f, no need to rescale", rescaler);
+        } else {
+            const auto descaler = 1.f / rescaler;
+            _log.trace("rescaler = {0} < 1.f, rescaling with descaler: {1}", rescaler, descaler);
+            auto quantCastOp = origOp.getInput().getDefiningOp<IE::QuantizeCastOp>();
+            mlir::quant::QuantizedType quantTypeRescaled = nullptr;
+            if (isNF4Quantized) {
+                const auto quantizedType = mlir::cast<mlir::quant::QuantileQuantizedType>(uniformType);
+                const auto quantLUT = quantizedType.getQuantiles();
+                quantTypeRescaled = mlir::quant::QuantileQuantizedType::get(
+                        quantizedType.getFlags(), quantizedType.getStorageType(), quantizedType.getQuantileType(),
+                        quantizedType.getExpressedType(), quantLUT, rescaler, /*zp=*/0,
+                        /*min=*/quantizedType.getStorageTypeMin(), /*max=*/quantizedType.getStorageTypeMax());
+            } else {
+                quantTypeRescaled = mlir::quant::UniformQuantizedType::get(
+                        uniformType.getFlags(), quantStorageType, uniformType.getExpressedType(), rescaler,
+                        /*zp=*/0, /*min=*/uniformType.getStorageTypeMin(),
+                        /*max=*/uniformType.getStorageTypeMax());
+            }
+            auto quantCastOpRescaled =
+                    rewriter.create<IE::QuantizeCastOp>(appendLoc(origOp->getLoc(), "_quant_cast_i8_with_rescaler"),
+                                                        quantCastOp.getInput(), quantTypeRescaled);
+            rewriter.replaceOp(quantCastOp, quantCastOpRescaled.getOutput());
 
-        const auto rescalerBaseType =
-                mlir::RankedTensorType::get({1}, mlir::Float16Type::get(uniformType.getContext()));
-        const auto rescalerBaseAttr =
-                Const::createConstContent(rescalerBaseType, ArrayRef(vpux::type::float16(descaler)));
-        const auto rescalerContentAttr = Const::ContentAttr::get(rescalerBaseAttr);
-        auto rescalerConstAttr = rescalerContentAttr.transform().get();
-        const auto rescalerType = mlir::cast<vpux::NDTypeInterface>(rescalerContentAttr.getType());
-        auto rescalerConstOp = rewriter.create<Const::DeclareOp>(appendLoc(origOp->getLoc(), "_rescaler"), rescalerType,
-                                                                 std::move(rescalerConstAttr));
+            const auto descalerBaseType =
+                    mlir::RankedTensorType::get({1}, mlir::Float16Type::get(uniformType.getContext()));
+            const auto descalerBaseAttr =
+                    Const::createConstContent(descalerBaseType, ArrayRef(vpux::type::float16(descaler)));
+            const auto descalerContentAttr = Const::ContentAttr::get(descalerBaseAttr);
+            auto descalerConstAttr = descalerContentAttr.transform().get();
+            const auto descalerType = mlir::cast<vpux::NDTypeInterface>(descalerContentAttr.getType());
+            auto descalerConstOp = rewriter.create<Const::DeclareOp>(appendLoc(origOp->getLoc(), "_descaler"),
+                                                                     descalerType, std::move(descalerConstAttr));
 
-        auto multiplyWithRescaler =
-                rewriter.create<IE::MultiplyOp>(appendLoc(origOp->getLoc(), "_rescale_scaler"), scale, rescalerConstOp,
-                                                IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
-        scale = multiplyWithRescaler;
+            auto multiplyWithRescaler = rewriter.create<IE::MultiplyOp>(
+                    appendLoc(origOp->getLoc(), "_descale_scaler"), scale, descalerConstOp,
+                    IE::AutoBroadcastType::NUMPY, nullptr, nullptr, nullptr, nullptr);
+            scale = multiplyWithRescaler;
+        }
     }
 
     // insert a multiply post FC

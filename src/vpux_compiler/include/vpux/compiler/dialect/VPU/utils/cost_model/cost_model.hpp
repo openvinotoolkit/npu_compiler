@@ -9,16 +9,22 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
-#include <vpu_cost_model.h>
-#include <vpu_layer_cost_model.h>
-
 #include <mlir/Pass/AnalysisManager.h>
+
+#include <vpu/cycles_interface_types.h>
+#include <vpu/layer.h>
+#include <vpu/layer_split_info.h>
 
 #include <memory>
 
 namespace vpux::VPU {
 class NCEOpInterface;
 }  // namespace vpux::VPU
+namespace VPUNN {
+class VPUCostModel;
+class VPULayerCostModel;
+struct VPULayerStrategy;
+}  // namespace VPUNN
 
 namespace vpux {
 

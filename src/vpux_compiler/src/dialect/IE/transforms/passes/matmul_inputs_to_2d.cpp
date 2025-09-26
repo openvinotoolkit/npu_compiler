@@ -15,7 +15,6 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/Support/LogicalResult.h>

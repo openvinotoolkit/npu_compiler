@@ -11,10 +11,9 @@
 namespace {
 
 const Params params[] = {
-        std::tuple<Device, Config>{ov::test::utils::DEVICE_NPU, {{ov::enable_profiling(true)}}},
-        std::tuple<Device, Config>{
-                ov::test::utils::DEVICE_HETERO,
-                {{ov::device::priorities(ov::test::utils::DEVICE_NPU, ov::test::utils::DEVICE_CPU)}}},
+        std::tuple<Device, Config>{test_utils::TARGET_DEVICE, {{ov::enable_profiling(true)}}},
+        std::tuple<Device, Config>{ov::test::utils::DEVICE_HETERO,
+                                   {{ov::device::priorities(test_utils::TARGET_DEVICE, ov::test::utils::DEVICE_CPU)}}},
 };
 
 }  // namespace

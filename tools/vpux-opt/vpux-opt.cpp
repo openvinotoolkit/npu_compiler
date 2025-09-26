@@ -3,12 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
@@ -93,6 +91,8 @@ int main(int argc, char* argv[]) {
         mlir::registerLinalgPasses();
         mlir::memref::registerExpandStridedMetadataPass();
         mlir::registerArithToLLVMConversionPass();
+        mlir::registerSCFToControlFlow();
+        mlir::registerConvertControlFlowToLLVMPass();
 
         return mlir::asMainReturnCode(
                 mlir::MlirOptMain(argc, argv, "NPU Optimizer Testing Tool", registry, hwSpecificRegistration));

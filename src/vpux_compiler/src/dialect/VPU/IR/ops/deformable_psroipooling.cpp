@@ -41,7 +41,7 @@ mlir::LogicalResult vpux::VPU::DeformablePSROIPoolingOp::inferReturnTypes(
                                       groupSize,              // pooled_w
                                       groupSize});            // pooled_h
 
-    const auto outType = inTypeFeatureMap.changeShape(Shape(outputShape));
+    const auto outType = inTypeFeatureMap.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

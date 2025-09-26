@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
@@ -11,7 +12,6 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/net/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -272,6 +272,157 @@ mlir::LogicalResult EliminateSameSiblingConcat::matchAndRewrite(VPU::ConcatOp or
 }
 
 //
+// FuseMultipleConcatOpsAroundGatherDMA
+//
+
+/**
+ * The Gather DMA operation is tiled by two separate passes. The first one is TileGather in order to satisfy following
+ * limitation : "the input size after axis should be less than 4096". The second one is inside the usual tiling
+ * pipeline. Those will generate multiple Concat operations that will be fused here.
+ */
+class FuseMultipleConcatOpsAroundGatherDMA final : public mlir::OpRewritePattern<VPU::ConcatOp> {
+public:
+    FuseMultipleConcatOpsAroundGatherDMA(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<VPU::ConcatOp>(ctx), _log(log) {
+        setDebugName("FuseMultipleConcatOpsAroundGatherDMA");
+    }
+
+    mlir::LogicalResult matchAndRewrite(VPU::ConcatOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult FuseMultipleConcatOpsAroundGatherDMA::matchAndRewrite(VPU::ConcatOp origOp,
+                                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got ConcatOp at loc '{0}'", origOp.getLoc());
+    SmallVector<VPU::ConcatOp> parentConcatOps;
+    mlir::ArrayAttr dimMapping;
+    std::optional<VPU::AffineReshapeOp> reshapeOp;
+
+    auto isGatherDMA = [](auto input) {
+        return mlir::isa_and_nonnull<VPU::GatherDMAOp>(input.getDefiningOp());
+    };
+
+    auto hasAnotherConcatAsIn = [&](mlir::Operation* op) {
+        if (auto concat = mlir::dyn_cast_or_null<VPU::ConcatOp>(op)) {
+            if (!llvm::all_of(concat.getInputs(), isGatherDMA)) {
+                return false;
+            }
+
+            parentConcatOps.push_back(concat);
+            return true;
+        }
+        if (auto reshape = mlir::dyn_cast_or_null<VPU::AffineReshapeOp>(op)) {
+            if (auto concat = mlir::dyn_cast_or_null<VPU::ConcatOp>(reshape.getInput().getDefiningOp())) {
+                if (!llvm::all_of(concat.getInputs(), isGatherDMA)) {
+                    return false;
+                }
+                if (dimMapping != nullptr && !llvm::equal(dimMapping, reshape.getDimMapping())) {
+                    return false;
+                }
+                parentConcatOps.push_back(concat);
+                dimMapping = reshape.getDimMapping();
+                reshapeOp = reshape;
+                return true;
+            }
+        }
+        return false;
+    };
+
+    for (auto input : origOp.getInputs()) {
+        if (!hasAnotherConcatAsIn(input.getDefiningOp())) {
+            return mlir::failure();
+        }
+    }
+
+    if (parentConcatOps.size() < 2) {
+        return mlir::failure();
+    }
+
+    if (!origOp.getStaticOffsets().has_value()) {
+        return mlir::failure();
+    }
+
+    SmallVector<mlir::Value> newInputs;
+    SmallVector<SmallVector<int64_t>> newConcatOffsets;
+    SmallVector<SmallVector<int64_t>> origOpOffsets{
+            parseIntArrayOfArrayAttr<int64_t>(origOp.getStaticOffsets().value())};
+
+    if (reshapeOp.has_value()) {
+        for (auto ind : irange(origOpOffsets.size())) {
+            auto outShape = parseIntArrayAttr<int64_t>(reshapeOp.value().getShapeValue());
+            if (outShape.size() -
+                        mlir::dyn_cast<NDTypeInterface>(reshapeOp.value().getInput().getType()).getShape().size() >
+                1) {
+                return mlir::failure();
+            }
+
+            SmallVector<int64_t> newOrigOpOffsets;
+            // If there is a reshape op between orig Concat and parent Concat we need to recalculate the offsets,
+            // because optimized Concat will have direct GatherDMA inputs and AffineReshape inserted after.
+            // Ex:
+            //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
+            //              \           |          /
+            //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4]
+            //                          |
+            //                AffineReshape 2D -> 3D
+            //                          |      ..... / ...... / (Here will be same multiple subgraphs)
+            //                      Concat 3D  - Offsets : [0, 0, 0], ....
+            //   ->
+            //     GatherDMA 2D     GatherDMA 2D   GatherDMA 2D
+            //              \           |          /
+            //                       Concat 2D - Offsets : [0, 0], [0, 2], [0, 4] ....
+            //                          |
+            //                AffineReshape 2D -> 3D
+            for (auto dim : parseIntArrayOfArrayAttr<int64_t>(dimMapping)) {
+                switch (dim.size()) {
+                case 1:
+                    newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]]);
+                    break;
+                case 2:
+                    newOrigOpOffsets.push_back(origOpOffsets[ind][dim[0]] * outShape[dim[1]] +
+                                               origOpOffsets[ind][dim[1]]);
+                    break;
+                default: {
+                    _log.trace("Unsupported AffineReshape operation : {0}", reshapeOp);
+                    return mlir::failure();
+                }
+                }
+            }
+            origOpOffsets[ind] = std::move(newOrigOpOffsets);
+        }
+    }
+
+    for (auto idx : irange(parentConcatOps.size())) {
+        auto offsets = parseIntArrayOfArrayAttr<int64_t>(parentConcatOps[idx].getStaticOffsets().value());
+        for (size_t i = 0; i < parentConcatOps[idx].getInputs().size(); i++) {
+            newInputs.push_back(parentConcatOps[idx].getInputs()[i]);
+            SmallVector<int64_t> newOffset;
+            newOffset.reserve(offsets[i].size());
+            for (auto ind : irange(offsets[i].size())) {
+                newOffset.push_back(origOpOffsets[idx][ind] + offsets[i][ind]);
+            }
+
+            newConcatOffsets.push_back(newOffset);
+        }
+    }
+
+    auto newConcat = rewriter.create<VPU::ConcatOp>(origOp.getLoc(), newInputs, /*per_axis=*/nullptr,
+                                                    getIntArrayOfArray(rewriter.getContext(), newConcatOffsets));
+
+    if (reshapeOp.has_value()) {
+        const auto outShape = getShape(origOp.getOutput()).toValues();
+        rewriter.replaceOpWithNewOp<VPU::AffineReshapeOp>(origOp, newConcat.getOutput(), dimMapping,
+                                                          getIntArrayAttr(rewriter.getContext(), outShape));
+        return mlir::success();
+    }
+
+    rewriter.replaceOp(origOp, newConcat);
+    return mlir::success();
+}
+
+//
 // OptimizeConcatPass
 //
 
@@ -322,6 +473,7 @@ void OptimizeConcatPass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<EliminateConcat>(&ctx, _log, _optimizeOnlyOuterConcat);
     patterns.insert<EliminateSameSiblingConcat>(&ctx, _log);
+    patterns.insert<FuseMultipleConcatOpsAroundGatherDMA>(&ctx, _log);
 
     if (mlir::failed(
                 mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), vpux::getDefaultGreedyRewriteConfig()))) {

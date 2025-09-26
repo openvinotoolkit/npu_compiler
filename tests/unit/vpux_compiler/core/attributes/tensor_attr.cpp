@@ -27,7 +27,7 @@ TEST_F(MLIR_TensorAttr, ThrowWhenBothBoundsAndDynamicDimsMaskSet) {
     auto bounds = Bounds{1, 1, 4};
     auto dynamicDimsMask = DynamicDimsMask{0, 0, 1};
 
-    EXPECT_NO_THROW(getTensorAttr(&ctx, DimsOrder::CHW, nullptr, bounds, DynamicDimsMask()));
-    EXPECT_NO_THROW(getTensorAttr(&ctx, DimsOrder::CHW, nullptr, Bounds(), dynamicDimsMask));
+    EXPECT_NO_THROW(getTensorAttr(&ctx, DimsOrder::CHW, nullptr, bounds, /*DynamicDimsMask=*/{}));
+    EXPECT_NO_THROW(getTensorAttr(&ctx, DimsOrder::CHW, nullptr, /*Bounds=*/{}, dynamicDimsMask));
     EXPECT_THROW(getTensorAttr(&ctx, DimsOrder::CHW, nullptr, bounds, dynamicDimsMask), std::exception);
 }

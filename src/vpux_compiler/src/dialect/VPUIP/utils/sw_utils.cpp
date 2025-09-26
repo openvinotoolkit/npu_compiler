@@ -890,7 +890,8 @@ InputTiling backInferPadSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vp
     const auto origPadsBegin = reverseIntArrayAttr(order, mlir::dyn_cast<mlir::ArrayAttr>(attrs[0]));
     const auto origPadsEnd = reverseIntArrayAttr(order, mlir::dyn_cast<mlir::ArrayAttr>(attrs[1]));
 
-    return backInferPadTile(outputTile, origInputShape, origOutputShape, Shape(origPadsBegin), Shape(origPadsEnd), log);
+    return backInferPadTile(outputTile, origInputShape, origOutputShape, ShapeRef(origPadsBegin), ShapeRef(origPadsEnd),
+                            log);
 }
 
 InputTiling backInferReduceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,

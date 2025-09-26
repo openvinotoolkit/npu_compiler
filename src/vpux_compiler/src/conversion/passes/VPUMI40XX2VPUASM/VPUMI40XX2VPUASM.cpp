@@ -121,6 +121,12 @@ void ConvertVPUMI40XX2VPUASMPass::safeRunOnModule() {
     auto abiVersionOp = abiVersionOps[0];
     ELF::moveOpToSection(abiVersionOp.getOperation(), sectionMap, builderFunc);
 
+    auto compilerHashOps = to_small_vector(netFunc.getOps<ELF::CompilerHashOp>());
+    VPUX_THROW_UNLESS(compilerHashOps.size() == 1, "Expected exactly one ELF CompilerHashOp. Got {0}",
+                      compilerHashOps.size());
+    auto compilerHashOp = compilerHashOps[0];
+    ELF::moveOpToSection(compilerHashOp.getOperation(), sectionMap, builderFunc);
+
     // E-141668:
     // insertion of PerformanceMetricsOp in IR should be done in a dedicated pass
     auto perfMetricsOp = builderFunc.create<ELF::PerformanceMetricsOp>(builderFunc.getUnknownLoc());

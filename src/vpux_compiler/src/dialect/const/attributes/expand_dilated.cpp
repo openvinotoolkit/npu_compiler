@@ -80,7 +80,7 @@ vpux::NDTypeInterface vpux::Const::ExpandDilatedAttr::inferOutputType(vpux::NDTy
     return getDilatedType(tensor, ShapeRef(dilations));
 }
 
-bool vpux::Const::ExpandDilatedAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::ExpandDilatedAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 

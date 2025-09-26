@@ -548,8 +548,6 @@ module @SingleConstantInTheEnd {
 #-}
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-// CHECK-INIT-PART1: [[NHWC:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-// CHECK-MAIN-PARTS: [[NHWC:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-INIT-FULL: module @SingleConstantWithLayout
 // CHECK-MAIN-FULL: module @SingleConstantWithLayout
@@ -569,7 +567,7 @@ module @SingleConstantWithLayout {
     // CHECK-INIT-FULL-NEXT:    DataInfo "vpux_ow_2" : tensor<1x1x1x2xf16>
     // CHECK-INIT-FULL-NEXT:    DataInfo "vpux_ow_3" : tensor<2xf16>
     // CHECK-INIT-FULL-NEXT: } outputsInfo : {
-    // CHECK-INIT-FULL-NEXT:    DataInfo "vpux_tw_0_hash_14224487553552936504_concat" : tensor<140xi8>
+    // CHECK-INIT-FULL-NEXT:    DataInfo "vpux_tw_0_hash_12906375107675847465_concat" : tensor<140xi8>
     // CHECK-INIT-FULL-NEXT: }
 
     // CHECK-INIT-FULL: func.func @init({{%.+}}: tensor<2xf16>, {{%.+}}: tensor<1x1x1x2xf16>, {{%.+}}: tensor<2xf16>)
@@ -577,7 +575,7 @@ module @SingleConstantWithLayout {
 
     // CHECK-MAIN-FULL: net.NetworkInfo entryPoint : @main inputsInfo : {
     // CHECK-MAIN-FULL-NEXT:    DataInfo "input1" : tensor<4x16xf16>
-    // CHECK-MAIN-FULL-NEXT:    DataInfo "vpux_tw_0_hash_14224487553552936504_concat" : tensor<140xi8>
+    // CHECK-MAIN-FULL-NEXT:    DataInfo "vpux_tw_0_hash_12906375107675847465_concat" : tensor<140xi8>
     // CHECK-MAIN-FULL-NEXT: } outputsInfo : {
     // CHECK-MAIN-FULL-NEXT:    DataInfo "output1" : tensor<4x16xf16>
     // CHECK-MAIN-FULL-NEXT: }
@@ -596,25 +594,24 @@ module @SingleConstantWithLayout {
     // CHECK-INIT-PART1: net.NetworkInfo entryPoint : @init_part1 inputsInfo : {
     // CHECK-INIT-PART1-NEXT:    DataInfo "vpux_ow_2" : tensor<1x1x1x2xf16>
     // CHECK-INIT-PART1-NEXT: } outputsInfo : {
-    // CHECK-INIT-PART1-NEXT:    DataInfo "vpux_tw_2_hash_5073444534634115717" : tensor<1x1x1x12xf16>
+    // CHECK-INIT-PART1-NEXT:    DataInfo "vpux_tw_2_hash_10502553507830482865" : tensor<1x1x1x12xf16>
     // CHECK-INIT-PART1-NEXT: }
 
     // CHECK-INIT-PART1: func.func @init_part1([[OV_2:%.+]]: tensor<1x1x1x2xf16>)
-    // CHECK-INIT-PART1-SAME:   -> tensor<1x1x1x12xf16, {order = [[NHWC]]}>
-    // CHECK-INIT-PART1:    [[PAD:%.+]] = IE.Pad([[OV_2]])
-    // CHECK-INIT-PART1:    [[OUT:%.+]] = IE.Reorder([[PAD]]) {dstOrder = [[NHWC]]}
+    // CHECK-INIT-PART1-SAME:   -> tensor<1x1x1x12xf16>
+    // CHECK-INIT-PART1:    [[OUT:%.+]] = IE.Pad([[OV_2]])
     // CHECK-INIT-PART1:    return [[OUT]]
 
     // CHECK-MAIN-PARTS: net.NetworkInfo entryPoint : @main inputsInfo : {
     // CHECK-MAIN-PARTS-NEXT:    DataInfo "input1" : tensor<4x16xf16>
     // CHECK-MAIN-PARTS-NEXT:    DataInfo "vpux_tw_0_hash_13109616749475806820_concat" : tensor<8xi8>
-    // CHECK-MAIN-PARTS-NEXT:    DataInfo "vpux_tw_2_hash_5073444534634115717" : tensor<1x1x1x12xf16>
+    // CHECK-MAIN-PARTS-NEXT:    DataInfo "vpux_tw_2_hash_10502553507830482865" : tensor<1x1x1x12xf16>
     // CHECK-MAIN-PARTS-NEXT:    DataInfo "vpux_tw_2_hash_2332981286748766850_concat" : tensor<108xi8>
     // CHECK-MAIN-PARTS-NEXT: } outputsInfo : {
     // CHECK-MAIN-PARTS-NEXT:    DataInfo "output1" : tensor<4x16xf16>
     // CHECK-MAIN-PARTS-NEXT: }
 
-    // CHECK-MAIN-PARTS: func.func @main([[IN:%.+]]: tensor<4x16xf16>, [[BLOB0:%.+]]: tensor<8xi8>, [[OV_2:%.+]]: tensor<1x1x1x12xf16, {order = [[NHWC]]}>, [[BLOB2:%.+]]: tensor<108xi8>)
+    // CHECK-MAIN-PARTS: func.func @main([[IN:%.+]]: tensor<4x16xf16>, [[BLOB0:%.+]]: tensor<8xi8>, [[OV_2:%.+]]: tensor<1x1x1x12xf16>, [[BLOB2:%.+]]: tensor<108xi8>)
 
     func.func @main(%arg: tensor<4x16xf16>) -> tensor<4x16xf16> {
         %ov1_0 = const.Declare tensor<2xf16> = dense_resource<vpux_ow_1> : tensor<2xf16>, [#const.Add<1.0>]
@@ -629,4 +626,96 @@ module @SingleConstantWithLayout {
 
         return %arg : tensor<4x16xf16>
     }
+}
+
+// -----
+
+{-#
+    dialect_resources: {
+        builtin: {
+            vpux_ow_1: "0x10000000112233445566778899AA",
+            vpux_ow_2: "0x10000000112233445566",
+            vpux_ow_3: "0x1000000011223344"
+        }
+    }
+#-}
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType1 = !quant.uniform<u8:f16:0, {4.6881728020368838E-4:128,8.9274726661981319E-5:128,7.3915015833050598E-4:128,0.004798228366702211:128,0.0011995570916755527:128,8.4776390416949401E-4:128,0.0020088736917458329:128,0.0024721641166537416:128,5.6757888957565902E-4:128,0.0025548259417215984:128}>
+
+!qElemType2 = !quant.uniform<i8:f16:0, {4.6881728020368838E-4,8.9274726661981319E-5,7.3915015833050598E-4,0.004798228366702211,0.0011995570916755527,8.4776390416949401E-4,0.0020088736917458329,0.0024721641166537416,5.6757888957565902E-4,0.0025548259417215984}>
+
+!qElemType3 = !quant.uniform<u8:f16:0, {3.3872110732630188E-5:128,7.9393763752544626E-4:128,4.8323503019762976E-4:128,0.001715712687548469:128,0.0012831800708583757:128,0.0010909433458365645:128}>
+
+!qElemType4 = !quant.uniform<i8:f16:0, {3.3872110732630188E-5,7.9393763752544626E-4,4.8323503019762976E-4,0.001715712687548469,0.0012831800708583757,0.0010909433458365645}>
+
+!qElemType5 = !quant.uniform<u8:f16:0, {0.0011582261791416243:128,0.0016320897083656461:128,0.0020050289584141153:128,0.0031276913250193874:128}>
+
+!qElemType6 = !quant.uniform<i8:f16:0, {0.0011582261791416243,0.0016320897083656461,0.0020050289584141153,0.0031276913250193874}>
+
+// CHECK-INIT-FULL: module @GenAllSpecialCase
+// CHECK-MAIN-FULL: module @GenAllSpecialCase
+// CHECK-INIT-PART0: module @GenAllSpecialCase
+// CHECK-INIT-PART1: module @GenAllSpecialCase
+// CHECK-MAIN-PARTS: module @GenAllSpecialCase
+// CHECK-GEN-ALL: module @GenAllSpecialCase
+module @GenAllSpecialCase {
+    net.NetworkInfo entryPoint : @main inputsInfo : {
+        DataInfo "input1" : tensor<4x16xf16>
+    } outputsInfo : {
+        DataInfo "output1" : tensor<4x16xf16>
+        DataInfo "cst1" : tensor<10x1x1x1xsi8>
+        DataInfo "cst2" : tensor<6x1x1x1xsi8>
+        DataInfo "cst3" : tensor<4x1x1x1xsi8>
+    }
+
+    func.func @main(%arg: tensor<4x16xf16>)
+            -> (tensor<4x16xf16>, tensor<10x1x1x1xsi8, {order = #NHWC}>,
+                tensor<6x1x1x1xsi8, {order = #NHWC}>, tensor<4x1x1x1xsi8, {order = #NHWC}>) {
+        %cst1 = const.Declare tensor<10x1x1x1x!qElemType1, {order = #NHWC}> = dense_resource<vpux_ow_1>
+            : tensor<10x1x1x1xsi8>,
+            [#const.CastElemType<f16>, #const.CastElemType<!qElemType2>,
+             #const.ConvertElemType<!qElemType1>, #const.Reorder<#NHWC>]
+        %cst2 = const.Declare tensor<6x1x1x1x!qElemType3, {order = #NHWC}> = dense_resource<vpux_ow_2>
+            : tensor<6x1x1x1xsi8>,
+            [#const.CastElemType<f16>, #const.CastElemType<!qElemType4>,
+             #const.ConvertElemType<!qElemType3>, #const.Reorder<#NHWC>]
+        %cst3 = const.Declare tensor<4x1x1x1x!qElemType5, {order = #NHWC}> = dense_resource<vpux_ow_3>
+            : tensor<4x1x1x1xsi8>,
+            [#const.CastElemType<f16>, #const.CastElemType<!qElemType6>,
+             #const.ConvertElemType<!qElemType5>, #const.Reorder<#NHWC>]
+
+        %cast1 = VPU.QuantizeCast(%cst1) {dstElemType = si8}
+            : tensor<10x1x1x1x!qElemType1, {order = #NHWC}> -> tensor<10x1x1x1xsi8, {order = #NHWC}>
+        %cast2 = VPU.QuantizeCast(%cst2) {dstElemType = si8}
+            : tensor<6x1x1x1x!qElemType3, {order = #NHWC}> -> tensor<6x1x1x1xsi8, {order = #NHWC}>
+        %cast3 = VPU.QuantizeCast(%cst3) {dstElemType = si8}
+            : tensor<4x1x1x1x!qElemType5, {order = #NHWC}> -> tensor<4x1x1x1xsi8, {order = #NHWC}>
+
+        return %arg, %cast1, %cast2, %cast3 : tensor<4x16xf16>, tensor<10x1x1x1xsi8, {order = #NHWC}>,
+            tensor<6x1x1x1xsi8, {order = #NHWC}>, tensor<4x1x1x1xsi8, {order = #NHWC}>
+    }
+
+    // CHECK-INIT-FULL: func.func @init
+    // CHECK-INIT-FULL:     [[CONCAT:%.+]] = IE.Concat({{%.+}}, {{%.+}}, {{%.+}})
+    // CHECK-INIT-FULL-SAME: tensor<4xi8>, tensor<6xi8>, tensor<10xi8>
+    // CHECK-INIT-FULL:     return [[CONCAT]]
+
+
+    // CHECK-MAIN-FULL: func.func @main({{%.+}}: tensor<4x16xf16>, [[BLOB:%.+]]: tensor<20xi8>)
+    // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [0] [4] {{.*}} to tensor<4xi8>
+    // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [4] [6] {{.*}} to tensor<6xi8>
+    // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [10] [10] {{.*}} to tensor<10xi8>
+
+
+    // CHECK-GEN-ALL: func.func private @init
+    // CHECK-GEN-ALL:   [[CONCAT:%.+]] = IE.Concat({{%.+}}, {{%.+}}, {{%.+}})
+    // CHECK-GEN-ALL-SAME:  tensor<10xi8>, tensor<6xi8>, tensor<4xi8>
+    // CHECK-GEN-ALL:   return [[CONCAT]]
+
+    // CHECK-GEN-ALL: func.func private @main({{%.+}}: tensor<4x16xf16>, [[BLOB:%.+]]: tensor<20xi8>)
+    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [0] [10] {{.*}} to tensor<10xi8>
+    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [10] [6] {{.*}} to tensor<6xi8>
+    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [16] [4] {{.*}} to tensor<4xi8>
 }

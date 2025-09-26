@@ -73,6 +73,32 @@ def VPU_AvgPoolOp :
     );
 }
 
+def VPU_AvgPool16Op :
+        VPU_LayerOp<
+            "AvgPool16",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>
+            ]
+        > {
+    let summary = "AvgPool16 VPU layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32, SI32, SI8, UI8]>:$input,
+
+        I64ArrayAttr:$kernel_size,
+        I64ArrayAttr:$strides,
+        I64ArrayAttr:$dilations,
+        I64ArrayAttr:$pads_begin,
+        I64ArrayAttr:$pads_end,
+        IE_RoundingTypeAttr:$rounding_type,
+        UnitAttr:$exclude_pads
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32, SI32, SI8, UI8]>:$output
+    );
+}
+
 
 def VPU_MaxPoolOp :
         VPU_LayerOp<

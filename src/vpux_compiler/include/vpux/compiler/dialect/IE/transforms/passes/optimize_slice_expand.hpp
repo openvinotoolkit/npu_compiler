@@ -67,6 +67,24 @@ private:
 };
 
 //
+// OptimizeSliceLayoutCastExpand
+//
+
+class OptimizeSliceLayoutCastExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
+public:
+    OptimizeSliceLayoutCastExpand(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
+        setDebugName("OptimizeSliceLayoutCastExpand");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExpandOp layerOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
 // OptimizeSliceExpand
 //
 

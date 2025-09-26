@@ -3,18 +3,18 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --vpu-arch=%arch% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode %s | FileCheck %s --strict-whitespace
+// RUN: vpux-opt --vpu-arch=%arch% --split-input-file --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode %s | FileCheck %s
 // REQUIRES: arch-NPU37XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @Convolution
 module @Convolution {
-    // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
-    // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+    // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
+    // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
+    // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @SHAVE_NN
 
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
@@ -76,11 +76,11 @@ module @Convolution {
 
 // CHECK-LABEL: @ScaleShiftSubgraph
 module @ScaleShiftSubgraph {
-    // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
-    // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+    // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
+    // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
+    // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @SHAVE_NN
 
     net.NetworkInfo entryPoint : @main
     inputsInfo : {
@@ -172,16 +172,16 @@ module @DynamicReshape {
     // CHECK-DAG:  {{    }}func.func private @builtin_DynamicReshape
     // CHECK-DAG:  {{    }}func.func private @builtin_Convert
     // CHECK-DAG:  {{    }}func.func private @runtime
-    // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
-    // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+    // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
+    // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
     // CHECK-DAG:  {{    }}builtin.module @ReservedMemory {
     // CHECK-DAG:  {{      }}module @SWKernelPrefetchingReservedMemory {
-    // CHECK-DAG:  {{        }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
-    // CHECK-DAG:  {{    }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN_FragmentationAware
-    // CHECK-DAG:  {{    }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+    // CHECK-DAG:  {{        }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
+    // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN_FragmentationAware
+    // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
+    // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @SHAVE_NN
 
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "Parameter_57" : tensor<1x3x10x16xf32>
@@ -249,16 +249,16 @@ module @DynamicReshape {
     // CHECK-DAG:  {{    }}func.func private @builtin_DynamicReshape
     // CHECK-DAG:  {{    }}func.func private @builtin_Convert
     // CHECK-DAG:  {{    }}func.func private @runtime
-    // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
-    // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+    // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
+    // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{.+}} : f64} 2 of @NCE at 1.300000e+03 MHz
     // CHECK-DAG:  {{    }}builtin.module @ReservedMemory {
     // CHECK-DAG:  {{      }}module @SWKernelPrefetchingReservedMemory {
-    // CHECK-DAG:  {{        }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
-    // CHECK-DAG:  {{    }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN_FragmentationAware
-    // CHECK-DAG:  {{    }}IE.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
-    // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+    // CHECK-DAG:  {{        }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN offset {{[0-9]+}}
+    // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN_FragmentationAware
+    // CHECK-DAG:  {{    }}config.MemoryResource {{[0-9]+}} bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = {{.+}} : f64}
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
+    // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
+    // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @SHAVE_NN
 
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "Parameter_57" : tensor<3x10x16xf32>
@@ -325,11 +325,11 @@ module @DynamicReshape {
 // -----
 
 module @BatchedGroupConvWithBroadcast {
-  // CHECK-DAG:  {{  }}IE.ExecutorResource 2 of @DMA_NN
-  // CHECK-DAG:  {{  }}IE.TileResource {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
-  // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @DPU
-  // CHECK-DAG:  {{    }}IE.ExecutorResource 2 of @SHAVE_ACT
-  // CHECK-DAG:  {{    }}IE.ExecutorResource 1 of @SHAVE_NN
+  // CHECK-DAG:  {{  }}config.ExecutorResource 2 of @DMA_NN
+  // CHECK-DAG:  {{  }}config.Resources {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz
+  // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @DPU
+  // CHECK-DAG:  {{    }}config.ExecutorResource 2 of @SHAVE_ACT
+  // CHECK-DAG:  {{    }}config.ExecutorResource 1 of @SHAVE_NN
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Parameter_1" : tensor<4x1x2x2xf16>

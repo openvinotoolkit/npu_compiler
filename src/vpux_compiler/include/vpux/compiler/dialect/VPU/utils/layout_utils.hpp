@@ -434,27 +434,6 @@ public:
 };
 
 //
-// DequantizeDimsOrderOpModelForSW
-//
-
-class DequantizeDimsOrderOpModelForSW final :
-        public IE::LayoutInfoOpInterface::FallbackModel<DequantizeDimsOrderOpModelForSW> {
-public:
-    static void inferLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info, const bool /*seOpsEnabled*/,
-                                const bool /*seExperimentalOpsEnabled*/) {
-        VPU::inferDequantizeLayoutInfo(op, info);
-    }
-
-    mlir::LogicalResult verifyLayout(mlir::Operation* op) const {
-        return VPU::verifyDequantizeLayoutInfo(op);
-    }
-
-    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
-        return IE::getLayoutInfo(origOp);
-    }
-};
-
-//
 // SqueezeUnsqueezeDimsOrderOpModelForSW
 //
 

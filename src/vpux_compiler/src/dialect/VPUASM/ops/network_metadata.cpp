@@ -3,10 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <vpux_headers/serial_metadata.hpp>
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPUASM/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux_headers/serial_metadata.hpp"
 
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
@@ -18,11 +17,7 @@ void vpux::VPUASM::NetworkMetadataOp::serialize(elf::writer::BinaryDataSection<u
     auto operation = getOperation();
     auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
 
-    auto nBarrs = VPUIP::getNumAvailableBarriers(operation);
-    metadata.mResourceRequirements.nn_barriers_ = nBarrs;
-    metadata.mResourceRequirements.nn_slice_count_ = VPUIP::getNumTilesUsed(mainModule);
-    metadata.mResourceRequirements.nn_slice_length_ =
-            checked_cast<uint32_t>(IE::getAvailableMemory(mainModule, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
+    VPUASM::setResourceRequirement(mainModule, metadata);
 
     auto serializedMetadata = elf::MetadataSerialization::serialize(metadata);
     binDataSection.appendData(&serializedMetadata[0], serializedMetadata.size());

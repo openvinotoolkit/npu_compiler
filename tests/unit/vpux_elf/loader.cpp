@@ -216,8 +216,11 @@ std::vector<uint8_t> generateValidTestElf() {
     auto symSection = generateSymbolSection(writer, ".symbols");
     auto relocSection = generateRelocationSection(writer, ".reloc", binDataSection, symSection);
     auto reloc = relocSection->addRelocationEntry();
-    reloc->setSymbol(&(*(
-            symSection->getSymbols()[generateRandom(0, static_cast<uint32_t>(symSection->getSymbols().size()) - 1)])));
+    auto relocSymbol =
+            symSection->getSymbols()[generateRandom(0, static_cast<uint32_t>(symSection->getSymbols().size()) - 1)]
+                    .get();
+    relocSymbol->setRelatedSection(binDataSection);
+    reloc->setSymbol(relocSymbol);
     reloc->setOffset(sizeof(DummyBinObject::a));
     reloc->setAddend(0);
 
@@ -307,7 +310,7 @@ TEST(ELFLoader, NoThrowWhenValidElf) {
     DDRAccessManager<elf::DDRAlwaysEmplace> accessor(reinterpret_cast<const uint8_t*>(elf.data()), elf.size());
     OV_ASSERT_NO_THROW(VPUXLoader(&accessor, &bufMgr));
     VPUXLoader loader(&accessor, &bufMgr);
-    OV_ASSERT_NO_THROW(loader.load(gSymTab.symTab(), false, {}));
+    OV_ASSERT_NO_THROW(loader.load(gSymTab.symTab(), false, {}, false));
 }
 
 }  // namespace

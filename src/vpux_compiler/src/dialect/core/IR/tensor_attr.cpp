@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 
 using namespace vpux;
 
@@ -125,24 +126,24 @@ vpux::IndexedSymbolAttr TensorAttr::getMemSpace() const {
     return getAttr<vpux::IndexedSymbolAttr>(*derived, memSpaceName);
 }
 
-Bounds TensorAttr::getBounds() const {
+BoundsRef TensorAttr::getBounds() const {
     auto derived = mlir::cast<mlir::DictionaryAttr>(this);
     auto bounds = getAttr<Const::OpaqueI64ElementsAttr>(*derived, boundsName);
     if (bounds != nullptr) {
-        return Bounds(bounds.getValue());
+        return BoundsRef(bounds.getValue());
     }
 
-    return Bounds();
+    return {};
 }
 
-DynamicDimsMask TensorAttr::getDynamicDimsMask() const {
+DynamicDimsMaskRef TensorAttr::getDynamicDimsMask() const {
     auto derived = mlir::cast<mlir::DictionaryAttr>(this);
     auto dynamicDimsMask = getAttr<Const::OpaqueI64ElementsAttr>(*derived, dynamicDimsMaskName);
     if (dynamicDimsMask != nullptr) {
-        return DynamicDimsMask(dynamicDimsMask.getValue());
+        return DynamicDimsMaskRef(dynamicDimsMask.getValue());
     }
 
-    return DynamicDimsMask();
+    return {};
 }
 
 //
@@ -189,10 +190,10 @@ TensorAttr vpux::getTensorAttr(mlir::RankedTensorType type) {
 TensorAttr vpux::getTensorAttr(mlir::RankedTensorType type, mlir::AffineMap order, IndexedSymbolAttr memSpace,
                                mlir::ArrayRef<int64_t> dynamicAttr) {
     if (mlir::isa<Core::BoundedTensorType>(type)) {
-        return vpux::getTensorAttr(type.getContext(), order, memSpace, Bounds(dynamicAttr));
+        return vpux::getTensorAttr(type.getContext(), order, memSpace, BoundsRef(dynamicAttr));
     }
     if (mlir::isa<Core::DynamicDimsMaskTensorType>(type)) {
-        return vpux::getTensorAttr(type.getContext(), order, memSpace, Bounds(), DynamicDimsMask(dynamicAttr));
+        return vpux::getTensorAttr(type.getContext(), order, memSpace, /*Bounds=*/{}, DynamicDimsMaskRef(dynamicAttr));
     }
     return vpux::getTensorAttr(type.getContext(), order, memSpace);
 }
@@ -216,7 +217,7 @@ IndexedSymbolAttr vpux::getMemorySpace(mlir::RankedTensorType type) {
     return nullptr;
 }
 
-Bounds vpux::getBounds(mlir::Type type) {
+BoundsRef vpux::getBounds(mlir::Type type) {
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
         return boundedType.getBounds();
     }
@@ -224,7 +225,7 @@ Bounds vpux::getBounds(mlir::Type type) {
     return {};
 };
 
-DynamicDimsMask vpux::getDynamicDimsMask(mlir::Type type) {
+DynamicDimsMaskRef vpux::getDynamicDimsMask(mlir::Type type) {
     if (auto dynamicDimsMaskType = mlir::dyn_cast<Core::DynamicDimsMaskTensorType>(type)) {
         return dynamicDimsMaskType.getDynamicDimsMask();
     }

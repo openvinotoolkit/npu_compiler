@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --tiling="enable-prefetch=false" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --tiling="prefetching=false" %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
 // CHECK-LABEL: func.func @SplitSwConvOverOC
@@ -2074,7 +2074,7 @@ func.func @MVN1NormalizeSplit(%arg0: tensor<1x1x1x520001xf16>, %arg1: tensor<1x1
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 2 of @NCE at 1.700000e+03 MHz
+config.Resources 2 of @NCE at 1.700000e+03 MHz
 
 // CHECK: func.func @NCEAveragePoolWithLargeKernelSOH([[INPUT:%.+]]: tensor<1x64x256x256xf16, {order = #NHWC}>)
 func.func @NCEAveragePoolWithLargeKernelSOH(%arg0: tensor<1x64x256x256xf16, {order = #NHWC}>) -> tensor<1x64x4x4xf16, {order = #NHWC}> {
@@ -2134,7 +2134,7 @@ func.func @NCEAveragePoolWithLargeKernelSOH(%arg0: tensor<1x64x256x256xf16, {ord
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   func.func @MVN1MeanVarSplitTileAtCWithInternalReshape
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x256x8x512xf32, {order = #NHWC}>
@@ -2190,7 +2190,7 @@ func.func @MVN1MeanVarSplitTileAtCWithInternalReshape(%arg0: tensor<1x256x8x512x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   func.func @MVN1MeanVarSplitTileAtCWithoutInternalReshape
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x256x8x512xf32, {order = #NHWC}>
@@ -2238,7 +2238,7 @@ func.func @MVN1MeanVarSplitTileAtCWithoutInternalReshape(%arg0: tensor<1x256x8x5
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   func.func @MVN1MeanVarSplitTileAtNWithoutInternalReshape
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<256x1x4x512xf32, {order = #NHWC}>

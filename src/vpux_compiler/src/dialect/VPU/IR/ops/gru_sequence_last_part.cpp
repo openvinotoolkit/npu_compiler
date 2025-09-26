@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/tiling_info.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 
@@ -27,7 +26,7 @@ mlir::LogicalResult vpux::VPU::GRUSequenceLastPartOp::inferReturnTypes(
     const auto outputStateShape = outputStateType.getShape().raw();
     const auto seqLength = gru.getSeqLength();
     SmallVector<int64_t> middleStateShape = {outputStateShape[0], outputStateShape[1], seqLength, outputStateShape[2]};
-    const auto middleStateType = initialStateType.changeShape(Shape(middleStateShape));
+    const auto middleStateType = initialStateType.changeShape(ShapeRef(middleStateShape));
 
     inferredReturnShapes.push_back(middleStateType);
     inferredReturnShapes.push_back(outputStateType);

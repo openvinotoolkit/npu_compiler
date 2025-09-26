@@ -18,7 +18,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/resources.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/utils/asm.hpp"
@@ -63,8 +62,6 @@ using namespace vpux;
 #include <vpux/compiler/dialect/IE/ops/recurrent.cpp.inc>
 #define GET_OP_CLASSES
 #include <vpux/compiler/dialect/IE/ops/reduce.cpp.inc>
-#define GET_OP_CLASSES
-#include <vpux/compiler/dialect/IE/ops/resources.cpp.inc>
 #define GET_OP_CLASSES
 #include <vpux/compiler/dialect/IE/ops/shape_manipulation.cpp.inc>
 #define GET_OP_CLASSES

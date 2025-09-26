@@ -7,7 +7,7 @@
 // REQUIRES: arch-NPU40XX
 
 module @InlineSingleFunctionWithDifferentArgumentOffsets {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @func_two_args
     func.func private @func_two_args(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
@@ -86,7 +86,7 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
 // -----
 
 module @InlineNestedFunctionsWithDifferentArgumentOffsets {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @nested_func_two_args
     func.func private @nested_func_two_args(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {

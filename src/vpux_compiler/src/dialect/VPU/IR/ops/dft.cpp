@@ -33,7 +33,7 @@ mlir::LogicalResult vpux::VPU::DFTOp::inferReturnTypes(mlir::MLIRContext* ctx, s
         }
     }
 
-    auto outType = inType.changeShape(Shape(outShape));
+    auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
     return mlir::success();
 }

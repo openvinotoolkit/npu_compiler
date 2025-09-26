@@ -141,15 +141,17 @@ const std::vector<float> start = {2.0f, 1.0f};
 const std::vector<float> stop = {23.0f, 15.0f};
 const std::vector<float> step = {3.0f, 4.5f};
 
-const auto testRangePositiveStepParams = ::testing::Combine(testing::ValuesIn(start),  // start
-                                                            testing::ValuesIn(stop),   // stop
-                                                            testing::ValuesIn(step),   // positive step
-                                                            testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+const auto testRangePositiveStepParams =
+        ::testing::Combine(testing::ValuesIn(start),  // start
+                           testing::ValuesIn(stop),   // stop
+                           testing::ValuesIn(step),   // positive step
+                           testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
-const auto testRangeNegativeStepParams = ::testing::Combine(testing::Values(23.0f),  // start
-                                                            testing::Values(2.0f),   // stop
-                                                            testing::Values(-3.0f),  // negative step
-                                                            testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+const auto testRangeNegativeStepParams =
+        ::testing::Combine(testing::Values(23.0f),  // start
+                           testing::Values(2.0f),   // stop
+                           testing::Values(-3.0f),  // negative step
+                           testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Range, RangeLayerTestCommon, testRangePositiveStepParams,
                          RangeLayerTestCommon::getTestCaseName);

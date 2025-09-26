@@ -50,7 +50,7 @@ mlir::LogicalResult vpux::VPU::TileOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(tile.getInput().getType());
     auto outShape = calcTileOutputShape(tile.getInput(), parseIntArrayAttr<int64_t>(tile.getRepeatsValues()));
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

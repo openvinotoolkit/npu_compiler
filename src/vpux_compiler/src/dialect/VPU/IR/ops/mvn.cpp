@@ -24,6 +24,7 @@ mlir::LogicalResult vpux::VPU::MVNOp::inferReturnTypes(mlir::MLIRContext* ctx, s
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(mvn.getInput().getType());
+
     const auto inShape = inType.getShape();
     if (inShape.size() != 4 && inShape.size() != 5) {
         return errorAt(loc, "First input tensor should have 4 or 5 dimensions");
@@ -113,11 +114,20 @@ bool vpux::VPU::MVNOp::supportCycleCostCalculation() {
 void vpux::VPU::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                              ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
                              ::mlir::FloatAttr eps) {
-    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, {}, nullptr);
+    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, {}, {}, nullptr);
 }
 
 void vpux::VPU::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
                              ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
                              ::mlir::FloatAttr eps, ::mlir::ArrayAttr internal_reshape) {
-    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, internal_reshape, nullptr);
+    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, internal_reshape, {},
+          nullptr);
+}
+
+void vpux::VPU::MVNOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input,
+                             ::mlir::BoolAttr across_channels, ::mlir::BoolAttr normalize_variance,
+                             ::mlir::FloatAttr eps, ::mlir::ArrayAttr internal_reshape,
+                             ::mlir::BoolAttr high_precision_normalize) {
+    build(builder, state, input.getType(), input, across_channels, normalize_variance, eps, internal_reshape,
+          high_precision_normalize, nullptr);
 }

@@ -436,3 +436,56 @@ func.func @MatMul2dLhs1dRhsTransposeBoth(%LHS: tensor<32x16xf16>, %RHS: tensor<3
     return %GEMM : tensor<16xf16>
     // CHECK:   return [[RESHAPE_OUT]] : tensor<16xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @Softmax4dArgs(
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x6x4x16xf16>, [[INPUT_1:%.+]]: tensor<1x6x32x16xf16>) -> tensor<2x3x4x32xf16>
+func.func @Softmax4dArgs(%arg0: tensor<1x6x4x16xf16>, %arg1: tensor<1x6x32x16xf16>) -> tensor<2x3x4x32xf16> {
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x4x16xf16>, tensor<1x6x32x16xf16> -> tensor<1x6x4x32xf16>
+    %1 = IE.Reshape(%0) {shape_value = [2, 3, 4, 32]} : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    %2 = IE.SoftMax(%1) {axisInd = 3 : i64} : tensor<2x3x4x32xf16> -> tensor<2x3x4x32xf16>
+
+    return %2 : tensor<2x3x4x32xf16>
+    // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[INPUT_0]], [[INPUT_1]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x6x4x16xf16>, tensor<1x6x32x16xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[SOFTMAX:%.+]] = IE.SoftMax([[MATMUL]]) {axisInd = 3 : i64} : tensor<1x6x4x32xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[RESHAPE:%.+]] = IE.Reshape([[SOFTMAX]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 32]
+    // CHECK-SAME:  } : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    // CHECK:    return [[RESHAPE]] : tensor<2x3x4x32xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @Softmax4dFQ(
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<1x6x4x16xf16>, [[INPUT_1:%.+]]: tensor<1x6x32x16xf16>) -> tensor<2x3x4x32xf16>
+func.func @Softmax4dFQ(%arg0: tensor<1x6x4x16xf16>, %arg1: tensor<1x6x32x16xf16>) -> tensor<2x3x4x32xf16> {
+    %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.0> : tensor<1x1x1x1xf32>
+    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<255.0> : tensor<1x1x1x1xf32>
+    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<10.0> : tensor<1x1x1x1xf32>
+    %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<205.0> : tensor<1x1x1x1xf32>
+    %0 = IE.MatMul(%arg0, %arg1) {transpose_b} : tensor<1x6x4x16xf16>, tensor<1x6x32x16xf16> -> tensor<1x6x4x32xf16>
+    %1 = IE.Reshape(%0) {shape_value = [2, 3, 4, 32]} : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    %2 = IE.FakeQuantize(%1, %cst, %cst_0, %cst_1, %cst_2)
+      { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i32 } :
+      tensor<2x3x4x32xf16>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<2x3x4x32xf16>
+
+    %3 = IE.SoftMax(%2) {axisInd = 3 : i64} : tensor<2x3x4x32xf16> -> tensor<2x3x4x32xf16>
+
+    return %3 : tensor<2x3x4x32xf16>
+    // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[INPUT_0]], [[INPUT_1]]) {transpose_b} :
+    // CHECK-SAME:  tensor<1x6x4x16xf16>, tensor<1x6x32x16xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[RESHAPE0:%.+]] = IE.Reshape([[MATMUL]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 32]
+    // CHECK-SAME:  } : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    // CHECK:    [[FQ:%.+]] = IE.FakeQuantize([[RESHAPE0]]
+    // CHECK:    [[RESHAPE1:%.+]] = IE.Reshape([[FQ]]) {
+    // CHECK-SAME:      shape_value = [1, 6, 4, 32]
+    // CHECK-SAME:  } : tensor<2x3x4x32xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[SOFTMAX:%.+]] = IE.SoftMax([[RESHAPE1]]) {axisInd = 3 : i64} : tensor<1x6x4x32xf16> -> tensor<1x6x4x32xf16>
+    // CHECK:    [[RESHAPE2:%.+]] = IE.Reshape([[SOFTMAX]]) {
+    // CHECK-SAME:      shape_value = [2, 3, 4, 32]
+    // CHECK-SAME:  } : tensor<1x6x4x32xf16> -> tensor<2x3x4x32xf16>
+    // CHECK:    return [[RESHAPE2]] : tensor<2x3x4x32xf16>
+}

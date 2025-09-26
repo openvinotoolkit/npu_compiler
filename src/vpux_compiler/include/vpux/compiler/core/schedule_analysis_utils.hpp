@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/core/feasible_memory_scheduler.hpp"
+#include "vpux/compiler/utils/partitioner.hpp"
 
 namespace vpux {
 
@@ -32,6 +33,8 @@ void printScheduleStatistics(mlir::func::FuncOp& netFunc, AsyncDepsInfo& depsInf
 SpillStats getDynamicSpillingStats(llvm::ArrayRef<ScheduledOpInfo> scheduledOps);
 void printSpillingStatistics(Logger log, SpillStats& beforePrefetching, SpillStats& afterPrefetching,
                              SpillStats& afterOptimizations);
-void createTracingJSON(mlir::func::FuncOp& netFunc, StringRef fileName = "scheduleTrace.json");
+void createTracingJSON(mlir::func::FuncOp& netFunc, MemLiveRangeInfo& liveRangeInfo,
+                       LinearScan<mlir::Value, LinearScanHandler>& scan, vpux::AddressType totalMemory,
+                       StringRef fileName = "mallocTraceRaw.json");
 
 }  // namespace vpux

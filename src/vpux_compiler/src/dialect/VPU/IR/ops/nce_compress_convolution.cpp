@@ -6,9 +6,9 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
@@ -59,6 +60,14 @@ bool vpux::VPU::NCECompressConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input
 
 bool vpux::VPU::NCECompressConvolutionOp::isSupported(IE::ConvolutionOp op, LogCb logCb, bool checkLayout,
                                                       bool checkChannelAlignment) {
+    auto inputType = mlir::cast<NDTypeInterface>(op.getInput().getType());
+    auto canUseIDUAutopad =
+            VPU::inputCompatibleWithAutoPad(inputType) && VPU::hasAutoPaddingIDU(getModuleOp(op.getOperation()));
+    // IDU autopad can support the IC=4 configuration represented by NCECompressConvolution, along with multiple others.
+    // Therefore, we should avoid using NCECompressConvolution when IDU autopad can be used
+    if (canUseIDUAutopad) {
+        return false;
+    }
     return VPU::isSupportedConv(op, logCb, checkLayout, checkChannelAlignment, /*supportsInputActCompression*/ true);
 }
 
@@ -269,7 +278,7 @@ bool VPU::NCECompressConvolutionOp::isOperationSplitOverHeightCompatible(const v
     }
 
     auto moduleOp = nceOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
 
     return isSOHSupportedByDPU(inputType, inputShape, numTiles, false, config::getArch(nceOp.getOperation()));

@@ -68,9 +68,10 @@ std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> basic = {
         {{{1, 128, 1, 1}}, {{}}},  // should cover most of u8 values
 };
 
-const auto activationCases = ::testing::Combine(
-        ::testing::ValuesIn(combineParams(activationTypes)), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(static_shapes_param_transform(combineParams(basic))), ::testing::Values(DEVICE_NPU));
+const auto activationCases =
+        ::testing::Combine(::testing::ValuesIn(combineParams(activationTypes)), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_param_transform(combineParams(basic))),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto convCases =
         ::testing::Combine(activationCases, ::testing::ValuesIn(kernels), ::testing::ValuesIn(strides),

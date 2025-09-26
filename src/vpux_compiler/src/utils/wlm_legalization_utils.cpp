@@ -4,6 +4,7 @@
 //
 #include "vpux/compiler/utils/wlm_legalization_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 
 #include <mlir/Pass/AnalysisManager.h>
 
@@ -207,6 +208,17 @@ VPURT::TaskOp createFetchDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::
             /*dmaProfilingMetaData*/ nullptr, fetchDMAAttr);
 
     return fetchDMAOp->getParentOfType<VPURT::TaskOp>();
+}
+
+VPUIP::FetchDMAAttr getFetchDMAAttr(int64_t groupIdx, BarrierInfo& barrierInfo, size_t taskIndex) {
+    auto taskOp = barrierInfo.getTaskOpAtIndex(taskIndex);
+    const auto ctx = taskOp->getContext();
+    auto taskQueueType = barrierInfo.getTaskQueueType(taskIndex);
+    auto executorKindAttr = VPU::ExecutorKindAttr::get(ctx, taskQueueType.type);
+    auto tileIdxAttr = mlir::IntegerAttr::get(getInt64Type(ctx), VPURT::getTileIndexForDpuOrShv(taskOp, taskQueueType));
+    auto listIdxAttr = mlir::IntegerAttr::get(getInt64Type(ctx), VPURT::getListIndexForDpuOrShv(taskOp));
+    auto groupIdxAttr = mlir::IntegerAttr::get(getInt64Type(ctx), groupIdx);
+    return VPUIP::FetchDMAAttr::get(ctx, executorKindAttr, tileIdxAttr, listIdxAttr, groupIdxAttr);
 }
 
 }  // namespace vpux

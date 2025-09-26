@@ -92,11 +92,12 @@ mlir::LogicalResult vpux::IE::StridedSliceOp::inferReturnTypeComponents(
     }
 
     auto inType = mlir::cast<vpux::NDTypeInterface>(slice.getInput().getType());
-    const auto outType = mlir::cast<mlir::RankedTensorType>(inType.changeShape(Shape(outputShape)));
+    const auto outType = mlir::cast<mlir::RankedTensorType>(inType.changeShape(ShapeRef(outputShape)));
 
     const auto inDataTensorType = mlir::cast<mlir::RankedTensorType>(slice.getInput().getType());
     auto outBounds = !outputShapeInfo.bounds.empty() ? outputShapeInfo.bounds : SmallVector<int64_t>{};
-    auto outDesc = vpux::getTensorAttr(ctx, vpux::getOrder(inDataTensorType), /*memSpace=*/nullptr, Bounds(outBounds));
+    auto outDesc =
+            vpux::getTensorAttr(ctx, vpux::getOrder(inDataTensorType), /*memSpace=*/nullptr, BoundsRef(outBounds));
 
     inferredReturnShapes.emplace_back(outType.getShape(), outType.getElementType(), outDesc);
 

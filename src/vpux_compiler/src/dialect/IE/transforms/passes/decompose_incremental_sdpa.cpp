@@ -64,7 +64,7 @@ mlir::LogicalResult IncrementalSDPARewrite::matchAndRewrite(IE::IncrementalSDPAO
     const auto queryShape = getShape(origOp.getQuery());
     const auto qkEmbeddingSize = queryShape.back();
     const auto scalingValue = 1.0f / std::sqrt(checked_cast<float>(qkEmbeddingSize));
-    auto scalingConst = createDenseConstant(rewriter, Shape{1}, scalingValue);
+    auto scalingConst = createDenseConstant(rewriter, ShapeRef{1}, scalingValue);
     const auto broadcastNumpy = vpux::IE::AutoBroadcastType::NUMPY;
 
     auto scaledQuery =
@@ -138,7 +138,7 @@ mlir::LogicalResult IncrementalSDPARewrite::matchAndRewrite(IE::IncrementalSDPAO
             rewriter.create<IE::AddOp>(takeOpLoc(origOp, "new_partial_output"), scaledPartialOutput, attentionValue,
                                        broadcastNumpy, nullptr, nullptr, nullptr, nullptr);
 
-    rewriter.replaceOp(origOp, mlir::ValueRange{newRunningMax, newRunningSum, newPartialOutput});
+    rewriter.replaceOp(origOp, mlir::ValueRange{newPartialOutput, newRunningMax, newRunningSum});
 
     return mlir::success();
 }

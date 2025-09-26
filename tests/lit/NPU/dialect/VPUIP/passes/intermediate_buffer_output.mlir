@@ -26,7 +26,7 @@ func.func @TestBufferOutput(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<
   %3 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
   %4 = VPURT.ConfigureBarrier<4> -> !VPURT.Barrier
   %5 = VPURT.ConfigureBarrier<5> -> !VPURT.Barrier
-  %6 = VPURT.ConfigureBarrier<6> {isFinalBarrier} -> !VPURT.Barrier
+  %6 = VPURT.ConfigureBarrier<6> <{isFinalBarrier}> -> !VPURT.Barrier
   %cst = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
   %cst_0 = const.Declare memref<64x1x1x160x!qElemType, #NHWC> = dense<1.0> : tensor<64x3x7x7xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 1, 0, 0]>, #const.SubView<[0, 0, 0, 0], [64, 3, 7, 7]>, #const.Reshape<[64, 1, 1, 147]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 13]>]
   %cst_1 = const.Declare memref<1x1x1x5120xui8> = dense<1> : tensor<1x1x1x5120xui8>
@@ -176,7 +176,7 @@ func.func @TestBufferOutput(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<
 
   // CHECK:       [[BAR0:%.*]] = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
   // CHECK:       [[BAR1:%.*]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-  // CHECK:       [[BAR2:%.*]] = VPURT.ConfigureBarrier<0> {isFinalBarrier} -> !VPURT.Barrier
+  // CHECK:       [[BAR2:%.*]] = VPURT.ConfigureBarrier<0> <{isFinalBarrier}> -> !VPURT.Barrier
   // CHECK-NOT:                  VPURT.ConfigureBarrier
 
   // CHECK-DAG:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x224x4x115x!qElemType, #NWCH, @DDR>

@@ -9,8 +9,8 @@
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @FuseReorderWithMVN1
-module @FuseReorderWithMVN1 {
+// CHECK-LABEL: @FuseReshapeWithMVN
+module @FuseReshapeWithMVN {
 
 // CHECK-LABEL: @main
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x256x256x256xf16, {order = #NHWC}>)
@@ -24,7 +24,33 @@ module @FuseReorderWithMVN1 {
     %8 = IE.Reorder(%7) {dstOrder = #NHWC} : tensor<1x256x256x256xf16> -> tensor<1x256x256x256xf16, {order = #NHWC}>
     return %8 : tensor<1x256x256x256xf16, {order = #NHWC}>
 
-    // CHECK: [[VAR0:%.*]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 5.000000e-01 : f64, internal_reshape = [1, 32, 524288, 1], normalize_variance = true} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
+    // CHECK: [[VAR0:%.+]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 5.000000e-01 : f64, internal_reshape = [1, 32, 524288, 1], normalize_variance = true} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
+    // CHECK: return [[VAR0]] : tensor<1x256x256x256xf16, {order = #NHWC}>
+  }
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @FuseAffineReshapeWithMVN
+module @FuseAffineReshapeWithMVN {
+
+// CHECK-LABEL: @main
+// CHECK-SAME: ([[INPUT:%.+]]: tensor<1x256x256x256xf16, {order = #NHWC}>)
+  func.func @main(%arg0: tensor<1x256x256x256xf16, {order = #NHWC}>) -> tensor<1x256x256x256xf16, {order = #NHWC}> {
+    %2 = IE.Reorder(%arg0) {dstOrder = #NCHW} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [1, 2], [3], [3]], shape_value = [1, 32, 8, 65536]} : tensor<1x256x256x256xf16> -> tensor<1x32x8x65536xf16>
+    %4 = IE.Reorder(%3) {dstOrder = #NHWC} : tensor<1x32x8x65536xf16> -> tensor<1x32x8x65536xf16, {order = #NHWC}>
+    %5 = IE.MVN(%4) {across_channels = false, eps = 5.000000e-01 : f64, normalize_variance = true} : tensor<1x32x8x65536xf16, {order = #NHWC}> -> tensor<1x32x8x65536xf16, {order = #NHWC}>
+    %6 = IE.Reorder(%5) {dstOrder = #NCHW} : tensor<1x32x8x65536xf16, {order = #NHWC}> -> tensor<1x32x8x65536xf16>
+    %7 = IE.AffineReshape(%6) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 256, 256, 256]} : tensor<1x32x8x65536xf16> -> tensor<1x256x256x256xf16>
+    %8 = IE.Reorder(%7) {dstOrder = #NHWC} : tensor<1x256x256x256xf16> -> tensor<1x256x256x256xf16, {order = #NHWC}>
+    return %8 : tensor<1x256x256x256xf16, {order = #NHWC}>
+
+    // CHECK: [[VAR0:%.+]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 5.000000e-01 : f64, internal_reshape = [1, 32, 8, 65536], normalize_variance = true} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
     // CHECK: return [[VAR0]] : tensor<1x256x256x256xf16, {order = #NHWC}>
   }
 
@@ -56,9 +82,9 @@ module @MoveGroupConvPostFuseReorderWithMVN {
 
     return %12 : tensor<1x256x256x256xf16, {order = #NHWC}>
 
-    // CHECK: [[CST:%.*]] = const.Declare tensor<256x1x1x1xf16, {order = #NHWC}> = dense<9.000000e+00> : tensor<256x1x1x1xf16, {order = #NHWC}>
-    // CHECK: [[VAR0:%.*]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 5.000000e-01 : f64, internal_reshape = [1, 32, 524288, 1], normalize_variance = true} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
-    // CHECK: [[VAR1:%.*]] = IE.GroupConvolution([[VAR0]], [[CST]]) {dilations = [1, 1], groups = 256 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x256x256x256xf16, {order = #NHWC}>, tensor<256x1x1x1xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
+    // CHECK: [[CST:%.+]] = const.Declare tensor<256x1x1x1xf16, {order = #NHWC}> = dense<9.000000e+00> : tensor<256x1x1x1xf16, {order = #NHWC}>
+    // CHECK: [[VAR0:%.+]] = IE.MVN([[INPUT]]) {across_channels = false, eps = 5.000000e-01 : f64, internal_reshape = [1, 32, 524288, 1], normalize_variance = true} : tensor<1x256x256x256xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
+    // CHECK: [[VAR1:%.+]] = IE.GroupConvolution([[VAR0]], [[CST]]) {dilations = [1, 1], groups = 256 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x256x256x256xf16, {order = #NHWC}>, tensor<256x1x1x1xf16, {order = #NHWC}> -> tensor<1x256x256x256xf16, {order = #NHWC}>
     // CHECK: return [[VAR1]] : tensor<1x256x256x256xf16, {order = #NHWC}>
   }
 

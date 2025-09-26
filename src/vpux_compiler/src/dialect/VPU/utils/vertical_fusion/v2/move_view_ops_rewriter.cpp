@@ -7,6 +7,11 @@
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+
+// An experimental number to help get the threshold of tiling size.
+// The purpose is to avoid fuse view like op with tiling limitations.
+constexpr static double LIMITED_TILING_DIM_MAX_RATIO = 0.5;
 
 namespace vpux::VPU::VF::v2 {
 mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp vfOp,
@@ -31,8 +36,8 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
             return false;
         }
         auto parentTilingStrategy = parseIntArrayAttr<int64_t>(parentOp.getTilingStrategy());
-        auto parentTilingDims = getNonOneDim(Shape(parentTilingStrategy));
-        if (!viewOp.isSupportedTilingDim(parentTilingDims)) {
+        auto parentTilingDims = getNonOneDim(ShapeRef(parentTilingStrategy));
+        if (parentTilingDims.empty() || !viewOp.isSupportedTilingDim(parentTilingDims)) {
             return false;
         }
 
@@ -41,14 +46,26 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
         if (tilingBuilderOp == nullptr) {
             return false;
         }
-        auto outTiles = fillDividedTiles(userOp, Shape(tilingStrategy), getShape(userOp->getResult(0)));
+        auto outTiles = fillDividedTiles(userOp, ShapeRef(tilingStrategy), getShape(userOp->getResult(0)));
         if (mlir::failed(outTiles)) {
             return false;
         }
+
         auto inTiles = tilingBuilderOp.backInferTileInfo(outTiles.value().front(), _log).tiles;
         auto tilingDims = getNonOneDim(inTiles[operandIdx].axis);
         if (!viewOp.isSupportedTilingDim(tilingDims)) {
             return false;
+        }
+
+        auto inShape = getShape(viewOp->getOperand(0));
+        for (auto dim : tilingDims) {
+            if (viewOp.isSupportedTilingDimWithRestrictions(dim)) {
+                // if the tiling number is too large, it may prevent the fusion of the vf ops selecting this dim in
+                // later pass, since the merged new VF might increase tiling size on this dim.
+                if (tilingStrategy[dim.ind()] >= static_cast<int64_t>(inShape[dim] * LIMITED_TILING_DIM_MAX_RATIO)) {
+                    return false;
+                }
+            }
         }
 
         // If the user operation is a clustered operation, check its multi-cluster strategy is compatible or not
@@ -73,7 +90,7 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
             activationTensorNumTiles =
                     getActivationTensorNumTiles(clusteredOp, numClusters, strategy.value(), inputType);
         }
-        auto mcTilingDims = getNonOneDim(Shape(activationTensorNumTiles));
+        auto mcTilingDims = getNonOneDim(ShapeRef(activationTensorNumTiles));
         return viewOp.isSupportedTilingDim(mcTilingDims);
     };
 

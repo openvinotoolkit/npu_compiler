@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @read_after_write_act_dma_f16_f16 inputsInfo : {
     DataInfo "input" : tensor<1x10x2x3xf16>
   } outputsInfo : {
@@ -19,12 +19,12 @@ module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
     ELF.Main @ELFMain {
       VPUASM.DeclareBuffer @DeclareBuffer0 !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x10x2x3xf16, #NHWC, @DDR> :  swizzling(0)>
       VPUASM.DeclareBuffer @DeclareBuffer1 !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x10x2x3xf16, #NHWC, @DDR> :  swizzling(0)>
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry0 : "activation_sigmoid"
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry1 : "activation_sigmoid"
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry2 : "activation_sigmoid"
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry3 : "activation_sigmoid"
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry4 : "activation_sigmoid"
-      VPUASM.DeclareKernelEntry @DeclareKernelEntry5 : "activation_sigmoid"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry0 : "test_kernel_elf_pad"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry1 : "test_kernel_elf_pad"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry2 : "test_kernel_elf_pad"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry3 : "test_kernel_elf_pad"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry4 : "test_kernel_elf_pad"
+      VPUASM.DeclareKernelEntry @DeclareKernelEntry5 : "test_kernel_elf_pad"
       ELF.CreateLogicalSection @program.DMA.cmx.0.0 aligned(64) secType(SHT_PROGBITS) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
         //CHECK:  ELF.CreateLogicalSection @program.DMA.cmx.0.0 aligned(1)
         VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
@@ -76,42 +76,42 @@ module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
       }
       ELF.CreateSection @text.shave aligned(1024) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE") secLocation(<DDR>) {
         //CHECK:  ELF.CreateSection @text.shave aligned(1024)
-        VPUASM.DeclareKernelText @DeclareKernelText0 : "activation_sigmoid"
-        //CHECK:  ELF.Pad size(480)
-        VPUASM.DeclareKernelText @DeclareKernelText1 : "activation_sigmoid"
-        //CHECK:  ELF.Pad size(480)
-        VPUASM.DeclareKernelText @DeclareKernelText2 : "activation_sigmoid"
-        //CHECK:  ELF.Pad size(480)
-        VPUASM.DeclareKernelText @DeclareKernelText3 : "activation_sigmoid"
-        //CHECK:  ELF.Pad size(480)
-        VPUASM.DeclareKernelText @DeclareKernelText4 : "activation_sigmoid"
-        //CHECK:  ELF.Pad size(480)
-        VPUASM.DeclareKernelText @DeclareKernelText5 : "activation_sigmoid"
+        VPUASM.DeclareKernelText @DeclareKernelText0 : "test_kernel_elf_pad"
+        //CHECK:  ELF.Pad size(880)
+        VPUASM.DeclareKernelText @DeclareKernelText1 : "test_kernel_elf_pad"
+        //CHECK:  ELF.Pad size(880)
+        VPUASM.DeclareKernelText @DeclareKernelText2 : "test_kernel_elf_pad"
+        //CHECK:  ELF.Pad size(880)
+        VPUASM.DeclareKernelText @DeclareKernelText3 : "test_kernel_elf_pad"
+        //CHECK:  ELF.Pad size(880)
+        VPUASM.DeclareKernelText @DeclareKernelText4 : "test_kernel_elf_pad"
+        //CHECK:  ELF.Pad size(880)
+        VPUASM.DeclareKernelText @DeclareKernelText5 : "test_kernel_elf_pad"
         //CHECK:  ELF.Pad size(128)
       }
       ELF.CreateSection @program.shave.data aligned(64) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE") secLocation(<DDR>) {
         //CHECK:  ELF.CreateSection @program.shave.data aligned(1024)
-        VPUASM.DeclareKernelData @DeclareKernelArgs0 : "activation_sigmoid"
-        VPUASM.DeclareKernelData @DeclareKernelArgs1 : "activation_sigmoid"
-        VPUASM.DeclareKernelData @DeclareKernelArgs2 : "activation_sigmoid"
-        VPUASM.DeclareKernelData @DeclareKernelArgs3 : "activation_sigmoid"
-        VPUASM.DeclareKernelData @DeclareKernelArgs4 : "activation_sigmoid"
-        VPUASM.DeclareKernelData @DeclareKernelArgs5 : "activation_sigmoid"
+        VPUASM.DeclareKernelData @DeclareKernelArgs0 : "test_kernel_elf_pad"
+        VPUASM.DeclareKernelData @DeclareKernelArgs1 : "test_kernel_elf_pad"
+        VPUASM.DeclareKernelData @DeclareKernelArgs2 : "test_kernel_elf_pad"
+        VPUASM.DeclareKernelData @DeclareKernelArgs3 : "test_kernel_elf_pad"
+        VPUASM.DeclareKernelData @DeclareKernelArgs4 : "test_kernel_elf_pad"
+        VPUASM.DeclareKernelData @DeclareKernelArgs5 : "test_kernel_elf_pad"
         //CHECK:  ELF.Pad size(128)
       }
       ELF.CreateSection @program.shave.parameter aligned(64) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|VPU_SHF_PROC_SHAVE") secLocation(<DDR>) {
         //CHECK:  ELF.CreateSection @program.shave.parameter aligned(64)
-        VPUASM.KernelParams @KernelParams0 inputs([@buffer.CMX_NN.0::@DeclareBuffer2]) outputs([@buffer.CMX_NN.0::@DeclareBuffer5]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams0 inputs([@buffer.CMX_NN.0::@DeclareBuffer2]) outputs([@buffer.CMX_NN.0::@DeclareBuffer5]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(24)
-        VPUASM.KernelParams @KernelParams1 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams1 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(24)
-        VPUASM.KernelParams @KernelParams2 inputs([@buffer.CMX_NN.0::@DeclareBuffer6]) outputs([@buffer.CMX_NN.0::@DeclareBuffer8]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams2 inputs([@buffer.CMX_NN.0::@DeclareBuffer6]) outputs([@buffer.CMX_NN.0::@DeclareBuffer8]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(24)
-        VPUASM.KernelParams @KernelParams3 inputs([@buffer.CMX_NN.0::@DeclareBuffer8]) outputs([@buffer.CMX_NN.0::@DeclareBuffer10]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams3 inputs([@buffer.CMX_NN.0::@DeclareBuffer8]) outputs([@buffer.CMX_NN.0::@DeclareBuffer10]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(24)
-        VPUASM.KernelParams @KernelParams4 inputs([@buffer.CMX_NN.0::@DeclareBuffer10]) outputs([@buffer.CMX_NN.0::@DeclareBuffer12]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams4 inputs([@buffer.CMX_NN.0::@DeclareBuffer10]) outputs([@buffer.CMX_NN.0::@DeclareBuffer12]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(24)
-        VPUASM.KernelParams @KernelParams5 inputs([@buffer.CMX_NN.0::@DeclareBuffer12]) outputs([@buffer.CMX_NN.0::@DeclareBuffer14]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<[0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]> : vector<72xui8>)
+        VPUASM.KernelParams @KernelParams5 inputs([@buffer.CMX_NN.0::@DeclareBuffer12]) outputs([@buffer.CMX_NN.0::@DeclareBuffer14]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("test_kernel_elf_pad") < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 49, 36, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
         //CHECK:  ELF.Pad size(128)
       }
       ELF.CreateSection @program.barrier aligned(64) secType(SHT_PROGBITS) secFlags("SHF_ALLOC|SHF_EXECINSTR") secLocation(<DDR>) {

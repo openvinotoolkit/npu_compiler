@@ -454,4 +454,21 @@ private:
     Logger _log;
 };
 
+//
+// IncrementalSDPARewrite
+//
+
+class IncrementalSDPARewrite final : public mlir::OpRewritePattern<IE::IncrementalSDPAOp> {
+public:
+    IncrementalSDPARewrite(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::IncrementalSDPAOp>(ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::IncrementalSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
 }  // namespace vpux

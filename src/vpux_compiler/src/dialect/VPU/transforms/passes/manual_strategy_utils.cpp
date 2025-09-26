@@ -7,20 +7,17 @@
 #include <shared_mutex>
 #include "llvm/Support/MD5.h"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/json_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/utils/core/dense_map.hpp"
-#include "vpux/utils/core/string_ref.hpp"
 
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
-
 #include "vpux/compiler/core/developer_build_utils.hpp"
-
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
+
+#include <mutex>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_MANUALSTRATEGYUTILS

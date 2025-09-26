@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
@@ -14,6 +15,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
+#include <mlir/Support/LLVM.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 #include <functional>
@@ -119,11 +121,15 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
     bool lhsIsActivation = vpux::VPU::isEltwiseLhsActivation<ConcreteOp>(concreteParentOp);
     auto concreteProducerOp = lhsIsActivation ? concreteParentOp.getInput1().getDefiningOp()
                                               : concreteParentOp.getInput2().getDefiningOp();
-    // The ConcreteOp is later fused as bias if producer op is executed on DPU
-    if (concreteProducerOp != nullptr && mlir::isa<IE::LayerWithPostOpInterface>(concreteProducerOp)) {
-        _log.nest().trace("The ConcreteOp input must not inherit the LayerWithPostOpInterface at '{0}'",
-                          fakeQuantizeOp.getLoc());
-        return mlir::failure();
+
+    if (auto layerWithPostOpInterface = mlir::dyn_cast_or_null<IE::LayerWithPostOpInterface>(concreteProducerOp)) {
+        // The ConcreteOp is later fused as bias if producer op is executed on DPU
+        if (layerWithPostOpInterface.supportsFuseBiasScale()) {
+            _log.nest().trace("The ConcreteOp input must not inherit the LayerWithPostOpInterface with supported bias "
+                              "and static scale at '{0}'",
+                              fakeQuantizeOp.getLoc());
+            return mlir::failure();
+        }
     }
 
     // Subtract/Divide Op can only be fused if constant is on the 2nd input

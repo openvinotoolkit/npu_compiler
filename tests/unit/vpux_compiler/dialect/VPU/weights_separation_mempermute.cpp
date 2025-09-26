@@ -47,7 +47,7 @@ TEST_P(MLIR_VPU_WeightsSeparation, ConvertMemPermuteToTransposeAndReorder) {
     const auto dstOrder = vpux::DimsOrder::fromCode(params.dstOrder);
     const auto memPerm = vpux::DimsOrder::fromCode(params.memPerm);
 
-    const auto baseType = getTensorType(Shape(inShape), mlir::Float32Type::get(&ctx), baseLayout, nullptr);
+    const auto baseType = getTensorType(ShapeRef(inShape), mlir::Float32Type::get(&ctx), baseLayout, nullptr);
     const auto vals = generateValues<float>(baseType.getNumElements());
     const auto baseAttr = Const::createConstContent(baseType, ArrayRef(vals));
 
@@ -67,13 +67,13 @@ TEST_P(MLIR_VPU_WeightsSeparation, ConvertMemPermuteToTransposeAndReorder) {
         const auto [identityLayout, inMemShape, memPermuteMap, dstOrderMap, outShape] =
                 VPU::extractMemPermuteConversionAttributes(inType, memPermuteAttr);
 
-        baseContentAttrSetupTransformed = baseContentAttrSetupTransformed.reshape(Shape(inMemShape.raw()))
+        baseContentAttrSetupTransformed = baseContentAttrSetupTransformed.reshape(ShapeRef(inMemShape.raw()))
                                                   .layoutCast(DimsOrder::fromAffineMap(identityLayout));
         baseContentAttrSetupTransformed =
                 baseContentAttrSetupTransformed.transpose(DimsOrder::fromAffineMap(memPermuteMap));
 
-        baseContentAttrSetupTransformed = baseContentAttrSetupTransformed.reshape(Shape(outShape.raw()))
-                                                  .layoutCast(DimsOrder::fromAffineMap(dstOrderMap));
+        baseContentAttrSetupTransformed =
+                baseContentAttrSetupTransformed.reshape(outShape).layoutCast(DimsOrder::fromAffineMap(dstOrderMap));
     }
 
     const auto contentTransformed =

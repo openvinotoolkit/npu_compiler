@@ -110,6 +110,15 @@ def IE_LayerWithPostOpInterface : OpInterface<"LayerWithPostOpInterface"> {
         InterfaceMethod<
             "Checks if the operation supports a secondary post-processing operation",
             "bool", "isSupportedClampOp", (ins "mlir::Operation*":$clamp, "const FuncRef<void(const formatv_object_base&)>&":$logCb)
+        >,
+
+        InterfaceMethod<
+            "Checks if the operation supports bias and static scale",
+            "bool", "supportsFuseBiasScale ", (ins),
+            [{}],
+            [{
+                return false;
+            }]
         >
     ];
 }
@@ -176,47 +185,6 @@ def IE_LayoutInfoOpInterface : OpInterface<"LayoutInfoOpInterface"> {
     ];
 }
 
-//
-// ResourceOpBase
-//
-
-def IE_ResourceOpInterface : OpInterface<"ResourceOpInterface"> {
-    let description = "Base interface for a meta-like operation containing information about a runtime resource";
-
-    let cppNamespace = "vpux::IE";
-
-    let methods = [
-        InterfaceMethod<
-            "Get resource kind as StringAttr",
-            "mlir::StringAttr", "getKind", (ins),
-            [{}],
-            [{
-                return $_op.getSymNameAttr();
-            }]
-        >,
-    ];
-}
-
-//
-// ComputeResourceOp base
-//
-
-def IE_ComputeResourceOpInterface : OpInterface<"ComputeResourceOpInterface"> {
-    let description = "Base interface for a meta-like operation containing information about a runtime compute resource";
-
-    let cppNamespace = "vpux::IE";
-
-    let methods = [
-        InterfaceMethod<
-            "Get number of instantiated compute ops.",
-            "mlir::IntegerAttr", "getCountAttr", (ins),
-            [{}],
-            [{
-                return $_op.countAttr();
-            }]
-        >,
-    ];
-}
 
 //
 // EltwiseOp

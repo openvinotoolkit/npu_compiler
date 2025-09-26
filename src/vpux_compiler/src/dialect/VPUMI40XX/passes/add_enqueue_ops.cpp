@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
@@ -816,8 +816,8 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
     auto builder = mlir::OpBuilder(mpi.getOperation());
 
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
-    const auto tilesCount = IE::getTileExecutor(parentModule).getCount();
-    const auto shavesCountPerTile = IE::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
+    const auto tilesCount = config::getTileExecutor(parentModule).getCount();
+    const auto shavesCountPerTile = config::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
 
     auto barriers = to_small_vector(netFunc.getOps<VPUMI40XX::ConfigureBarrierOp>());
 

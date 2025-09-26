@@ -5,11 +5,11 @@
 
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/shave.hpp"
@@ -41,9 +41,9 @@ void ResolveWLMTaskLocationPass::safeRunOnFunc() {
     auto netFunc = getOperation();
     auto mpi = VPUMI40XX::getMPI(netFunc);
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
-    const auto tilesCount = IE::getTileExecutor(parentModule).getCount();
+    const auto tilesCount = config::getTileExecutor(parentModule).getCount();
     const auto availableShaveEnginesPerTile =
-            IE::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
+            config::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
 
     auto archKind = config::getArch(netFunc);
     const llvm::DenseMap<VPURegMapped::TaskType, size_t> sizes = {

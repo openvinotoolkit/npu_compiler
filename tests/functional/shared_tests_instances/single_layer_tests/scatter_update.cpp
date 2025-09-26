@@ -67,7 +67,7 @@ std::vector<ov::test::axisUpdateShapeInShape> combineShapes(
 const std::vector<std::vector<int64_t>> scatterIndices = {{0, 2, 4, 6, 1, 3, 5, 7}};
 const auto params = testing::Combine(testing::ValuesIn(combineShapes(axesShapeInShape)),
                                      testing::ValuesIn(scatterIndices), testing::Values(ov::element::f16),
-                                     testing::Values(ov::element::i32), testing::Values(ov::test::utils::DEVICE_NPU));
+                                     testing::Values(ov::element::i32), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ScatterUpdate, ScatterUpdateLayerTestCommon, params,
                          ScatterUpdateLayerTestCommon::getTestCaseName);

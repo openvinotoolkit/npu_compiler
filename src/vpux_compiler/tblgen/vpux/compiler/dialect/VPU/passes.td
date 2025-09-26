@@ -133,10 +133,26 @@ def SWKernelInstructionPrefetchReserveMemForDummyKernels : PassBase<"sw-kernel-i
 
     let description = [{
         Dummy SW kernel is used to mimic SW instruction prefetch feature.
-        To build these tasks up some reserved mememory is required as dummy I/O space.
+        To build these tasks up some reserved memory is required as dummy I/O space.
     }];
 
     let constructor = "vpux::VPU::createSWKernelInstructionPrefetchReserveMemForDummyKernelsPass()";
+}
+
+//
+// CloneReservedResourcesFromTopModule
+//
+
+def CloneReservedResourcesFromTopModule : PassBase<"clone-reserved-resources-from-top-module", "vpux::ModulePass"> {
+    let summary = "Clone reserved memory resources from top module into outlined nested modules";
+
+    let description = [{
+        Outlining done at VPU stage creates modules without reserved memory resources which can cause compilation
+        issues down the pipeline as scheduling will work with different memory constraints to tiling. This pass clones
+        reserved resources to avoid this issue.
+    }];
+
+    let constructor = "vpux::VPU::createCloneReservedResourcesFromTopModulePass()";
 }
 
 //
@@ -634,6 +650,31 @@ def SplitNCEOpsOntoWorkloads : PassBase<"split-NCE-ops-onto-workloads", "vpux::F
     let summary = "Split VPU NCE operation onto workloads";
 
     let constructor = "vpux::VPU::createSplitNCEOpsOntoWorkloadsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// CorrectNCEWorkloads
+//
+
+def CorrectNCEWorkloads : PassBase<"correct-NCE-workloads", "vpux::FunctionPass"> {
+    let summary = "Correct NCE workloads if they do not fit requirements";
+
+    let description = [{
+        The pass adjusts workload size for NCEDepthConvolution, NCEMaxPool and NCEAveragePool,
+        as well as for NCE operations that produce sparse activations.
+
+        NCEDepthConvolutionOp, NCEMaxPoolOp and NCEAveragePoolOp require the number of channels to be of the supported channel values for the platform.
+        If the number of channels does not match, workload is split.
+
+        NCE operations with sparse outputs must have all variants with the same number of channels. Additionally, if the NCE op shares a
+        consumer with another NCE op (directly or indirectly), the number of channels of their variants must be aligned.
+    }];
+
+    let constructor = "vpux::VPU::createCorrectNCEWorkloadsPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -1467,8 +1508,37 @@ def EnsureNCEOpsSizeRequirements : PassBase<"ensure-nce-ops-size-requirements", 
             "enableOutputEnsurance", "enable-output-ensurance",
             "bool", "true",
             "Flag to enable output size ensurance"
+        >,
+        Option<
+            "enableDequantWeightEnsuranceBeforeStrategy", "enable-dequant-weight-ensurance-before-strategy",
+            "bool", "false",
+            "Skip ops where the weights are dequantized via an explicit operation before strategy is assigned"
+        >,
+        Option<
+            "skipNonConvOC", "skip-non-conv-oc",
+            "bool", "false",
+            "Flag to skip checking the output channel of non-convolution op"
         >
     ];
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ConvolutionSplitOverInputChannel
+//
+
+def ConvolutionSplitOverInputChannel : PassBase<"convolution-split-over-input-channel", "vpux::FunctionPass"> {
+    let summary = "Split convolution over input channel to avoid 2D tiling";
+
+    let description = [{
+        This pass matches ConvOps that have 2D tilingStrategy, and large inputs/weights and small outputs.
+        Then it splits the ConvOps over input channel and accumulate these new ConvOps using AddOps.
+    }];
+
+    let constructor = "vpux::VPU::createConvolutionSplitOverInputChannelPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -1699,6 +1769,11 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
             "[Optional] Set ExperimentalSEPtrsOperations to true/false"
         >,
         Option<
+            "enableQDQOptimizationAggressive", "enable-qdq-optimization-aggressive",
+            "bool", "false",
+            "[Optional] Set QDQOptimizationAggressive to true/false"
+        >,
+        Option<
             "enableAdaptiveStripping", "enable-adaptive-stripping",
             "bool", "false",
             "[Optional] Set AdaptiveStripping to true/false"
@@ -1722,6 +1797,21 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
             "allowCustomValues", "allow-custom-values",
             "bool", "",
             "[Optional] Allows keep predefined values in IR"
+        >,
+        Option<
+            "enableAsymmetricPerTensorZP", "enable-asymmetric-per-tensor-zp",
+            "bool", "false",
+            "[Optional] Enable asymmetric weights with per tensor zp to run on NCE without dequantization"
+        >,
+        Option<
+            "enableAsymmetricPerChannelZP", "enable-asymmetric-per-channel-zp",
+            "bool", "false",
+            "[Optional] Enable asymmetric weights with per channel zp to run on NCE without dequantization"
+        >,
+        Option<
+            "enableProfiling", "enable-profiling",
+            "bool", "false",
+            "Enable profiling"
         >
     ];
 
@@ -2324,65 +2414,75 @@ def FinalizeComputeFunctionBoundaries : PassBase<"finalize-compute-function-boun
         can contain only ops/types that can be lowered to something executable
         on the host.
 
-        The pass will also ensure that all necessary attributes and metadata are set
-        correctly for the outlined compute functions.
+        The pass performs several key transformations:
 
-        The current contract is that @main function and declarations of compute functions
-        do not contain NPU-specific ops or types.
-        Additionally, NPU-specific layout / memory space information is stripped from
-        the tensor types, making the tensors "compatible" with their upstream MLIR counterparts.
-        Examples:
+        1. NPU-specific encoding is preserved only inside compute functions
+        2. NPU-specific attributes (layout, memory space, bounds) are stripped from
+           tensor types in function signatures and @main function
+        3. Tensor types are transformed to be compatible with upstream MLIR components
+        4. Necessary bridging operations (like Core.ReinterpretCast) are inserted at
+           function boundaries
 
-        ```
-            // before
-            %0 = tensor.empty() : tensor<1x16x720x1000xf16, {order = #NHWC}>
-            // after
-            %0 = tensor.empty() : tensor<1x720x1000x16xf16>
+        Important contract established by this pass:
+        - NPU-specific information (layout, bounds) is preserved INSIDE compute functions
+        - Function signatures and @main function use "clean" tensor types without NPU-specific attributes
+        - For dynamic shapes with bounds, the bounds information is preserved only within
+          compute functions but not in the function signatures or @main
 
-            // function declarations
-            // before
-            func.func private @main_func0(%arg0: tensor<1x16x90x1000xf16, {order = #NHWC}>,
-                                          %arg1: tensor<1x16x90x1000xf16, {order = #NHWC}>)
-                -> tensor<1x16x90x1000xf16, {order = #NHWC}>
-            // after
-            func.func private @main_func0(%arg0: tensor<1x90x1000x16xf16>,
-                                          %arg1: tensor<1x90x1000x16xf16>)
-                -> tensor<1x90x1000x16xf16>
-        ```
 
-        Ops transforming shapes like `tensor.extract_slice` and `tensor.insert_slice`
-        are a special case as they contain shape and offsets as op operands.
-        The pass will transform the operands accordingly.
-        Example:
+        Examples of tensor type transformations:
 
-        ```
-            // before
-            %0 = tensor.extract_slice %arg0[0, 0, 0, 0] [1, 16, 90, 1000] [1, 1, 1, 1]
-                : tensor<1x16x90x1000xf16, {order = #NHWC}>
-                to tensor<1x16x90x1000xf16, {order = #NHWC}>
-            // after
-            %0 = tensor.extract_slice %arg0[0, 0, 0, 0] [1, 90, 1000, 16] [1, 1, 1, 1]
-                : tensor<1x90x1000x16xf16> to tensor<1x90x1000x16xf16>
+        ```mlir
+        // Static shape with layout
+        // Before: NPU-specific tensor with NHWC layout
+        tensor<1x16x720x1000xf16, {order = #NHWC}>
+
+        // After: Standard tensor with default layout
+        tensor<1x720x1000x16xf16>
+
+        // Dynamic shape with bounds
+        // Before: NPU-specific tensor with bounds and NHWC layout
+        tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
+
+        // After: Standard tensor without bounds, layout preserved through dimension reordering
+        tensor<1x256x?x16xf16>
         ```
 
-        The above transformations create a gap between Host and NPU functions.
-        To bridge the gap, the pass will insert `VPU.PermuteCast` ops for
-        inputs and outputs of the compute functions.
+        Shape manipulation operations like `tensor.extract_slice` and `tensor.insert_slice` are special cases
+        since they contain explicit offsets, sizes, and strides as operands. These operands must be permuted
+        to match the new tensor layout:
 
-        ```
-            // before
-            func.func private @main_func0(%arg0: tensor<1x90x1000x16xf16>)
-                -> tensor<1x90x1000x16xf16>
-            // after
-            func.func private @main_func0(%arg0: tensor<1x90x1000x16xf16>)
-                -> tensor<1x90x1000x16xf16> {
-                %0 = VPU.PermuteCast(%arg0) {dst_order = #NHWC, mem_perm = #NCHW}
-                   : tensor<1x90x1000x16xf16>
-                   -> tensor<1x16x90x1000xf16, {order = #NHWC}>
-                ...
-            }
+        ```mlir
+        // Before: extract_slice with NHWC ordering
+        %0 = tensor.extract_slice %arg0[0, 0, 0, 0] [1, 16, 90, 1000] [1, 1, 1, 1]
+            : tensor<1x16x90x1000xf16, {order = #NHWC}>
+            to tensor<1x16x90x1000xf16, {order = #NHWC}>
+
+        // After: extract_slice with standard ordering, dimensions permuted
+        %0 = tensor.extract_slice %arg0[0, 0, 0, 0] [1, 90, 1000, 16] [1, 1, 1, 1]
+            : tensor<1x90x1000x16xf16> to tensor<1x90x1000x16xf16>
         ```
 
+        The pass bridges the host-NPU boundary by inserting Core.ReinterpretCast operations:
+
+        ```mlir
+        func.func private @main_func0(%arg0: tensor<1x256x?x16xf16>) -> tensor<1x256x?x16xf16> {
+            // Convert from "clean" tensor to NPU-specific tensor with layout and bounds
+            %0 = Core.ReinterpretCast(%arg0) : tensor<1x256x?x16xf16> ->
+                tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
+
+            // NPU operations with full NPU-specific type information
+            %1 = VPU.NCE.Eltwise(%0, %0) {...} ->
+                tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}>
+
+            // Convert back to "clean" tensor for function return
+            %2 = Core.ReinterpretCast(%1) :
+                tensor<1x16x256x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 256, 480]> : tensor<4xsi64>, order = #NHWC}> ->
+                tensor<1x256x?x16xf16>
+
+            return %2 : tensor<1x256x?x16xf16>
+        }
+        ```
     }];
 
     let constructor = "vpux::VPU::createFinalizeComputeFunctionBoundariesPass()";
@@ -2415,7 +2515,7 @@ def MoveReflectPadToCMX : PassBase<"move-reflect-pad-to-cmx", "vpux::FunctionPas
 }
 
 //
-//
+// ConvertDynamicToStaticKernels
 //
 
 def ConvertDynamicToStaticKernels : PassBase<"convert-dynamic-to-static-kernels", "vpux::ModulePass"> {
@@ -2440,5 +2540,227 @@ def ConvertDynamicToStaticKernels : PassBase<"convert-dynamic-to-static-kernels"
         "mlir::arith::ArithDialect",
         "mlir::scf::SCFDialect",
         "mlir::cf::ControlFlowDialect",
+    ];
+}
+
+//
+// AdjustForOptimizedLayers
+//
+
+def AdjustForOptimizedLayers : PassBase<"adjust-for-optimized-layers", "vpux::FunctionPass"> {
+    let summary = "Adjust layers shape or layout to utilize more compute engines or leverage optimized kernel implementation";
+
+    let description = [{
+        The pass adjusts layers shape or layout to utilize more compute engines and better leverage optimized SHAVE
+        implementation
+        Supported Optimizations:
+        - Softmax:
+          * Axis0: Adjust shape to leverage the optimized kernel for Softmax with axis=0
+          * MultiSHAVEs: Adjust shape to gather dimensions on the tile dimension to utilize more SHAVE engines
+        - Gelu & Multiply:
+          * MultiSHAVEs & MultiClusters: Adjust shape to gather dimensions on the tile dimension to utilize more
+          SHAVE engines and avoid Clustering strategy due to batch size
+         - NCEPermute:
+          * MultiClusters: Adjust shape to ensure there's enough dim size on height for MC split to utilize more DPU engines
+    }];
+
+    let constructor = "vpux::VPU::createAdjustForOptimizedLayersPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// SplitRealDFTOpsPass
+//
+
+def SplitRealDFTOps : PassBase<"split-real-dft-ops", "vpux::FunctionPass"> {
+    let summary = "Replace RDFT and IRDFT operations with a subgraph of smaller operations";
+
+    let description = [{
+        Replace RDFT and IRDFT operations with a subgraph of smaller operations.
+        VPU.RDFT = {VPU.RDFTUncutOp->VPU.SliceOp}
+        VPU.IRDFT = {VPU.IDFTOp->VPU.IRDFTLastAxisOp}
+    }];
+
+    let constructor = "vpux::VPU::createSplitRealDFTOpsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// DecomposeMVN
+//
+
+def DecomposeMVN : PassBase<"decompose-mvn", "vpux::FunctionPass"> {
+    let summary = "Decompose MVN into 3 separate tiled functions";
+
+    let description = [{
+        The pass can Decompose MVN into 3 separate tiled functions when can't fit into CMX.
+                IN -> MVN -> OUT
+            will be decompose in:
+                IN -> MVN1SumOp -> MVN1MeanVarOp -> MVN1NormalizeOp -> OUT
+                    \_____________________________/
+    }];
+
+    let constructor = "vpux::VPU::createDecomposeMVNPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ApplyTilingMVN1Sum
+//
+
+def ApplyTilingMVN1Sum : PassBase<"apply-tiling-mvn1sum", "vpux::FunctionPass"> {
+    let summary = "Tiling for mvn1_sum op";
+
+    let description = [{
+        MVN1SumOp tiling will be done in this pass. Because the current logic is to tile the output and after to back infer
+        to the input. Output tensor size is NxCx2 and it can be 1x1x2, it is imposible to tile and back infer in this case.
+        MVN1MeanVarOp does not need tiling because tensor is NxCx2.
+    }];
+
+    let constructor = "vpux::VPU::createApplyTilingMVN1SumPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+
+    let options = [
+        Option<
+            "tilingMode", "tiling-mode",
+            "std::string", [{"PREFETCH"}],
+            "[Optional] Set tiling mode as `ISOLATED` or `PREFETCH`"
+        >
+    ];
+}
+
+//
+// FuseM2IOps
+//
+
+def FuseM2IOps : PassBase<"fuse-m2i-ops", "vpux::FunctionPass"> {
+    let summary = "Fuse M2I ops to VPU::M2ITask";
+
+    let constructor = "vpux::VPU::createFuseM2IOpsPass()";
+
+    let dependentDialects = [
+       "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ConvertM2IOps
+//
+
+def ConvertM2IOps : PassBase<"convert-m2i-ops", "vpux::FunctionPass"> {
+    let summary = "Convert individual M2I ops to VPU::M2ITask";
+
+    let constructor = "vpux::VPU::createConvertM2IOpsPass()";
+
+    let dependentDialects = [
+       "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ComputeNCEInputWorkloads
+//
+
+def ComputeNCEInputWorkloads : PassBase<"compute-nce-input-workloads", "vpux::FunctionPass"> {
+    let summary = "Compute input workloads start/end";
+
+    let description = [{
+        This pass will compute the input workloads start/end for each VPU.DPU.WorkloadOp, based on
+        the output workloads' start/end.
+
+        For arch 40XX, in cases where there are multiple consumers with different halo requirements
+        from the parent op, we can select the largest halo size for the parent op, but we need to set
+        the input workloads accordingly in the consumer ops.
+
+        For example, an NCE op needs to have its input start at offset X on height to be able to compute
+        its first output line. Due to kernel requirements, another NCE op that shares the same parent needs
+        to have its input start at X - 2 height line. This situation can be resolved by having the previous
+        NCE op put its output starting with line X - 2 and have the first NCE op set its inStart = 2.
+    }];
+
+    let constructor = "vpux::VPU::createComputeNCEInputWorkloadsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// MoveConvertAroundViewLikeOps
+//
+
+def MoveConvertAroundViewLikeOps : PassBase<"move-convert-around-viewlike-ops", "vpux::FunctionPass"> {
+    let summary = "Move ConvertOp around Viewlike ops";
+
+    let description = [{
+        This is the base pass which contains all rewriters for moving convertOp around in the IR
+        MoveConvertAfterPermuteCast -> Moves ConvertOp after PermuteCast so we can fuse the CopyOp and ConvertDMAOp and avoid DDR DMAs
+        MoveConvertAfterShapeCast -> Moves ConvertOp after ShapeCastOp so we can fuse the CopyOp and ConvertDMAOp and avoid DDR DMAs
+        MoveConvertAffineReshape -> Moves ConvertOp before AffineReshape with all 4 Dims
+    }];
+
+    let constructor = "vpux::VPU::createMoveConvertAroundViewLikeOpsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// ConvertVPUOpsToUpstreamOps
+//
+
+def ConvertVPUOpsToUpstreamOps : PassBase<"convert-vpuops-to-upstream", "vpux::ModulePass"> {
+    let summary = "Converts VPU operations to equivalent ones in MLIR upstream";
+
+    let description = [{
+        The pass converts operations in the compiler which might be represented as
+        existing operations from MLIR upstream taking into consideration possible restrictions.
+        For instance:
+        VPU.SliceOp -> tensor.extract_slice (applicable for not sparse tensors only)
+    }];
+
+    let constructor = "vpux::VPU::createConvertVPUOpsToUpstreamOpsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::tensor::TensorDialect"
+    ];
+}
+
+//
+// RestorePadAttrAfterSCFTiling
+//
+
+def RestorePadAttrAfterSCFTiling : PassBase<"restore-tensor-pad-after-scf-tiling", "vpux::FunctionPass"> {
+    let summary = "Restores tensor padding after SCF tiling";
+
+    let description = [{
+        In the HostCompile pipeline, the SCF tiling pass removes the padding attribute from convolution operations
+        and replaces the implicit padding with explicit padding operations. Before outlining NCE operations in the
+        host pipeline, we need to fold the padding into corresponding operations to avoid costly compute splits between
+        NPU and CPU. This pass restores the padding information for convolution operations and removes tensor.pad operations.
+
+    }];
+
+    let constructor = "vpux::VPU::createRestorePadAttrAfterSCFTilingPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::scf::SCFDialect",
     ];
 }

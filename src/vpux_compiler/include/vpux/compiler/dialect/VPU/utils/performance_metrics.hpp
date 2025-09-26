@@ -6,8 +6,9 @@
 #pragma once
 
 #include <cstdint>
-#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/ops_interfaces.hpp"
+#include "vpux/utils/core/small_vector.hpp"
 
 namespace vpux {
 namespace VPU {
@@ -25,7 +26,7 @@ uint32_t getNumEntries();
 double getProfClk();
 const SmallVector<float>& getBWScales();
 SmallVector<SmallVector<uint64_t>> getBWTicks(mlir::ModuleOp module);
-double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, IE::ComputeResourceOpInterface res);
+double getActivityFactor(VPU::ExecutorKind execKind, mlir::ModuleOp module, config::ComputeResourceOpInterface res);
 
 }  // namespace VPU
 }  // namespace vpux

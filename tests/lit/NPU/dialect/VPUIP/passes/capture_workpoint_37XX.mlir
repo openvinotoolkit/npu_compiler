@@ -13,10 +13,10 @@
 
 module @Graph {
 
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
         module @DmaProfilingReservedMemory {
-            IE.MemoryResource 256 bytes of @CMX_NN offset 0
+            config.MemoryResource 256 bytes of @CMX_NN offset 0
         }
     }
   }

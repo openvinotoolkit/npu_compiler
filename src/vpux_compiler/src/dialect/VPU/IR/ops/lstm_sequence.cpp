@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/max_lstm_hidden_size_constant.hpp"
@@ -13,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -150,7 +150,7 @@ void vpux::VPU::LSTMSequenceOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Ope
                                       vpux::IE::RNNSequenceDirectionAttr direction, ::mlir::BoolAttr useDpu,
                                       vpux::VPU::MultiClusterStrategyAttr multiClusterStrategy) {
     const auto module = getModule(odsBuilder);
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
 
     mlir::Value internalBuffer = nullptr;
     auto useDpuVal = useDpu ? useDpu.getValue() : false;
@@ -160,7 +160,8 @@ void vpux::VPU::LSTMSequenceOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::Ope
         internalBuffer = createIntermediateSumsBuffer(odsBuilder, initialHiddenStateShape.back());
     } else {
         const auto numShavesPerTile = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
-        internalBuffer = createSyncBuffer(odsBuilder, Shape{1, 1, 1, numShavesPerTile});
+        Shape shape{1, 1, 1, numShavesPerTile};
+        internalBuffer = createSyncBuffer(odsBuilder, shape);
     }
 
     build(odsBuilder, odsState, inputData, initialHiddenState, initialCellState, reccurenceWeights, biases,

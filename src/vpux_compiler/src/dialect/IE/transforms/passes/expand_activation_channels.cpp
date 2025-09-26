@@ -8,12 +8,22 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
+
+#include "vpux/compiler/dialect/IE/transforms/factories/expand_activation_channels_strategy_getter.hpp"
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_EXPANDACTIVATIONCHANNELS
+#define GEN_PASS_DEF_EXPANDACTIVATIONCHANNELS
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -308,8 +318,8 @@ mlir::LogicalResult IE::GroupConvolutionRewriter::matchAndRewrite(IE::GroupConvo
             Shape filterPadsEnd(filterShape.size(), 0);
             filterPadsEnd[Dims4D::Filter::OC] = outChanPadEnd;
 
-            paddedFilter = IE::paddingChannel(origOp, rewriter, origOp.getFilter(), std::move(filterPadsEnd),
-                                              Dims4D::Filter::OC.ind());
+            paddedFilter =
+                    IE::paddingChannel(origOp, rewriter, origOp.getFilter(), filterPadsEnd, Dims4D::Filter::OC.ind());
         }
 
         mlir::Value paddedBiases;
@@ -531,3 +541,64 @@ mlir::LogicalResult IE::SoftMaxRewriter::matchAndRewrite(IE::SoftMaxOp origOp, m
 
     return generalRewrite(origOp, rewriter, opCreator, IE::extractMeaningfulOutput, _log.nest());
 }
+
+namespace {
+//
+// ExpandActivationChannelsPass
+//
+
+class ExpandActivationChannelsPass final : public IE::impl::ExpandActivationChannelsBase<ExpandActivationChannelsPass> {
+public:
+    explicit ExpandActivationChannelsPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled), _log(log) {
+        _log.setName(Base::getArgumentName());
+    }
+
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) override;
+
+private:
+    bool _seOpsEnabled;
+    Logger _log;
+    void safeRunOnFunc() override;
+};  // class ExpandActivationChannelsPass
+
+mlir::LogicalResult ExpandActivationChannelsPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    // When this parameter has a value, it probably comes from LIT test.
+    // Override the default
+    if (seOpsEnabled.hasValue()) {
+        _seOpsEnabled = seOpsEnabled.getValue();
+    }
+
+    return mlir::success();
+}
+
+void ExpandActivationChannelsPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+    auto func = getOperation();
+    auto strategy = IE::createExpandActivationChannelsStrategy(func, _seOpsEnabled, _log);
+
+    mlir::ConversionTarget target(ctx);
+    strategy->addTargets(target);
+
+    mlir::RewritePatternSet patterns(&ctx);
+    strategy->addPatterns(patterns);
+
+    if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {
+        signalPassFailure();
+    }
+}
+
+}  // namespace
+
+//
+// createExpandActivationChannelsPass
+//
+
+namespace vpux::IE {
+std::unique_ptr<mlir::Pass> createExpandActivationChannelsPass(const bool seOpsEnabled, Logger log) {
+    return std::make_unique<ExpandActivationChannelsPass>(seOpsEnabled, log);
+}
+}  // namespace vpux::IE

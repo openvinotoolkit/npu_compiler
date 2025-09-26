@@ -16,8 +16,8 @@ module @SimpleGraph {
     return %arg1 : memref<1x16x4x4xf16>
   }
 
-    // CHECK:     IE.TileResource
+    // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         CompressDmaReservedMemory
-    // CHECK-NEXT:         IE.MemoryResource 64 bytes of @CMX_NN
+    // CHECK-NEXT:         config.MemoryResource 64 bytes of @CMX_NN
 }

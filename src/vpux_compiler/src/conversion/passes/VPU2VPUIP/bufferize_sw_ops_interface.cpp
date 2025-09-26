@@ -537,6 +537,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::SpaceToBatch::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SpaceToBatch>>(*ctx);
         VPU::BatchToSpace::attachInterface<SoftwareLayerOpBufferizeModel<VPU::BatchToSpace>>(*ctx);
         VPU::AvgPoolOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AvgPoolOp>>(*ctx);
+        VPU::AvgPool16Op::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AvgPool16Op>>(*ctx);
         VPU::AdaptiveAvgPoolOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AdaptiveAvgPoolOp>>(*ctx);
         VPU::AdaptiveMaxPoolOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::AdaptiveMaxPoolOp>>(*ctx);
         VPU::FakeQuantizeOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::FakeQuantizeOp>>(*ctx);
@@ -649,6 +650,7 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::RoPEOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RoPEOp>>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SDPAOp>>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicDataMaskOp>>(*ctx);
+        VPU::IncrementalSDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::IncrementalSDPAOp>>(*ctx);
     });
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);

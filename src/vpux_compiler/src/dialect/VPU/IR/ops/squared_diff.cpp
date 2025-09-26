@@ -26,7 +26,7 @@ mlir::LogicalResult vpux::VPU::SquaredDifferenceOp::inferReturnTypes(
                                                        squaredDiff.getAutoBroadcast(), loc);
 
     if (mlir::succeeded(outShapeRes)) {
-        const auto outType = in1Type.changeShape(Shape(outShapeRes.value()));
+        const auto outType = in1Type.changeShape(ShapeRef(outShapeRes.value()));
         inferredReturnTypes.push_back(outType);
     }
 

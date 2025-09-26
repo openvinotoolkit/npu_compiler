@@ -4,6 +4,7 @@
 //
 
 #include "single_op_tests/tile.hpp"
+#include "common/npu_test_env_cfg.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 namespace ov {
@@ -41,13 +42,13 @@ const auto tileParams = ::testing::Combine(
         ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                 std::vector<std::vector<ov::Shape>>({{{1, 4, 3, 2}}, {{4, 3, 2, 1}}, {{4, 3, 2, 5}}}))),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto tileParamsPrecommit = ::testing::Combine(
         ::testing::ValuesIn(std::vector<ov::test::TileSpecificParams>({{2, 3, 1}})), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 ov::test::static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{3, 4, 2}}}))),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Tile, TileLayerTestCommon, tileParams, TileLayerTestCommon::getTestCaseName);
 
@@ -64,7 +65,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 1, 2880, 50}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 // case 2: repeats values aren't 1
@@ -75,7 +76,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{3, 2, 723, 25}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 // case 3: repeats values may be 1
@@ -86,7 +87,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{2, 3, 360, 50}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 // case 4: tiling dim not divisible
@@ -97,7 +98,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 300, 2744, 1}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 // model case: tensor<1x32x1x1xf16> -> tensor<1x32x1x65536xf16> , NHWC
@@ -108,7 +109,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 32, 1, 1}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 // case 6: INT32 tiling on two dimensions
@@ -119,7 +120,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::Values(ov::element::i32),
                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 32, 1, 1}}}))),  // input_shape
-                           ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         TileLayerTest_tiling::getTestCaseName);
 
 }  // namespace

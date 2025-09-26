@@ -560,6 +560,25 @@ func.func @UnsupportedMemPermuteForFP32InputType(%arg0: tensor<1x1x1024x768xf32>
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @UnsupportedMemPermuteForFP8InputType
+// CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x1x1024x768xf8E4M3FN>
+func.func @UnsupportedMemPermuteForFP8InputType(%arg0: tensor<1x1x1024x768xf8E4M3FN>) -> tensor<1x1x768x1024xf8E4M3FN> {
+    %MEM_PERMUTE = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x1024x768xf8E4M3FN> -> tensor<1x1x768x1024xf8E4M3FN>
+    return %MEM_PERMUTE : tensor<1x1x768x1024xf8E4M3FN>
+
+    // CHECK-NOT:   IE.LayoutCast
+    // CHECK-NOT:   IE.ShapeCast
+    // CHECK-NOT:   IE.MaxPool
+    // CHECK:       [[MEM_PERMUTE:%.+]] = IE.MemPermute([[INPUT0]]) {dst_order = #NCHW, mem_perm = #NCWH} :
+    // CHECK-SAME:      -> tensor<1x1x768x1024xf8E4M3FN>
+    // CHECK:       return [[MEM_PERMUTE]] : tensor<1x1x768x1024xf8E4M3FN>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
 
@@ -704,7 +723,7 @@ func.func @ReshapeIOAndConvertMemPermute(%arg0: tensor<1x3x768x768xf16, {order =
 #WNCH = affine_map<(d0, d1, d2, d3) -> (d3, d0, d1, d2)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
-#CNHW = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 // CHECK-LABEL: @MemPermuteWithDimNChanged
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x32x80x7975xf16>
@@ -729,10 +748,9 @@ func.func @MemPermuteWithDimNChanged(%arg0: tensor<1x32x80x7975xf16>) -> tensor<
     // CHECK-SAME:      pads_end = [0, 0],
     // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
     // CHECK-SAME:      strides = [1, 1]} : tensor<1x32x80x7975xf16, {order = #NHWC}> -> tensor<1x32x80x7975xf16, {order = #NWCH}>
-    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[MAXPOOL_1]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x32x80x7975xf16, {order = #NWCH}> -> tensor<1x7975x32x80xf16>
-    // CHECK:       [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [7975, 1, 32, 80]} inputs([[PERMUTE_CAST_1]] : tensor<1x7975x32x80xf16>) -> tensor<7975x1x32x80xf16>
+    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[MAXPOOL_1]]) {dst_order = #NCHW, mem_perm = #map} : tensor<1x32x80x7975xf16, {order = #NWCH}> -> tensor<7975x1x32x80xf16>
 
-    // CHECK:       return [[SHAPE_CAST_OUT]] : tensor<7975x1x32x80xf16>
+    // CHECK:       return [[PERMUTE_CAST_1]] : tensor<7975x1x32x80xf16>
 }
 
 // -----
@@ -756,6 +774,9 @@ func.func @SkipConversionForMemPermuteWithDimNChangedAndFP32InputType(%arg0: ten
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #HWNC = affine_map<(d0, d1, d2, d3) -> (d2, d3, d0, d1)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)>
 
 // CHECK-LABEL: @AdjustMemPermuteShape
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1024x16x128xf16, {order = #NCHW}>
@@ -764,18 +785,10 @@ func.func @AdjustMemPermuteShape(%arg0: tensor<1x1024x16x128xf16, {order = #NCHW
 
     return %MEM_PERMUTE : tensor<16x128x1x1024xf16>
 
-    // CHECK:       [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 1024, 16, 128]} inputs(%arg0 : tensor<1x1024x16x128xf16, {order = #NCHW}>) -> tensor<1x1024x16x128xf16>
-    // CHECK:       [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[SHAPECAST_IN]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1024x16x128xf16> -> tensor<1x128x1024x16xf16, {order = #NHWC}>
-    // CHECK:       [[MAX_POOL:%.+]] = IE.MaxPool([[PERMUTE_CAST]]) {
-    // CHECK-SAME:      kernel_size = [1, 1],
-    // CHECK-SAME:      pads_begin = [0, 0],
-    // CHECK-SAME:      pads_end = [0, 0],
-    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
-    // CHECK-SAME:      strides = [1, 1]} : tensor<1x128x1024x16xf16, {order = #NHWC}> -> tensor<1x128x1024x16xf16, {order = #NWCH}>
-    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x128x1024x16xf16, {order = #NWCH}> -> tensor<1x16x128x1024xf16>
-    // CHECK:       [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [16, 128, 1, 1024]} inputs([[PERMUTE_CAST_1]] : tensor<1x16x128x1024xf16>) -> tensor<16x128x1x1024xf16>
-
-    // CHECK:       return [[SHAPECAST_OUT]] : tensor<16x128x1x1024xf16>
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1024x16x128xf16, {order = #NCHW}> -> tensor<1x128x1024x16xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x128x1024x16xf16, {order = #NHWC}> -> tensor<1x128x1024x16xf16, {order = #NWCH}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #map} : tensor<1x128x1024x16xf16, {order = #NWCH}> -> tensor<16x128x1x1024xf16>
+    // CHECK:       return [[PERMUTECAST_OUT]] : tensor<16x128x1x1024xf16>
 }
 
 // -----
@@ -784,7 +797,6 @@ func.func @AdjustMemPermuteShape(%arg0: tensor<1x1024x16x128xf16, {order = #NCHW
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #WCHN = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)>
 #map = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
-#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>
 
 // CHECK-LABEL: @AdjustMemPermuteShapeWithDimsOne
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1024x1x1x128xf16, {order = #NCHW}>
@@ -800,9 +812,9 @@ func.func @AdjustMemPermuteShapeWithDimsOne(%arg0: tensor<1024x1x1x128xf16, {ord
     // CHECK-SAME:      pads_begin = [0, 0],
     // CHECK-SAME:      pads_end = [0, 0],
     // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
-    // CHECK-SAME:      strides = [1, 1]} : tensor<1x128x1024x1xf16, {order = #NHWC}> -> tensor<1x128x1024x1xf16>
-    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NHWC, mem_perm = #map1}
-    // CHECK-SAME:     : tensor<1x128x1024x1xf16> -> tensor<128x1024x1x1xf16, {order = #NHWC}>
+    // CHECK-SAME:      strides = [1, 1]} : tensor<1x128x1024x1xf16, {order = #NHWC}> -> tensor<1x128x1024x1xf16, {order = #NCWH}>
+    // CHECK:       [[PERMUTE_CAST_1:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NHWC, mem_perm = #map}
+    // CHECK-SAME:     : tensor<1x128x1024x1xf16, {order = #NCWH}> -> tensor<128x1024x1x1xf16, {order = #NHWC}>
 
     // CHECK:       return [[PERMUTE_CAST_1]] : tensor<128x1024x1x1xf16, {order = #NHWC}>
 }
@@ -813,6 +825,7 @@ func.func @AdjustMemPermuteShapeWithDimsOne(%arg0: tensor<1024x1x1x128xf16, {ord
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #HNWC = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
 #map = affine_map<(d0, d1, d2, d3) -> (d3, d0, d1, d2)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
 
 // CHECK-LABEL: @AdjustMemPermuteWithDimNChanged
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x256x192xf16, {order = #NHWC}>
@@ -822,16 +835,10 @@ func.func @AdjustMemPermuteWithDimNChanged(%arg0: tensor<1x1x256x192xf16, {order
 
     return %MEM_PERMUTE : tensor<1x1x256x192xf16, {order = #map}>
 
-    // CHECK:        [[SHAPE_CAST:%.+]] = IE.ShapeCast {shape = [1, 192, 256, 1]} inputs([[INPUT]] : tensor<1x1x256x192xf16, {order = #NHWC}>)
-    // CHECK-SAME:           -> tensor<1x192x256x1xf16, {order = #NHWC}>
-    // CHECK:        [[MAX_POOL:%.+]] = IE.MaxPool([[SHAPE_CAST]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
-    // CHECK-SAME:           : tensor<1x192x256x1xf16, {order = #NHWC}> -> tensor<1x192x256x1xf16, {order = #NCWH}>
-    // CHECK:        [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #map, mem_perm = #NCHW}
-    // CHECK-SAME:           : tensor<1x192x256x1xf16, {order = #NCWH}> -> tensor<192x1x256x1xf16, {order = #map}>
-    // CHECK:        [[SHAPE_CAST_2:%.+]] = IE.ShapeCast {shape = [1, 1, 256, 192]} inputs([[PERMUTE_CAST]] : tensor<192x1x256x1xf16, {order = #map}>)
-    // CHECK-SAME:           -> tensor<1x1x256x192xf16, {order = #map}>
-
-    // CHECK:        return [[SHAPE_CAST_2]] : tensor<1x1x256x192xf16, {order = #map}>
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x1x256x192xf16, {order = #NHWC}> -> tensor<1x192x256x1xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x192x256x1xf16, {order = #NHWC}> -> tensor<1x192x256x1xf16, {order = #NCWH}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #map, mem_perm = #map1} : tensor<1x192x256x1xf16, {order = #NCWH}> -> tensor<1x1x256x192xf16, {order = #map}>
+    // CHECK:       return [[PERMUTECAST_OUT]] : tensor<1x1x256x192xf16, {order = #map}>
 }
 
 
@@ -1243,10 +1250,10 @@ func.func @ConvertMemPermuteWithCNHWInputNCHWOutput(%arg0: tensor<1x13x16x80xf16
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
 #WCHN = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
 #map1 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
-#map2 = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>
 
 !intype = tensor<32x3072x1x1x!quant.uniform<i8:f16, 9.8075869027525187E-4>, {order = #map}>
 !outtype = tensor<32x3072x1x1x!quant.uniform<i8:f16, 9.8075869027525187E-4>, {order = #NHWC}>
@@ -1263,16 +1270,18 @@ func.func @ConvertToDPUPermuteWith2AxisAdaptation(%arg0: !intype) -> !outtype {
 // CHECK-SAME:    : tensor<32x3072x1x1x!qElemType, {order = #map}> -> tensor<1x32x3072x1x!qElemType, {order = #NHWC}>
 // CHECK:     [[MAX_POOL:%.+]] = IE.MaxPool([[IN_PERM]])
 // CHECK-SAME:    {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
-// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NHWC}> -> tensor<1x32x3072x1x!qElemType>
-// CHECK:     [[OUT_PERM:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NHWC, mem_perm = #map2}
-// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType> -> tensor<32x3072x1x1x!qElemType, {order = #NHWC}>
+// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NHWC}> -> tensor<1x32x3072x1x!qElemType, {order = #NCWH}>
+// CHECK:     [[OUT_PERM:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NHWC, mem_perm = #map1}
+// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NCWH}> -> tensor<32x3072x1x1x!qElemType, {order = #NHWC}>
 
 // -----
 
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
 #WCHN = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)>
-#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)>
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
 
 !intype = tensor<32x1x3072x1x!quant.uniform<i8:f16, 9.8075869027525187E-4>, {order = #map}>
 !outtype = tensor<32x1x3072x1x!quant.uniform<i8:f16, 9.8075869027525187E-4>, {order = #NHWC}>
@@ -1289,17 +1298,18 @@ func.func @ConvertToDPUPermuteWith2AxisAdaptationScenario2(%arg0: !intype) -> !o
 // CHECK-SAME:    : tensor<32x1x3072x1x!qElemType, {order = #map}> -> tensor<1x32x3072x1x!qElemType, {order = #NHWC}>
 // CHECK:     [[MAX_POOL:%.+]] = IE.MaxPool([[IN_PERM]])
 // CHECK-SAME:    {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
-// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NHWC}> -> tensor<1x32x3072x1x!qElemType>
+// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NHWC}> -> tensor<1x32x3072x1x!qElemType, {order = #NCWH}>
 // CHECK:     [[OUT_PERM:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NHWC, mem_perm = #map1}
-// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType> -> tensor<32x1x3072x1x!qElemType, {order = #NHWC}>
+// CHECK-SAME:    : tensor<1x32x3072x1x!qElemType, {order = #NCWH}> -> tensor<32x1x3072x1x!qElemType, {order = #NHWC}>
 
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #HWCN = affine_map<(d0, d1, d2, d3) -> (d2, d3, d1, d0)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
 #map = affine_map<(d0, d1, d2, d3) -> (d2, d0, d3, d1)>
-#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 !intype = tensor<64x64x1x1xf16>
 !outtype = tensor<1x1x64x64xf16>
@@ -1316,15 +1326,18 @@ func.func @ConvertToDPUPermuteSameValOn2Axis(%arg0: !intype) -> !outtype {
 // CHECK-SAME:    : tensor<64x64x1x1xf16> -> tensor<1x64x64x1xf16, {order = #NHWC}>
 // CHECK:     [[MAX_POOL:%.+]] = IE.MaxPool([[IN_PERM]])
 // CHECK-SAME:    {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]}
-// CHECK-SAME:    : tensor<1x64x64x1xf16, {order = #NHWC}> -> tensor<1x64x64x1xf16>
-// CHECK:     [[OUT_PERM:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NCHW, mem_perm = #NWCH}
-// CHECK-SAME:    : tensor<1x64x64x1xf16> -> tensor<1x1x64x64xf16>
+// CHECK-SAME:    : tensor<1x64x64x1xf16, {order = #NHWC}> -> tensor<1x64x64x1xf16, {order = #NCWH}>
+// CHECK:     [[OUT_PERM:%.+]] = IE.PermuteCast([[MAX_POOL]]) {dst_order = #NCHW, mem_perm = #NHCW}
+// CHECK-SAME:    : tensor<1x64x64x1xf16, {order = #NCWH}> -> tensor<1x1x64x64xf16>
 
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
 #WCHN = affine_map<(d0, d1, d2, d3) -> (d3, d1, d2, d0)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#map = affine_map<(d0, d1, d2, d3) -> (d1, d2, d3, d0)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
 
 !qElemType = !quant.uniform<u8:f16:0, {0.956:128, 0.785:128, 0.567:128, 0.785:128,
                                        0.956:128, 0.785:128, 0.567:128, 0.785:128,
@@ -1336,14 +1349,221 @@ func.func @ConvertToDPUPermuteSameValOn2Axis(%arg0: !intype) -> !outtype {
 
 // CHECK-DAG: [[QELEM_TYPE:!.+]] = !quant.uniform<u8:f16:0,
 
-// CHECK: @DontConvertToDPUPermuteWith2AxisAdaptationPerAxisQuant
+// CHECK: @ConvertToDPUPermuteWith2AxisAdaptationPerAxisQuant
 // CHECK-SAME: [[ARG0:%.+]]: tensor<16x1x3072x1x[[QELEM_TYPE]], {order = #map}>
-func.func @DontConvertToDPUPermuteWith2AxisAdaptationPerAxisQuant(%arg0: !intype) -> !outtype {
+func.func @ConvertToDPUPermuteWith2AxisAdaptationPerAxisQuant(%arg0: !intype) -> !outtype {
     %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #WCHN} : !intype -> !outtype
 
     return %0 : !outtype
 
-// CHECK-NOT:  IE.MaxPool
-// CHECK:      IE.MemPermute([[ARG0]])
+// CHECK:      [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[ARG0]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<16x1x3072x1x!qElemType, {order = #map}> -> tensor<1x16x3072x1x!qElemType1, {order = #NHWC}>
+// CHECK:      [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x3072x1x!qElemType1, {order = #NHWC}> -> tensor<1x16x3072x1x!qElemType1, {order = #NCWH}>
+// CHECK:      [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NHWC, mem_perm = #map1} : tensor<1x16x3072x1x!qElemType1, {order = #NCWH}> -> tensor<16x1x3072x1x!qElemType, {order = #NHWC}>
+// CHECK:      return [[PERMUTECAST_OUT]] : tensor<16x1x3072x1x!qElemType, {order = #NHWC}>
 
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithReshapeN_0
+func.func @ConvertMemPermuteWithReshapeN_0(%arg0: tensor<2x256x16x64xf16>)
+    -> tensor<2x16x64x256xf16> {
+    %PERMUTE = IE.MemPermute(%arg0) {
+        dst_order = #NCHW,
+        mem_perm = #NHWC
+    } : tensor<2x256x16x64xf16> -> tensor<2x16x64x256xf16>
+
+    return %PERMUTE : tensor<2x16x64x256xf16>
+
+    // CHECK:       [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 2, 256, 1024]} inputs(%arg0 : tensor<2x256x16x64xf16>) -> tensor<1x2x256x1024xf16>
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[SHAPECAST_IN]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x2x256x1024xf16> -> tensor<1x1024x2x256xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1024x2x256xf16, {order = #NHWC}> -> tensor<1x1024x2x256xf16, {order = #NHCW}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1024x2x256xf16, {order = #NHCW}> -> tensor<1x2x1024x256xf16>
+    // CHECK:       [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [2, 16, 64, 256]} inputs([[PERMUTECAST_OUT]] : tensor<1x2x1024x256xf16>) -> tensor<2x16x64x256xf16>
+    // CHECK:       return [[SHAPECAST_OUT]] : tensor<2x16x64x256xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithReshapeN_1
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x75x16x64xf16>
+func.func @ConvertMemPermuteWithReshapeN_1(%arg0: tensor<4x75x16x64xf16>) -> tensor<4x16x64x75xf16> {
+    %0 = IE.MemPermute(%arg0) {dstElemType = f16, dst_order = #NCHW, mem_perm = #NHWC} :
+        tensor<4x75x16x64xf16> -> tensor<4x16x64x75xf16>
+
+    return %0 : tensor<4x16x64x75xf16>
+
+    // CHECK:       [[SHAPECAST_IN:%.+]] = IE.ShapeCast {shape = [1, 4, 75, 1024]} inputs([[INPUT]] : tensor<4x75x16x64xf16>) -> tensor<1x4x75x1024xf16>
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[SHAPECAST_IN]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x4x75x1024xf16> -> tensor<1x1024x4x75xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x1024x4x75xf16, {order = #NHWC}> -> tensor<1x1024x4x75xf16, {order = #NHCW}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x1024x4x75xf16, {order = #NHCW}> -> tensor<1x4x1024x75xf16>
+    // CHECK:       [[SHAPECAST_OUT:%.+]] = IE.ShapeCast {shape = [4, 16, 64, 75]} inputs([[PERMUTECAST_OUT]] : tensor<1x4x1024x75xf16>) -> tensor<4x16x64x75xf16>
+    // CHECK:       return [[SHAPECAST_OUT]] : tensor<4x16x64x75xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#map = affine_map<(d0, d1, d2, d3) -> (d3, d0, d1, d2)>
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d2, d0, d3)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithPermuteCast_Batched
+func.func @ConvertMemPermuteWithPermuteCast_Batched(%arg0: tensor<2x256x400x1xf16>)
+    -> tensor<2x400x1x256xf16> {
+    %PERMUTE = IE.MemPermute(%arg0) {
+        dst_order = #NCHW,
+        mem_perm = #NHWC
+    } : tensor<2x256x400x1xf16> -> tensor<2x400x1x256xf16>
+
+    return %PERMUTE : tensor<2x400x1x256xf16>
+
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast(%arg0) {dst_order = #NHWC, mem_perm = #map} : tensor<2x256x400x1xf16> -> tensor<1x400x2x256xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x400x2x256xf16, {order = #NHWC}> -> tensor<1x400x2x256xf16, {order = #NHCW}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #map1} : tensor<1x400x2x256xf16, {order = #NHCW}> -> tensor<2x400x1x256xf16>
+    // CHECK:       return [[PERMUTECAST_OUT]] : tensor<2x400x1x256xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithPermuteCast_1CH1
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x380x720x1xf16>
+func.func @ConvertMemPermuteWithPermuteCast_1CH1(%arg0: tensor<1x380x720x1xf16>) -> tensor<1x720x380x1xf16> {
+    %0 = IE.MemPermute(%arg0) {dstElemType = f16, dst_order = #NCHW, mem_perm = #NHCW} :
+        tensor<1x380x720x1xf16> -> tensor<1x720x380x1xf16>
+
+    return %0 : tensor<1x720x380x1xf16>
+
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x380x720x1xf16> -> tensor<1x720x380x1xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x720x380x1xf16, {order = #NHWC}> -> tensor<1x720x380x1xf16, {order = #NCWH}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x720x380x1xf16, {order = #NCWH}> -> tensor<1x720x380x1xf16>
+    // CHECK:       return [[PERMUTECAST_OUT]] : tensor<1x720x380x1xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithReshape1C1W_0
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x16x1x128xf16, {order = #NHWC}>
+func.func @ConvertMemPermuteWithReshape1C1W_0(%arg0: tensor<1x16x1x128xf16, {order = #NHWC}>) -> tensor<1x16x1x128xf16> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x16x1x128xf16, {order = #NHWC}> -> tensor<1x16x1x128xf16>
+
+    return %0 : tensor<1x16x1x128xf16>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[INPUT]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x1x128xf16, {order = #NHWC}> -> tensor<1x16x1x128xf16>
+    // CHECK:       return [[MAXPOOL]] : tensor<1x16x1x128xf16>
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithReshape1C1W_1
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1x32x3072xf16>
+func.func @ConvertMemPermuteWithReshape1C1W_1(%arg0: tensor<1x1x32x3072xf16>) -> tensor<1x1x3072x32xf16> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x32x3072xf16> -> tensor<1x1x3072x32xf16>
+
+    return %0 : tensor<1x1x3072x32xf16>
+
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1x32x3072xf16> -> tensor<1x3072x1x32xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x3072x1x32xf16, {order = #NHWC}> -> tensor<1x3072x1x32xf16, {order = #NHCW}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x3072x1x32xf16, {order = #NHCW}> -> tensor<1x1x3072x32xf16>
+    // CHECK:       return [[PERMUTECAST_OUT:%.+]] : tensor<1x1x3072x32xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ConvertMemPermuteWithReshape1C1W_2
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x1x64x64xf16>
+func.func @ConvertMemPermuteWithReshape1C1W_2(%arg0: tensor<1x1x64x64xf16>) -> tensor<1x1x64x64xf16> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x1x64x64xf16> -> tensor<1x1x64x64xf16>
+
+    return %0 : tensor<1x1x64x64xf16>
+
+    // CHECK:       [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x1x64x64xf16> -> tensor<1x64x1x64xf16, {order = #NHWC}>
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x64x1x64xf16, {order = #NHWC}> -> tensor<1x64x1x64xf16, {order = #NHCW}>
+    // CHECK:       [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x64x1x64xf16, {order = #NHCW}> -> tensor<1x1x64x64xf16>
+    // CHECK:       return [[PERMUTECAST_OUT]] : tensor<1x1x64x64xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.0039686492845123888>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @DoNotConvertMemPermuteIntoMultipleMaxPool
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<12x64x64x4x!qElemType>
+func.func @DoNotConvertMemPermuteIntoMultipleMaxPool(%arg0: tensor<12x64x64x4x!qElemType>) -> tensor<12x4x64x64x!qElemType> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<12x64x64x4x!qElemType> -> tensor<12x4x64x64x!qElemType>
+
+    return %0 : tensor<12x4x64x64x!qElemType>
+
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<12x64x64x4x!qElemType> -> tensor<12x4x64x64x!qElemType>
+    // CHECK:       return [[MEMPERMUTE]] : tensor<12x4x64x64x!qElemType>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
+
+// CHECK-LABEL: @InsertMaxPoolBeforeMemPermute
+func.func @InsertMaxPoolBeforeMemPermute(%arg0: tensor<1x16x32x64xf16, {order = #NHWC}>)
+    -> tensor<1x32x16x64xf16, {order = #NHWC}> {
+    %PERMUTE = IE.MemPermute(%arg0) {
+        dst_order = #NHWC,
+        mem_perm = #NWHC
+    } : tensor<1x16x32x64xf16, {order = #NHWC}> -> tensor<1x32x16x64xf16, {order = #NHWC}>
+
+    return %PERMUTE : tensor<1x32x16x64xf16, {order = #NHWC}>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool(%arg0) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x32x64xf16, {order = #NHWC}> -> tensor<1x16x32x64xf16, {order = #NCWH}>
+    // CHECK:       [[PERMUTECAST:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x16x32x64xf16, {order = #NCWH}> -> tensor<1x32x16x64xf16, {order = #NHWC}>
+    // CHECK:       return [[PERMUTECAST]] : tensor<1x32x16x64xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
+
+// CHECK-LABEL: @MemPermuteWithSmallByteSize
+func.func @MemPermuteWithSmallByteSize(%arg0: tensor<1x16x32x2xf16, {order = #NHWC}>)
+    -> tensor<1x32x16x2xf16, {order = #NHWC}> {
+    %PERMUTE = IE.MemPermute(%arg0) {
+        dst_order = #NHWC,
+        mem_perm = #NWHC
+    } : tensor<1x16x32x2xf16, {order = #NHWC}> -> tensor<1x32x16x2xf16, {order = #NHWC}>
+
+    return %PERMUTE : tensor<1x32x16x2xf16, {order = #NHWC}>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool(%arg0) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x32x2xf16, {order = #NHWC}> -> tensor<1x16x32x2xf16, {order = #NCWH}>
+    // CHECK:       [[PERMUTECAST:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x16x32x2xf16, {order = #NCWH}> -> tensor<1x32x16x2xf16, {order = #NHWC}>
+    // CHECK:       return [[PERMUTECAST]] : tensor<1x32x16x2xf16, {order = #NHWC}>
 }

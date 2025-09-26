@@ -17,7 +17,7 @@ using namespace vpux;
 
 void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                                                    Logger log) {
-    pm.addPass(VPU::arch37xx::createDecomposeMVNPass(log));
+    pm.addPass(VPU::createDecomposeMVNPass(log));
 
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.opTilingCacheThreshold,
                                                              options.mcOptimizationScope, log));
@@ -26,18 +26,19 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
                                                   options.readStrategyFromJson, readStrategyFileLocation,
                                                   options.dumpStrategyToLog, false, log));
     pm.addPass(VPU::createSplitGRUSequencePass(log));
-    pm.addPass(VPU::arch37xx::createApplyTilingMVN1SumPass(options.enablePrefetching, log));
+    pm.addPass(VPU::createApplyTilingMVN1SumPass(options.enablePrefetching, log));
     pm.addPass(VPU::createTileLSTMSequencePass(log));
 
-    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(true, log));
+    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
+                                                           /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
+                                                           /*skipNonConvOC=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
 
     VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
 
     if (options.enableScfComputeOpsOutlining) {
-        pm.addPass(VPU::createScfComputeOpsOutliningPass(log));
-        pm.addPass(VPU::createConvertDynamicToStaticKernelsPass(log));
+        VPU::buildScfComputeOpsOutliningPipeline(pm, log);
     }
 
     pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
@@ -77,18 +78,9 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createDMATaskProfilingReserveMemPass(
             options.enableProfiling ? options.enableDMAProfiling.getValue() : "false", log));
 
-    /*
-        Call this pass after all other memory reservation has already been done. This pass checks if there is 1KiB
-        of reserved memory at the end of CMX and extends it if some is missing. So to not waste CMX memory make sure
-        as much as possible is allocated in that 1KiB region. Exception to this rule is memory reserved for SW kernel IO
-        for such memory make sure to reserve it after this pass to allow data prefetching.
-    */
-    pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
-
     // Make sure to run this after SWKernelDataPrefetchReserveMem which ensures we have enough
     // memory at the end of CMX to allow SW kernel data prefetch.
-    // LNL Shave Kernel prefetch with profiling fails compiling. Track Number: E#169656
-    if (options.enableSWKernelInstructionPrefetch && !(options.enableProfiling && options.enableSWProfiling)) {
+    if (options.enableSWKernelInstructionPrefetch) {
         pm.addPass(VPU::createSWKernelInstructionPrefetchReserveMemForDummyKernelsPass(log));
     }
 
@@ -100,10 +92,10 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createTileGatherPass(log));
     pm.addPass(VPU::createConvertOpToDMAForPerformantExecutionPass(log));
-    pm.addPass(VPU::arch40xx::createMoveConvertAroundViewLikeOpsPass(log));
-    pm.addPass(VPU::arch37xx::createAdjustForOptimizedLayersPass(log));
+    pm.addPass(VPU::createMoveConvertAroundViewLikeOpsPass(log));
+    pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
-    pm.addPass(VPU::arch37xx::createSplitRealDFTOpsPass(log));
+    pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
     pm.addPass(VPU::createAdjustLSTMCellInputsPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -119,25 +111,28 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createFuseClampPass(log));
 
-    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(options.enableOutputEnsurance, log));
+    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(options.enableOutputEnsurance,
+                                                           options.enableDequantWeightEnsuranceBeforeStrategy,
+                                                           /*skipNonConvOC=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
     if (options.enableWeightsSparsity) {
         VPU::buildWeightsSparsityPipeline(pm, VPU::WeightsSparsityOptions(options), log);
     }
-    pm.addPass(VPU::createAddExplicitPaddingBeforeNCEPermutePass(log));
     if (VPU::isActSparsityEnabled(options.enableActivationSparsity)) {
         VPU::buildActivationSparsityPipeline(pm, VPU::ActivationSparsityOptions(options), log);
         pm.addPass(VPU::createLowerSparsityOpsPass(/*fakeSparsify=*/false, log));
     }
+
+    pm.addPass(VPU::createAddExplicitPaddingBeforeNCEPermutePass(log));
 
     if (options.enableInPlaceEltwise) {
         pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
     }
 
     if (options.enableM2I) {
-        pm.addPass(VPU::arch40xx::createFuseM2IOpsPass(log));
-        pm.addPass(VPU::arch40xx::createConvertM2IOpsPass(log));
+        pm.addPass(VPU::createFuseM2IOpsPass(log));
+        pm.addPass(VPU::createConvertM2IOpsPass(log));
     }
 
     pm.addPass(VPU::createCostModelAnalysisConstructPass(log));
@@ -158,9 +153,9 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createMoveReflectPadToCMXPass(log));
 
     pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
-    pm.addPass(VPU::arch40xx::createCorrectNCEWorkloadsPass(log));
+    pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
-    pm.addPass(VPU::arch40xx::createComputeNCEInputWorkloadsPass(log));
+    pm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
     pm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
     if (options.enableEntireMainContentOutlining) {
         pm.addPass(VPU::createOutlineEntireMainContentPass(log));

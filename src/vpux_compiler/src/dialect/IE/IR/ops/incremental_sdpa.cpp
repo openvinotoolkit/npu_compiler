@@ -18,9 +18,9 @@ mlir::LogicalResult vpux::IE::IncrementalSDPAOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    auto intermediateInputsType = SmallVector<mlir::Type>{incrementalSdpa.getInputRunningMax().getType(),
-                                                          incrementalSdpa.getInputRunningSum().getType(),
-                                                          incrementalSdpa.getInputPartialOutput().getType()};
+    auto intermediateInputsType = SmallVector<mlir::Type>{incrementalSdpa.getInputPartialOutput().getType(),
+                                                          incrementalSdpa.getInputRunningMax().getType(),
+                                                          incrementalSdpa.getInputRunningSum().getType()};
 
     for (auto intermediateInputType : intermediateInputsType) {
         const auto shapedType = mlir::cast<mlir::ShapedType>(intermediateInputType);

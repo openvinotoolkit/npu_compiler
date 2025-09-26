@@ -91,8 +91,6 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
             ::llvm::cl::desc("Option for enabling WLM enqueue barriers search algorithm at VPURT. To be used only for "
                              "experiments."),
             ::llvm::cl::values(
-                    clEnumValN(WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES",
-                               "Full WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES",
                                "Partial WLM with split into subgraphs"),
                     clEnumValN(WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO",

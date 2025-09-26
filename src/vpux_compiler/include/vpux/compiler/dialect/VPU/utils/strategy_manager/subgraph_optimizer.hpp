@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 
+#include <deque>
+
 namespace vpux {
 namespace VPU {
 //
@@ -65,6 +67,7 @@ private:
                                                     const SubgraphOptConfig& config);
     void optimizeStrategyAvoidSpillingOnSubgraph(VPU::ClusteredOpInterface op);
     void removeClusteringStrategyAvoidSpillingOnSubgraph(VPU::ClusteredOpInterface op);
+    void tryInheritStrategyFromParent(VPU::ClusteredOpInterface clusteredOp);
 
     std::deque<VPU::ClusteredOpInterface> layersNeedRollback;
     std::map<VPU::ClusteredOpInterface, VPU::MultiClusterStrategy> layersWithRollbackStrategy;

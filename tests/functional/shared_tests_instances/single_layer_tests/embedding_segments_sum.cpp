@@ -51,7 +51,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_EmbeddingSegmentsSumCheck1, EmbeddingSegmentsSumL
                          ::testing::Combine(params,
                                             ::testing::ValuesIn(static_shapes_to_test_representation(embTableShape)),
                                             ::testing::ValuesIn(netPrecisions), ::testing::ValuesIn(indPrecisions),
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          EmbeddingSegmentsSumLayerTestCommon::getTestCaseName);
 
 }  // namespace

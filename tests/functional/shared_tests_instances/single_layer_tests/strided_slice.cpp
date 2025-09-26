@@ -253,22 +253,22 @@ const std::vector<ov::element::Type> modelTypes = {ov::element::f16};
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_StridedSlice, StridedSliceLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(precommit_tests), ::testing::ValuesIn(modelTypes),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          StridedSliceLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_StridedSlice_5D, StridedSliceLayerTestCommon,
                          ::testing::Combine(::testing::ValuesIn(tests_5d), ::testing::ValuesIn(modelTypes),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          StridedSliceLayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_StridedSlice, StridedSliceNCELayerTest,
                          ::testing::Combine(::testing::ValuesIn(nce_tests), ::testing::ValuesIn(modelTypes),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          StridedSliceNCELayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_tiling_StridedSlice, StridedSliceTilingLayerTest,
                          ::testing::Combine(::testing::ValuesIn(tiling_tests), ::testing::ValuesIn(modelTypes),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          StridedSliceTilingLayerTest::getTestCaseName);
 
 // Sub-byte case with non-byte aligned strides and testing builtin SW.Kernel Copy
@@ -276,7 +276,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_tiling_StridedSlice, StridedSliceTilingLayerTest,
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_StridedSlice_subByteTypeCase, StridedSliceSubByteCopyLayerTest,
                          ::testing::Combine(::testing::ValuesIn(testSubByteTypeCase),
                                             ::testing::ValuesIn({ov::element::u4, ov::element::i4}),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          StridedSliceSubByteCopyLayerTest::getTestCaseName);
 
 }  // namespace

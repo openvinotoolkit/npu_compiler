@@ -11,8 +11,8 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -364,7 +364,7 @@ bool OptimizeConcatWithConvAndAdd::isBeneficialToConvert(IE::ConcatOp concatOp) 
     }
 
     // Experimental number to determine if the concat input is efficient to convert. Details data: E161332.
-    constexpr int CONVERT_CONCAT_RATIO = 10000;
+    constexpr int CONVERT_CONCAT_RATIO = 8192;
     auto concatOutput = concatOp.getOutput();
     auto concatOutShape = getShape(concatOutput);
     if ((concatOutShape[Dims4D::Act::H] * concatOutShape[Dims4D::Act::W]) / concatOutShape[Dims4D::Act::C] <
@@ -402,12 +402,6 @@ bool OptimizeConcatWithConvAndAdd::isBeneficialToConvert(IE::ConcatOp concatOp) 
             expandShape[Dims4D::Act::C] = alignValUp(shape[Dims4D::Act::C], alignedChannel);
             return expandShape.totalSize();
         };
-
-        if ((filterShape[Dims4D::Filter::IC] % alignedInputChannel) == 0 &&
-            (filterShape[Dims4D::Filter::OC] % alignedOutputChannel) == 0) {
-            _log.trace("The input/output channels are already aligned");
-            return false;
-        }
 
         const auto inputShape = currentType.getShape();
         const auto outputShape = concatOutShape;
@@ -514,7 +508,7 @@ void OptimizeConcatWithConvPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
     auto moduleOp = func->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
 
     mlir::RewritePatternSet patterns(&ctx);

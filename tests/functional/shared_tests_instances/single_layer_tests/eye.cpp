@@ -168,16 +168,16 @@ const std::vector<ov::element::Type> modelTypes = {ov::element::f32, ov::element
 
 const auto noBatchShapeParams =
         testing::Combine(testing::Values(eyeShape), testing::Values(batchShapes[0]), testing::ValuesIn(eyePars),
-                         testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                         testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
-const auto withBatchShapeParams =
-        testing::Combine(testing::Values(eyeShape),
-                         testing::ValuesIn(std::vector<std::vector<int>>(batchShapes.begin() + 1, batchShapes.end())),
-                         testing::Values(eyePars[0]), testing::Values(modelTypes[0]), testing::Values(DEVICE_NPU));
+const auto withBatchShapeParams = testing::Combine(
+        testing::Values(eyeShape),
+        testing::ValuesIn(std::vector<std::vector<int>>(batchShapes.begin() + 1, batchShapes.end())),
+        testing::Values(eyePars[0]), testing::Values(modelTypes[0]), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto realNetParams = testing::Combine(testing::Values(eyeShape), testing::Values(batchShapes[0]),
                                             testing::Values(std::vector<int>{128, 128, 0}),
-                                            testing::Values(modelTypes[0]), testing::Values(DEVICE_NPU));
+                                            testing::Values(modelTypes[0]), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Eye, EyeLayerTestCommon, noBatchShapeParams, EyeLayerTest::getTestCaseName);
 

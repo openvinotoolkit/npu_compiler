@@ -4,10 +4,18 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include <llvm/ADT/STLExtras.h>
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/Value.h>
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -241,6 +249,19 @@ bool vpux::IE::isPerTensorFQ(ArrayRef<IE::FakeQuantizeOp> fqOps) {
     return true;
 }
 
+bool vpux::IE::hasStaticLowAndHighValues(IE::FakeQuantizeOp fakeQuantizeOp) {
+    auto inLow = fakeQuantizeOp.getInputLow();
+    auto inHigh = fakeQuantizeOp.getInputHigh();
+    auto outLow = fakeQuantizeOp.getOutputLow();
+    auto outHigh = fakeQuantizeOp.getOutputHigh();
+
+    auto isDeclareOp = [](mlir::Value value) {
+        return value.getDefiningOp<Const::DeclareOp>() != nullptr;
+    };
+
+    return isDeclareOp(inLow) && isDeclareOp(inHigh) && isDeclareOp(outLow) && isDeclareOp(outHigh);
+}
+
 IE::FakeQuantizeOp vpux::IE::createFQ(mlir::PatternRewriter& rewriter, mlir::Value input, IE::FakeQuantizeOp fq,
                                       mlir::Location loc) {
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(fq.getOutput().getType());
@@ -377,7 +398,6 @@ bool vpux::IE::hasFQSameZeroPoint(IE::FakeQuantizeOp fqOp) {
         return false;
     }
     const auto& outZeroPoints = std::get<1>(outputScalesAndZeroPoints.value());
-
     return allElementsEqual(outZeroPoints);
 }
 
@@ -477,4 +497,181 @@ mlir::FailureOr<double> IE::getQuantizedSplatConstant(mlir::Value input) {
             .Default([&](auto) {
                 return mlir::failure();
             });
+}
+
+bool vpux::IE::isNCEOpCandidatesWithWeights(mlir::Operation* op) {
+    return mlir::isa_and_nonnull<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp>(op);
+}
+
+bool nceOpCandidateHasSIWeightsAsInput(mlir::Operation* op) {
+    if (!vpux::IE::isNCEOpCandidatesWithWeights(op)) {
+        return false;
+    }
+
+    auto findNCEOpWeightsAsInput = [](mlir::Operation* op) -> mlir::FailureOr<mlir::Value> {
+        mlir::Value filterOperand = op->getOperand(1);
+
+        while (true) {
+            if (mlir::isa<mlir::BlockArgument>(filterOperand)) {
+                return filterOperand;
+            } else if ((IE::isPureViewOp(filterOperand.getDefiningOp()) ||
+                        mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp>(
+                                filterOperand.getDefiningOp())) &&
+                       filterOperand.hasOneUse()) {
+                filterOperand = filterOperand.getDefiningOp()->getOperand(0);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // Return failure if not WAI (no BlockArgument is found)
+        return mlir::failure();
+    };
+
+    auto weights = findNCEOpWeightsAsInput(op);
+    if (mlir::failed(weights)) {
+        return false;
+    }
+
+    // Verify SI data type
+    auto inputElemType = mlir::cast<NDTypeInterface>(weights.value().getType()).getElementType();
+    return inputElemType.isSignedInteger();
+}
+
+mlir::FailureOr<SmallVector<mlir::Operation*>> findNCEOpCandidatesWithWeights(mlir::Operation* origOp) {
+    if (origOp == nullptr) {
+        return mlir::failure();
+    }
+
+    SmallVector<mlir::Operation*> nceOpCandidatesWithWeights;
+    mlir::Operation* currentOp = origOp;
+
+    auto allUsersAreNCEOpCandidates = [](mlir::Operation* op) {
+        return llvm::all_of(op->getUsers(), vpux::IE::isNCEOpCandidatesWithWeights);
+    };
+
+    while (currentOp) {
+        if (vpux::IE::isNCEOpCandidatesWithWeights(currentOp)) {
+            // Single NCEOp candidate is found
+            return SmallVector<mlir::Operation*>{currentOp};
+        }
+
+        if (allUsersAreNCEOpCandidates(currentOp)) {
+            // If layer has multiple users, all users should be NCEOp candidate
+            for (auto user : currentOp->getUsers()) {
+                nceOpCandidatesWithWeights.push_back(user);
+            }
+            return nceOpCandidatesWithWeights;
+        } else {
+            // Propagate pure view and quantization layers with single user
+            if ((IE::isPureViewOp(currentOp) ||
+                 mlir::isa<IE::ConvertOp, IE::TransposeOp, IE::FakeQuantizeOp, IE::QuantizeOp, IE::DequantizeOp>(
+                         currentOp)) &&
+                currentOp->hasOneUse()) {
+                currentOp = *(currentOp->getUsers().begin());
+                continue;
+            }
+            break;
+        }
+    }
+
+    // Return failure if no NCEOpCandidate are found
+    return mlir::failure();
+}
+
+bool vpux::IE::keepIntTypeForSIWeightsAsInput(mlir::Operation* op) {
+    const auto moduleOp = getModuleOp(op);
+    const auto isAsymmetricPerChannelZeroPointSupported = VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorZeroPointSupported = VPU::asymmetricPerTensorZeroPointSupported(moduleOp);
+
+    if (auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op)) {
+        if (IE::hasStaticLowAndHighValues(fqOp)) {
+            auto inLowConst = fqOp.getInputLow().getDefiningOp<Const::DeclareOp>();
+            auto inHighConst = fqOp.getInputHigh().getDefiningOp<Const::DeclareOp>();
+
+            const auto lowAttr = inLowConst.getContentAttr().fold();
+            const auto highAttr = inHighConst.getContentAttr().fold();
+            const auto isPerAxisQuant = (!lowAttr.isSplat() || !highAttr.isSplat());
+
+            auto isChannelTheOnlyNonOneDim = [](mlir::Value value) {
+                auto shape = mlir::cast<NDTypeInterface>(value.getType()).getShape();
+                SmallVector<size_t> nonOneDims;
+                for (auto index : irange(shape.size())) {
+                    if (shape[Dim(index)] != 1) {
+                        nonOneDims.push_back(index);
+                    }
+                }
+
+                if (nonOneDims.size() != 1) {
+                    return false;
+                }
+
+                if (shape.size() == 3) {
+                    return nonOneDims.front() == 0;
+                } else if (shape.size() == 4) {
+                    return nonOneDims.front() == 1;
+                }
+
+                return false;
+            };
+
+            const auto isPerChannelQuant =
+                    isChannelTheOnlyNonOneDim(fqOp.getInputLow()) || isChannelTheOnlyNonOneDim(fqOp.getInputHigh());
+
+            if (isPerChannelQuant && isAsymmetricPerChannelZeroPointSupported) {
+                return false;
+            }
+            if (!isPerAxisQuant && isAsymmetricPerTensorZeroPointSupported) {
+                return false;
+            }
+        }
+    }
+
+    auto isAsymmetricZPSupported = [isAsymmetricPerTensorZeroPointSupported,
+                                    isAsymmetricPerChannelZeroPointSupported](NDTypeInterface weightsType) {
+        auto elementType = weightsType.getElementType();
+        if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(elementType) != nullptr &&
+            isAsymmetricPerTensorZeroPointSupported) {
+            return true;
+        } else if (mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedPerAxisType>(elementType) != nullptr &&
+                   isAsymmetricPerChannelZeroPointSupported) {
+            return true;
+        }
+
+        return false;
+    };
+
+    // If current or child NCEOp candidate has SI weights as input, keep Integer data type
+    if (isNCEOpCandidatesWithWeights(op)) {
+        auto weightsType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType());
+        if (isAsymmetricZPSupported(weightsType)) {
+            return false;
+        }
+
+        if (nceOpCandidateHasSIWeightsAsInput(op)) {
+            return true;
+        }
+    }
+
+    auto isSIRequiredByAllUsers = llvm::all_of(op->getUsers(), [isAsymmetricZPSupported](const auto& user) {
+        auto childNCEOps = findNCEOpCandidatesWithWeights(user);
+        if (mlir::succeeded(childNCEOps)) {
+            if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
+                    auto weightsType = mlir::cast<NDTypeInterface>(childNCEOp->getOperand(0).getType());
+                    return isAsymmetricZPSupported(weightsType);
+                })) {
+                return false;
+            }
+
+            if (llvm::all_of(childNCEOps.value(), [&](mlir::Operation* childNCEOp) {
+                    return nceOpCandidateHasSIWeightsAsInput(childNCEOp);
+                })) {
+                return true;
+            }
+        }
+        return false;
+    });
+
+    return isSIRequiredByAllUsers;
 }

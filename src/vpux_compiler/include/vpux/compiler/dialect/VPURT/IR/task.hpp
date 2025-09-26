@@ -66,6 +66,13 @@ std::optional<SmallVector<TaskQueueType>> getDMATaskQueueType(TaskOp task);
 TaskQueueType getTaskQueueType(TaskOp task, bool ignoreIndexForNce = true);
 
 std::map<TaskQueueType, std::pair<TaskOp, TaskOp>> getTaskQueuesFirstAndLastOp(mlir::func::FuncOp funcOp);
+
+// Get tile and list index for given queue type as expected by backend representation
+std::pair<size_t, size_t> getTileAndListIndex(VPURT::TaskQueueType queueType, int64_t numTiles, config::ArchKind arch);
+
+size_t getTileIndexForDpuOrShv(VPURT::TaskOp taskOp, VPURT::TaskQueueType queueType);
+size_t getListIndexForDpuOrShv(VPURT::TaskOp taskOp);
+
 }  // namespace VPURT
 
 // Tasks execution groups are used to validate schedule for correct task descriptor fetch operations

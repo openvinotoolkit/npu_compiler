@@ -451,7 +451,7 @@ func.func @NCEMatMulSOGAndGHTile(%arg0: tensor<12x1x512x512xf16>, %arg1: tensor<
   return %8 : tensor<12x1x512x512x1xf16, {order = #GNHWC}>
 
   // CHECK:         VPU.NCE.MatMul
-  // CHECK-SAME:    tilingStrategy = [2, 1, 1, 2, 1]
+  // CHECK-SAME:    tilingStrategy = [1, 1, 1, 7, 1]
 }
 
 // -----
@@ -643,4 +643,29 @@ func.func @SplitI4QuantNCEConvOverOC(%arg0: tensor<1x128x256x4xf16, {order = #NH
     // CHECK-SAME:          -> tensor<1x6320x256x4xf16, {order = #NHWC}>
 
     // CHECK:           return [[CONV]] : tensor<1x6320x256x4xf16, {order = #NHWC}>
+}
+
+// -----
+
+#GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
+
+// CHECK-LABEL: @NCEMatMulSOGAndCTile
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<16x1x128x1x4xf16, {order = #GNHWC}>
+func.func @NCEMatMulSOGAndCTile(%arg0: tensor<16x1x128x1x4xf16, {order = #GNHWC}>) -> tensor<16x1x4224x1x4xf16, {order = #GNHWC}> {
+    %weights = const.Declare tensor<16x4224x128x1x1xf16, {order = #GNHWC}> = dense<1.0> : tensor<16x4224x128x1x1xf16, {order = #GNHWC}>
+    %weights_table = const.Declare tensor<16x4224x1x1x4xsi32> = dense<0> : tensor<16x4224x1x1x4xsi32>
+
+    %grouped_matmul = VPU.NCE.MatMul(%arg0, %weights, %weights_table) {
+        mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+        multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverGroup>,
+        pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+        ppe = #VPU.PPEFp<mode = <NOOP>, clamp_low = -3.4028234663852886E+38 : f64, clamp_high = 3.4028234663852886E+38 : f64, scale = 1.000000e+00 : f64, prelu_alpha = [1.000000e+00], bias = 0.000000e+00 : f64, adder = 0.000000e+00 : f64>,
+        rawFilterShape = [16, 4224, 128, 1, 1],
+        strides = [1, 1]
+    } -> tensor<16x1x4224x1x4xf16, {order = #GNHWC}>
+
+    return %grouped_matmul : tensor<16x1x4224x1x4xf16, {order = #GNHWC}>
+
+    // CHECK:         VPU.NCE.MatMul
+    // CHECK-SAME:    tilingStrategy = [1, 1, 3, 1, 1]
 }

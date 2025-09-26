@@ -105,3 +105,24 @@ func.func @FuseScaleShifts(%arg0: tensor<1x3x300x300xf32>) -> tensor<1x3x300x300
     // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[ARG0]], [[WEIGHTS]], [[BIAS]])
     // CHECK:       return [[SCALE_SHIFT]]
 }
+
+// -----
+
+// CHECK-LABEL: @FuseScaleShiftsWithMultipleConstTransformations
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x64x1x9216xf16>)
+func.func @FuseScaleShiftsWithMultipleConstTransformations(%arg0: tensor<1x64x1x9216xf16>) -> tensor<1x64x1x9216xf16> {
+    %scale_0 = const.Declare tensor<1x64x1x1xf16> = dense<2.0> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>, #const.Broadcast<1 : i64, 64 : i64>]
+    %bias_0 = const.Declare tensor<1x64x1x1xf16> = dense<5.0> : tensor<1x1x1xf32>, [#const.Reshape<[1, 1, 1, 1]>, #const.CastElemType<f16>, #const.Broadcast<1 : i64, 64 : i64>]
+    %scale = const.Declare tensor<1x64x1x1xf16> = dense<4.0> : tensor<1x1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>, #const.Broadcast<1 : i64, 64 : i64>]
+    %bias = const.Declare tensor<1x64x1x1xf16> = dense<20.0> : tensor<1x1x1xf16>, [#const.Reshape<[1, 1, 1, 1]>, #const.Broadcast<1 : i64, 64 : i64>]
+    %0 = IE.ScaleShift(%arg0, %scale_0) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
+    %1 = IE.ScaleShift(%0, %bias_0) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
+    %2 = IE.ScaleShift(%1, %scale) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
+    %3 = IE.ScaleShift(%2, %bias) {operandSegmentSizes = array<i32: 1, 0, 1>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
+    return %3 : tensor<1x64x1x9216xf16>
+    // CHECK-DAG:   [[SCALE:%.+]] = const.Declare tensor<1x64x1x1xf16> = dense<8.000000e+00> : tensor<1x64x1x1xf16>
+    // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x64x1x1xf16> = dense<4.000000e+01> : tensor<1x64x1x1xf16>
+    // CHECK:       [[SCALE_SHIFT:%.+]] = IE.ScaleShift([[ARG0]], [[SCALE]], [[BIAS]]) {operandSegmentSizes = array<i32: 1, 1, 1>} : tensor<1x64x1x9216xf16>, tensor<1x64x1x1xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x1x9216xf16>
+    // CHECK:       return [[SCALE_SHIFT]]
+}
+

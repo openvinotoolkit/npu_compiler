@@ -20,13 +20,12 @@ namespace {
 
 template <typename StorageType>
 Const::Content generateSparsityMap(const Const::Content& content, const std::vector<int64_t>& sparsifyValue,
-                                   NDTypeInterface inputType, NDTypeInterface outputType, mlir::MLIRContext* context) {
+                                   NDTypeInterface inputType, NDTypeInterface outputType, bool isOutputSplat,
+                                   mlir::MLIRContext* context) {
     const auto inputBuffer = content.getValues<StorageType>();
 
     const auto sparsityMapElementType = mlir::IntegerType::get(context, 1, mlir::IntegerType::Unsigned);
-    auto output =
-            Const::Content::allocTempBuffer(outputType, sparsityMapElementType,
-                                            Const::GetSparsityMapAttr::inferOutputSplat(content.isSplat(), inputType));
+    auto output = Const::Content::allocTempBuffer(outputType, sparsityMapElementType, isOutputSplat);
     output.fillWithZero();
     auto outputBuffer = output.getRawTempBuf();
 
@@ -72,7 +71,7 @@ vpux::NDTypeInterface vpux::Const::GetSparsityMapAttr::inferOutputType(vpux::NDT
     return outputType.changeElemType(mlir::IntegerType::get(getContext(), 1, mlir::IntegerType::Signless));
 }
 
-bool vpux::Const::GetSparsityMapAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::GetSparsityMapAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 
@@ -94,24 +93,28 @@ Const::Content vpux::Const::GetSparsityMapAttr::transform(vpux::Const::Content& 
         sparsifyValues = std::vector<int64_t>(zeroPoints.begin(), zeroPoints.end());
     }
 
+    const bool isOutputSplat = inferOutputSplat(input.isSplat(), input.getType());
     if (inputElementType.isSignedInteger(8)) {
-        return generateSparsityMap<int8_t>(input, sparsifyValues, input.getType(), outputType, getContext());
+        return generateSparsityMap<int8_t>(input, sparsifyValues, input.getType(), outputType, isOutputSplat,
+                                           getContext());
     } else if (inputElementType.isUnsignedInteger(8)) {
-        return generateSparsityMap<uint8_t>(input, sparsifyValues, input.getType(), outputType, getContext());
+        return generateSparsityMap<uint8_t>(input, sparsifyValues, input.getType(), outputType, isOutputSplat,
+                                            getContext());
     } else if (inputElementType.isF16()) {
         return generateSparsityMap<vpux::type::float16>(input, sparsifyValues, input.getType(), outputType,
-                                                        getContext());
+                                                        isOutputSplat, getContext());
     } else if (inputElementType.isBF16()) {
         return generateSparsityMap<vpux::type::bfloat16>(input, sparsifyValues, input.getType(), outputType,
-                                                         getContext());
+                                                         isOutputSplat, getContext());
     } else if (inputElementType.isF32()) {
-        return generateSparsityMap<float>(input, sparsifyValues, input.getType(), outputType, getContext());
+        return generateSparsityMap<float>(input, sparsifyValues, input.getType(), outputType, isOutputSplat,
+                                          getContext());
     } else if (inputElementType.isFloat8E5M2()) {
         return generateSparsityMap<vpux::type::float8_e5m2>(input, sparsifyValues, input.getType(), outputType,
-                                                            getContext());
+                                                            isOutputSplat, getContext());
     } else if (inputElementType.isFloat8E4M3FN()) {
         return generateSparsityMap<vpux::type::float8_e4m3>(input, sparsifyValues, input.getType(), outputType,
-                                                            getContext());
+                                                            isOutputSplat, getContext());
     }
     VPUX_THROW("Unexpected weights data type: {0}", inputElementType);
 }

@@ -93,6 +93,51 @@ func.func @FuseQuantizeCastExpandIntoPermuteQuantizeQuantizeCastRewrite(%arg0: t
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 1.000000e+00>
+
+// CHECK-LABEL:  @DoNotFusePermuteQuantizeExpandIDUAutopad
+// CHECK-SAME:   ([[INPUT:%.+]]: tensor<1x3x8x16xf16>)
+func.func @DoNotFusePermuteQuantizeExpandIDUAutopad(%arg0: tensor<1x3x8x16xf16>) -> tensor<1x16x8x16x!qElemType, {order = #NHWC}> {
+  %cst = const.Declare tensor<16x16x1x1x!qElemType, {order = #NHWC}> = dense<1> : tensor<16x16x1x1xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+  %permute_quantize = IE.PermuteQuantize(%arg0) {dstElemType = !qElemType, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x3x8x16xf16> -> tensor<1x3x8x16x!qElemType, {order = #NHWC}>
+  %expand = IE.Expand(%permute_quantize) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x8x16x!qElemType, {order = #NHWC}> -> tensor<1x16x8x16x!qElemType, {order = #NHWC}>
+  %conv = IE.Convolution(%expand, %cst) {input_padding = [0, 13, 0, 0], dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x8x16x!qElemType, {order = #NHWC}>, tensor<16x16x1x1x!qElemType, {order = #NHWC}> -> tensor<1x16x8x16x!qElemType, {order = #NHWC}>
+  return %conv : tensor<1x16x8x16x!qElemType, {order = #NHWC}>
+
+  // CHECK:  [[CST:%.+]] = const.Declare
+  // CHECK:  [[PERMUTE_QUANTIZE:%.+]] = IE.PermuteQuantize([[INPUT]])
+  // CHECK:  [[EXPAND:%.+]] = IE.Expand([[PERMUTE_QUANTIZE]])
+  // CHECK:  [[CONV:%.+]] = IE.Convolution([[EXPAND]], [[CST]])
+  // CHECK:  return [[CONV]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!qElemType = !quant.uniform<u8:f16, 1.000000e+00>
+!qElemType1 = !quant.uniform<u8:f16, 2.000000e+00>
+
+// CHECK-LABEL:  @DoNotFusePermuteQuantizeQuantizeCastExpandIDUAutopad
+// CHECK-SAME:   ([[INPUT:%.+]]: tensor<1x3x8x16xf16>)
+func.func @DoNotFusePermuteQuantizeQuantizeCastExpandIDUAutopad(%arg0: tensor<1x3x8x16xf16>) -> tensor<1x16x8x16x!qElemType1, {order = #NHWC}> {
+  %cst = const.Declare tensor<16x16x1x1x!qElemType, {order = #NHWC}> = dense<1> : tensor<16x16x1x1xui8>, [#const.CastElemType<!qElemType>, #const.Reorder<#NHWC>]
+  %permute_quantize = IE.PermuteQuantize(%arg0) {dstElemType = !qElemType, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x3x8x16xf16> -> tensor<1x3x8x16x!qElemType, {order = #NHWC}>
+  %quantize_cast = IE.QuantizeCast(%permute_quantize) {dstElemType = !qElemType1} : tensor<1x3x8x16x!qElemType, {order = #NHWC}> -> tensor<1x3x8x16x!qElemType1, {order = #NHWC}>
+  %expand = IE.Expand(%quantize_cast) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x8x16x!qElemType1, {order = #NHWC}> -> tensor<1x16x8x16x!qElemType1, {order = #NHWC}>
+  %conv = IE.Convolution(%expand, %cst) {input_padding = [0, 13, 0, 0], dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x8x16x!qElemType1, {order = #NHWC}>, tensor<16x16x1x1x!qElemType, {order = #NHWC}> -> tensor<1x16x8x16x!qElemType1, {order = #NHWC}>
+  return %conv : tensor<1x16x8x16x!qElemType1, {order = #NHWC}>
+
+  // CHECK:  [[CST:%.+]] = const.Declare
+  // CHECK:  [[PERMUTE_QUANTIZE:%.+]] = IE.PermuteQuantize([[INPUT]])
+  // CHECK:  [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[PERMUTE_QUANTIZE]])
+  // CHECK:  [[EXPAND:%.+]] = IE.Expand([[QUANTIZE_CAST]])
+  // CHECK:  [[CONV:%.+]] = IE.Convolution([[EXPAND]], [[CST]])
+  // CHECK:  return [[CONV]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<u8:f16, 2.000000e+00>
 !qElemType1 = !quant.uniform<u8:f16, 5.000000e-01>
 

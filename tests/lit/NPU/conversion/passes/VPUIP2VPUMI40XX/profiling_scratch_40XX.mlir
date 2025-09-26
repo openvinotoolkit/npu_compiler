@@ -12,16 +12,16 @@ module @inout {
   } outputsInfo : {
     DataInfo "data" : tensor<1x1x1x1xf16>
   }
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0
+        config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
     }
   }
   func.func @main(%arg0: memref<1x1x1x1xf16, @DDR>, %arg1: memref<1x1x1x1xf16, @DDR>) -> memref<1x1x1x1xf16, @DDR> {
     %0 = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
-    %1 = VPURT.ConfigureBarrier<1> {isFinalBarrier} -> !VPURT.Barrier
+    %1 = VPURT.ConfigureBarrier<1> <{isFinalBarrier}> -> !VPURT.Barrier
     %2 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x1x1x1xf16, @DDR>
     %3 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1x1x1xf16, @DDR>
     VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) {

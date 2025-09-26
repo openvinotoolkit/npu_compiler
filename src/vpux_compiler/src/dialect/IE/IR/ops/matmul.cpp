@@ -76,7 +76,7 @@ mlir::LogicalResult vpux::IE::MatMulOp::inferReturnTypeComponents(
     }
 
     const auto inElementType = inType1.getElementType();
-    const auto outDesc = vpux::getTensorAttr(ctx, inType1.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outBounds));
+    const auto outDesc = vpux::getTensorAttr(ctx, inType1.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
     inferredReturnShapes.emplace_back(shapeInfo.shape, inElementType, outDesc);
 
     return mlir::success();

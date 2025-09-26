@@ -152,6 +152,33 @@ public:
     }
 };
 
+//
+// DDRAccessTopKOpModel
+//
+
+class DDRAccessTopKOpModel final : public VPU::DDRAccessOpInterface::FallbackModel<DDRAccessTopKOpModel> {
+public:
+    bool isDDRAccessNecessaryOrBeneficial(mlir::Operation* op, Logger log) const {
+        auto topkOp = mlir::dyn_cast<VPU::TopKOp>(op);
+        VPUX_THROW_WHEN(topkOp == nullptr, "Unexpected op {0} at '{1}'", op->getName(), op->getLoc());
+
+        const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(topkOp).to<Byte>().count();
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(topkOp.getInput().getType());
+        const auto inputShape = inputType.getShape().raw();
+        const auto inputByteSize = inputType.getElemTypeSize().to<Byte>().count();
+        int64_t axisValue = mlir::dyn_cast_or_null<mlir::IntegerAttr>(topkOp.getAxisAttr()).getValue().getSExtValue();
+        const auto axisDimSizeBytes = inputShape[axisValue] * inputByteSize;
+
+        // Can't get feasible tiling strategy because axis dimension of TopKOp can't be tiled.
+        if (axisDimSizeBytes > cmxAvailableBytes) {
+            log.nest(1).trace("Can't fit into CMX after tiling. The case should be solved with DDR solution.");
+            return true;
+        }
+
+        return false;
+    }
+};
+
 }  // namespace
 
 //
@@ -162,6 +189,7 @@ void vpux::VPU::arch37xx::registerDDRAccessOpModelInterface(mlir::DialectRegistr
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::GatherOp::attachInterface<DDRAccessGatherOpModel>(*ctx);
         VPU::GridSampleOp::attachInterface<DDRAccessGridSampleOpModel>(*ctx);
+        VPU::TopKOp::attachInterface<DDRAccessTopKOpModel>(*ctx);
         VPU::RandomUniformOp::attachInterface<DDRAccessRandomUniformOpModel>(*ctx);
         VPU::GRUSequenceOp::attachInterface<DDRAccessGRUSequenceOpModel>(*ctx);
         VPU::GRUSequenceLastPartOp::attachInterface<DDRAccessGRUSequenceLastPartOpModel>(*ctx);

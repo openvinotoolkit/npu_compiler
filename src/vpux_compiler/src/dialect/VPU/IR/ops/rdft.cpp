@@ -34,7 +34,7 @@ mlir::LogicalResult vpux::VPU::RDFTOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     // insert last size, 2 in this case
     outShape.push_back(2);
 
-    auto outType = inType.changeShape(Shape(outShape));
+    auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
     return mlir::success();
 }

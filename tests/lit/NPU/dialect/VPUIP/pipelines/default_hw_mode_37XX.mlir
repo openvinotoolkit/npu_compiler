@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="function-outlining=\"naive='num-parts=2'\"" %s | FileCheck %s --strict-whitespace
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="function-outlining=\"naive='num-parts=2'\"" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK-LABEL: @SoftMax
 module @SoftMax attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-    // CHECK-DAG: {{  }}IE.TileResource
+    // CHECK-DAG: {{  }}config.Resources
 
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
     module @VPU.SW {
@@ -49,7 +49,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU37XX>, config.com
 
         // CHECK-DAG:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
         // CHECK-DAG:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-        // CHECK-DAG:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> {isFinalBarrier} -> !VPURT.Barrier
+        // CHECK-DAG:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1000xf16, @DDR>
         // CHECK-DAG:   [[BUFF0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK-DAG:   [[BUFF1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [1] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 1]>
@@ -88,7 +88,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU37XX>, config.com
 
 // CHECK-LABEL: @TwoFunctions
 module @TwoFunctions attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-    // CHECK-DAG: {{  }}IE.TileResource
+    // CHECK-DAG: {{  }}config.Resources
 
     VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
     module @VPU.SW {

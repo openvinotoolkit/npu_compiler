@@ -2,7 +2,8 @@
 // Copyright (C) 2024-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
-#include <limits>
+
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -11,10 +12,10 @@
 #include "vpux/compiler/utils/strings.hpp"
 
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
-
 #include "vpux/compiler/core/developer_build_utils.hpp"
-
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
+
+#include <limits>
 
 namespace vpux::VPURT {
 #define GEN_PASS_DECL_INTERMEDIATEBUFFEROUTPUT

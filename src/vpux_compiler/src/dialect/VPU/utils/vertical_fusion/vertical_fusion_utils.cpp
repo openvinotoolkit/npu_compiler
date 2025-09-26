@@ -4,11 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
@@ -19,6 +15,8 @@
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/TypeSwitch.h>
+
+#include <queue>
 
 using namespace vpux;
 using namespace VPU;
@@ -303,7 +301,7 @@ bool isLegalTilingDim(VPU::TilingViewLikeOpInterface opIf, Dim tiling) {
 }
 
 bool isLegalTilingDim(VPU::TilingViewLikeOpInterface opIf, ArrayRef<int64_t> tiling) {
-    const auto tiles = fillDividedTiles(opIf, Shape(tiling), getShape(opIf->getResult(0)));
+    const auto tiles = fillDividedTiles(opIf, ShapeRef(tiling), getShape(opIf->getResult(0)));
     if (mlir::failed(tiles)) {
         return false;
     }

@@ -17,7 +17,7 @@ def prep_ldscript_header(filename_ld, filename_h, varname):
     lines = [line.strip() for line in text.split("\n")]
     lines = [line for line in lines if line]
 
-    vardef_begin = f'const char* {varname} = R"ldscript(\n'
+    vardef_begin = f'static const char* {varname} = R"ldscript(\n'
     vardef_end = '\n)ldscript";\n'
 
     result = "#pragma once\n\n" + vardef_begin + "\n".join(lines) + vardef_end

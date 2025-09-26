@@ -254,9 +254,10 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
         _log.trace("Expand dilated '{0}' layer at '{1}'", origOp->getName(), origOp->getLoc());
         auto dilatedFilter = rewriter.create<IE::ExpandDilatedOp>(takeOpLoc(origOp, "dilatedfilter_in"),
                                                                   origOp.getFilter(), origOp.getDilations());
+        const auto padsBegin = parseIntArrayAttr<int64_t>(origOp.getPadsBegin());
+        const auto padsEnd = parseIntArrayAttr<int64_t>(origOp.getPadsEnd());
         auto newOp = createNewOp(rewriter, origOp, {origOp.getInput(), dilatedFilter.getResult(), origOp.getBias()},
-                                 Shape(parseIntArrayAttr<int64_t>(origOp.getPadsBegin())),
-                                 Shape(parseIntArrayAttr<int64_t>(origOp.getPadsEnd())), false, false, "expanded");
+                                 ShapeRef(padsBegin), ShapeRef(padsEnd), false, false, "expanded");
         rewriter.replaceOp(origOp, newOp);
         return mlir::success();
     }

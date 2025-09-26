@@ -37,7 +37,7 @@ mlir::LogicalResult vpux::VPU::DynamicTileOp::inferReturnTypes(mlir::MLIRContext
 
     // DynamicTile might have static outShape
     if (llvm::none_of(outShape, isDynamicDim)) {
-        typeComponents.setShape(Shape(outShape));
+        typeComponents.setShape(ShapeRef(outShape));
     } else {
         assignDynamicTypeComponents(typeComponents, tile.getBoundsRepresentation(), outShape, outBounds);
     }

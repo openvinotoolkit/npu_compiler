@@ -121,7 +121,7 @@ mlir::Value ConvertExpandPass::applyPadding(const int64_t padAxis, const int64_t
 
     // Step 4: Create Copy Op for concat concatant input
     auto subView = builder.create<VPUIP::SubViewOp>(appendLoc(location, "_expand_subview_{0}_{1}", padAxis, padValue),
-                                                    expandedBuffer, Shape(subViewOffsets), subViewShape);
+                                                    expandedBuffer, ShapeRef(subViewOffsets), subViewShape);
     auto subViewCopy = builder.create<VPUIP::CopyOp>(appendLoc(location, "_expand_copy_{0}_{1}", padAxis, padValue),
                                                      permuteCastOp.getResult(), subView);
 

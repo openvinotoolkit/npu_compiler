@@ -46,8 +46,8 @@ const auto groupNormalizationParams =
         testing::Combine(::testing::ValuesIn(netPrecisions), ::testing::Values(ov::element::dynamic),
                          ::testing::Values(ov::element::dynamic),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(staticInputShapes)),
-                         ::testing::ValuesIn(numGroups), ::testing::ValuesIn(epsilon), ::testing::Values(DEVICE_NPU),
-                         ::testing::ValuesIn(additionalConfig));
+                         ::testing::ValuesIn(numGroups), ::testing::ValuesIn(epsilon),
+                         ::testing::Values(test_utils::TARGET_DEVICE), ::testing::ValuesIn(additionalConfig));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GroupNormalizationStatic, GroupNormalizationLayerTestCommon,
                          groupNormalizationParams, GroupNormalizationLayerTestCommon::getTestCaseName);

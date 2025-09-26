@@ -38,7 +38,10 @@ def IE_ReduceL1Op :
 
 def IE_ReduceL2Op :
         IE_LayerOp<
-            "ReduceL2"
+            "ReduceL2",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>
+            ]
         > {
     let summary = "InferenceEngine ReduceL2 layer";
 
@@ -104,8 +107,10 @@ def IE_ReduceLogicalOrOp :
 
 def IE_ReduceMaxOp :
         IE_LayerOp<
-            "ReduceMax"
-
+            "ReduceMax",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>
+            ]
         > {
     let summary = "InferenceEngine ReduceMax layer";
 
@@ -170,7 +175,10 @@ def IE_ReduceMeanOp :
 
 def IE_ReduceMinOp :
         IE_LayerOp<
-            "ReduceMin"
+            "ReduceMin",
+            [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>
+            ]
         > {
     let summary = "InferenceEngine ReduceMin layer";
 

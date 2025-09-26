@@ -5,14 +5,16 @@
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+
+#include <vpu_layer_cost_model.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -89,13 +91,13 @@ LayerVPUNNCost::LayerVPUNNCost(mlir::func::FuncOp func, std::shared_ptr<VPUNN::V
     auto module = func->getParentOfType<mlir::ModuleOp>();
     _arch = config::getArch(module);
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
     _numTiles = tileOp.getCount();
     _numDPUs = dpuExec.getCount();
     _vpuDevice = getVPUDeviceType(_arch);
     _numShaveActs = 0;
-    _numDMAPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    _numDMAPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     if (auto shaveActExec = tileOp.getSubExecutor(ExecutorKind::SHAVE_ACT)) {
         _numShaveActs = shaveActExec.getCount();
     }

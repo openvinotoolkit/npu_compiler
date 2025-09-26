@@ -35,7 +35,6 @@ The **Const Dialect** supports the following transformations:
 * Reorder
 * Padding
 * SubView
-* BitPack
 * Transpose
 * ExpandDilated
 * GetSparsityMap
@@ -136,7 +135,7 @@ To set the requirement for a transformation, override the default implementation
 `Const_TransformAttrInterface`:
 
 ```
-def Const_BitPackAttr : Const_Attr<"BitPack",
+def Const_SomeAttr : Const_Attr<"SomeAttr",
         [DeclareAttrInterfaceMethods<Const_TransformAttrInterface, ["getPositionRequirement"]>
 ```
 
@@ -144,10 +143,10 @@ In the source file for your transformation, implement the `getPositionRequiremen
 
 ```C++
 //
-// BitPackAttr::getPositionRequirement
+// SomeAttr::getPositionRequirement
 //
 
-Const::details::PositionRequirement Const::BitPackAttr::getPositionRequirement() const {
+Const::details::PositionRequirement Const::SomeAttr::getPositionRequirement() const {
     return Const::details::PositionRequirement::LAST;
 }
 ```

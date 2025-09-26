@@ -81,14 +81,26 @@ mlir::LogicalResult vpux::Core::ReinterpretCastOp::verify() {
 
     const auto inNdType = mlir::cast<NDTypeInterface>(inputType);
     const auto outNdType = mlir::cast<NDTypeInterface>(outputType);
+    // In case of dynamic shapes, it's not possible to verify the allocation size.
+    if (inNdType.getShape().isDynamic() && outNdType.getShape().isDynamic()) {
+        return mlir::success();
+    }
     if (inNdType.getTotalAllocSize() != outNdType.getTotalAllocSize()) {
         return errorAt(*this, "Cannot cast to different allocation size: '{0}' -> '{1}'", inputType, outputType);
     }
     return mlir::success();
 }
 
+mlir::OpFoldResult vpux::Core::ReinterpretCastOp::fold(FoldAdaptor) {
+    if (getInput().getType() == getOutput().getType()) {
+        return getInput();
+    }
+
+    return nullptr;
+}
+
 mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, Core::ReinterpretCastOp origOp,
-                                      Core::ReinterpretCastOp::Adaptor newArgs, mlir::RewriterBase& rewriter) {
+                                      Core::ReinterpretCastOp::Adaptor& newArgs, mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-CoreReinterpretCastOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 

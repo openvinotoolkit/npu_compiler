@@ -41,7 +41,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_EmbeddingBagPackedSum, EmbeddingBagPack
                          ::testing::Combine(params,
                                             ::testing::ValuesIn(static_shapes_to_test_representation(embTableShape)),
                                             ::testing::Values(embeddingTablePrecision),
-                                            ::testing::Values(indicesPrecisions), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(indicesPrecisions),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          EmbeddingBagPackedSumLayerTest::getTestCaseName);
 
 }  // namespace

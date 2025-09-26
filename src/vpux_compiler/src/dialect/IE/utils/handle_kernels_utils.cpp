@@ -55,9 +55,9 @@ std::optional<IE::KernelsInfo> vpux::IE::calculateKernelsInfo(ShapeRef origKerne
     const auto factorsInfoAtYVal = factorsInfoAtY.value();
 
     // firstKernel, secondKernel, padBegin, padEnd
-    return IE::KernelsInfo(Shape{factorsInfoAtYVal.factors.first, factorsInfoAtXVal.factors.first},
-                           Shape{factorsInfoAtYVal.factors.second, factorsInfoAtXVal.factors.second}, Shape{0, 0},
-                           Shape{factorsInfoAtYVal.padValue, factorsInfoAtXVal.padValue});
+    return IE::KernelsInfo(ShapeRef{factorsInfoAtYVal.factors.first, factorsInfoAtXVal.factors.first},
+                           ShapeRef{factorsInfoAtYVal.factors.second, factorsInfoAtXVal.factors.second}, ShapeRef{0, 0},
+                           ShapeRef{factorsInfoAtYVal.padValue, factorsInfoAtXVal.padValue});
 }
 
 // Those last 2 checks have the main scope of finding the best suited factors:

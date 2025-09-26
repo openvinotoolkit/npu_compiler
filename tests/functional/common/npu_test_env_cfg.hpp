@@ -13,6 +13,10 @@
 #include <openvino/runtime/device_id_parser.hpp>
 #include <string>
 
+namespace test_utils {
+extern const char* TARGET_DEVICE;
+}
+
 using namespace ov::test::behavior;
 
 namespace ov::test::utils {
@@ -65,7 +69,7 @@ std::string getDeviceNameID(const std::string& str);
 template <typename T>
 std::string appendPlatformTypeTestName(testing::TestParamInfo<typename T::ParamType> obj) {
     const std::string& test_name = GenericTestCaseNameClass::getTestCaseName<T>(obj);
-    return test_name + "_targetPlatform=" + getTestsPlatformFromEnvironmentOr(ov::test::utils::DEVICE_NPU);
+    return test_name + "_targetPlatform=" + getTestsPlatformFromEnvironmentOr(test_utils::TARGET_DEVICE);
 }
 
 }  // namespace ov::test::utils
@@ -86,7 +90,7 @@ static std::string getTestCaseName(testing::TestParamInfo<ov::test::behavior::In
     ov::AnyMap configuration;
     std::tie(targetDevice, configuration) = obj.param;
     std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
-    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(ov::test::utils::DEVICE_NPU);
+    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(targetDevice);
     std::ostringstream result;
     result << "targetDevice=" << targetDevice << "_";
     if (!configuration.empty()) {
@@ -110,7 +114,7 @@ static std::string getTestCaseName(testing::TestParamInfo<InferRequestParams> ob
     std::map<std::string, std::string> configuration;
     std::tie(targetDevice, configuration) = obj.param;
     std::replace(targetDevice.begin(), targetDevice.end(), ':', '.');
-    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(ov::test::utils::DEVICE_NPU);
+    targetDevice = LayerTestsUtils::getTestsPlatformFromEnvironmentOr(targetDevice);
     std::ostringstream result;
     result << "targetDevice=" << targetDevice << "_";
     if (!configuration.empty()) {

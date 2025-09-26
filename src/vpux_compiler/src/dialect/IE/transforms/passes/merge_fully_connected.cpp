@@ -152,12 +152,6 @@ mlir::LogicalResult MergeFullyConnectedWithWeightsAsConstant::matchAndRewrite(IE
         return mlir::failure();
     }
 
-    auto unrolledMatMulBranchValue = unrolledMatMulBranch.value();
-
-    if (!validateUnrolledMatMulBranch(unrolledMatMulBranchValue)) {
-        return mlir::failure();
-    }
-
     // Get the input source
     auto source = getMatMulInputSource(origOp);
     const auto matMulOutShape = getShape(origOp.getResult());
@@ -165,6 +159,12 @@ mlir::LogicalResult MergeFullyConnectedWithWeightsAsConstant::matchAndRewrite(IE
     if (OC >= VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
         return mlir::failure();
     }
+
+    auto unrolledMatMulBranchValue = unrolledMatMulBranch.value();
+    if (!validateUnrolledMatMulBranch(unrolledMatMulBranchValue)) {
+        return mlir::failure();
+    }
+
     const auto groupSize = unrolledMatMulBranchValue.size();
     const auto& subBatchSize = DEFAULT_GROUP_SIZE;
     const auto batchNum = divUp(groupSize, static_cast<size_t>(subBatchSize));

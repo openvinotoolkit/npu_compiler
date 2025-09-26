@@ -12,7 +12,7 @@
 //CHECK-LABEL: @OptimizeConcatWithConv
 module @OptimizeConcatWithConv{
 
-IE.TileResource 2 of @NCE at 1.700000e+03 MHz
+config.Resources 2 of @NCE at 1.700000e+03 MHz
 net.NetworkInfo entryPoint : @main
 inputsInfo : {
     DataInfo "input0" : tensor<1x128x1x1xf16>
@@ -69,6 +69,7 @@ func.func @OptimizeConcatWithConvAndAdd(%arg0: tensor<1x2x272x480xf16, {order = 
     //CHECK:   return [[ADD_1]] : tensor<1x4x272x480xf16, {order = #NHWC}>
 }
 
+
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -110,4 +111,33 @@ func.func @NotOptimizeConcatIfElementTypeNotSupported(%arg0: tensor<1x128x1x1xsi
     return %0 : tensor<1x128x2x1xsi32>
     //CHECK:   [[CONCAT:%.+]] = IE.Concat([[INPUT0]], [[INPUT1]])
     //CHECK:   return [[CONCAT]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @OptimizeConcatWithConvAndAddIfAlreadyAligned
+// CHECK-SAME:     ([[INPUT0:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x16x512x512xf16, {order = #NHWC}>)
+func.func @OptimizeConcatWithConvAndAddIfAlreadyAligned(%arg0: tensor<1x16x512x512xf16, {order = #NHWC}>, %arg1: tensor<1x16x512x512xf16, {order = #NHWC}>) -> tensor<1x32x512x512xf16, {order = #NHWC}> {
+    %0 = IE.Concat(%arg0, %arg1) {static_offsets = [[0, 0, 0, 0], [0, 16, 0, 0]]} : tensor<1x16x512x512xf16, {order = #NHWC}>, tensor<1x16x512x512xf16, {order = #NHWC}> -> tensor<1x32x512x512xf16, {order = #NHWC}>
+
+    return %0 : tensor<1x32x512x512xf16, {order = #NHWC}>
+
+    //CHECK:   [[WEIGHTS:%.+]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<"0x
+    //CHECK-SAME:      {{([0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{20})}}
+    //CHECK-SAME:      {{([803F000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{15})}}
+    //CHECK-SAME:      803F"> : tensor<32x16x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    //CHECK:   [[WEIGHTS_0:%.+]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<"0x
+    //CHECK-SAME:      {{([0000803F00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{16})}}
+    //CHECK-SAME:      {{([0000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000]{19})}}
+    //CHECK-SAME:      00000000000000000000"> : tensor<32x16x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+
+    //CHECK:   [[CONV_0:%.+]] = IE.Convolution([[INPUT0]], [[WEIGHTS_0]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x512x512xf16, {order = #NHWC}>
+    //CHECK:   [[CONV_1:%.+]] = IE.Convolution([[INPUT1]], [[WEIGHTS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x512x512xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x512x512xf16, {order = #NHWC}>
+
+    //CHECK:   [[ADD:%.+]] = IE.Add([[CONV_0]], [[CONV_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x512x512xf16, {order = #NHWC}>, tensor<1x32x512x512xf16, {order = #NHWC}> -> tensor<1x32x512x512xf16, {order = #NHWC}>
+
+    //CHECK:   return [[ADD]] : tensor<1x32x512x512xf16, {order = #NHWC}>
 }

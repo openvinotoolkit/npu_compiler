@@ -4,12 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/subgraph_optimizer.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -53,7 +52,7 @@ bool SubgraphOptimizer::isStrategySOHLike(VPU::ClusteredOpInterface op) {
 
 bool SubgraphOptimizer::isValidStrategy(VPU::ClusteredOpInterface clusteredOp, VPU::MultiClusterStrategy strategy) {
     auto moduleOp = clusteredOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
 
     if (!clusteredOp.checkStrategyCompatibility(strategy, numTiles)) {
@@ -1326,7 +1325,58 @@ bool isSOHUser(mlir::Operation* op) {
     return true;
 }
 
+void SubgraphOptimizer::tryInheritStrategyFromParent(VPU::ClusteredOpInterface clusteredOp) {
+    auto parent = clusteredOp->getOperand(0);
+    if (parent != nullptr) {
+        if (auto parentClusteredOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(parent.getDefiningOp())) {
+            auto parentStrategyAttr = parentClusteredOp.getMultiClusterStrategy();
+            auto currentStrategyAttr = clusteredOp.getMultiClusterStrategy();
+
+            if (parentStrategyAttr.has_value() && currentStrategyAttr.has_value()) {
+                auto parentStrategy = parentStrategyAttr.value();
+                auto currentStrategy = currentStrategyAttr.value();
+                auto outputTensorType = mlir::cast<vpux::NDTypeInterface>(parent.getType());
+                auto numClusters =
+                        VPU::getOptimalNumClusters(parentClusteredOp, outputTensorType.getShape(), parentStrategy);
+
+                if (parentStrategy != currentStrategy &&
+                    isStrategySOXCompatible(clusteredOp, parentStrategy, numClusters)) {
+                    if (_layerCostModel.isUnderSubgraphOpt() || VPU::hasMultiBranches(clusteredOp.getOperation()) ||
+                        clusteredOp->getResult(0).getUsers().empty()) {
+                        _log.trace("Update strategy from: {0} to: {1} for op: {2}", currentStrategy, parentStrategy,
+                                   clusteredOp->getLoc());
+                        clusteredOp.setMultiClusterStrategy(parentStrategy);
+                    } else {
+                        auto userClusteredOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(
+                                *clusteredOp->getResult(0).getUsers().begin());
+
+                        if ((userClusteredOp == nullptr) ||
+                            isStrategySOXCompatible(userClusteredOp, parentStrategy, numClusters)) {
+                            _log.trace("Update based on parent strategy from: {0} to: {1} for op: {2}", currentStrategy,
+                                       parentStrategy, clusteredOp->getLoc());
+                            clusteredOp.setMultiClusterStrategy(parentStrategy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
+    // Some ops don't have good greedy strategy because they lack cycle cost support
+    // In these cases, now that parent has greedy strategy, try first to align with the parent
+    const auto callbackForParentGreedyStrategy = [this](VPU::ClusteredOpInterface clusteredOp) {
+        auto swOp = mlir::dyn_cast_or_null<VPU::SWOpInterface>(clusteredOp.getOperation());
+        bool useParentStrategy = mlir::isa<VPU::ConcatOp>(clusteredOp.getOperation()) ||
+                                 (swOp != nullptr && !swOp.supportCycleCostCalculation());
+        if (useParentStrategy) {
+            tryInheritStrategyFromParent(clusteredOp);
+        }
+    };
+
+    _func.walk(callbackForParentGreedyStrategy);
+
     // Assure Layer cost only include layer DPU cost under this phase. Exclude layer activation DMAs
     _layerCostModel.setUnderSubgraphOpt(true);
     // detect shortcuts in model like resnet
@@ -1337,27 +1387,8 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
             if (swOp.supportCycleCostCalculation()) {
                 return;
             }
-            // Try parent's strategy first
-            auto parent = clusteredOp->getOperand(0);
-            if (parent != nullptr) {
-                if (auto parentClusterOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(parent.getDefiningOp())) {
-                    auto strategyAttr = parentClusterOp.getMultiClusterStrategy();
-                    auto currentStrategyAttr = clusteredOp.getMultiClusterStrategy();
-                    auto outputTensorType = mlir::cast<vpux::NDTypeInterface>(parent.getType());
-                    if (strategyAttr.has_value() && currentStrategyAttr.has_value()) {
-                        auto strategy = strategyAttr.value();
-                        auto currentStrategy = currentStrategyAttr.value();
-                        auto numClusters = VPU::getOptimalNumClusters(parentClusterOp, outputTensorType.getShape(),
-                                                                      strategyAttr.value());
-                        if (strategy != currentStrategy &&
-                            isStrategySOXCompatible(clusteredOp, strategy, numClusters)) {
-                            _log.trace("Update strategy from: {0} to: {1} for op: {2}", currentStrategy, strategy,
-                                       clusteredOp->getLoc());
-                            clusteredOp.setMultiClusterStrategy(strategy);
-                        }
-                    }
-                }
-            }
+            // Parent may have an optimized strategy now, try to align if possible
+            tryInheritStrategyFromParent(clusteredOp);
 
             return;
         }

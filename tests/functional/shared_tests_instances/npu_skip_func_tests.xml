@@ -4,7 +4,6 @@ Example:
         <message>skip_message_xxxxxx</message>
         <enable_rules>
             <backend>LEVEL0</backend>
-            <backend>IMD</backend>
             <backend></backend> (special case for no backend)
             <device>3720</device>
             <device>!4000</device> (using "!" to negate rule)
@@ -454,49 +453,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#81065 -->
-    <skip_config>
-        <message>IMD/Simics do not support the tests</message>
-        <enable_rules>
-            <backend>IMD</backend>
-        </enable_rules>
-        <filters>
-            <filter>.*smoke_ClassPluginProperties.*DEVICE_UUID.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- E#85488 -->
-    <skip_config>
-        <message>Run long time on IMD/Simics</message>
-        <enable_rules>
-            <backend>IMD</backend>
-        </enable_rules>
-        <filters>
-            <filter>.*PreprocessingPrecisionConvertTestNPU.*</filter>
-        </filters>
-    </skip_config>
-    <!-- E#137476 -->
-    <skip_config>
-        <message>Memory tests take too long in SIMICS, application crashes</message>
-        <enable_rules>
-            <backend>IMD</backend>
-        </enable_rules>
-        <filters>
-            <filter>.*VpuDeviceAllocMemSizeSameAfterDestroy.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- E#137476 -->
-    <skip_config>
-        <message>Unicode paths are known to fail in SIMICS environments</message>
-        <enable_rules>
-            <backend>IMD</backend>
-        </enable_rules>
-        <filters>
-            <filter>.*smoke_registerPluginsLibrariesUnicodePath.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#171305 -->
     <skip_config>
         <message>Dynamic output issue in sync infer request where keepDims is off</message>
@@ -646,6 +602,17 @@ Example:
             <filter>.*OVHoldersTestOnImportedNetwork.*</filter>
             <filter>.*OVHoldersTestWithConfig.*</filter>
             <filter>.*OVInferRequestInferenceTests.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#179607 -->
+    <skip_config>
+        <message>Test sporadically fails with newer NPU drivers. Need test update.</message>
+        <enable_rules>
+            <device>3720</device>
+        </enable_rules>
+        <filters>
+            <filter>.*OVHoldersTestOnImportedNetworkNPU.CanInferAfterTensorIsDestroyed.*</filter>
         </filters>
     </skip_config>
 
@@ -943,7 +910,7 @@ Example:
 
     <!-- C#166668 -->
     <skip_config>
-        <message>Tests enabled only for public platforms, NPU3720 and NPU4000. Related to new getDevice logic from OV PR#30586.</message>
+        <message>Tests enabled only for platforms NPU3720 and NPU4000. Related to new getDevice logic from OV PR#30586.</message>
         <enable_rules>
         </enable_rules>
         <filters>
@@ -981,36 +948,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#173476 -->
-    <skip_config>
-        <message>Test-cases failing with sri_7.0.y25ww26 SIMICS</message>
-        <enable_rules>
-            <backend>IMD</backend>
-        </enable_rules>
-        <filters>
-        </filters>
-    </skip_config>
-
-    <!-- E#174363 -->
-    <skip_config>
-        <message>Test-cases failing after driver update</message>
-        <enable_rules>
-        </enable_rules>
-        <filters>
-            <filter>.*compatibility_smoke_BehaviorTests/OVCompileAndInferRequestTurbo.CompiledModelTurbo.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- E#172997 -->
-    <skip_config>
-        <message>Skip test-cases until operators fix for GatherND and GatherElements.</message>
-        <filters>
-            <filter>.*smoke_precommit.*GatherElementsLayerTestCommon.*</filter>
-            <filter>.*smoke_precommit.*GatherNDLayerTestCommon.*</filter>
-            <filter>.*smoke_tiling.*GatherNDLayerTestCommon.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#170977 -->
     <skip_config>
         <message>Skip tests with u2 precision not supported on NPU3720.</message>
@@ -1019,6 +956,18 @@ Example:
         </enable_rules>
         <filters>
             <filter>.*InferRequestCheckTensorPrecision.*type=u2.*</filter>
+            <filter>.*ConversionLayerTestCommon.*=u2.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#175296 -->
+    <skip_config>
+        <message>MLIR test cases enabled only for platforms NPU3720 and NPU4000.</message>
+        <enable_rules>
+        </enable_rules>
+        <filters>
+            <filter>.*smoke_BehaviorTestMLIR/DynamicBatchedTensorsRunTests.*</filter>
+            <filter>.*smoke_DynamicBatchingSeqTests_MLIR/DynamicBatchingRunSeqTests.*</filter>
         </filters>
     </skip_config>
 

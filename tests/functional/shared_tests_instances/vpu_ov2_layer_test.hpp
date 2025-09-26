@@ -64,7 +64,6 @@ public:
 
     void setSingleClusterMode();
     void setPerformanceHintLatency();
-    void setShaveCodeGenMode();
 
     void enableProfiling();
 

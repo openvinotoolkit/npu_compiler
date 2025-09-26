@@ -132,7 +132,7 @@ const auto basicCasesM = ::testing::Combine(
             FQ_as_Mul_Sub_dequantize{ZPType::INT8_T, (int8_t)0, 2, (-128 - 0) * 2, (127 - 0) * 2, 256},
             FQ_as_Mul_Sub_dequantize{ZPType::INT8_T, (int8_t)0, 2, (-127 - 0) * 2, (127 - 0) * 2, 255}}),
         ::testing::ValuesIn(std::vector<ov::element::Type>{ov::element::f16, ov::element::f32}),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 // clang-format on
 
 INSTANTIATE_TEST_SUITE_P(precommit_WeightsDequantize, WeightsDequantize, basicCasesM,

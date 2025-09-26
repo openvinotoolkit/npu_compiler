@@ -4,12 +4,19 @@
 //
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include <mlir/IR/Types.h>
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
 
-#include "vpux/compiler/core/attributes/dims_order.hpp"
-#include "vpux/compiler/dialect/VPURT/IR/types.hpp"
+#include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 
+#include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/error.hpp"
+#include "vpux/utils/core/range.hpp"
 
 #include <algorithm>
 #include <numeric>
@@ -49,6 +56,32 @@ ShapeRef vpux::getShape(mlir::Value val) {
 }
 
 //
+// getBoundedShape
+//
+
+ShapeRef vpux::getBoundedShape(mlir::Value val) {
+    return getBoundedShape(val.getType());
+}
+
+ShapeRef vpux::getBoundedShape(mlir::Type type) {
+    auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+    if (auto boundedShape = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
+        return ShapeRef{boundedShape.getBounds().raw()};
+    }
+
+    if (auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
+        if (!mlir::isa<Core::BoundedTensorType>(sparseType.getData())) {
+            return ndType.getShape();
+        }
+
+        auto dynEffectiveShape = mlir::cast<Core::BoundedTensorType>(VPU::getEffectiveSparseOutputType(sparseType));
+        return ShapeRef{dynEffectiveShape.getBounds().raw()};
+    }
+
+    return ndType.getShape();
+}
+
+//
 // MemShape
 //
 
@@ -56,6 +89,23 @@ MemShape vpux::getMemShape(mlir::Value val) {
     auto type = mlir::dyn_cast<vpux::NDTypeInterface>(val.getType());
     VPUX_THROW_UNLESS(type != nullptr, "Value '{0}' has non vpux::NDTypeInterface '{1}'", val, val.getType());
     return type.getMemShape();
+}
+
+//
+// getBoundedMemShape
+//
+
+MemShape vpux::getBoundedMemShape(mlir::Value val) {
+    auto type = mlir::cast<vpux::NDTypeInterface>(val.getType());
+    return getBoundedMemShape(type);
+}
+
+MemShape vpux::getBoundedMemShape(mlir::Type type) {
+    auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+
+    const auto dimsOrder = ndType.getDimsOrder();
+    const auto shape = getBoundedShape(ndType);
+    return dimsOrder.toMemoryOrder(shape);
 }
 
 MemShape vpux::getMemIndexND(int64_t memIndex1D, MemShapeRef memShape) {

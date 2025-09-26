@@ -44,4 +44,8 @@ struct LazyFoldingOptions {
     into the context.
 */
 void setLazyFoldingOptions(mlir::MLIRContext* ctx, const LazyFoldingOptions& options);
+
+//! @brief Returns lazy constant folding options for the Weights separation pipeline.
+LazyFoldingOptions getWsFoldingOptions();
+
 }  // namespace vpux::Const

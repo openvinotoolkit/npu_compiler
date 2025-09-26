@@ -15,6 +15,7 @@ namespace vpux {
 //
 
 std::string stringifyPrimaryLocation(mlir::Location);
+std::string stringifyPrimaryLocationSanitized(mlir::Location location);
 std::string getLayerTypeFromLocation(mlir::Location);
 
 }  // namespace vpux

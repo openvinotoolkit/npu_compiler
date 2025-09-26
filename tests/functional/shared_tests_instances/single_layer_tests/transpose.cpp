@@ -54,14 +54,14 @@ const std::vector<std::vector<size_t>> inputOrderMemPermNWCH = {
 const auto paramsMemPermNWCHtoNHWC =
         testing::Combine(testing::ValuesIn(inputOrderMemPermNWCH), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapesMemPermchannel16)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 /* ============= NPU3720  ============= */
 
 const auto paramsNPU3720 =
         testing::Combine(testing::ValuesIn(inputOrderMemPerm), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapesMemPerm)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTest_NPU3720, paramsNPU3720,
                          TransposeLayerTest_NPU3720::getTestCaseName);
@@ -78,7 +78,7 @@ const std::vector<std::vector<size_t>> reorder_5D = {std::vector<size_t>{4, 1, 2
 
 const auto params_5D = testing::Combine(testing::ValuesIn(reorder_5D), testing::ValuesIn(modelTypes),
                                         testing::ValuesIn(ov::test::static_shapes_to_test_representation(shape_5D)),
-                                        testing::Values(ov::test::utils::DEVICE_NPU));
+                                        testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Transpose_5D, TransposeLayerTest_NPU3720, params_5D,
                          TransposeLayerTest_NPU3720::getTestCaseName);
@@ -96,7 +96,7 @@ const std::vector<std::vector<ov::Shape>> inputShapesCNo4d = {
 const auto paramsCNo4d =
         testing::Combine(testing::ValuesIn(orderCNo4d), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapesCNo4d)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TransposeCNo4d, TransposeLayerTest_NPU3720, paramsCNo4d,
                          TransposeLayerTest_NPU3720::getTestCaseName);
@@ -112,7 +112,7 @@ const std::vector<std::vector<ov::Shape>> inputShapesMerged4d = {std::vector<ov:
 const auto paramsMerged4d =
         testing::Combine(testing::ValuesIn(orderMerged4d), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapesMerged4d)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_TransposeMerged4d, TransposeLayerTest_NPU3720, paramsMerged4d,
                          TransposeLayerTest_NPU3720::getTestCaseName);
@@ -125,7 +125,7 @@ const std::vector<std::vector<ov::Shape>> inputShapeBatched5D = {std::vector<ov:
 const auto paramsPermuteDecomposition =
         testing::Combine(testing::ValuesIn(complex5DReorder), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapeBatched5D)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose_Permutation_Decomposition, TransposeLayerTest_NPU3720,
                          paramsPermuteDecomposition, TransposeLayerTest_NPU3720::getTestCaseName);
@@ -138,7 +138,7 @@ const std::vector<std::vector<ov::Shape>> specificInShape = {std::vector<ov::Sha
 const auto paramsTransposeToDMA =
         testing::Combine(testing::ValuesIn(specificReorder), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(specificInShape)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose_To_DMA, TransposeLayerTest_NPU3720, paramsTransposeToDMA,
                          TransposeLayerTest_NPU3720::getTestCaseName);
@@ -151,7 +151,7 @@ const std::vector<std::vector<ov::Shape>> inShapesMemPerm = {std::vector<ov::Sha
 const auto paramsMemPerm =
         testing::Combine(testing::ValuesIn(inputOrderMemPerm), testing::ValuesIn(modelTypes),
                          testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapesMemPerm)),
-                         testing::Values(ov::test::utils::DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Transpose, TransposeLayerTest_NPU4000, paramsMemPerm,
                          TransposeLayerTest_NPU4000::getTestCaseName);

@@ -12,6 +12,8 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -71,8 +73,30 @@ bool isSupportedIsolatedTilingConvBased(ConcreteOp origOp, const OutputTiling& t
             VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
                             origOp->getLoc());
 
-            auto numClusters = vpux::VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
-                                                                clusteredOp.getMultiClusterStrategy().value());
+            const auto multiClusterStrategy = clusteredOp.getMultiClusterStrategy().value();
+            auto numClusters =
+                    vpux::VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(), multiClusterStrategy);
+
+            const auto outputTensorDistributionMode =
+                    getOutputTensorDistributionMode(clusteredOp, multiClusterStrategy, outputType);
+
+            if ((VPU::bitEnumContainsAny(outputTensorDistributionMode, VPU::DistributionMode::SEGMENTED) ||
+                 VPU::bitEnumContainsAny(outputTensorDistributionMode, VPU::DistributionMode::OVERLAPPED))) {
+                const auto tilingScheme =
+                        getOutputTensorNumTiles(clusteredOp, numClusters, multiClusterStrategy, outputType);
+
+                const auto isValidTile = [](auto dim) {
+                    return dim > 1;
+                };
+                if (llvm::count_if(tilingScheme, isValidTile) != 1) {
+                    return false;
+                }
+                const auto axis = std::distance(tilingScheme.begin(), llvm::find_if(tilingScheme, isValidTile));
+                if (tilingScheme[axis] != numClusters) {
+                    return false;
+                }
+            }
+
             return origOp.fitIntoCMX(
                     VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(0), inputTileType,
                                                             numClusters, nullptr, inputTile),
@@ -135,63 +159,6 @@ bool isSupportedIsolatedTiling(VPU::NCEReduceOp origOp, const OutputTiling& tile
                 VPU::getDistributedActivationTypeFromOp(clusteredOp, origOp.getInput(), inputTileType, numClusters,
                                                         nullptr, inputTile),
                 VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, {}, outputTile));
-    });
-}
-
-bool isSupportedIsolatedTiling(VPU::GroupConvolutionOp origOp, const OutputTiling& tiles, Logger /*log*/) {
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
-    const auto filterType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-    const auto origGroups = origOp.getGroups().value_or(1);
-
-    const auto origInputShape = getShape(origOp.getInput());
-    const auto origFilterShape = getShape(origOp.getFilter());
-    const auto origBiasShape = origOp.getBias() != nullptr ? getShape(origOp.getBias()) : ShapeRef();
-    const auto origPadding = PadInfo(origOp.getPadsBegin(), origOp.getPadsEnd());
-    const auto numOutChannelsPerGroup = origFilterShape[Dims4D::Filter::OC] / origGroups;
-
-    return llvm::all_of(tiles, [&](const TileInfo& outputTile) {
-        // Tiling over output channels should not slice in the middle of a group. Each of the resulting GroupConvs after
-        // tiling must have the same number of output channels per group.
-        // E.g. GroupConv groups = 5; in channels = 10; out channels = 15; filter = (groups * 3 out ch) x 2 in ch
-        //      w/ tiling = [1, 3, 1, 1]
-        //      Tile 0: GroupConv groups = 2; in channels = 4; out channels = 5; filter = 5 out ch x 2 in ch
-        //              => invalid since group 0 has 3 output channels, while group 1 has 2 output channels
-
-        // An exception for that is when the resulting GroupConv has only one group. Then we can allow it to avoid
-        // having to tile on another dim as well.
-        // E.g. GroupConv groups = 2; in channels = 10; out channels = 4; filter = (groups * 2 out ch) x 5 in ch
-        //      w/ tiling = [1, 4, 1, 1]
-        //      Tile 0: GroupConv groups = 1; in channels = 5 (orig channels 0 -> 4); out channels = 1 (orig channel 0);
-        //              filter = (groups * 1 out ch) x 5 in ch
-        //      Tile 1: GroupConv groups = 1; in channels = 5 (orig channels 0 -> 4); out channels = 1 (orig channel 1);
-        //              filter = (groups * 1 out ch) x 5 in ch
-        //      Tile 2: GroupConv groups = 1; in channels = 5 (orig channels 5 -> 9); out channels = 1 (orig channel 2);
-        //              filter = (groups * 1 out ch) x 5 in ch
-        //      Tile 3: GroupConv groups = 1; in channels = 5 (orig channels 5 -> 9); out channels = 1 (orig channel 3);
-        //              filter = (groups * 1 out ch) x 5 in ch
-
-        if (outputTile.axis[Dims4D::Act::C] != 1 && outputTile.shape[Dims4D::Act::C] > numOutChannelsPerGroup) {
-            if (outputTile.shape[Dims4D::Act::C] % numOutChannelsPerGroup != 0 ||
-                outputTile.offsets[Dims4D::Act::C] % numOutChannelsPerGroup != 0) {
-                return false;
-            }
-        }
-
-        const auto inputTiling = backInferGroupConvTile(outputTile, origInputShape, origFilterShape, origBiasShape,
-                                                        origOp.getStrides(), origPadding, origGroups);
-
-        const auto& tileConf = inputTiling.tiles;
-        VPUX_THROW_UNLESS(tileConf.size() > 1, "Missed tile information. Got {0} tiles info, must be at least 2",
-                          tileConf.size());
-        const auto& inputTile = tileConf[0];
-        const auto& filterTile = tileConf[1];
-
-        const auto inputTileType = inputType.extractDenseTile(inputTile.offsets, inputTile.shape);
-        const auto filterTileType = filterType.extractDenseTile(filterTile.offsets, filterTile.shape);
-        const auto outputTileType = outputType.extractDenseTile(outputTile.offsets, outputTile.shape);
-
-        return origOp.fitIntoCMX(inputTileType, filterTileType, outputTileType);
     });
 }
 
@@ -274,399 +241,6 @@ bool isSupportedIsolatedTiling(VPU::NCEAveragePoolOp origOp, const OutputTiling&
     });
 }
 
-bool isSupportedIsolatedTilingEltwise(mlir::Operation* origOp, const OutputTiling& tiles, Logger log) {
-    const auto input1Type = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
-    const auto input2Type = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(1).getType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType());
-    const auto isValidTile = [](auto dim) {
-        return dim > 1;
-    };
-
-    return llvm::all_of(tiles, [&](const TileInfo& tile) {
-        const auto input1TileType = input1Type.extractDenseTile(tile.offsets, tile.shape);
-        const auto input2TileType = input2Type.extractDenseTile(tile.offsets, tile.shape);
-        const auto outputTileType = outputType.extractDenseTile(tile.offsets, tile.shape);
-
-        auto isInplace = false;
-        if (auto nceEltwiseOp = mlir::dyn_cast<VPU::NCEEltwiseOp>(origOp)) {
-            isInplace = nceEltwiseOp.getIsInplace().value_or(false);
-        }
-
-        if (origOp->hasAttr(VPU::multiClusterStrategy)) {
-            auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp);
-            VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not a ClusteredOp",
-                            origOp->getLoc());
-            auto module = clusteredOp->getParentOfType<mlir::ModuleOp>();
-            auto numClusters = VPU::getOptimalNumClusters(
-                    clusteredOp, outputTileType.getShape(),
-                    mlir::cast<vpux::VPU::MultiClusterStrategyAttr>(clusteredOp->getAttr(VPU::multiClusterStrategy))
-                            .getValue());
-            auto input1DistrType = VPU::getDistributedActivationTypeFromOp(
-                    clusteredOp, origOp->getOperand(0), input1TileType, numClusters, outputTileType, tile);
-            auto input2DistrType = input1DistrType;
-            if (input1TileType.getShape() != input2TileType.getShape()) {
-                input2DistrType = VPU::getDistributedActivationTypeFromOp(
-                        clusteredOp, origOp->getOperand(1), input2TileType, numClusters, outputTileType, tile);
-            }
-
-            const auto multiClusterStrategy = clusteredOp.getMultiClusterStrategy().value();
-            const auto tensorNumTiles =
-                    getOutputTensorNumTiles(clusteredOp, numClusters, multiClusterStrategy, outputTileType);
-            const auto tensorDistributionMode =
-                    getOutputTensorDistributionMode(clusteredOp, multiClusterStrategy, outputTileType);
-
-            if ((VPU::bitEnumContainsAny(tensorDistributionMode, VPU::DistributionMode::SEGMENTED) ||
-                 VPU::bitEnumContainsAny(tensorDistributionMode, VPU::DistributionMode::OVERLAPPED)) &&
-                llvm::count_if(tensorNumTiles, isValidTile) != 1) {
-                return false;
-            }
-
-            return mlir::succeeded(VPU::NCEEltwiseOp::verifyEltwiseCMX(
-                    origOp->getLoc(), module, isInplace, input1DistrType, input2DistrType,
-                    VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters,
-                                                        {input1TileType, input2TileType})));
-        }
-        return mlir::succeeded(
-                VPU::NCEEltwiseOp::verifyEltwiseCMX(origOp->getLoc(), origOp->getParentOfType<mlir::ModuleOp>(),
-                                                    isInplace, input1TileType, input2TileType, outputTileType, log));
-    });
-}
-
-SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface origOp, const TileInfo& outputTile,
-                                                             Logger log) {
-    vpux::OutputTiling inputTiles{outputTile};
-    if (auto tilingBuilderInterface = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation())) {
-        inputTiles = tilingBuilderInterface.backInferTileInfo(outputTile, log).tiles;
-    }
-
-    VPUX_THROW_UNLESS(inputTiles.size() == origOp->getOperands().size(),
-                      "Unexpected inputTile size '{0}' and Op operands size '{1}'", inputTiles.size(),
-                      origOp->getOperands().size());
-
-    mlir::SmallVector<vpux::NDTypeInterface> inputTileTypes;
-    for (auto input : origOp->getOperands() | indexed) {
-        const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.value().getType());
-        inputTileTypes.push_back(
-                inputType.extractDenseTile(inputTiles[input.index()].offsets, inputTiles[input.index()].shape));
-    }
-
-    auto valueTypes = inputTileTypes;
-    mlir::SmallVector<vpux::NDTypeInterface> outputTileTypes;
-    for (const auto& output : origOp->getResults()) {
-        const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
-        const auto outputTileType = outputType.extractDenseTile(outputTile.offsets, outputTile.shape);
-        outputTileTypes.push_back(outputTileType);
-        valueTypes.push_back(outputTileType);
-    }
-
-    if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
-        return valueTypes;
-    }
-
-    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
-                    origOp->getLoc());
-    auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileTypes[0].getShape(),
-                                                  clusteredOp.getMultiClusterStrategy().value());
-
-    if (!llvm::all_of(outputTileTypes, [&](const vpux::NDTypeInterface& outputTileType) {
-            auto numClustersOfPerOutput = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
-                                                                     clusteredOp.getMultiClusterStrategy().value());
-            return numClustersOfPerOutput == numClusters;
-        })) {
-        // at least one of the output tiles has invalid multiclustering
-        return SmallVector<vpux::NDTypeInterface>{};
-    }
-
-    SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
-    for (auto [idx, inputTileType] : inputTileTypes | indexed) {
-        auto inDistributedType = VPU::getDistributedActivationTypeFromOp(
-                clusteredOp, clusteredOp->getOperand(idx), inputTileType, numClusters, outputTileTypes[0], outputTile);
-        distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
-    }
-
-    for (const auto& outputTileType : outputTileTypes) {
-        auto outDistributedType =
-                VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, inputTileTypes);
-        distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(outDistributedType));
-    }
-
-    return distributedTensorTypes;
-}
-
-bool isSupportedIsolatedTilingSwInterface(VPU::SWOpInterface origOp, const OutputTiling& tiles, Logger log) {
-    log.trace("isSupportedIsolatedTilingSwInterface OpName: {0}", origOp->getName());
-
-    return llvm::all_of(tiles, [&](const TileInfo& outputTile) {
-        SmallVector<vpux::NDTypeInterface> operands = getAllOperandsSwInterface(origOp, outputTile, log);
-        if (operands.empty()) {
-            return false;
-        }
-        return origOp.fitIntoCMX(operands, Byte(0));
-    });
-}
-
-bool isSupportedIsolatedTilingGRUSequence(VPU::GRUSequenceOp op, const OutputTiling& tiles, Logger log) {
-    const auto origOp = op.getOperation();
-
-    const auto operands = origOp->getOperands();
-    const auto results = origOp->getResults();
-
-    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
-    const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
-
-    auto outputYType = mlir::cast<vpux::NDTypeInterface>(results[0].getType());
-    auto outputYByteSize = outputYType.getElemTypeSize().to<Byte>().count();
-
-    auto seqLength = mlir::dyn_cast_or_null<mlir::IntegerAttr>(op.getSeqLengthAttr()).getValue().getSExtValue();
-
-    return llvm::all_of(tiles, [&](const TileInfo& outputYTile) {
-        auto inputTiles = tilingOp.backInferTileInfo(outputYTile, log);
-        if (inputTiles.tiles.size() < 1) {
-            log.trace("No input tiles for {0}", origOp->getLoc());
-            return false;
-        }
-
-        const auto outputTileSizeBytes = outputYTile.shape.totalSize() * outputYByteSize +
-                                         outputYTile.shape.totalSize() / seqLength * outputYByteSize;
-        log.trace("outputTileSizeBytes: {0}", outputTileSizeBytes);
-        const auto& inTiles = inputTiles.tiles;
-        auto requiredCMX = outputTileSizeBytes;
-        for (auto p : inTiles | indexed) {
-            const auto inT = p.value();
-            const auto index = p.index();
-            const auto inputType = mlir::cast<vpux::NDTypeInterface>(operands[index].getType());
-            const auto inputByteSize = inputType.getElemTypeSize().to<Byte>().count();
-            const auto inputTileSizeBytes = inT.shape.totalSize() * inputByteSize;
-            requiredCMX += inputTileSizeBytes;
-        }
-        if (requiredCMX > cmxAvailableBytes) {
-            log.trace(
-                    "Tile does not fit into CMX for op {0}. Input tile[0] {1}, output tile {2}, required CMX size {3}, "
-                    "max available MX: {4}",
-                    origOp->getLoc(), inTiles[0].shape, outputYTile.shape, requiredCMX, cmxAvailableBytes);
-            return false;
-        }
-        log.trace("Op {0} out tiling probe valid: {1} - input tile on 0 pos: {2}", origOp->getLoc(), outputYTile,
-                  inTiles[0]);
-        return true;
-    });
-}
-
-bool isSupportedIsolatedTilingGRUSequenceLastPart(VPU::GRUSequenceLastPartOp op, const OutputTiling& tiles,
-                                                  Logger log) {
-    const auto origOp = op.getOperation();
-
-    const auto operands = origOp->getOperands();
-    const auto results = origOp->getResults();
-
-    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
-    const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
-
-    auto outputYType = mlir::cast<vpux::NDTypeInterface>(results[0].getType());
-    auto outputYByteSize = outputYType.getElemTypeSize().to<Byte>().count();
-
-    auto seqLength = mlir::dyn_cast_or_null<mlir::IntegerAttr>(op.getSeqLengthAttr()).getValue().getSExtValue();
-
-    return llvm::all_of(tiles, [&](const TileInfo& outputYTile) {
-        auto inputTiles = tilingOp.backInferTileInfo(outputYTile, log);
-        if (inputTiles.tiles.size() < 1) {
-            log.trace("No input tiles for {0}", origOp->getLoc());
-            return false;
-        }
-
-        const auto outputTileSizeBytes = outputYTile.shape.totalSize() * outputYByteSize +
-                                         outputYTile.shape.totalSize() / seqLength * outputYByteSize;
-        log.trace("outputTileSizeBytes: {0}", outputTileSizeBytes);
-        const auto& inTiles = inputTiles.tiles;
-        auto requiredCMX = outputTileSizeBytes;
-        for (auto p : inTiles | indexed) {
-            const auto inT = p.value();
-            const auto index = p.index();
-            const auto inputType = mlir::cast<vpux::NDTypeInterface>(operands[index].getType());
-            const auto inputByteSize = inputType.getElemTypeSize().to<Byte>().count();
-            const auto inputTileSizeBytes = inT.shape.totalSize() * inputByteSize;
-            requiredCMX += inputTileSizeBytes;
-        }
-        if (requiredCMX > cmxAvailableBytes) {
-            log.trace(
-                    "Tile does not fit into CMX for op {0}. Input tile[0] {1}, output tile {2}, required CMX size {3}, "
-                    "max available CMX: {4}",
-                    origOp->getLoc(), inTiles[0].shape, outputYTile.shape, requiredCMX, cmxAvailableBytes);
-            return false;
-        }
-        log.trace("Op {0} out tiling probe valid: {1} - input tile on 0 pos: {2}", origOp->getLoc(), outputYTile,
-                  inTiles[0]);
-        return true;
-    });
-}
-
-SmallVector<vpux::NDTypeInterface> getAllOperandsGatherDMAOp(VPU::GatherDMAOp origOp, const TileInfo& outputTile,
-                                                             Logger log) {
-    vpux::OutputTiling inputTiles{outputTile};
-    if (auto tilingBuilderInterface = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation())) {
-        inputTiles = tilingBuilderInterface.backInferTileInfo(outputTile, log).tiles;
-    }
-
-    VPUX_THROW_UNLESS(inputTiles.size() == origOp->getOperands().size(),
-                      "Unexpected inputTile size '{0}' and Op operands size '{1}'", inputTiles.size(),
-                      origOp->getOperands().size());
-
-    mlir::SmallVector<vpux::NDTypeInterface> inputTileTypes;
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getIndices().getType());
-    inputTileTypes.push_back(inputType.extractDenseTile(inputTiles[1].offsets, inputTiles[1].shape));
-
-    auto valueTypes = inputTileTypes;
-    mlir::SmallVector<vpux::NDTypeInterface> outputTileTypes;
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
-    const auto outputTileType = outputType.extractDenseTile(outputTile.offsets, outputTile.shape);
-    outputTileTypes.push_back(outputTileType);
-    valueTypes.push_back(outputTileType);
-
-    if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
-        return valueTypes;
-    }
-
-    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
-                    origOp->getLoc());
-    auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileTypes[0].getShape(),
-                                                  clusteredOp.getMultiClusterStrategy().value());
-
-    if (!llvm::all_of(outputTileTypes, [&](const vpux::NDTypeInterface& outputTileType) {
-            auto numClustersOfPerOutput = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
-                                                                     clusteredOp.getMultiClusterStrategy().value());
-            return numClustersOfPerOutput == numClusters;
-        })) {
-        return SmallVector<vpux::NDTypeInterface>{};
-    }
-
-    SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
-    auto inDistributedType =
-            getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(1), inputTileTypes[0], numClusters,
-                                               VPU::MultiClusterStrategy::Clustering,
-                                               /*customAlignment*/ ArrayRef<int64_t>{}, outputTileTypes[0], outputTile);
-    distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
-
-    for (const auto& outputTileType : outputTileTypes) {
-        auto outDistributedType =
-                VPU::getDistributedOutputTypeFromOp(clusteredOp, outputTileType, numClusters, inputTileTypes);
-        distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(outDistributedType));
-    }
-
-    return distributedTensorTypes;
-}
-
-bool isSupportedIsolatedTilingGatherDMA(VPU::GatherDMAOp op, const OutputTiling& tiles, Logger log) {
-    const auto origOp = op.getOperation();
-    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
-
-    if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
-        const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
-
-        const auto inputOutputTilesFitCMX = [&](const TileInfo& firstOutputTile) {
-            const auto computeRequiredMemory = [&](const auto& operand, const TileInfo& tilingInfo) {
-                const auto tensorType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
-                const auto denseTile = tensorType.extractDenseTile(tilingInfo.offsets, tilingInfo.shape);
-                return denseTile.getTotalAllocSize().count();
-            };
-
-            const auto inputTilingInfo = tilingOp.backInferTileInfo(firstOutputTile, log);
-            const auto indicesMemorySize = computeRequiredMemory(op.getIndices(), inputTilingInfo.tiles[1]);
-
-            const auto outputTiles = tilingOp.getOutputTiling(firstOutputTile, log);
-            const auto outputMemorySize = computeRequiredMemory(op.getOutput(), outputTiles[0]);
-            // For gather DMA only indices and output are copy to CMX.
-            const auto requiredCMX = indicesMemorySize + outputMemorySize;
-
-            if (requiredCMX > cmxAvailableBytes) {
-                log.trace("Op '{0}' doesn't fit into CMX: required {1}, available {2}", origOp->getLoc(), requiredCMX,
-                          cmxAvailableBytes);
-                return false;
-            }
-
-            return true;
-        };
-
-        return llvm::all_of(tiles, inputOutputTilesFitCMX);
-    }
-
-    return llvm::all_of(tiles, [&](const TileInfo& outputTile) {
-        SmallVector<vpux::NDTypeInterface> operands = getAllOperandsGatherDMAOp(op, outputTile, log);
-        if (operands.empty()) {
-            return false;
-        }
-        return op.fitIntoCMX(operands, Byte(0));
-    });
-}
-
-bool isSupportedIsolatedTilingGeneric(mlir::Operation* origOp, const OutputTiling& firstOutputTiles, Logger log) {
-    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp);
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
-
-    const auto cmxAvailableBytes = vpux::VPU::getTotalCMXSize(origOp).to<Byte>().count();
-
-    const auto operands = origOp->getOperands();
-    const auto results = origOp->getResults();
-
-    const auto inputOutputTilesFitCMX = [&](const TileInfo& firstOutputTile) {
-        const auto computeRequiredMemory = [&](const auto& operands, const SmallVector<TileInfo>& tilingInfo) {
-            int64_t requiredBytes = 0;
-            for (const auto& [operand, tile] : zip(operands, tilingInfo)) {
-                const auto tensorType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
-                const auto denseTile = tensorType.extractDenseTile(tile.offsets, tile.shape);
-                requiredBytes += denseTile.getTotalAllocSize().count();
-            }
-            return requiredBytes;
-        };
-
-        const auto inputTilingInfo = tilingOp.backInferTileInfo(firstOutputTile, log);
-        const auto outputTiles = tilingOp.getOutputTiling(firstOutputTile, log);
-
-        const auto inputMemorySize = computeRequiredMemory(operands, inputTilingInfo.tiles);
-        const auto outputMemorySize = computeRequiredMemory(results, outputTiles);
-
-        const auto requiredCMX = inputMemorySize + outputMemorySize;
-
-        if (requiredCMX > cmxAvailableBytes) {
-            log.trace("Op '{0}' doesn't fit into CMX: required {1}, available {2}", origOp->getLoc(), requiredCMX,
-                      cmxAvailableBytes);
-            return false;
-        }
-
-        return true;
-    };
-
-    return llvm::all_of(firstOutputTiles, inputOutputTilesFitCMX);
-}
-
-bool isSupportedIsolatedTilingDepthToSpace(VPU::DepthToSpaceOp origOp, const OutputTiling& tiles, Logger log) {
-    auto blockSize = origOp.getBlockSize();
-    VPUX_THROW_WHEN(blockSize == 0, "Invalid block size: {0}", blockSize);
-    for (auto& tile : tiles) {
-        auto OW = tile.shape[Dims4D::Act::W];
-        auto OH = tile.shape[Dims4D::Act::H];
-        if (OW % blockSize != 0 || OH % blockSize != 0) {
-            return false;
-        }
-    }
-
-    return isSupportedIsolatedTilingGeneric(origOp, tiles, log);
-}
-
-bool isSupportedIsolatedTilingStridedSlice(VPU::StridedSliceOp origOp, const OutputTiling& tiles, Logger log) {
-    const auto begins = origOp.getBeginsAttrAttr();
-    const auto strides = origOp.getStridesAttrAttr();
-    // TODO(E#132441): Support strided slice tile when begin and stride cannot be obtained.
-    if (begins == nullptr || strides == nullptr) {
-        return true;
-    }
-    return isSupportedIsolatedTilingGeneric(origOp, tiles, log);
-}
-
 bool isSupportedIsolatedTiling(VPU::NCEPermuteOp origOp, const OutputTiling& tiles, Logger log) {
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
@@ -700,117 +274,6 @@ bool isSupportedIsolatedTiling(VPU::NCEMatMulOp origOp, const OutputTiling& tile
     return isSupportedIsolatedTilingConvBased(origOp, tiles, log);
 }
 
-bool isSupportedIsolatedTilingDetectionOutputSort(VPU::DetectionOutputSortOp origOp,
-                                                  const OutputTiling& firstOutputTiles, Logger log) {
-    if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
-        return isSupportedIsolatedTilingGeneric(origOp, firstOutputTiles, log);
-    }
-
-    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(tilingOp != nullptr, "Not a tileable operation {0}", origOp->getName());
-
-    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
-    VPUX_THROW_UNLESS(clusteredOp != nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
-                      origOp->getLoc());
-
-    const auto operands = origOp->getOperands();
-    const auto results = origOp->getResults();
-
-    const auto inputOutputTilesFitCMX = [&](const TileInfo& firstOutputTile) {
-        const auto inputTiles = tilingOp.backInferTileInfo(firstOutputTile, log).tiles;
-        const auto outputTiles = tilingOp.getOutputTiling(firstOutputTile, log);
-
-        const auto firstOutputType = mlir::cast<vpux::NDTypeInterface>(results[0].getType());
-        const auto firstOutputTileType = firstOutputType.extractDenseTile(outputTiles[0].offsets, outputTiles[0].shape);
-        const auto multiClusterStrategy =
-                mlir::cast<vpux::VPU::MultiClusterStrategyAttr>(clusteredOp->getAttr(VPU::multiClusterStrategy))
-                        .getValue();
-        VPUX_THROW_UNLESS(multiClusterStrategy == VPU::MultiClusterStrategy::SplitOverHeight,
-                          "Only 'SplitOverHeight' strategy is supported for {0}", origOp->getName());
-        auto numClusters =
-                VPU::getOptimalNumClusters(clusteredOp, firstOutputTileType.getShape(), multiClusterStrategy);
-
-        auto distributedTiles = mlir::SmallVector<vpux::NDTypeInterface>();
-        for (const auto& [operand, tile] : zip(operands, inputTiles)) {
-            const auto tensorType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
-            const auto denseTile = tensorType.extractDenseTile(tile.offsets, tile.shape);
-            const auto denseInputTile =
-                    getDistributedActivationTypeFromOp(clusteredOp, operand, denseTile, numClusters);
-            distributedTiles.push_back(denseInputTile);
-        }
-
-        for (const auto& [result, tile] : zip(results, outputTiles)) {
-            const auto tensorType = mlir::cast<vpux::NDTypeInterface>(result.getType());
-            const auto denseTile = tensorType.extractDenseTile(tile.offsets, tile.shape);
-            const auto denseOutputTile = getDistributedOutputTypeFromOp(clusteredOp, denseTile, numClusters);
-            distributedTiles.push_back(denseOutputTile);
-        }
-
-        return origOp.fitIntoCMX(distributedTiles, Byte(0));
-    };
-
-    return llvm::all_of(firstOutputTiles, inputOutputTilesFitCMX);
-}
-
-bool isSupportedIsolatedTilingSwLayer(mlir::Operation* origOp, const OutputTiling& tiles, Logger log) {
-    return llvm::TypeSwitch<mlir::Operation*, bool>(origOp)
-            .Case<VPU::GroupConvolutionOp>([&](VPU::GroupConvolutionOp op) {
-                return isSupportedIsolatedTiling(op, tiles, log);
-            })
-            .Case<VPU::AddOp, VPU::MultiplyOp, VPU::SubtractOp>([&](mlir::Operation* op) {
-                return isSupportedIsolatedTilingEltwise(op, tiles, log);
-            })
-            .Case<VPU::DepthToSpaceOp>([&](VPU::DepthToSpaceOp op) {
-                return isSupportedIsolatedTilingDepthToSpace(op, tiles, log);
-            })
-            .Case<VPU::StridedSliceOp>([&](VPU::StridedSliceOp op) {
-                return isSupportedIsolatedTilingStridedSlice(op, tiles, log);
-            })
-            .Case<VPU::DetectionOutputSortOp>([&](VPU::DetectionOutputSortOp op) {
-                return isSupportedIsolatedTilingDetectionOutputSort(op, tiles, log);
-            })
-            .Case<VPU::SWOpInterface>([&](VPU::SWOpInterface swOp) {
-                return isSupportedIsolatedTilingSwInterface(swOp, tiles, log);
-            })
-            .Case<VPU::GRUSequenceOp>([&](VPU::GRUSequenceOp op) {
-                return isSupportedIsolatedTilingGRUSequence(op, tiles, log);
-            })
-            .Case<VPU::GRUSequenceLastPartOp>([&](VPU::GRUSequenceLastPartOp op) {
-                return isSupportedIsolatedTilingGRUSequenceLastPart(op, tiles, log);
-            })
-            .Case<VPU::GatherDMAOp>([&](VPU::GatherDMAOp op) {
-                return isSupportedIsolatedTilingGatherDMA(op, tiles, log);
-            })
-            .Default([&](mlir::Operation* op) -> bool {
-                return isSupportedIsolatedTilingGeneric(op, tiles, log);
-            });
-}
-
-bool isSupportedPipeliningTilingSwInterface(VPU::SWOpInterface origOp, const OutputTiling& tiles, Logger log) {
-    // The tiling strategy follows last-tile-not-biggest, and sw layers usually do not have padding
-    // So just check the first two tiles are enough to make sure pipelining
-    log.trace("isSupportedPipeliningTilingSwInterface OpName: {0}", origOp->getName());
-
-    auto firstTile = getAllOperandsSwInterface(origOp, tiles[0], log);
-    auto secondTile = getAllOperandsSwInterface(origOp, tiles[1], log);
-    if (firstTile.empty() || secondTile.empty()) {
-        return false;
-    }
-    auto requiredCMX = VPU::getRequiredCMXSize(firstTile) + VPU::getRequiredCMXSize(secondTile);
-    auto availableCMX = vpux::VPU::getTotalCMXSize(origOp.getOperation());
-    return requiredCMX <= availableCMX;
-}
-
-bool isSupportedPipeliningTilingSwLayer(mlir::Operation* origOp, const OutputTiling& tiles, Logger log) {
-    return llvm::TypeSwitch<mlir::Operation*, bool>(origOp)
-            .Case<VPU::SWOpInterface>([&](VPU::SWOpInterface swOp) {
-                return isSupportedPipeliningTilingSwInterface(swOp, tiles, log);
-            })
-            .Default([&](mlir::Operation*) -> bool {
-                return false;
-            });
-}
-
 SmallVector<Dim> getTileDims(ShapeRef tileAxis) {
     SmallVector<Dim> tileDims;
     for (unsigned i = 0; i < tileAxis.size(); i++) {
@@ -836,7 +299,7 @@ bool checkPrefetchMem(mlir::Operation* op, const OutputTiling& tiles, Logger log
     if (parentOp == nullptr) {
         return false;
     }
-    const auto parentShape = getShape(parentOp->getResult(0));
+    const auto parentShape = getBoundedShape(parentOp->getResult(0));
     vpux::OutputTiling parentTiling = {TileInfo(parentShape)};
     if (parentOp->hasAttr(tilingStrategy)) {
         const auto parentTilingStrategy =
@@ -982,17 +445,6 @@ bool isSupportedPrefetchTiling(VPU::NCEMatMulOp origOp, const OutputTiling& tile
     return isSupportedPrefetchTilingConvBased(origOp, tiles, log, tilingMode);
 }
 
-bool isSupportedTilingStrategyImpl(mlir::Operation* op, const vpux::Shape& strategy, TilingMode tilingMode,
-                                   Logger log) {
-    auto tilingInfo = mlir::cast<VPU::TilingInfoOpInterface>(op);
-    const auto outputShape = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()).getShape();
-    const auto outTiles = fillDividedTiles(op, strategy, outputShape);
-    if (mlir::failed(outTiles)) {
-        return false;
-    }
-    return tilingInfo.isSupportedTiling(outTiles.value(), tilingMode, log);
-}
-
 template <class MainOpType>
 class NCETilingInfoOpModel final :
         public VPU::TilingInfoOpInterface::ExternalModel<NCETilingInfoOpModel<MainOpType>, MainOpType> {
@@ -1015,7 +467,22 @@ public:
 
     bool isSupportedTilingStrategy(mlir::Operation* origOp, const vpux::Shape& strategy, TilingMode tilingMode,
                                    Logger log) const {
-        return isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
+        return vpux::VPU::isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
+    }
+
+    bool isPrefetchingTilingSupported(mlir::Operation* origOp) const {
+        // Depthwise operations that use ODU autopad do not support prefetching, as this mode requires tiling over
+        // output channels. Such tiling is not supported, because the input still needs to be aligned. As a consequence,
+        // the input would need to be sliced and expanded for its alignment to be correct, which is not supported by the
+        // tiling infrastructure as of now
+        const auto isDepthwiseWithAutopad =
+                mlir::isa<VPU::NCEDepthConvolutionOp, VPU::NCEMaxPoolOp, VPU::NCEAveragePoolOp>(origOp) &&
+                VPU::canAutopadOutput(origOp);
+        return !isDepthwiseWithAutopad;
+    }
+
+    bool isPipeliningTilingSupported(mlir::Operation* /*origOp*/) const {
+        return true;
     }
 };
 
@@ -1031,7 +498,7 @@ public:
 
         switch (tilingMode) {
         case TilingMode::ISOLATED:
-            return ::isSupportedIsolatedTilingEltwise(origOp, tiles, log);
+            return vpux::VPU::isSupportedIsolatedTilingEltwise(origOp, tiles, log);
         case TilingMode::PIPELINING:
         case TilingMode::PREFETCHING:
             // The DPU time of eltwise operations are too short to worth prefetching.
@@ -1043,31 +510,15 @@ public:
 
     bool isSupportedTilingStrategy(mlir::Operation* origOp, const vpux::Shape& strategy, TilingMode tilingMode,
                                    Logger log) const {
-        return isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
-    }
-};
-
-template <class MainOpType>
-class SwLayerTilingInfoOpModel final :
-        public VPU::TilingInfoOpInterface::ExternalModel<SwLayerTilingInfoOpModel<MainOpType>, MainOpType> {
-public:
-    bool isSupportedTiling(mlir::Operation* origOp, const OutputTiling& tiles, TilingMode tilingMode,
-                           Logger log) const {
-        switch (tilingMode) {
-        case vpux::TilingMode::ISOLATED:
-            return ::isSupportedIsolatedTilingSwLayer(origOp, tiles, log);
-        case vpux::TilingMode::PIPELINING:
-            return ::isSupportedPipeliningTilingSwLayer(origOp, tiles, log);
-        case vpux::TilingMode::PREFETCHING:
-            return false;
-        default:
-            VPUX_THROW("Unknown tiling mode: '{0}'.", getTilingModeStr(tilingMode));
-        }
+        return vpux::VPU::isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
     }
 
-    bool isSupportedTilingStrategy(mlir::Operation* origOp, const vpux::Shape& strategy, TilingMode tilingMode,
-                                   Logger log) const {
-        return isSupportedTilingStrategyImpl(origOp, strategy, tilingMode, log);
+    bool isPrefetchingTilingSupported(mlir::Operation* /*origOp*/) const {
+        return false;
+    }
+
+    bool isPipeliningTilingSupported(mlir::Operation* /*origOp*/) const {
+        return false;
     }
 };
 
@@ -1258,135 +709,6 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::NCEMatMulOp::attachInterface<NCETilingInfoOpModel<VPU::NCEMatMulOp>>(*ctx);
         VPU::NCEReduceOp::attachInterface<NCETilingInfoOpModel<VPU::NCEReduceOp>>(*ctx);
 
-        VPU::ConvolutionOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ConvolutionOp>>(*ctx);
-        VPU::GroupConvolutionOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GroupConvolutionOp>>(*ctx);
-        VPU::MaxPoolOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MaxPoolOp>>(*ctx);
-        VPU::AddOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AddOp>>(*ctx);
-        VPU::MultiplyOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MultiplyOp>>(*ctx);
-        VPU::SubtractOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SubtractOp>>(*ctx);
-        VPU::AndOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AndOp>>(*ctx);
-        VPU::InterpolateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::InterpolateOp>>(*ctx);
-        VPU::MatMulOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MatMulOp>>(*ctx);
-        VPU::FakeQuantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FakeQuantizeOp>>(*ctx);
-        VPU::FakeConvertOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FakeConvertOp>>(*ctx);
-        VPU::QuantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::QuantizeOp>>(*ctx);
-        VPU::DequantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DequantizeOp>>(*ctx);
-        VPU::DynamicQuantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DynamicQuantizeOp>>(*ctx);
-        VPU::DynamicDequantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DynamicDequantizeOp>>(*ctx);
-        VPU::GatherOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherOp>>(*ctx);
-        VPU::GatherElementsOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherElementsOp>>(*ctx);
-        VPU::GridSampleOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GridSampleOp>>(*ctx);
-        VPU::GatherDMAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherDMAOp>>(*ctx);
-        VPU::GatherNDOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GatherNDOp>>(*ctx);
-        VPU::ConvertOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ConvertOp>>(*ctx);
-        VPU::SigmoidOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SigmoidOp>>(*ctx);
-        VPU::HSwishOp::attachInterface<SwLayerTilingInfoOpModel<VPU::HSwishOp>>(*ctx);
-        VPU::HSigmoidOp::attachInterface<SwLayerTilingInfoOpModel<VPU::HSigmoidOp>>(*ctx);
-        VPU::LeakyReluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LeakyReluOp>>(*ctx);
-        VPU::PReluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::PReluOp>>(*ctx);
-        VPU::MishOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MishOp>>(*ctx);
-        VPU::EluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::EluOp>>(*ctx);
-        VPU::ClampOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ClampOp>>(*ctx);
-        VPU::ReLUOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReLUOp>>(*ctx);
-        VPU::SqrtOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SqrtOp>>(*ctx);
-        VPU::ExpOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ExpOp>>(*ctx);
-        VPU::TanhOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TanhOp>>(*ctx);
-        VPU::DivideOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DivideOp>>(*ctx);
-        VPU::FloorOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FloorOp>>(*ctx);
-        VPU::MemPermuteOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MemPermuteOp>>(*ctx);
-        VPU::AvgPoolOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AvgPoolOp>>(*ctx);
-        VPU::PermuteQuantizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::PermuteQuantizeOp>>(*ctx);
-        VPU::LogOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LogOp>>(*ctx);
-        VPU::PowerOp::attachInterface<SwLayerTilingInfoOpModel<VPU::PowerOp>>(*ctx);
-        VPU::FloorModOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FloorModOp>>(*ctx);
-        VPU::ModOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ModOp>>(*ctx);
-        VPU::EqualOp::attachInterface<SwLayerTilingInfoOpModel<VPU::EqualOp>>(*ctx);
-        VPU::LessOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LessOp>>(*ctx);
-        VPU::LessEqualOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LessEqualOp>>(*ctx);
-        VPU::NotEqualOp::attachInterface<SwLayerTilingInfoOpModel<VPU::NotEqualOp>>(*ctx);
-        VPU::GreaterOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GreaterOp>>(*ctx);
-        VPU::GreaterEqualOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GreaterEqualOp>>(*ctx);
-        VPU::LogicalOrOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LogicalOrOp>>(*ctx);
-        VPU::LogicalXorOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LogicalXorOp>>(*ctx);
-        VPU::LogicalNotOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LogicalNotOp>>(*ctx);
-        VPU::AndOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AndOp>>(*ctx);
-        VPU::BitwiseAndOp::attachInterface<SwLayerTilingInfoOpModel<VPU::BitwiseAndOp>>(*ctx);
-        VPU::BitwiseOrOp::attachInterface<SwLayerTilingInfoOpModel<VPU::BitwiseOrOp>>(*ctx);
-        VPU::BitwiseXorOp::attachInterface<SwLayerTilingInfoOpModel<VPU::BitwiseXorOp>>(*ctx);
-        VPU::BitwiseNotOp::attachInterface<SwLayerTilingInfoOpModel<VPU::BitwiseNotOp>>(*ctx);
-        VPU::RoundOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RoundOp>>(*ctx);
-        VPU::SelectOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SelectOp>>(*ctx);
-        VPU::ErfOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ErfOp>>(*ctx);
-        VPU::DetectionOutputDecodeBoxesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DetectionOutputDecodeBoxesOp>>(
-                *ctx);
-        VPU::DetectionOutputNmsCaffeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DetectionOutputNmsCaffeOp>>(*ctx);
-        VPU::DetectionOutputSortOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DetectionOutputSortOp>>(*ctx);
-        VPU::SinOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SinOp>>(*ctx);
-        VPU::SinhOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SinhOp>>(*ctx);
-        VPU::SignOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SignOp>>(*ctx);
-        VPU::CoshOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CoshOp>>(*ctx);
-        VPU::TanOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TanOp>>(*ctx);
-        VPU::ReduceL1Op::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceL1Op>>(*ctx);
-        VPU::ReduceL2Op::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceL2Op>>(*ctx);
-        VPU::ReduceLogicalAndOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceLogicalAndOp>>(*ctx);
-        VPU::ReduceLogicalOrOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceLogicalOrOp>>(*ctx);
-        VPU::ReduceMaxOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMaxOp>>(*ctx);
-        VPU::ReduceMeanOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMeanOp>>(*ctx);
-        VPU::ReduceMinOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceMinOp>>(*ctx);
-        VPU::ReverseOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReverseOp>>(*ctx);
-        VPU::ReduceProdOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceProdOp>>(*ctx);
-        VPU::ReduceSumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::ReduceSumOp>>(*ctx);
-        VPU::SwishOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SwishOp>>(*ctx);
-        VPU::NegativeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::NegativeOp>>(*ctx);
-        VPU::CeilingOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CeilingOp>>(*ctx);
-        VPU::AbsOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AbsOp>>(*ctx);
-        VPU::SoftMaxOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SoftMaxOp>>(*ctx);
-        VPU::LogSoftmaxOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LogSoftmaxOp>>(*ctx);
-        VPU::TopKOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TopKOp>>(*ctx);
-        VPU::StridedSliceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::StridedSliceOp>>(*ctx);
-        VPU::SpaceToDepthOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SpaceToDepthOp>>(*ctx);
-        VPU::DepthToSpaceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DepthToSpaceOp>>(*ctx);
-        VPU::TileOp::attachInterface<SwLayerTilingInfoOpModel<VPU::TileOp>>(*ctx);
-        VPU::DynamicTileOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DynamicTileOp>>(*ctx);
-        VPU::NormalizeL2Op::attachInterface<SwLayerTilingInfoOpModel<VPU::NormalizeL2Op>>(*ctx);
-        VPU::CumSumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CumSumOp>>(*ctx);
-        VPU::YuvToRgbOp::attachInterface<SwLayerTilingInfoOpModel<VPU::YuvToRgbOp>>(*ctx);
-        VPU::SquaredDifferenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SquaredDifferenceOp>>(*ctx);
-        VPU::GeluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GeluOp>>(*ctx);
-        VPU::GridSampleOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GridSampleOp>>(*ctx);
-        VPU::GRUSequenceOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GRUSequenceOp>>(*ctx);
-        VPU::GRUSequenceLastPartOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GRUSequenceLastPartOp>>(*ctx);
-        VPU::SoftPlusOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SoftPlusOp>>(*ctx);
-        VPU::MVNOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MVNOp>>(*ctx);
-        VPU::MVN1MeanVarOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MVN1MeanVarOp>>(*ctx);
-        VPU::MVN1NormalizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MVN1NormalizeOp>>(*ctx);
-        VPU::MVN6Op::attachInterface<SwLayerTilingInfoOpModel<VPU::MVN6Op>>(*ctx);
-        VPU::DFTOp::attachInterface<SwLayerTilingInfoOpModel<VPU::DFTOp>>(*ctx);
-        VPU::RDFTUncutOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RDFTUncutOp>>(*ctx);
-        VPU::IDFTOp::attachInterface<SwLayerTilingInfoOpModel<VPU::IDFTOp>>(*ctx);
-        VPU::IRDFTLastAxisOp::attachInterface<SwLayerTilingInfoOpModel<VPU::IRDFTLastAxisOp>>(*ctx);
-        VPU::HardSigmoidOp::attachInterface<SwLayerTilingInfoOpModel<VPU::HardSigmoidOp>>(*ctx);
-        VPU::MaximumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MaximumOp>>(*ctx);
-        VPU::MinimumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MinimumOp>>(*ctx);
-        VPU::PadOp::attachInterface<SwLayerTilingInfoOpModel<VPU::PadOp>>(*ctx);
-        VPU::FloorOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FloorOp>>(*ctx);
-        VPU::AccumulateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AccumulateOp>>(*ctx);
-        VPU::RMSOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RMSOp>>(*ctx);
-        VPU::RoPEOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RoPEOp>>(*ctx);
-        VPU::SDPAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SDPAOp>>(*ctx);
-        VPU::RandomUniformOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RandomUniformOp>>(*ctx);
-        VPU::AcoshOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AcoshOp>>(*ctx);
-        VPU::AcosOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AcosOp>>(*ctx);
-        VPU::AsinhOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AsinhOp>>(*ctx);
-        VPU::AsinOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AsinOp>>(*ctx);
-        VPU::AtanhOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AtanhOp>>(*ctx);
-        VPU::AtanOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AtanOp>>(*ctx);
-        VPU::SeluOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SeluOp>>(*ctx);
-        VPU::CosOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CosOp>>(*ctx);
-        VPU::GRUGatesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GRUGatesOp>>(*ctx);
-        VPU::LSTMGatesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LSTMGatesOp>>(*ctx);
-
-        VPU::RollOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RollOp>>(*ctx);
         VPU::SigmoidOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::HardSigmoidOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::GridSampleOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -1455,6 +777,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::SpaceToBatch::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::BatchToSpace::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AvgPoolOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::AvgPool16Op::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AdaptiveAvgPoolOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::AdaptiveMaxPoolOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::FakeQuantizeOp::attachInterface<SoftwareLayerOpModel>(*ctx);
@@ -1563,6 +886,7 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::IncrementalSDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     // When implementing a new SW core, remove the corresponding operation from setupExtraInterfacesAdditional

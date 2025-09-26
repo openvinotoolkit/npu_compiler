@@ -10,12 +10,19 @@
 // This version is exposed via L0 API and reported as (read-only) plugin property NPU_COMPILER_VERSION
 //
 #define NPU_COMPILER_VERSION_MAJOR 7
-#define NPU_COMPILER_VERSION_MINOR 22
+#define NPU_COMPILER_VERSION_MINOR 25
 
 /*
 
 Change Log:
 -----------
+NPU Compiler 7.25.0
+  - Take NPU_QDQ_OPTIMIZATION_AGGRESSIVE property value to enable/disable aggressive qdq optimizations.
+  - UD38
+
+NPU Compiler 7.23.0
+  - UD38
+
 NPU Compiler 7.22.0
   - UD32
 

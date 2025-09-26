@@ -608,8 +608,8 @@ public:
     TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
         auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
         profInfoItem.clusterId = _clusterId;
-        profInfoItem.total_cycles = _data.clockCycles;
-        profInfoItem.stall_cycles = _data.stallCycles;
+        profInfoItem.active_cycles = _data.executedInstructions;
+        profInfoItem.stall_cycles = _data.clockCycles - _data.executedInstructions;
         return profInfoItem;
     }
 
@@ -677,8 +677,8 @@ public:
     TaskInfo getTaskInfo(FrequenciesSetup frequenciesSetup) const override {
         auto profInfoItem = RawProfilingRecord::getTaskInfo(frequenciesSetup);
         profInfoItem.clusterId = _clusterId;
-        profInfoItem.total_cycles = _data.clockCycles;
-        profInfoItem.stall_cycles = _data.lsu0Stalls + _data.lsu1Stalls + _data.instStalls;
+        profInfoItem.active_cycles = _data.executedInstructions;
+        profInfoItem.stall_cycles = _data.clockCycles - _data.executedInstructions;
         return profInfoItem;
     }
 

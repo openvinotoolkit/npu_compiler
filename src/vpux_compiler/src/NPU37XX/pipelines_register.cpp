@@ -27,18 +27,6 @@ using namespace vpux;
 
 void PipelineRegistry37XX::registerPipelines() {
     mlir::PassPipelineRegistration<DefaultHWOptions37XX>(
-            "ShaveCodeGen", "Compile both from IE to VPUIP for NPU37XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions37XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU37XX,
-                                                             config::CompilationMode::ShaveCodeGen, options};
-                auto createPipelineStartegy = [&](config::CompilationMode) {
-                    return createDialectPipelineStrategy37XX<DefaultHWOptions37XX>(&initCompilerOptions, &options);
-                };
-                ShaveCodeGenStrategy factory(createPipelineStartegy, Logger::global());
-                factory.buildPipeline(pm);
-            });
-
-    mlir::PassPipelineRegistration<DefaultHWOptions37XX>(
             "reference-sw-mode", "Compile IE Network in Reference Software mode (SW only execution) for NPU37XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions37XX& options) {
                 VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU37XX,

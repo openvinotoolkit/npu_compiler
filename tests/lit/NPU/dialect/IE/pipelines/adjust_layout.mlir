@@ -35,3 +35,18 @@ func.func @main(%arg0: tensor<1x77x4096x1xf32>) -> tensor<1x77x4096x1xf32> {
 }
 
 }
+
+// -----
+
+!qElemType = !quant.uniform<i2:f16:3, {1.000000e-02:1,2.000000e-02:1,3.000000e-02:1,4.000000e-02:1,5.000000e-02:1,6.000000e-02:1,7.000000e-02:1,8.000000e-02:1,0.089999999999999996:1,1.000000e-01:1,1.100000e-01:1,1.200000e-01:1,1.300000e-01:1,1.400000e-01:1,1.500000e-01:1,1.600000e-01:1}>
+
+// CHECK-LABEL: @DequantizeAnyLayoutSupport
+func.func @DequantizeAnyLayoutSupport(%arg0: tensor<1x64x1x16xi2>) -> tensor<1x64x1x16xf16> {
+    %0 = IE.QuantizeCast(%arg0) {dstElemType = !qElemType} : tensor<1x64x1x16xi2> -> tensor<1x64x1x16x!qElemType>
+    %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x64x1x16x!qElemType> -> tensor<1x64x1x16xf16>
+    return %1 : tensor<1x64x1x16xf16>
+
+    //CHECK-NOT: IE.Reorder
+    //CHECK: IE.QuantizeCast
+    //CHECK: IE.Dequantize
+}

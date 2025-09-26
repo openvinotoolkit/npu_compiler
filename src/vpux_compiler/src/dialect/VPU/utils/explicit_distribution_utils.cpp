@@ -51,7 +51,7 @@ VPU::OverlapDistributionParams VPU::getExplicitOverlapParamsForSWOpInput(VPU::SW
         origInputsTileInfo = tilingBuilder.backInferTileInfo(origOutTile, Logger::global());
     }
 
-    const auto tiles = fillDividedTiles(Shape(numTiles), outShape, alignmentValue);
+    const auto tiles = fillDividedTiles(ShapeRef(numTiles), outShape, alignmentValue);
     VPUX_THROW_WHEN(mlir::failed(tiles), "Incorrect tiles at {0}", swOp.getLoc());
     const auto& outTiles = tiles.value();
 
@@ -374,7 +374,7 @@ VPU::DistributionInfo VPU::getExplicitDistrNativeForSliceLikeOps(
         return getDistribution(newMemoryShapes, distributionWithProperAlignment.getMemoryOffsets());
     }
 
-    const auto memoryShapes = VPU::getPerClusterMemoryShapes(Shape(sliceShape), distributionWithProperAlignment);
+    const auto memoryShapes = VPU::getPerClusterMemoryShapes(ShapeRef(sliceShape), distributionWithProperAlignment);
     VPUX_THROW_WHEN(
             !memoryShapes.has_value(),
             "Cannot compute memory shapes for the shape of Slice/Subview's output; shape = {0}, distribution ={1}",
@@ -382,7 +382,7 @@ VPU::DistributionInfo VPU::getExplicitDistrNativeForSliceLikeOps(
 
     auto perClusterShapes = arrayOfArrayFromShape(memoryShapes.value());
     auto perClusterOffsets = arrayOfArrayFromShape(
-            VPU::getPerClusterMemoryShapeOffsets(Shape(sliceShape), distributionWithProperAlignment));
+            VPU::getPerClusterMemoryShapeOffsets(ShapeRef(sliceShape), distributionWithProperAlignment));
 
     return getDistribution(perClusterShapes, perClusterOffsets);
 }

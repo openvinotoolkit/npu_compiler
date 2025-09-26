@@ -4,12 +4,14 @@
 //
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/shave.hpp"
+
+#include <vpu_cost_model.h>
 
 using namespace vpux;
 
@@ -121,7 +123,7 @@ vpux::VPURT::InferenceExecutionSimulator::InferenceExecutionSimulator(Logger log
 
     _supportsDedicatedActShaveQueues = VPU::isFifoPerShaveEngineEnabled(funcOp);
 
-    if (auto tileOp = IE::getTileExecutor(module)) {
+    if (auto tileOp = config::getTileExecutor(module)) {
         // In case of ActShave tasks on a single cluster compiler does not assign it to a dedicated engine instance
         // (unless dedicated FIFOs for each SHAVE engine are enabled) as it is dispatched only at inference based on
         // engine availability. Nevertheless simulator needs to know this to correctly model those queues and track

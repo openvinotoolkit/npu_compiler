@@ -411,11 +411,12 @@ template <class ConcreteOp>
 class FuseWithEltwiseConverter final : public mlir::OpRewritePattern<IE::QuantizeOp> {
 public:
     FuseWithEltwiseConverter(mlir::MLIRContext* ctx, const CheckPostOpFunctor& checkPostOp,
-                             FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type)> checkInputTypes,
-                             bool isPerAxesQuantSupported, Logger log)
+                             FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type, VPU::EltwiseType)> checkInputTypes,
+                             VPU::EltwiseType opType, bool isPerAxesQuantSupported, Logger log)
             : mlir::OpRewritePattern<IE::QuantizeOp>(ctx),
               _checkPostOp(checkPostOp),
               _checkInputTypes(checkInputTypes),
+              _opType(opType),
               _isPerAxesQuantSupported(isPerAxesQuantSupported),
               _log(log) {
         this->setDebugName("FuseWithEltwiseConverter");
@@ -426,7 +427,8 @@ public:
 
 private:
     const CheckPostOpFunctor _checkPostOp;
-    FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type)> _checkInputTypes;
+    FuncRef<mlir::LogicalResult(mlir::Type, mlir::Type, VPU::EltwiseType)> _checkInputTypes;
+    VPU::EltwiseType _opType;
     bool _isPerAxesQuantSupported;
     Logger _log;
 };
@@ -484,7 +486,7 @@ mlir::LogicalResult FuseWithEltwiseConverter<ConcreteOp>::matchAndRewrite(IE::Qu
 
     const auto input1Type = mlir::cast<vpux::NDTypeInterface>(input1DequantizeOp.getInput().getType()).getElementType();
     const auto input2Type = mlir::cast<vpux::NDTypeInterface>(input2DequantizeOp.getInput().getType()).getElementType();
-    if (mlir::failed(_checkInputTypes(input1Type, input2Type))) {
+    if (mlir::failed(_checkInputTypes(input1Type, input2Type, _opType))) {
         return mlir::failure();
     }
 

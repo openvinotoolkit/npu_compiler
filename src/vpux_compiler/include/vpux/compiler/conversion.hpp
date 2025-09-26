@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include "utils/options.hpp"
 #include "vpux/compiler/NPU40XX/dialect/ELF/dialect.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/dialect.hpp"
@@ -27,29 +26,25 @@
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
-#include <mlir/Dialect/Bufferization/IR/Bufferization.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlow.h>
-#include <mlir/Dialect/Index/IR/IndexDialect.h>
 #include <mlir/Dialect/LLVMIR/LLVMDialect.h>
 #include <mlir/Dialect/Linalg/IR/Linalg.h>
 #include <mlir/Dialect/Math/IR/Math.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
-#include <mlir/IR/BuiltinOps.h>
-
-#include <memory>
 
 namespace vpux {
-
-std::unique_ptr<mlir::Pass> createBufferizeIEPass(Logger log = Logger::global());
 
 //
 // LowerIE2VPU
 //
 
+std::unique_ptr<mlir::Pass> createConvertIEToVPUNCEPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertIEToVPUM2IPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertLayers2VPUPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertDynamicQuantToVPUNCEPass(Logger log = Logger::global());
+
+void buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 
 //
 // LowerVPU2VPUIP
@@ -67,6 +62,9 @@ std::unique_ptr<mlir::Pass> createInPlaceBufferizationAnalyzePass();
 std::unique_ptr<mlir::Pass> createAdjustDynamicOpsBeforeBufferizationPass();
 std::unique_ptr<mlir::Pass> createAddBuffersForNetResults(bool useMemrefForHostFunctionBufferization = false,
                                                           Logger log = Logger::global());
+
+void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBufferization,
+                                 bool useMemrefForHostFunctionBufferization, Logger log = Logger::global());
 
 //
 // ShaveCodeGen

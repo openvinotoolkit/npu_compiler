@@ -159,14 +159,22 @@ std::unique_ptr<mlir::Pass> createBatchMatMulToMatMulPass(Logger log = Logger::g
 // DMA Unrolling Pipeline
 //
 
+void buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollDMAAnalysisPass(Logger log = Logger::global());
-
+std::unique_ptr<mlir::Pass> createUnrollDepthToSpaceDMAPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollSpaceToDepthDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollUpsamplingDMAPass(Logger log = Logger::global());
-
+std::unique_ptr<mlir::Pass> createUnrollPermuteDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollExpandDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollPerAxisTileDMAPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createInvalidateUnrollDMAAnalysisPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createUnrollGatherDMAPass(Logger log = Logger::global());
+
+//
+// ShaveCodeGen Pipeline
+//
+
+void buildShaveCodeGenPipeline(mlir::OpPassManager& pm);
 
 //
 // DefaultHWOptions(for all devices)

@@ -139,7 +139,7 @@ where `strategy` is `IGreedilyPassStrategy` and it can be implemented in differe
 // 37XX
 void UnrollDistributedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns) {
     auto module = _func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     patterns.add<VPUIP::ClusterDMARewriter>(&_ctx, dmaPortCount, _log);
@@ -150,7 +150,7 @@ void UnrollDistributedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns
 // 40XX
 void UnrollDistributedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns) {
     auto module = _func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     patterns.add<VPUIP::ClusterDMARewriter>(&_ctx, dmaPortCount, _log);

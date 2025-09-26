@@ -191,7 +191,7 @@ vpux::MemStrides TensorNDTypeInterface::getMemStrides(mlir::Type type) const {
         auto shape = tensor.getShape();
         auto bounds = boundedType.getBounds();
         VPUX_THROW_UNLESS(bounds.size() == shape.size(), "Bounds and shape mismatch : {0} vs {1}", bounds, shape);
-        auto newTensor = vpux::getTensorType(Shape(bounds.raw()), tensor.getElementType(), order, getMemSpace(type),
+        auto newTensor = vpux::getTensorType(ShapeRef(bounds.raw()), tensor.getElementType(), order, getMemSpace(type),
                                              getBounds(type), getDynamicDimsMask(type));
         return StrideReqs::compact(order.numDims()).calcStrides(order, newTensor);
     }
@@ -336,28 +336,48 @@ vpux::NDTypeInterface TensorNDTypeInterface::changeTypeComponents(mlir::Type typ
     const auto elementType = typeComponents.elementType.value_or(getElementType(type));
     const auto dimsOrder = typeComponents.dimsOrder.value_or(getDimsOrder(type));
     const auto memSpace = typeComponents.memSpace.value_or(getMemSpace(type));
-    auto bounds = typeComponents.bounds.value_or(getBounds(type));
-    auto dynamicDimsMask = typeComponents.dynamicDimsMask.value_or(getDynamicDimsMask(type));
+    // Note: *Ref is OK since both branches return non-Refs with longer
+    // lifetime.
+    const BoundsRef bounds =
+            typeComponents.bounds.has_value() ? BoundsRef(typeComponents.bounds.value()) : getBounds(type);
+    const DynamicDimsMaskRef dynamicDimsMask = typeComponents.dynamicDimsMask.has_value()
+                                                       ? DynamicDimsMaskRef(typeComponents.dynamicDimsMask.value())
+                                                       : getDynamicDimsMask(type);
 
-    return vpux::getTensorType(shape, elementType, dimsOrder, memSpace, std::move(bounds), std::move(dynamicDimsMask));
+    return vpux::getTensorType(shape, elementType, dimsOrder, memSpace, bounds, dynamicDimsMask);
 }
 
 vpux::NDTypeInterface TensorNDTypeInterface::extractDenseTile(mlir::Type type, vpux::ShapeRef tileOffsets,
                                                               vpux::ShapeRef tileShape) const {
     VPUX_THROW_UNLESS(mlir::isa<mlir::RankedTensorType>(type),
                       "Only RankedTensorType is supported for 'extractDenseTile'. Got '{0}'", type);
-    auto elemType = getElementType(type);
-    if (const auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
-        elemType = tileScalesAndZP(perAxisQType, tileShape, tileOffsets);
-    }
 
-    const auto newType = vpux::getTensorType(tileShape, elemType, getDimsOrder(type), getMemSpace(type),
-                                             getBounds(type), getDynamicDimsMask(type));
+    return callOnShapeOf(type, [&](const auto& inShape) {
+        auto outShape = copyShape(inShape);
 
-    const auto loc = mlir::UnknownLoc::get(type.getContext());
-    VPUX_THROW_UNLESS(vpux::validateQuantElemType(loc, newType).succeeded(), "Got invalid ShapedType '{0}'", newType);
+        for (auto ind : irange(inShape.size())) {
+            const auto d = Dim(ind);
+            if (tileShape[d] != mlir::ShapedType::kDynamic) {
+                outShape[d] = tileShape[d];
+            }
+        }
 
-    return newType;
+        auto [outStaticShape, outBounds, outDimMask] = splitShapeAndRepresentation(outShape);
+
+        auto elemType = getElementType(type);
+        if (const auto perAxisQType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
+            elemType = tileScalesAndZP(perAxisQType, tileShape, tileOffsets);
+        }
+
+        const auto newType = vpux::getTensorType(outStaticShape, elemType, getDimsOrder(type), getMemSpace(type),
+                                                 outBounds, outDimMask);
+
+        const auto loc = mlir::UnknownLoc::get(type.getContext());
+        VPUX_THROW_UNLESS(vpux::validateQuantElemType(loc, newType).succeeded(), "Got invalid ShapedType '{0}'",
+                          newType);
+
+        return newType;
+    });
 }
 
 vpux::NDTypeInterface TensorNDTypeInterface::extractViewTile(mlir::Type /*type*/, vpux::ShapeRef /*tileOffsets*/,
@@ -714,10 +734,10 @@ vpux::NDTypeInterface MemRefNDTypeInterface::changeDimsOrder(mlir::Type type, vp
 vpux::NDTypeInterface MemRefNDTypeInterface::changeMemSpace(mlir::Type type, vpux::IndexedSymbolAttr memSpace) const {
     return llvm::TypeSwitch<mlir::Type, mlir::ShapedType>(type)
             .Case<mlir::MemRefType>([&](mlir::MemRefType) {
-                return vpux::getMemRefType(getShape(type), getElementType(type), getDimsOrder(type), memSpace,
-                                           getStrides(type), getSwizzlingSchemeAttr(type),
-                                           VPUIP::getSparsityCompressionAttr(type), getAllocSizeAttr(type),
-                                           getCompressionStateAttr(type));
+                const auto strides = getStrides(type);
+                return vpux::getMemRefType(getShape(type), getElementType(type), getDimsOrder(type), memSpace, strides,
+                                           getSwizzlingSchemeAttr(type), VPUIP::getSparsityCompressionAttr(type),
+                                           getAllocSizeAttr(type), getCompressionStateAttr(type));
             })
             .Case<mlir::UnrankedMemRefType>([&](mlir::UnrankedMemRefType) {
                 return mlir::UnrankedMemRefType::get(getElementType(type), memSpace);

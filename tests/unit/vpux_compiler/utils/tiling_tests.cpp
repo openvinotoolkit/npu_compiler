@@ -87,10 +87,10 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, NoAlignmentSingleAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 8, 8, 5}), Shape({0, 0, 0, 0}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 4}), Shape({0, 0, 0, 5}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 4}), Shape({0, 0, 0, 9}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 4}), Shape({0, 0, 0, 13}), Shape({1, 1, 1, 4})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 8, 8, 5}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 4}), ShapeRef({0, 0, 0, 5}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 4}), ShapeRef({0, 0, 0, 9}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 4}), ShapeRef({0, 0, 0, 13}), ShapeRef({1, 1, 1, 4})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -104,18 +104,18 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, NoAlignmentMultiAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 4, 3, 9}), Shape({0, 0, 0, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 0, 0, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 0, 3, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 0, 3, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 9}), Shape({0, 0, 6, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 8}), Shape({0, 0, 6, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 4, 0, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 4, 0, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 4, 3, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 4, 3, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 9}), Shape({0, 4, 6, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 8}), Shape({0, 4, 6, 9}), Shape({1, 2, 3, 2})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 0, 0, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 0, 3, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 0, 3, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 9}), ShapeRef({0, 0, 6, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 8}), ShapeRef({0, 0, 6, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 4, 0, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 4, 0, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 4, 3, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 4, 3, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 9}), ShapeRef({0, 4, 6, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 8}), ShapeRef({0, 4, 6, 9}), ShapeRef({1, 2, 3, 2})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -131,18 +131,18 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, DummyAlignmentMultiAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 4, 3, 9}), Shape({0, 0, 0, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 0, 0, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 0, 3, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 0, 3, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 9}), Shape({0, 0, 6, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 8}), Shape({0, 0, 6, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 4, 0, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 4, 0, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 9}), Shape({0, 4, 3, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 3, 8}), Shape({0, 4, 3, 9}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 9}), Shape({0, 4, 6, 0}), Shape({1, 2, 3, 2})},
-                                   TileInfo{Shape({1, 4, 2, 8}), Shape({0, 4, 6, 9}), Shape({1, 2, 3, 2})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 0, 0, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 0, 3, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 0, 3, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 9}), ShapeRef({0, 0, 6, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 8}), ShapeRef({0, 0, 6, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 4, 0, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 4, 0, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 9}), ShapeRef({0, 4, 3, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 3, 8}), ShapeRef({0, 4, 3, 9}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 9}), ShapeRef({0, 4, 6, 0}), ShapeRef({1, 2, 3, 2})},
+                                   TileInfo{ShapeRef({1, 4, 2, 8}), ShapeRef({0, 4, 6, 9}), ShapeRef({1, 2, 3, 2})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -158,10 +158,10 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, SingleAlignmentSingleAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 8, 8, 5}), Shape({0, 0, 0, 0}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 5}), Shape({0, 0, 0, 5}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 5}), Shape({0, 0, 0, 10}), Shape({1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 8, 8, 2}), Shape({0, 0, 0, 15}), Shape({1, 1, 1, 4})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 8, 8, 5}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 5}), ShapeRef({0, 0, 0, 5}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 5}), ShapeRef({0, 0, 0, 10}), ShapeRef({1, 1, 1, 4})},
+                                   TileInfo{ShapeRef({1, 8, 8, 2}), ShapeRef({0, 0, 0, 15}), ShapeRef({1, 1, 1, 4})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -177,30 +177,30 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, SingleAlignmentMultiAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 0, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 0, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 0, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 2}), Shape({0, 0, 0, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 3, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 3, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 0, 3, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 2}), Shape({0, 0, 3, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 0, 6, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 0, 6, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 0, 6, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 2}), Shape({0, 0, 6, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 0, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 0, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 0, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 2}), Shape({0, 4, 0, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 3, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 3, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 5}), Shape({0, 4, 3, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 3, 2}), Shape({0, 4, 3, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 4, 6, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 4, 6, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 5}), Shape({0, 4, 6, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 4, 2, 2}), Shape({0, 4, 6, 15}), Shape({1, 2, 3, 4})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 0, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 0, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 2}), ShapeRef({0, 0, 0, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 3, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 3, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 0, 3, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 2}), ShapeRef({0, 0, 3, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 0, 6, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 0, 6, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 0, 6, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 2}), ShapeRef({0, 0, 6, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 0, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 0, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 0, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 2}), ShapeRef({0, 4, 0, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 3, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 3, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 5}), ShapeRef({0, 4, 3, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 3, 2}), ShapeRef({0, 4, 3, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 4, 6, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 4, 6, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 5}), ShapeRef({0, 4, 6, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 4, 2, 2}), ShapeRef({0, 4, 6, 15}), ShapeRef({1, 2, 3, 4})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -216,30 +216,30 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, MultiAlignmentMultiAxisTiling) {
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
     const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 0, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 0, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 0, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 2}), Shape({0, 0, 0, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 3, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 3, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 5}), Shape({0, 0, 3, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 3, 2}), Shape({0, 0, 3, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 2, 5}), Shape({0, 0, 6, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 2, 5}), Shape({0, 0, 6, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 2, 5}), Shape({0, 0, 6, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 6, 2, 2}), Shape({0, 0, 6, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 0, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 0, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 0, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 2}), Shape({0, 6, 0, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 3, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 3, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 5}), Shape({0, 6, 3, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 3, 2}), Shape({0, 6, 3, 15}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 2, 5}), Shape({0, 6, 6, 0}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 2, 5}), Shape({0, 6, 6, 5}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 2, 5}), Shape({0, 6, 6, 10}), Shape({1, 2, 3, 4})},
-                                   TileInfo{Shape({1, 2, 2, 2}), Shape({0, 6, 6, 15}), Shape({1, 2, 3, 4})}});
+            SmallVector<TileInfo>({TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 0, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 0, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 0, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 2}), ShapeRef({0, 0, 0, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 3, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 3, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 5}), ShapeRef({0, 0, 3, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 3, 2}), ShapeRef({0, 0, 3, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 2, 5}), ShapeRef({0, 0, 6, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 2, 5}), ShapeRef({0, 0, 6, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 2, 5}), ShapeRef({0, 0, 6, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 6, 2, 2}), ShapeRef({0, 0, 6, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 0, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 0, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 0, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 2}), ShapeRef({0, 6, 0, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 3, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 3, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 5}), ShapeRef({0, 6, 3, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 3, 2}), ShapeRef({0, 6, 3, 15}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 2, 5}), ShapeRef({0, 6, 6, 0}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 2, 5}), ShapeRef({0, 6, 6, 5}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 2, 5}), ShapeRef({0, 6, 6, 10}), ShapeRef({1, 2, 3, 4})},
+                                   TileInfo{ShapeRef({1, 2, 2, 2}), ShapeRef({0, 6, 6, 15}), ShapeRef({1, 2, 3, 4})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));
@@ -252,11 +252,11 @@ TEST_F(MLIR_TilingTest_FillDividedTiles, NoAlignmentSingleAxisTiling5D) {
     const auto dividedTiles = fillDividedTiles(divisor, shape, std::nullopt);
     ASSERT_NE(mlir::failed(dividedTiles), true);
 
-    const auto expectedTiles =
-            SmallVector<TileInfo>({TileInfo{Shape({1, 1, 8, 8, 5}), Shape({0, 0, 0, 0, 0}), Shape({1, 1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 1, 8, 8, 4}), Shape({0, 0, 0, 0, 5}), Shape({1, 1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 1, 8, 8, 4}), Shape({0, 0, 0, 0, 9}), Shape({1, 1, 1, 1, 4})},
-                                   TileInfo{Shape({1, 1, 8, 8, 4}), Shape({0, 0, 0, 0, 13}), Shape({1, 1, 1, 1, 4})}});
+    const auto expectedTiles = SmallVector<TileInfo>(
+            {TileInfo{ShapeRef({1, 1, 8, 8, 5}), ShapeRef({0, 0, 0, 0, 0}), ShapeRef({1, 1, 1, 1, 4})},
+             TileInfo{ShapeRef({1, 1, 8, 8, 4}), ShapeRef({0, 0, 0, 0, 5}), ShapeRef({1, 1, 1, 1, 4})},
+             TileInfo{ShapeRef({1, 1, 8, 8, 4}), ShapeRef({0, 0, 0, 0, 9}), ShapeRef({1, 1, 1, 1, 4})},
+             TileInfo{ShapeRef({1, 1, 8, 8, 4}), ShapeRef({0, 0, 0, 0, 13}), ShapeRef({1, 1, 1, 1, 4})}});
 
     for (auto tileInfo : zip(dividedTiles.value(), expectedTiles)) {
         EXPECT_EQ(std::get<0>(tileInfo), std::get<1>(tileInfo));

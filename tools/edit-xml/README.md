@@ -22,7 +22,10 @@ The tool has the following command line arguments:
 * `-l <name of the layer>` - name of the layer which is supposed to be the output
 * `-tw` - trims the .bin to the smallest contiguous section still in use after the network is cut (optional)
 * `--overwrite` - overwrites the existing .bin file even if it has the expected size (optional)
+* `-o <output path for IR cut>` - output path where the result of the tool execution is placed (optional)
 
+> Note: in general, consult with the tool's help to better understand which
+> options are available.
 
 ## Example
 

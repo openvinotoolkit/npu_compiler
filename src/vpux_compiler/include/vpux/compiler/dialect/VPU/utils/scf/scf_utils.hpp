@@ -90,8 +90,8 @@ SCFTileInfo getWeightsTableSCFTile(mlir::Type origWeightsTableType, mlir::OpBuil
 */
 std::pair<std::optional<mlir::Range>, std::optional<int64_t>> solutionForOutputRange(
         mlir::Location loc, mlir::OpBuilder& builder, const SCFTileInfo& outputTile, Dim dim, const int64_t kernel,
-        const int64_t stride, const int64_t origInputSize, const std::pair<int64_t, int64_t>& origPadding,
-        mlir::OpFoldResult& padBefore, mlir::OpFoldResult& padAfter);
+        const int64_t stride, const int64_t origInputSize, const int64_t origOutputSize,
+        const std::pair<int64_t, int64_t>& origPadding, mlir::OpFoldResult& padBefore, mlir::OpFoldResult& padAfter);
 
 /** @brief Generate slice based on tiling information
 
@@ -141,7 +141,7 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     auto paddingValue = builder.create<mlir::arith::ConstantOp>(loc, builder.getZeroAttr(tiledType.getElementType()));
     auto adjustedBounds = Bounds();
     if (auto boundedType = mlir::dyn_cast<vpux::Core::BoundedTensorType>(tiledType)) {
-        adjustedBounds = boundedType.getBounds();
+        adjustedBounds = boundedType.getBounds().toValues();
     }
 
     SmallVector<mlir::OpFoldResult> lows(tiledType.getRank(), builder.getIndexAttr(0));
@@ -190,7 +190,7 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
                 outputShape[staticDim.index()] = mlir::ShapedType::kDynamic;
             }
         }
-        outputType = outputType.changeShape(Shape(outputShape));
+        outputType = outputType.changeShape(ShapeRef(outputShape));
         generatedOp->getResult(0).setType(outputType);
         return generatedOp;
     };
@@ -228,5 +228,62 @@ void correctPaddedOutput(mlir::OpBuilder& builder, ConcreteOp operation, SmallVe
     To be extended to more complex checks
 */
 bool checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate);
+
+/** @brief Checks if an operation is an NCE operation with padding attribute
+ *
+ *  This function verifies if the given operation is an NCE operation
+ *  that supports the MLIR tiling interface and has a padding attribute defined.
+ *
+ *  @param op The operation to check
+ *  @return true if the operation is an NCE operation with pad attribute, false otherwise
+ */
+bool isNceOpWithPadAttr(mlir::Operation* op);
+
+llvm::SmallVector<mlir::Operation*> collectOpsInTopologicalOrder(
+        llvm::ArrayRef<mlir::Operation*> startNodes,
+        llvm::function_ref<llvm::SmallSetVector<mlir::Operation*, 16>(mlir::Operation*)> getNeighbors,
+        llvm::function_ref<bool(mlir::Operation*)> stopCheckFn);
+
+/**
+ * @brief Utility class for analyzing and processing affine operation chains in MLIR
+ *
+ * The AffineChainUtils class provides functionality to collect, and evaluate
+ * chains of affine operations in MLIR. It helps with tracking dependencies between
+ * affine operations and computing values from OpFoldResult objects within the context
+ * of affine transformations.
+ *
+ * Key features:
+ * - Collects chains of related affine operations from a given value
+ * - Evaluates OpFoldResult values with optional bounded shape considerations
+ * - Caches affine operation chains for performance optimization
+ * - Provides utilities for extracting affine maps and operands from operations
+ *
+ */
+class AffineChainUtils {
+public:
+    explicit AffineChainUtils(Logger log = Logger::global().nest("affine-utils"));
+
+    llvm::SmallSetVector<mlir::Operation*, 4> collectAffineOpsChain(mlir::Value val);
+
+    /**
+     * @brief Get the value from an OpFoldResult
+     * @param val The OpFoldResult to process
+     * @param valueMap Map of values to their possible ranges
+     * @return The computed value, or nullopt if processing failed
+     */
+    std::optional<int64_t> getOpFoldResultValue(mlir::OpFoldResult val,
+                                                llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap);
+
+private:
+    std::pair<mlir::AffineMap, mlir::ValueRange> getAffineMapAndOperands(mlir::Operation* op);
+    int64_t getAffineResult(mlir::Operation* op, llvm::ArrayRef<int64_t> results);
+    void updateChainCache(mlir::Value val, const llvm::SmallSetVector<mlir::Operation*, 4>& chain) const;
+    std::optional<int64_t> getIntegerFromValue(mlir::Value value);
+    std::optional<int64_t> processAffineCallChain(mlir::Value val,
+                                                  llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap);
+
+    mutable llvm::DenseMap<mlir::Value, llvm::SmallSetVector<mlir::Operation*, 4>> _chainCache;
+    Logger _log;
+};
 
 }  // namespace vpux::VPU

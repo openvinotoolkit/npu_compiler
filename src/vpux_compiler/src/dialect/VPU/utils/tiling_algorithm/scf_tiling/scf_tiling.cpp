@@ -9,16 +9,21 @@
 #endif
 
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/scf_tiling/scf_tiling.hpp"
+
+#include "vpux/compiler/dialect/VPU/utils/reorder_ir_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/merge_vf_region_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 #include "mlir/Dialect/Affine/Utils.h"
 #include "mlir/Dialect/SCF/Transforms/TileUsingInterface.h"
+#include "mlir/IR/BuiltinTypeInterfaces.h"
 #include "mlir/IR/Dominance.h"
+
+#include <deque>
 
 using namespace vpux;
 
@@ -31,7 +36,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::staticTileSizeComputation(mlir::OpBui
         return {};
     }
 
-    auto tilingDims = getTilingOrderedDims(operation, strategy);
+    auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
     std::unordered_map<Dim, int64_t> sizes;
 
     for (auto& tile : tiles.value()) {
@@ -54,17 +59,18 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::staticTileSizeComputation(mlir::OpBui
 
 SmallVector<mlir::OpFoldResult> vpux::VPU::dynamicTileSizeComputation(mlir::OpBuilder& builder,
                                                                       mlir::Operation* operation, ShapeRef strategy) {
-    auto tilingDims = getTilingOrderedDims(operation, strategy);
     auto outputType = mlir::cast<mlir::ShapedType>(operation->getResult(0).getType());
 
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(outputType)) {
         auto bounds = to_small_vector(boundedType.getBounds());
-        return staticTileSizeComputation(builder, operation, strategy, Shape(bounds));
+        return staticTileSizeComputation(builder, operation, strategy, ShapeRef(bounds));
     }
 
     auto outputShape = outputType.getShape();
 
     SmallVector<mlir::OpFoldResult> tileSizes;
+
+    auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
     tileSizes.reserve(tilingDims.size());
 
     for (auto tileDim : tilingDims) {
@@ -74,7 +80,7 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::dynamicTileSizeComputation(mlir::OpBu
 
         auto shapeValue = getDimValue(builder, operation, tileDim.ind());
 
-        auto optAlignment = vpux::getAlignment(operation, strategy, Shape(outputShape));
+        auto optAlignment = vpux::getAlignment(operation, strategy, ShapeRef(outputShape));
         const auto divisor = strategy[tileDim];
         const auto alignment = optAlignment.has_value() ? optAlignment.value()[tileDim.ind()] : 1;
 
@@ -169,7 +175,8 @@ static std::tuple<mlir::OpResult, std::optional<mlir::OpOperand*>> getUntiledPro
 
 /// Implementation of tile consumer and fuse producer greedily.
 mlir::FailureOr<mlir::scf::SCFTileAndFuseResult> tileConsumerAndFuseProducers(
-        mlir::RewriterBase& rewriter, mlir::TilingInterface consumer, const mlir::scf::SCFTileAndFuseOptions& options) {
+        mlir::RewriterBase& rewriter, mlir::TilingInterface consumer, const mlir::scf::SCFTileAndFuseOptions& options,
+        std::unordered_map<mlir::Operation*, mlir::Value>& tiledOpsLink) {
     // This transformation is only valid for ops that return values (i.e. not
     // valid to use with operations that have memref operands).
     if (!consumer->getNumResults()) {
@@ -253,6 +260,7 @@ mlir::FailureOr<mlir::scf::SCFTileAndFuseResult> tileConsumerAndFuseProducers(
         if (mlir::Operation* tiledAndFusedOp = fusedResult->tiledAndFusedProducer.getDefiningOp()) {
             fusedProducers.insert(fusedResult->origProducer.getDefiningOp());
             tiledAndFusedOps.insert(tiledAndFusedOp);
+            tiledOpsLink[fusedResult->origProducer.getDefiningOp()] = fusedResult->tiledAndFusedProducer;
             addCandidateSlices(tiledAndFusedOp, candidates);
         }
     }
@@ -289,6 +297,68 @@ llvm::SetVector<mlir::Operation*> collectTiledAndFusedOps(mlir::Operation* op) {
     return producers;
 }
 
+VPU::VF::v2::VFSplit getVFSplit(vpux::NDTypeInterface outputType, mlir::Operation* outputOperation,
+                                DimArrRef allowedDims, VPU::VF::v2::VFConfig& config) {
+    auto shapeType = mlir::cast<mlir::ShapedType>(outputType);
+    if (!shapeType.hasStaticShape()) {
+        VPU::VF::v2::VFSplit vfSplit;
+        auto countDynDims = shapeType.getNumDynamicDims();
+        // allowedDims to memoryOrder
+        auto outputOrder = outputType.getDimsOrder();
+        auto allowedDimsInMemoryOrder = allowedDims.vec();
+        llvm::sort(allowedDimsInMemoryOrder, [&](const Dim& d1, const Dim& d2) {
+            return outputOrder.dimPos(d1) < outputOrder.dimPos(d2);
+        });
+        for (auto dim : allowedDimsInMemoryOrder) {
+            if (!shapeType.isDynamicDim(dim.ind())) {
+                continue;
+            }
+
+            VPUX_THROW_WHEN(dim == Dims4D::Act::C, "Dynamic channels are not supported");
+            if (countDynDims == 1) {
+                vfSplit[dim] = std::nullopt;
+                break;
+            }
+
+            vfSplit[dim] = vpux::VPU::getTilingLimit(dim, config.getVFOperations().getArrayRef(), true);
+            --countDynDims;
+        }
+
+        return vfSplit;
+    }
+
+    VPU::SiblingOpsAnalysis siblingAnalisys(outputOperation);
+    auto outputShape = outputType.getShape().toValues();
+    if (auto clusterOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(outputOperation)) {
+        if (clusterOp.getMultiClusterStrategy().has_value()) {
+            outputType = clusterOp.getDistributedTypeForOpResult(
+                    outputOperation->getResult(0), clusterOp.getMultiClusterStrategy().value(), siblingAnalisys, false);
+
+            auto distribution = VPU::DistributionInfo::getClassFromAttr(
+                    mlir::cast<VPU::DistributedTensorType>(outputType).getDistribution());
+            if (distribution.getMemoryShapes().empty()) {
+                auto optMemoryShapes = VPU::getPerClusterMemoryShapes(outputShape, distribution);
+                if (optMemoryShapes.has_value()) {
+                    outputShape = Shape(optMemoryShapes.value().front());
+                }
+            } else {
+                outputShape = Shape(distribution.getMemoryShapes().front());
+            }
+        }
+    }
+
+    const auto compareDims = [&](auto dimLeft, auto dimRight) {
+        return outputShape[dimLeft] < outputShape[dimRight];
+    };
+    auto maxDim = std::max_element(allowedDims.begin(), allowedDims.end(), compareDims);
+
+    if (maxDim == allowedDims.end()) {
+        return {};
+    }
+
+    return {{*maxDim, std::nullopt}};
+}
+
 mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion(mlir::Operation* operation,
                                                                                  mlir::RewriterBase& builder,
                                                                                  Logger log) {
@@ -298,10 +368,8 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
 
     auto tilingInterfaceOp = mlir::cast<mlir::TilingInterface>(operation);
 
-    const auto strategy =
-            Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
+    const auto strategy = operation->getAttr(tilingStrategy);
     mlir::scf::SCFTilingOptions tilingOptions;
-    VPU::SiblingOpsAnalysis siblingAnalisys(operation);
 
     // calculate tile size based on VF restrictions
     auto allOpsToFuse = collectTiledAndFusedOps(operation);
@@ -311,6 +379,59 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
     }
 
     VF::v2::VFConfig config(allOpsToFuse);
+    DimArr allowedDims = getAllowedDims(allOpsToFuse.getArrayRef(), log);
+    if (allowedDims.empty()) {
+        return mlir::failure();
+    }
+
+    auto outputs = config.getOutputs();
+    if (outputs.empty()) {
+        return mlir::failure();
+    }
+
+    auto* lastOp = outputs.back();
+    auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
+
+    auto vfSplit = getVFSplit(outputType, lastOp, allowedDims, config);
+    if (vfSplit.empty()) {
+        return mlir::failure();
+    }
+    VPU::VF::v2::VFCase bestVFCase(config, vfSplit);
+    const auto getMinTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) {
+        if (split.size() > 1) {
+            return MINIMUM_LENGTH_TILING;
+        }
+
+        const auto getDimValue = [&dim](auto* oper) -> int64_t {
+            return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(
+                                                           oper->getAttr(tilingStrategy))))[dim]
+                                                 : 1;
+        };
+
+        std::set<int64_t> minTilesSet;
+        llvm::copy(config.getVFOperations() | transformed(getDimValue), std::inserter(minTilesSet, minTilesSet.end()));
+        return *minTilesSet.rbegin();
+    };
+    const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
+        if (mlir::ShapedType::isDynamic(outputType.getShape()[dim])) {
+            return mlir::ShapedType::kDynamic;
+        }
+        auto maxTiles = getTilingLimit(dim, config.getVFOperations().getArrayRef());
+        if (split.size() > 1) {
+            // 2D tiling
+            auto otherDimSum = VPU::VF::v2::getVFTilesLen(split);
+            maxTiles = divUp(maxTiles, otherDimSum);
+        }
+        return maxTiles;
+    };
+
+    bestVFCase = VPU::VF::v2::getVFCaseWithTiling(config, vfSplit.rbegin()->first, vfSplit, getMinTiles, getMaxTiles,
+                                                  log, VPU::VF::v2::getSchedulingScenarios(config, log));
+
+    if (!bestVFCase.isInitialized()) {
+        return mlir::failure();
+    }
+    operation->setAttr(tilingStrategy, bestVFCase.getTiling());
 
     // calculate tile size for VF:
     // 1. allOpsToFuse contains operations to build VF
@@ -320,80 +441,9 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
     // 5. calculate tile size based on computed tiling number
     const auto vfTileSizeComputationFn = [&](mlir::OpBuilder& builder,
                                              mlir::Operation* operation) -> SmallVector<mlir::OpFoldResult> {
-        DimArr allowedDims = getAllowedDims(allOpsToFuse.getArrayRef(), log);
-        if (allowedDims.empty()) {
-            return {};
-        }
-
-        auto outputs = config.getOutputs();
-        if (outputs.empty()) {
-            return {};
-        }
-
-        auto* lastOp = outputs.back();
-        auto outputType = mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType());
-        Shape outputShape = outputType.getShape().toValues();
-        if (auto clusterOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(lastOp)) {
-            if (clusterOp.getMultiClusterStrategy().has_value()) {
-                outputType = clusterOp.getDistributedTypeForOpResult(
-                        lastOp->getResult(0), clusterOp.getMultiClusterStrategy().value(), siblingAnalisys, false);
-
-                auto distribution = VPU::DistributionInfo::getClassFromAttr(
-                        mlir::cast<VPU::DistributedTensorType>(outputType).getDistribution());
-                if (distribution.getMemoryShapes().empty()) {
-                    auto optMemoryShapes = VPU::getPerClusterMemoryShapes(outputShape, distribution);
-                    if (optMemoryShapes.has_value()) {
-                        outputShape = Shape(optMemoryShapes.value().front());
-                    }
-                } else {
-                    outputShape = Shape(distribution.getMemoryShapes().front());
-                }
-            }
-        }
-
-        const auto compareDims = [&](auto dimLeft, auto dimRight) {
-            if (outputShape[dimLeft] < 0) {
-                return false;
-            }
-
-            if (outputShape[dimRight] < 0) {
-                return true;
-            }
-
-            return outputShape[dimLeft] < outputShape[dimRight];
-        };
-        auto maxDim = std::max_element(allowedDims.begin(), allowedDims.end(), compareDims);
-
-        if (maxDim == allowedDims.end()) {
-            return {};
-        }
-
-        const auto getMinTiles = [&](auto dim, const VPU::VF::v2::VFSplit&) {
-            const auto getDimValue = [&dim](auto* oper) -> int64_t {
-                return oper->hasAttr(tilingStrategy) ? Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(
-                                                               oper->getAttr(tilingStrategy))))[dim]
-                                                     : 1;
-            };
-
-            std::set<int64_t> minTilesSet;
-            llvm::copy(config.getVFOperations() | transformed(getDimValue),
-                       std::inserter(minTilesSet, minTilesSet.end()));
-            return *minTilesSet.rbegin();
-        };
-        const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit&) {
-            return getTilingLimit(dim, config.getVFOperations().getArrayRef());
-        };
-
-        auto bestVFCase = VPU::VF::v2::getVFCaseWithTiling(config, *maxDim, {}, getMinTiles, getMaxTiles, log,
-                                                           VPU::VF::v2::getSchedulingScenarios(config, log));
-
-        if (!bestVFCase.isInitialized()) {
-            return {};
-        }
-
         auto strategy = Shape(parseIntArrayAttr<int64_t>(bestVFCase.getTiling()));
 
-        if (outputType.getShape().isStatic()) {
+        if (mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType()).getShape().isStatic()) {
             return staticTileSizeComputation(builder, operation, strategy, getShape(operation->getResult(0)));
         }
 
@@ -405,17 +455,38 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
     mlir::scf::SCFTileAndFuseOptions tilingAndFuseOptions;
     tilingAndFuseOptions.setTilingOptions(std::move(tilingOptions));
 
-    mlir::scf::SCFTileAndFuseOptions::ControlFnTy controlFn = [&](mlir::tensor::ExtractSliceOp,
+    // linked original ops to fused result operations
+    std::unordered_map<mlir::Operation*, mlir::Value> tiledOpsLink;
+    // check if VF has loop to substitute slice with existing operation
+    bool hasVFLoop = false;
+
+    mlir::scf::SCFTileAndFuseOptions::ControlFnTy controlFn = [&](mlir::tensor::ExtractSliceOp sliceOp,
                                                                   mlir::OpResult originalProducer, bool) {
-        return std::make_tuple(allOpsToFuse.contains(originalProducer.getOwner()), false);
+        auto isFusable = allOpsToFuse.contains(originalProducer.getOwner());
+        if (isFusable) {
+            if (tiledOpsLink.count(originalProducer.getOwner()) > 0) {
+                mlir::OpBuilder::InsertionGuard g(builder);
+                builder.setInsertionPoint(sliceOp);
+                // substitute with existing operation
+                auto tiledValue = tiledOpsLink[originalProducer.getOwner()];
+                builder.replaceAllUsesWith(sliceOp->getResults(), tiledValue);
+                builder.eraseOp(sliceOp);
+                hasVFLoop = true;
+
+                return std::make_tuple(false, false);
+            }
+            originalProducer.getOwner()->setAttr(tilingStrategy, bestVFCase.getTiling());
+        }
+        return std::make_tuple(isFusable, false);
     };
     tilingAndFuseOptions.setFusionControlFn(std::move(controlFn));
 
     builder.setInsertionPoint(operation);
-    auto tiledResults = tileConsumerAndFuseProducers(builder, tilingInterfaceOp, tilingAndFuseOptions);
+    auto tiledResults = tileConsumerAndFuseProducers(builder, tilingInterfaceOp, tilingAndFuseOptions, tiledOpsLink);
 
     if (mlir::failed(tiledResults) || tiledResults->replacements.empty() || tiledResults->loops.empty() ||
         tiledResults->fusedProducers.empty()) {
+        operation->setAttr(tilingStrategy, strategy);
         return mlir::failure();
     }
 
@@ -460,6 +531,18 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
                         auto argIndex = blockArg.getArgNumber() - loop.getNumInductionVars();
                         loop.getInitArgs()[argIndex].setType(operand.getType());
                     }
+                    if (hasVFLoop) {
+                        // reorder operations in the loop body to ensure that operation in the loop
+                        // is in order after resolving circle dependencies
+                        vpux::VPU::reorderOperations(to_small_vector(loop.getBody()->without_terminator() |
+                                                                     transformed([](mlir::Operation& op) {
+                                                                         return &op;
+                                                                     })));
+                    }
+
+                } else {
+                    // outer loop has no insertSlice op, modify init args by setting order to the last one
+                    loop.getInitArgs().back().setType(operand.getType());
                 }
             });
         }

@@ -511,3 +511,37 @@ func.func @SwapWithAbs(%arg0 : tensor<1x24x16x1xf32>) -> tensor<1x1x16x24xf32> {
     // CHECK: [[TRANSPOSE:%.+]] = IE.Transpose([[LAYER]]) {order_value = #NWHC} : tensor<1x24x16x1xf32> -> tensor<1x1x16x24xf32>
     // CHECK: return [[TRANSPOSE]] : tensor<1x1x16x24xf32>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SwapWithFixedOrderSlice
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x192x9x16xf16>
+func.func @SwapWithFixedOrderSlice(%arg0 : tensor<1x192x9x16xf16>) -> tensor<1x9x16x3xf16> {
+    %cst = const.Declare tensor<1439x192x1x1xf16> = dense<1.0> : tensor<1439x192x1x1xf16>
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x192x9x16xf16>, tensor<1439x192x1x1xf16> -> tensor<1x1439x9x16xf16>
+    %1 = IE.Transpose(%0) {order_value = #NHWC} : tensor<1x1439x9x16xf16> -> tensor<1x9x16x1439xf16>
+    %2 = IE.Slice %1 [0, 0, 0, 0] [1, 9, 16, 1] : tensor<1x9x16x1439xf16> to tensor<1x9x16x1xf16>
+    %3 = IE.Sigmoid(%2) : tensor<1x9x16x1xf16> -> tensor<1x9x16x1xf16>
+    %4 = IE.Slice %1 [0, 0, 0, 1] [1, 9, 16, 1] : tensor<1x9x16x1439xf16> to tensor<1x9x16x1xf16>
+    %5 = IE.Slice %1 [0, 0, 0, 2] [1, 9, 16, 1] : tensor<1x9x16x1439xf16> to tensor<1x9x16x1xf16>
+    %6 = IE.Sigmoid(%5) : tensor<1x9x16x1xf16> -> tensor<1x9x16x1xf16>
+    %7 = IE.Concat(%3, %4, %6) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 2]]} : tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16> -> tensor<1x9x16x3xf16>
+
+    return %7 : tensor<1x9x16x3xf16>
+
+    // CHECK:  [[CONV:%.+]] = IE.Convolution
+    // CHECK:  [[SLICE_0:%.+]] = IE.Slice [[CONV]] [0, 2, 0, 0] [1, 1, 9, 16] : tensor<1x1439x9x16xf16> to tensor<1x1x9x16xf16>
+    // CHECK:  [[SLICE_1:%.+]] = IE.Slice [[CONV]] [0, 1, 0, 0] [1, 1, 9, 16] : tensor<1x1439x9x16xf16> to tensor<1x1x9x16xf16>
+    // CHECK:  [[TRANSPOSE_0:%.+]] = IE.Transpose([[SLICE_1]]) {order_value = #NHWC} : tensor<1x1x9x16xf16> -> tensor<1x9x16x1xf16>
+    // CHECK:  [[SLICE_2:%.+]] = IE.Slice [[CONV]] [0, 0, 0, 0] [1, 1, 9, 16] : tensor<1x1439x9x16xf16> to tensor<1x1x9x16xf16>
+    // CHECK:  [[SIGMOID_0:%.+]] = IE.Sigmoid([[SLICE_2]]) : tensor<1x1x9x16xf16> -> tensor<1x1x9x16xf16>
+    // CHECK:  [[TRANSPOSE_1:%.+]] = IE.Transpose([[SIGMOID_0]]) {order_value = #NHWC} : tensor<1x1x9x16xf16> -> tensor<1x9x16x1xf16>
+    // CHECK:  [[SIGMOID_1:%.+]] = IE.Sigmoid([[SLICE_0]]) : tensor<1x1x9x16xf16> -> tensor<1x1x9x16xf16>
+    // CHECK:  [[TRANSPOSE_2:%.+]] = IE.Transpose([[SIGMOID_1]]) {order_value = #NHWC} : tensor<1x1x9x16xf16> -> tensor<1x9x16x1xf16>
+    // CHECK:  [[CONCAT:%.+]] = IE.Concat([[TRANSPOSE_1]], [[TRANSPOSE_0]], [[TRANSPOSE_2]])
+    // CHECK-SAME{LITERAL}:    {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 1], [0, 0, 0, 2]]} : tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16>, tensor<1x9x16x1xf16> -> tensor<1x9x16x3xf16>
+
+    // CHECK: return [[CONCAT]] : tensor<1x9x16x3xf16>
+}

@@ -143,3 +143,69 @@ func.func @RMSNorm(%arg0: tensor<1x32x6xf16>) -> tensor<1x32x6xf16> {
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 32, 6]} : tensor<1x1x32x6xf16> -> tensor<1x32x6xf16>
     // CHECK:           return [[RESHAPE_OUT]] : tensor<1x32x6xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @DynamicGelu1DTo4D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = #C}>
+func.func @DynamicGelu1DTo4D(%arg0: tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}>) -> tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}> {
+    %cst = const.Declare tensor<4xsi32> = dense<[1, 1, 1, -1]> : tensor<4xsi32>
+    %0 = IE.DynamicReshape(%arg0, %cst) {output_bounds = [1, 1, 1, 256], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}>, tensor<4xsi32> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %1 = IE.Gelu(%0) : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %cst_0 = const.Declare tensor<1xsi32> = dense<-1> : tensor<1xsi32>
+    %2 = IE.DynamicReshape(%1, %cst_0) {output_bounds = [256], output_shape = [-9223372036854775808]} : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>, tensor<1xsi32> -> tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}>
+    return %2 : tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = affine_map<(d0) -> (d0)>}>
+
+    // CHECK-DAG:   [[SHAPE_TO_4D:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 1, 1, -1]> : tensor<4xsi32>
+    // CHECK-DAG:   [[SHAPE_TO_1D:%.+]] = const.Declare tensor<1xsi32> = dense<-1> : tensor<1xsi32>
+
+    // CHECK:       [[RESHAPE_TO_4D:%.+]] = IE.DynamicReshape([[INPUT]], [[SHAPE_TO_4D]]) {output_bounds = [1, 1, 1, 256], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = #C}>, tensor<4xsi32> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[RESHAPE_TO_4D]]) : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[RESHAPE_TO_1D:%.+]] = IE.DynamicReshape([[GELU]], [[SHAPE_TO_1D]]) {output_bounds = [256], output_shape = [-9223372036854775808]} : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 256]> : tensor<4xsi64>, order = #NCHW}>, tensor<1xsi32> -> tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = #C}>
+
+    // CHECK:       return [[RESHAPE_TO_1D]] : tensor<?xf16, {bounds = #const.OpaqueI64Elements<[256]> : tensor<1xsi64>, order = #C}>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicGelu2DTo4D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = #NC}>
+func.func @DynamicGelu2DTo4D(%arg0: tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = affine_map<(d0, d1) -> (d0, d1)>}>) -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = affine_map<(d0, d1) -> (d0, d1)>}> {
+    %cst = const.Declare tensor<4xsi32> = dense<[1, 1, 1, -1]> : tensor<4xsi32>
+    %0 = IE.DynamicReshape(%arg0, %cst) {output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = affine_map<(d0, d1) -> (d0, d1)>}>, tensor<4xsi32> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %1 = IE.Gelu(%0) : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %cst_0 = const.Declare tensor<2xsi32> = dense<[1, -1]> : tensor<2xsi32>
+    %2 = IE.DynamicReshape(%1, %cst_0) {output_bounds = [1, 64], output_shape = [1, -9223372036854775808]} : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>, tensor<2xsi32> -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = affine_map<(d0, d1) -> (d0, d1)>}>
+    return %2 : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = affine_map<(d0, d1) -> (d0, d1)>}>
+
+    // CHECK-DAG:   [[SHAPE_TO_4D:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 1, 1, -1]> : tensor<4xsi32>
+    // CHECK-DAG:   [[SHAPE_TO_2D:%.+]] = const.Declare tensor<2xsi32> = dense<[1, -1]> : tensor<2xsi32>
+
+    // CHECK:       [[RESHAPE_TO_4D:%.+]] = IE.DynamicReshape([[INPUT]], [[SHAPE_TO_4D]]) {output_bounds = [1, 1, 1, 64], output_shape = [1, 1, 1, -9223372036854775808]} : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = #NC}>, tensor<4xsi32> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[RESHAPE_TO_4D]]) : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[RESHAPE_TO_2D:%.+]] = IE.DynamicReshape([[GELU]], [[SHAPE_TO_2D]]) {output_bounds = [1, 64], output_shape = [1, -9223372036854775808]} : tensor<1x1x1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<2xsi32> -> tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = #NC}>
+
+    // CHECK:       return [[RESHAPE_TO_2D]] : tensor<1x?xf16, {bounds = #const.OpaqueI64Elements<[1, 64]> : tensor<2xsi64>, order = #NC}>
+}
+
+// -----
+
+// CHECK-LABEL: @DynamicGelu3DTo4D
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = #CHW}>
+func.func @DynamicGelu3DTo4D(%arg0: tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>) -> tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}> {
+    %cst = const.Declare tensor<4xsi32> = dense<[1, 1, -1, 3072]> : tensor<4xsi32>
+    %0 = IE.DynamicReshape(%arg0, %cst) {output_bounds = [1, 1, 8, 3072], output_shape = [1, 1, -9223372036854775808, 3072]} : tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>, tensor<4xsi32> -> tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %1 = IE.Gelu(%0) : tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}> -> tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>
+    %cst_0 = const.Declare tensor<3xsi32> = dense<[1, -1, 3072]> : tensor<3xsi32>
+    %2 = IE.DynamicReshape(%1, %cst_0) {output_bounds = [1, 8, 3072], output_shape = [1, -9223372036854775808, 3072]} : tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>}>, tensor<3xsi32> -> tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+    return %2 : tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+
+    // CHECK-DAG:   [[SHAPE_TO_4D:%.+]] = const.Declare tensor<4xsi32> = dense<[1, 1, -1, 3072]> : tensor<4xsi32>
+    // CHECK-DAG:   [[SHAPE_TO_3D:%.+]] = const.Declare tensor<3xsi32> = dense<[1, -1, 3072]> : tensor<3xsi32>
+
+    // CHECK:       [[RESHAPE_TO_4D:%.+]] = IE.DynamicReshape([[INPUT]], [[SHAPE_TO_4D]]) {output_bounds = [1, 1, 8, 3072], output_shape = [1, 1, -9223372036854775808, 3072]} : tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = #CHW}>, tensor<4xsi32> -> tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[GELU:%.+]] = IE.Gelu([[RESHAPE_TO_4D]]) : tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:       [[RESHAPE_TO_3D:%.+]] = IE.DynamicReshape([[GELU]], [[SHAPE_TO_3D]]) {output_bounds = [1, 8, 3072], output_shape = [1, -9223372036854775808, 3072]} : tensor<1x1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 8, 3072]> : tensor<4xsi64>, order = #NCHW}>, tensor<3xsi32> -> tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = #CHW}>
+
+    // CHECK:       return [[RESHAPE_TO_3D]] : tensor<1x?x3072xf16, {bounds = #const.OpaqueI64Elements<[1, 8, 3072]> : tensor<3xsi64>, order = #CHW}>
+}

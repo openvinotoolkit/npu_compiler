@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @dma_broadcast inputsInfo : {
     DataInfo "input_0" : tensor<16x32x1x1xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -46,6 +46,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     %2317 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%353 : !VPURegMapped.Index<0:1:1>) inputs(%2312 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>) outputs(%2306 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2316 : !VPURegMapped.Index<0:1:0>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
     %2318 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%354 : !VPURegMapped.Index<0:1:2>) inputs(%2313 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>) outputs(%2307 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2317 : !VPURegMapped.Index<0:1:1>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

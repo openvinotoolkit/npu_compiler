@@ -24,5 +24,7 @@ uint32_t getTileSelectMaskForBuffer(VPUASM::DeclareTaskBufferOp taskBuffer);
 uint32_t getActCompressionEntryTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap);
 SparsityMap getSparsityMapBuffTileMask(VPUASM::NNDMAOp dmaOp, ELF::SymbolReferenceMap& symRefMap);
 
+void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata);
+
 }  // namespace VPUASM
 }  // namespace vpux

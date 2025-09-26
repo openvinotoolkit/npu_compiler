@@ -19,6 +19,8 @@ namespace vpux {
 // then it is assumed 0 and the encoding does not distinguish between different SHAVE FIFOs and the encoding follows
 // the tileIndex.
 int64_t getShaveQueueIdEncoding(int64_t numTiles, int64_t tileIndex, int64_t listIndex);
+int64_t getShaveTileIndexFromEncodedId(int64_t shaveQueueIdEncoding, int64_t numTiles);
+int64_t getShaveListIndexFromEncodedId(int64_t shaveQueueIdEncoding, int64_t numTiles);
 namespace VPU {
 constexpr StringRef USE_DEDICATED_FIFO_PER_SHAVE_ENGINE = "VPU.UseDedicatedFifoPerShaveEngine";
 bool isFifoPerShaveEngineEnabled(mlir::Operation* op);

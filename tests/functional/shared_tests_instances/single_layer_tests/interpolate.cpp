@@ -248,13 +248,15 @@ const auto interpCminorM2IMode = ::testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_nearest_mode, InterpolateLayerTest_NPU3720,
                          ::testing::Combine(interpolateCasesNearestMode(defaultScales), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                            ::testing::ValuesIn(targetShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_nearest_mode, InterpolateLayerTest_NPU4000,
                          ::testing::Combine(interpolateCasesNearestMode(defaultScales), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                            ::testing::ValuesIn(targetShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -262,7 +264,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_without_nearest, Interpolat
                          ::testing::Combine(interpolateCasesWithoutNearestMode(defaultScales),
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                            ::testing::ValuesIn(targetShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -270,14 +273,16 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_without_nearest, Interpolat
                          ::testing::Combine(interpolateCasesWithoutNearestMode(defaultScales),
                                             ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                            ::testing::ValuesIn(targetShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU4000::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_all_axes, InterpolateLayerTest_NPU3720,
                          ::testing::Combine(interpolateCasesAllAxes(allScales), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                            ::testing::ValuesIn(allScalescTargetShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(allScalescTargetShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -302,24 +307,24 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_with_tiling, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesNearestMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesForTiling)),
-                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_with_tiling_2x, InterpolateLayerTest_NPU3720,
-                         ::testing::Combine(interpolateCasesNearestMode(makeScales(2.f)),
-                                            ::testing::ValuesIn(modelTypes),
-                                            ::testing::ValuesIn(static_shapes_to_test_representation(
-                                                    std::vector<std::vector<ov::Shape>>{{{1, 3, 160, 160}}})),
-                                            ::testing::Values(ov::Shape{320, 320}), ::testing::Values(DEVICE_NPU),
-                                            ::testing::Values(additional_config)),
-                         InterpolateLayerTest_NPU3720::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(
+        smoke_Interpolate_with_tiling_2x, InterpolateLayerTest_NPU3720,
+        ::testing::Combine(interpolateCasesNearestMode(makeScales(2.f)), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
+                                   {{1, 3, 160, 160}}})),
+                           ::testing::Values(ov::Shape{320, 320}), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config)),
+        InterpolateLayerTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_precommit_Interpolate_with_align_corners_tiling, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesForTiling)),
-                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -328,7 +333,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
                                    {{1, 1, 257, 257}}})),
-                           ::testing::Values(ov::Shape{17, 17}), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(ov::Shape{17, 17}), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -336,27 +341,27 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_with_tiling, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesNearestMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesForTiling)),
-                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesForTiling), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_with_align_corners_2x, InterpolateLayerTest_NPU3720,
-                         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)),
-                                            ::testing::ValuesIn(modelTypes),
-                                            ::testing::ValuesIn(static_shapes_to_test_representation(
-                                                    std::vector<std::vector<ov::Shape>>{{{1, 512, 7, 7}}})),
-                                            ::testing::Values(ov::Shape{14, 14}), ::testing::Values(DEVICE_NPU),
-                                            ::testing::Values(additional_config)),
-                         InterpolateLayerTest_NPU3720::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(
+        smoke_precommit_Interpolate_with_align_corners_2x, InterpolateLayerTest_NPU3720,
+        ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
+                                   {{1, 512, 7, 7}}})),
+                           ::testing::Values(ov::Shape{14, 14}), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config)),
+        InterpolateLayerTest_NPU3720::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_precommit_Interpolate_with_align_corners_2x, InterpolateLayerTest_NPU4000,
-                         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)),
-                                            ::testing::ValuesIn(modelTypes),
-                                            ::testing::ValuesIn(static_shapes_to_test_representation(
-                                                    std::vector<std::vector<ov::Shape>>{{{1, 512, 7, 7}}})),
-                                            ::testing::Values(ov::Shape{14, 14}), ::testing::Values(DEVICE_NPU),
-                                            ::testing::Values(additional_config)),
-                         InterpolateLayerTest_NPU4000::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(
+        smoke_precommit_Interpolate_with_align_corners_2x, InterpolateLayerTest_NPU4000,
+        ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
+                                   {{1, 512, 7, 7}}})),
+                           ::testing::Values(ov::Shape{14, 14}), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config)),
+        InterpolateLayerTest_NPU4000::getTestCaseName);
 
 // test different channels
 const std::vector<std::vector<ov::Shape>> inShapesForNHWCLayoutOptimize = {
@@ -383,15 +388,15 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesForNHWCLayoutOptimize)),
                            ::testing::ValuesIn(outShapesForNHWCLayoutOptimizeSmokePrecommit),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_NHWCLayout_optimize, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesLinearOnnxMode(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesForNHWCLayoutOptimize)),
-                           ::testing::ValuesIn(outShapesForNHWCLayoutOptimizeSmoke), ::testing::Values(DEVICE_NPU),
-                           ::testing::Values(additional_config)),
+                           ::testing::ValuesIn(outShapesForNHWCLayoutOptimizeSmoke),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
 const std::vector<ov::AxisSet> axes = {{2, 3}};
@@ -412,7 +417,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateM2IModeLinearIL, ::testing::Values(ov::element::u8),
                            ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNHWC)),  // in-Shape
                            ::testing::ValuesIn(m2iInOutImgShapes),  // out-Shape for given axes
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateM2ILayerTestU8LinearIL_NPU4000::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
@@ -420,7 +425,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateM2IModeLinearPL, ::testing::Values(ov::element::u8),
                            ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNCHW)),  // in-Shape
                            ::testing::ValuesIn(m2iInOutImgShapes),  // out-Shape for given axes
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateM2ILayerTestU8LinearPL_NPU4000::getTestCaseName);
 
 // M2I Nearest Neighbour tests are disabled because due to a precision difference in the calculation of the NN indices,
@@ -432,13 +437,14 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
                                    {{1, 3, 256, 256}}})),           // in-Shape
                            ::testing::Values(ov::Shape{224, 224}),  // out-Shape for given axes
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateM2ILayerTestU8Nearest_NPU4000::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_M2I_fp16, InterpolateM2ILayerTestFP16Linear_NPU4000,
                          ::testing::Combine(interpolateM2IModeLinearPL, ::testing::Values(ov::element::f16),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(m2iInShapesNCHW)),
-                                            ::testing::ValuesIn(m2iInOutImgShapes), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(m2iInOutImgShapes),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateM2ILayerTestFP16Linear_NPU4000::getTestCaseName);
 
@@ -448,7 +454,7 @@ INSTANTIATE_TEST_SUITE_P(
                            ::testing::ValuesIn(static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>{
                                    {{1, 256, 256, 3}}})),           // in-Shape
                            ::testing::Values(ov::Shape{224, 224}),  // out-Shape for given axes
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateM2ILayerTest_NPU4000::getTestCaseName);
 
 const std::vector<std::vector<ov::Shape>> inShapesLargeNHWC = {
@@ -495,14 +501,14 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NCHWinput_NCHWlayout_NCHWaxes, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNCHW(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNCHW)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NCHWinput_NCHWlayout_NCHWaxes, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNCHW(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNCHW)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -511,14 +517,14 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NHWCinput_NCHWlayout_NHWCaxes, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNHWC(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NHWCinput_NCHWlayout_NHWCaxes, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNHWC(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 // test case for input NHWC layout axes=1,2 support
@@ -526,14 +532,14 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NHWCinput_NHWClayout_NHWCaxes, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNHWC(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_without_nearest_NHWCinput_NHWClayout_NHWCaxes, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesWithoutNearestModeLargerNHWC(defaultScales), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -574,7 +580,8 @@ auto interpolateCaseNearestModeNC_Input3D = []() {
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_nearest_NCinput_NClayout_NCaxes_Input3D, InterpolateLayerTest_NPU3720,
                          ::testing::Combine(interpolateCaseNearestModeNC_Input3D(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes3D)),
-                                            ::testing::ValuesIn(targetShapes3D), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes3D),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -583,7 +590,8 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_Interpolate_nearest_NCinput_NClayout
                          InterpolateLayerTest_NPU4000,
                          ::testing::Combine(interpolateCaseNearestModeNC_Input3D(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes3D)),
-                                            ::testing::ValuesIn(targetShapes3D), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes3D),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -618,14 +626,16 @@ auto interpolateCaseNearestModeNC_Input2D = []() {
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_nearest_NCinput_NClayout_NCaxes_Input2D, InterpolateLayerTest_NPU3720,
                          ::testing::Combine(interpolateCaseNearestModeNC_Input2D(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes2D)),
-                                            ::testing::ValuesIn(targetShapes2D), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes2D),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_nearest_NCinput_NClayout_NCaxes_Input2D, InterpolateLayerTest_NPU4000,
                          ::testing::Combine(interpolateCaseNearestModeNC_Input2D(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inShapes2D)),
-                                            ::testing::ValuesIn(targetShapes2D), ::testing::Values(DEVICE_NPU),
+                                            ::testing::ValuesIn(targetShapes2D),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -641,28 +651,28 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_nearest_NCHWlayout_NHWCaxes, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesNearestModeAxes12(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_nearest_NCHWlayout_NHWCaxes, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesNearestModeAxes12(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_nearest_NHWClayout_NHWCaxes, InterpolateLayerTest_NPU3720,
         ::testing::Combine(interpolateCasesNearestModeAxes12(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_nearest_NHWClayout_NHWCaxes, InterpolateLayerTest_NPU4000,
         ::testing::Combine(interpolateCasesNearestModeAxes12(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapesLargeNHWC)),
-                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(targetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -684,7 +694,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_PytorchHalfPixel_Tiling_Upscale, Inte
                          ::testing::Combine(interpolateParamsPytorchHalfPixel(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(
                                                     std::vector<std::vector<ov::Shape>>({{{1, 32, 68, 120}}}))),
-                                            ::testing::Values(ov::Shape{136, 240}), ::testing::Values(DEVICE_NPU),
+                                            ::testing::Values(ov::Shape{136, 240}),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -692,7 +703,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_PytorchHalfPixel_Tiling_Downscale, In
                          ::testing::Combine(interpolateParamsPytorchHalfPixel(), ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(
                                                     std::vector<std::vector<ov::Shape>>({{{1, 3, 270, 480}}}))),
-                                            ::testing::Values(ov::Shape{135, 240}), ::testing::Values(DEVICE_NPU),
+                                            ::testing::Values(ov::Shape{135, 240}),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -739,7 +751,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(seInterpolateParamsNearest(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(seInterpolateInputShapes)),
                            ::testing::ValuesIn(seInterpolateTargetShapesForScalesCalcMode),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateSELayerTest_NPU3720::getTestCaseName);
 
 const std::vector<InterpolateBase::CoordinateTransformMode> coordinateTransformModesLinearSE = {
@@ -765,7 +777,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(seInterpolateParamsLinear(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(seInterpolateInputShapes)),
                            ::testing::ValuesIn(seInterpolateTargetShapesForScalesCalcMode),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateSELayerTest_NPU3720::getTestCaseName);
 
 auto seInterpolateParamsLinearWithAlignCorners = []() {
@@ -782,7 +794,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(seInterpolateParamsLinearWithAlignCorners(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(seInterpolateInputShapes)),
                            ::testing::ValuesIn(seInterpolateTargetShapesForSizesCalcMode),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateSELayerTest_NPU3720::getTestCaseName);
 
 const std::vector<std::vector<float>> seInterpolateScalesElf = {{2.0f, 2.0f}};
@@ -800,7 +812,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(seInterpolateParamsNearestElf(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(seInterpolateInputShapes)),
                            ::testing::ValuesIn(seInterpolateTargetShapesForScalesCalcMode),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateSELayerTest_NPU3720::getTestCaseName);
 
 auto seInterpolateParamsLinearElf = []() {
@@ -816,7 +828,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(seInterpolateParamsLinearElf(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(seInterpolateInputShapes)),
                            ::testing::ValuesIn(seInterpolateTargetShapesForScalesCalcMode),
-                           ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateSELayerTest_NPU3720::getTestCaseName);
 
 //
@@ -834,7 +846,8 @@ const auto interpolateCasesLinearOnnxModeAsymmtricInstantiateParamsW1H2 = ::test
         interpolateCasesLinearOnnxModeAsymmtric(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 1, 2, 1}}}))),
-        ::testing::Values(ov::Shape{3, 1}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{3, 1}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_W1H2, InterpolateLayerTest_NPU3720,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParamsW1H2,
@@ -844,7 +857,8 @@ const auto interpolateCasesLinearOnnxModeAsymmtricInstantiateParamsW1H6 = ::test
         interpolateCasesLinearOnnxModeAsymmtric(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 1, 6, 1}}}))),
-        ::testing::Values(ov::Shape{9, 1}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{9, 1}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_W1H6, InterpolateLayerTest_NPU3720,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParamsW1H6,
@@ -854,7 +868,8 @@ const auto interpolateCasesLinearOnnxModeAsymmtricInstantiateParams2x = ::testin
         interpolateCasesLinearOnnxModeAsymmtric(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 8, 16}}}))),
-        ::testing::Values(ov::Shape{16, 32}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{16, 32}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_2x, InterpolateLayerTest_NPU3720,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParams2x,
@@ -867,7 +882,8 @@ const auto interpolateCasesLinearOnnxModeAsymmtricInstantiateParams4x = ::testin
         interpolateCasesLinearOnnxModeAsymmtric(makeScales(1.f)), ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 8, 16}}}))),
-        ::testing::Values(ov::Shape{32, 64}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{32, 64}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Linear_Asymmetric_4x, InterpolateLayerTest_NPU3720,
                          interpolateCasesLinearOnnxModeAsymmtricInstantiateParams4x,
                          InterpolateLayerTest_NPU3720::getTestCaseName);
@@ -895,7 +911,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
@@ -903,7 +919,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -912,7 +928,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -921,7 +937,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -930,7 +946,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
@@ -938,7 +954,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -947,7 +963,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
@@ -955,7 +971,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -964,7 +980,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
@@ -972,7 +988,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -981,7 +997,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNCHW)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -990,7 +1006,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNCHW(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -999,7 +1015,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(
@@ -1007,7 +1023,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -1016,7 +1032,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
@@ -1025,7 +1041,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(interpolateCasesWithoutNearestLinearModeLargerNHWC(defaultScales),
                            ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(linearInShapesLargeNHWC)),
-                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(DEVICE_NPU),
+                           ::testing::ValuesIn(linearTargetShapesLarge), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
@@ -1042,7 +1058,8 @@ const auto interpolateNearestAsymmetric2x = ::testing::Combine(
         interpolateNearestAsymmetric, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 4, 4}}}))),
-        ::testing::Values(ov::Shape{8, 8}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{8, 8}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_2x, InterpolateLayerTest_NPU3720,
                          interpolateNearestAsymmetric2x, InterpolateLayerTest_NPU3720::getTestCaseName);
@@ -1053,7 +1070,8 @@ const auto interpolateNearestAsymmetricWH = ::testing::Combine(
         interpolateNearestAsymmetric, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 4, 4}}}))),
-        ::testing::Values(ov::Shape{8, 20}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{8, 20}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Nearest_Asymmtric_WH, InterpolateLayerTest_NPU3720,
                          interpolateNearestAsymmetricWH, InterpolateLayerTest_NPU3720::getTestCaseName);
@@ -1069,10 +1087,11 @@ const auto interpolateNearestAlignCorner = ::testing::Combine(
         ::testing::ValuesIn(antialias), ::testing::ValuesIn(pads), ::testing::ValuesIn(pads),
         ::testing::ValuesIn(cubeCoefs), ::testing::ValuesIn(nhwcAxes), ::testing::ValuesIn(defaultScales));
 
-const auto interpolateNearestTilingAlignCorner = ::testing::Combine(
-        interpolateNearestAlignCorner, ::testing::ValuesIn(modelTypes),
-        ::testing::Values(static_shapes_to_test_representation({{1, 128, 170, 16}})),
-        ::testing::Values(ov::Shape{256, 340}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto interpolateNearestTilingAlignCorner =
+        ::testing::Combine(interpolateNearestAlignCorner, ::testing::ValuesIn(modelTypes),
+                           ::testing::Values(static_shapes_to_test_representation({{1, 128, 170, 16}})),
+                           ::testing::Values(ov::Shape{256, 340}), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, InterpolateLayerTest_NPU3720,
                          interpolateNearestTilingAlignCorner, InterpolateLayerTest_NPU3720::getTestCaseName);
@@ -1120,85 +1139,101 @@ const auto interpolateNearestNCHWUpscale = ::testing::Combine(
         interpolateCasesNearestModeComplete, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNearestNHWCUpscale = ::testing::Combine(
         interpolateCasesNearestModeComplete, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNearestNCHWDownscale = ::testing::Combine(
         interpolateCasesNearestModeComplete, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNearestNHWCDownscale = ::testing::Combine(
         interpolateCasesNearestModeComplete, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 const auto interpolateLinearNCHWUpscale = ::testing::Combine(
         interpolateParamsLinear, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCUpscale = ::testing::Combine(
         interpolateParamsLinear, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNCHWDownscale = ::testing::Combine(
         interpolateParamsLinear, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCDownscale = ::testing::Combine(
         interpolateParamsLinear, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 const auto interpolateLinearONNXNCHWUpscale = ::testing::Combine(
         interpolateParamsLinearONNX, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearONNXNHWCUpscale = ::testing::Combine(
         interpolateParamsLinearONNX, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearONNXNCHWDownscale = ::testing::Combine(
         interpolateParamsLinearONNX, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearONNXNHWCDownscale = ::testing::Combine(
         interpolateParamsLinearONNX, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 const auto interpolateCubicNCHWUpscale = ::testing::Combine(
         interpolateParamsCubic, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateCubicNHWCUpscale = ::testing::Combine(
         interpolateParamsCubic, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 30, 30}}}))),
-        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{40, 40}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateCubicNCHWDownscale = ::testing::Combine(
         interpolateParamsCubic, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateCubicNHWCDownscale = ::testing::Combine(
         interpolateParamsCubic, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 10, 40, 40}}}))),
-        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{30, 30}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 // Mode NEAREST | Axes {1,2} & {2,3} | Coord Transform Mode: ALL | Nearest Mode: ALL | Layouts: NCHW and NHWC
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_NoTiling_Nearest_NCHW_Upscale, InterpolateLayerTest_NPU3720,
@@ -1320,16 +1355,16 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_bilinearInterpolateToConv, InterpolateLayerTest_NPU3720,
         ::testing::Combine(bilinearInterpolateParamsLinear(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(bilinearInterpolateInputShapes)),
-                           ::testing::ValuesIn(bilinearInterpolateTargetShapes), ::testing::Values(DEVICE_NPU),
-                           ::testing::Values(additional_config)),
+                           ::testing::ValuesIn(bilinearInterpolateTargetShapes),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_Interpolate_bilinearInterpolateToConv, InterpolateLayerTest_NPU4000,
         ::testing::Combine(bilinearInterpolateParamsLinear(), ::testing::ValuesIn(modelTypes),
                            ::testing::ValuesIn(static_shapes_to_test_representation(bilinearInterpolateInputShapes)),
-                           ::testing::ValuesIn(bilinearInterpolateTargetShapes), ::testing::Values(DEVICE_NPU),
-                           ::testing::Values(additional_config)),
+                           ::testing::ValuesIn(bilinearInterpolateTargetShapes),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config)),
         InterpolateLayerTest_NPU4000::getTestCaseName);
 
 //
@@ -1359,7 +1394,8 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_MapBilinearInterpolateOnDPU, Interpol
                                             ::testing::ValuesIn(static_shapes_to_test_representation(
                                                     mapBilinearInterpolateOnDPUInputShapes)),
                                             ::testing::ValuesIn(mapBilinearInterpolateOnDPUTargetShapes),
-                                            ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE),
+                                            ::testing::Values(additional_config)),
                          InterpolateLayerTest_NPU3720::getTestCaseName);
 
 // --------------------------------------------------
@@ -1387,44 +1423,52 @@ const auto interpolateNCHWUpscaleAxes23TileC = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 100, 180}}}))),
-        ::testing::Values(ov::Shape{440, 550}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{440, 550}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNCHWUpscaleAxes23TileH = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 1, 460, 620}}}))),
-        ::testing::Values(ov::Shape{800, 1000}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{800, 1000}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNHWCUpscaleAxes23TileC = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 99, 181}}}))),
-        ::testing::Values(ov::Shape{440, 550}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{440, 550}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNHWCUpscaleAxes23TileH = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 190, 580}}}))),
-        ::testing::Values(ov::Shape{500, 750}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{500, 750}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 // UpScale | Interpolate mode : Linear | Axes {1,2} | Coord Transform Mode: ALL | Layouts: NCHW and NHWC
 const auto interpolateLinearNCHWUpscaleAxes12TileW = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 3, 127, 540}}}))),
-        ::testing::Values(ov::Shape{5, 317}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{5, 317}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNCHWUpscaleAxes12TileH = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 3, 160, 520}}}))),
-        ::testing::Values(ov::Shape{5, 300}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{5, 300}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCUpscaleAxes12TileW = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 131, 630}}}))),
-        ::testing::Values(ov::Shape{4, 317}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{4, 317}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCUpscaleAxes12TileH = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 230, 400}}}))),
-        ::testing::Values(ov::Shape{4, 500}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{4, 500}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 // DownScale | Interpolate mode : Linear and Linear_ONNX | Axes {2,3} | Coord Transform Mode: ALL | Layouts:
 // NCHW and NHWC
@@ -1432,44 +1476,52 @@ const auto interpolateNCHWDownscaleAxes23TileC = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 336, 640}}}))),
-        ::testing::Values(ov::Shape{144, 256}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{144, 256}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNCHWDownscaleAxes23TileH = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 1, 900, 700}}}))),
-        ::testing::Values(ov::Shape{760, 520}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{760, 520}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNHWCDownscaleAxes23TileC = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 359, 639}}}))),
-        ::testing::Values(ov::Shape{144, 256}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{144, 256}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateNHWCDownscaleAxes23TileH = ::testing::Combine(
         interpolateParamsAxes23, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 2, 600, 700}}}))),
-        ::testing::Values(ov::Shape{230, 560}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{230, 560}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 // DownScale | Interpolate mode : Linear | Axes {1,2} | Coord Transform Mode: ALL | Layouts: NCHW and NHWC
 const auto interpolateLinearNCHWDownscaleAxes12TileW = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 5, 359, 640}}}))),
-        ::testing::Values(ov::Shape{3, 143}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{3, 143}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNCHWDownscaleAxes12TileH = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 5, 250, 620}}}))),
-        ::testing::Values(ov::Shape{3, 160}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{3, 160}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCDownscaleAxes12TileW = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 359, 630}}}))),
-        ::testing::Values(ov::Shape{2, 143}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{2, 143}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 const auto interpolateLinearNHWCDownscaleAxes12TileH = ::testing::Combine(
         interpolateParamsAxes12, ::testing::ValuesIn(modelTypes),
         ::testing::ValuesIn(
                 static_shapes_to_test_representation(std::vector<std::vector<ov::Shape>>({{{1, 4, 600, 400}}}))),
-        ::testing::Values(ov::Shape{2, 230}), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(ov::Shape{2, 230}), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
 // UpScale | Interpolate mode : Linear and Linear_ONNX | Axes {2,3} | Coord Transform Mode: ALL | Layouts: NCHW
 // and NHWC

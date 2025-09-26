@@ -28,6 +28,7 @@ void InterfacesRegistry37XX::registerInterfaces(mlir::DialectRegistry& registry)
     vpux::arch37xx::registerBufferizableOpInterfaces(registry);
     VPUIPDPU::arch37xx::registerVerifiersOpInterfaces(registry);
     VPU::arch37xx::registerICostModelUtilsInterface(registry);
+    VPU::arch37xx::registerSWTilingInfoOpInterface(registry);
 }
 
 }  // namespace vpux

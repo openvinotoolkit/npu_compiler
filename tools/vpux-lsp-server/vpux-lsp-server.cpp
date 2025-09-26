@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"

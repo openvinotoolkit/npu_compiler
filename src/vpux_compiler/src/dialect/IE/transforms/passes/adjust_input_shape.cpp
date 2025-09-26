@@ -17,15 +17,16 @@
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -272,7 +273,8 @@ bool ExpandEltwisePattern::init() {
 
     // save the original shape and generate new shape
     auto expandInputOp = *_expandInputs.begin();
-    _unExpandedShape = mlir::cast<vpux::NDTypeInterface>(expandInputOp.getInput().getType()).getShape().toValues();
+    _unExpandedShape = getBoundedShape(expandInputOp.getInput().getType()).toValues();
+
     for (auto expandInput : llvm::drop_begin(_expandInputs)) {
         auto otherExpandInput =
                 mlir::cast<vpux::NDTypeInterface>(expandInput.getInput().getType()).getShape().toValues();
@@ -340,7 +342,7 @@ bool ExpandEltwisePattern::init() {
 
     auto hasEfficientWorkload = [&]() {
         auto moduleOp = _eltwiseOp->getParentOfType<mlir::ModuleOp>();
-        const auto numCluster = IE::getTileExecutor(moduleOp).getCount();
+        const auto numCluster = config::getTileExecutor(moduleOp).getCount();
         VPUX_THROW_WHEN(numCluster <= 0, "Number of clusters should be a positive integer, while it is {0}",
                         numCluster);
 
@@ -359,7 +361,7 @@ bool ExpandEltwisePattern::init() {
 
     auto isLargeOpNeedTiling = [&]() {
         auto module = _eltwiseOp->getParentOfType<mlir::ModuleOp>();
-        const auto numClusters = IE::getTileExecutor(module).getCount();
+        const auto numClusters = config::getTileExecutor(module).getCount();
         const auto availableCMXSizePerCluster = vpux::VPU::getTotalCMXSize(_eltwiseOp).count();
         const auto totalAvailableCMXSize = availableCMXSizePerCluster * numClusters;
         SmallVector<Byte> buffSizes;
@@ -378,8 +380,8 @@ bool ExpandEltwisePattern::init() {
         return requiredCMXSize > totalAvailableCMXSize;
     };
 
-    auto newExpandedShapeResult = getShapeCastExpandedShape(_eltwiseOp, getShape(_eltwiseOp->getOperand(0)).toValues(),
-                                                            _unExpandedShape, _log.nest());
+    auto newExpandedShapeResult =
+            getShapeCastExpandedShape(_eltwiseOp, getShape(_eltwiseOp->getOperand(0)), _unExpandedShape, _log.nest());
 
     if (onlyExpandOnDimC && hasEfficientWorkload() && isLargeOpNeedTiling()) {
         auto _newExpandedShapeWithMinimalDimChange =
@@ -410,7 +412,7 @@ bool ExpandEltwisePattern::init() {
             auto alignIface = mlir::cast<IE::AlignedChannelsOpInterface>(_eltwiseOp);
             const auto sizeToAlignChannel = alignIface.getInputChannelAlignment();
             auto module = producerOp->getParentOfType<mlir::ModuleOp>();
-            const auto numCluster = IE::getTileExecutor(module).getCount();
+            const auto numCluster = config::getTileExecutor(module).getCount();
             VPUX_THROW_WHEN(numCluster <= 0, "Number of clusters should be a positive integer, while it is {0}",
                             numCluster);
             // There are two restrictions to ensure this updated shape is always the best solution:
@@ -590,14 +592,18 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
             // To avoid conflict between "const.Reshape" and "const.broadcast", set the "const.Reshape" with ones
             // and update shape with "const.broadcast".
             const auto& baseContent = contentAttr.getBaseContent();
-            Const::ContentSetup newContentAttrSetup(baseContent.getType());
-            auto newConstantShape = Shape(newConstOutputType.getShape().size(), int64_t(1));
+            auto baseType = baseContent.getType();
+            Const::ContentSetup newContentAttrSetup(baseType);
+            auto numDims = newConstOutputType.getShape().size();
+            auto newConstantShape = Shape(numDims, int64_t(1));
+            auto constType = mlir::cast<NDTypeInterface>(baseType);
             for (auto attr : contentAttr.getTransformations()) {
-                if (!mlir::isa<vpux::Const::PadWithZeroAttr, vpux::Const::BroadcastAttr, vpux::Const::ReshapeAttr>(
-                            attr)) {
+                constType = attr.inferOutputType(constType);
+                if (!mlir::isa<vpux::Const::PadWithZeroAttr, vpux::Const::BroadcastAttr, vpux::Const::ReshapeAttr,
+                               vpux::Const::AffineReshapeAttr>(attr)) {
                     newContentAttrSetup = newContentAttrSetup.addTransformation(attr);
                 }
-                if (mlir::isa<vpux::Const::ReshapeAttr>(attr)) {
+                if (mlir::isa<vpux::Const::ReshapeAttr, vpux::Const::AffineReshapeAttr>(attr)) {
                     newContentAttrSetup = newContentAttrSetup.reshape(newConstantShape);
                 }
             }
@@ -793,7 +799,7 @@ bool ExpandPoolingPattern::init() {
     setUnExpandedShape(unExpandedShape);
 
     mlir::FailureOr<Shape> newExpandedShapeResult =
-            getShapeCastExpandedShape(op, getShape(op->getOperand(0)).toValues(), unExpandedShape, log);
+            getShapeCastExpandedShape(op, getShape(op->getOperand(0)), unExpandedShape, log);
     if (mlir::failed(newExpandedShapeResult)) {
         return false;
     }
@@ -1364,82 +1370,6 @@ mlir::LogicalResult AdjustPermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQu
 }
 
 //
-// AdjustMemPermuteRewriter
-//
-
-class AdjustMemPermuteRewriter final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
-public:
-    AdjustMemPermuteRewriter(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _log(log) {
-        setDebugName("AdjustMemPermuteRewriter");
-    }
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp layerOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    Logger _log;
-};
-
-mlir::LogicalResult AdjustMemPermuteRewriter::matchAndRewrite(IE::MemPermuteOp layerOp,
-                                                              mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), layerOp->getName(), layerOp->getLoc());
-
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(layerOp.getInput().getType());
-    const auto outputType = mlir::cast<vpux::NDTypeInterface>(layerOp.getOutput().getType());
-    const auto inputShape = inputType.getShape();
-
-    const int64_t SUPPORTED_RANK = 4;
-    if (inputShape.size() != SUPPORTED_RANK) {
-        return mlir::failure();
-    }
-
-    const auto expectedOutOrder = DimsOrder::NCHW;
-    if (outputType.getDimsOrder() != expectedOutOrder || inputType.getDimsOrder() != expectedOutOrder) {
-        return mlir::failure();
-    }
-
-    // This rewriter only process MemPermute with NCHW layout on the lowest two dims, and it will be processed by
-    // ConvertMemPermuteToOp pass with MemPermuteNCHWInNCHWOutNCWHPerm case.
-    const auto memPerm = DimsOrder::fromAffineMap(layerOp.getMemPerm());
-    if (!((inputShape[Dims4D::Act::N] == 1 && inputShape[Dims4D::Act::W] == 1 && memPerm == DimsOrder::NHCW) ||
-          (inputShape[Dims4D::Act::H] == 1 && inputShape[Dims4D::Act::W] == 1 && memPerm == DimsOrder::CNHW) ||
-          (memPerm == DimsOrder::NHWC))) {
-        return mlir::failure();
-    }
-
-    if (inputShape[Dims4D::Act::N] == 1 && inputShape[Dims4D::Act::H] == 1) {
-        // If input is 1xCx1xW, then it can be convert to pooling directly
-        return mlir::failure();
-    }
-
-    if (!isSuitableToAdjustMemPermuteShape(inputType, outputType, layerOp.getMemPerm())) {
-        return mlir::failure();
-    }
-
-    auto [mergedPermutation, mergedMemShape] = vpux::getMergedPermutationAndShape(inputType, layerOp.getMemPerm());
-    for (size_t i = 0; i < inputType.getShape().size() - mergedMemShape.size() + 1; ++i) {
-        mergedMemShape.insert(mergedMemShape.begin(), 1);
-    }
-    const auto newShape = Shape(mergedMemShape);
-
-    auto inputShapeCastOp =
-            rewriter.create<IE::ShapeCastOp>(layerOp.getLoc(), inputType.changeShape(newShape), layerOp.getInput(),
-                                             getIntArrayAttr(layerOp.getContext(), newShape));
-
-    const SmallVector<int64_t> newPermVec{0, 1, 3, 2};
-    auto newPerm = mlir::AffineMap::getPermutationMap(ArrayRef(newPermVec), rewriter.getContext());
-    auto newOp = rewriter.create<IE::MemPermuteOp>(layerOp->getLoc(), inputShapeCastOp.getResult(),
-                                                   layerOp.getDstOrderAttr(), mlir::AffineMapAttr::get(newPerm));
-    auto outputShapeCastOp =
-            rewriter.create<IE::ShapeCastOp>(layerOp.getLoc(), outputType, newOp.getOutput(),
-                                             getIntArrayAttr(layerOp.getContext(), outputType.getShape()));
-
-    rewriter.replaceOp(layerOp, outputShapeCastOp.getResult());
-    return mlir::success();
-}
-
-//
 // EltwiseShapeRewriter
 //
 
@@ -1619,7 +1549,6 @@ void AdjustInputShapePass::safeRunOnFunc() {
     patterns.add<ExpandGroupConvRewriter>(&ctx, _log);
     patterns.add<ExpandPermuteQuantizeRewriter>(&ctx, _log);
     patterns.add<AdjustPermuteQuantizeRewriter>(&ctx, _log);
-    patterns.add<AdjustMemPermuteRewriter>(&ctx, _log);
     patterns.add<ExpandPoolingRewriter<IE::AvgPoolOp>>(&ctx, benefitLevels[0], _log);
     patterns.add<ExpandPoolingRewriter<IE::MaxPoolOp>>(&ctx, benefitLevels[0], _log);
     patterns.add<ExpandSingleChannelPoolingRewriter<IE::AvgPoolOp>>(&ctx, benefitLevels[1], _log);

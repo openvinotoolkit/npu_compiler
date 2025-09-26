@@ -37,7 +37,7 @@ class EltwiseLayerTestDynamic : public EltwiseLayerTest, virtual public VpuOv2La
                  modelType,    // precision
                  std::ignore,  // Type1
                  std::ignore,  // Type2
-                 std::ignore,  // DEVICE_NPU
+                 std::ignore,  // TARGET_DEVICE
                  testConfig) = this->GetParam();
         configuration.insert(testConfig.begin(), testConfig.end());
 
@@ -221,7 +221,7 @@ const auto typesParams =
                            ::testing::ValuesIn(eltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::ValuesIn(opTypes), ::testing::ValuesIn(netPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_EltwiseTypes, EltwiseLayerTestCommon, typesParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -230,7 +230,7 @@ const auto typesParamsF32 = ::testing::Combine(
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(bigShape)),
         ::testing::ValuesIn(eltwiseTypesF32), ::testing::ValuesIn(secondaryInputTypes), ::testing::ValuesIn(opTypes),
         ::testing::ValuesIn(netPrecisionsF32), ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_EltwiseTypesF32, EltwiseLayerTestF32Common, typesParamsF32,
                          EltwiseLayerTestF32Common::getTestCaseName);
@@ -260,7 +260,7 @@ const auto eltwise_params_dynamic = ::testing::Combine(
         ::testing::ValuesIn(in_shapes_dynamic), ::testing::ValuesIn(DynamicEltwiseOpTypes),
         ::testing::ValuesIn(secondInputType), ::testing::ValuesIn(opTypes), ::testing::ValuesIn(precision),
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 //  Dynamic shapes cases
 INSTANTIATE_TEST_SUITE_P(smoke_EltwiseDynamic, EltwiseLayerTestDynamic, eltwise_params_dynamic,
@@ -279,7 +279,7 @@ const auto broadcastTestParams =
                            ::testing::ValuesIn(broadcastTestEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::ValuesIn(opTypes), ::testing::ValuesIn(netPrecisionsF16),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_InputBroadcastEltwise, EltwiseLayerTestCommon, broadcastTestParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -294,7 +294,7 @@ const auto scalarInput2BroadcastTestParams = ::testing::Combine(
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(scalarInput2broadcastTestInputShape)),
         ::testing::ValuesIn(scalarInput2broadcastTestEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
         ::testing::ValuesIn(opTypes), ::testing::ValuesIn(netPrecisionsF16), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::test::utils::DEVICE_NPU),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(test_utils::TARGET_DEVICE),
         ::testing::Values(ov::test::Config{}));
 INSTANTIATE_TEST_SUITE_P(precommit_scalarInput2BroadcastEltwise, EltwiseLayerTestCommon,
                          scalarInput2BroadcastTestParams, EltwiseLayerTestCommon::getTestCaseName);
@@ -311,7 +311,7 @@ const auto batchInputTestParams = ::testing::Combine(
         ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(batchInputTestInputShape)),
         ::testing::ValuesIn(batchInputTestEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
         ::testing::ValuesIn(opTypes), ::testing::ValuesIn(netPrecisionsF16), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::element::dynamic), ::testing::Values(ov::test::utils::DEVICE_NPU),
+        ::testing::Values(ov::element::dynamic), ::testing::Values(test_utils::TARGET_DEVICE),
         ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_BatchInputEltwise, EltwiseLayerTestCommon, batchInputTestParams,
@@ -333,7 +333,7 @@ const auto scalarParams =
                            ::testing::ValuesIn(eltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::SCALAR), ::testing::ValuesIn(netPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ScalarShapesND, EltwiseLayerTestCommon, scalarParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -343,7 +343,7 @@ const auto scalarParamsF32 =
                            ::testing::ValuesIn(eltwiseTypesF32), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::SCALAR), ::testing::ValuesIn(netPrecisionsF32),
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ScalarShapesNDF32, EltwiseLayerTestF32Common, scalarParamsF32,
                          EltwiseLayerTestF32Common::getTestCaseName);
@@ -370,7 +370,7 @@ const auto vectorParams =
                            ::testing::ValuesIn(eltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_VectorShapesND, EltwiseLayerTestCommon, vectorParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -380,7 +380,7 @@ const auto vectorParamsF32 =
                            ::testing::ValuesIn(eltwiseTypesF32), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF32),
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_VectorShapesNDF32, EltwiseLayerTestF32Common, vectorParamsF32,
                          EltwiseLayerTestF32Common::getTestCaseName);
@@ -399,7 +399,7 @@ const auto vectorParamsEmptyShapeInput =
                            ::testing::ValuesIn(eltwise0DInputOps), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::SCALAR), ::testing::ValuesIn(netPrecisionsF32),
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_0DInputTest, EltwiseEmptyShapeInputLayerTest, vectorParamsEmptyShapeInput,
                          EltwiseEmptyShapeInputLayerTest::getTestCaseName);
@@ -420,7 +420,7 @@ const auto bitwiseParams =
                            ::testing::ValuesIn(bitwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::ValuesIn(opTypes), ::testing::ValuesIn(bitwiseNetPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_Bitwise, EltwiseLayerTestCommon, bitwiseParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -436,7 +436,7 @@ const auto bitwiseParamsi8 =
                            ::testing::ValuesIn(bitwiseTypesi8), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::ValuesIn(opTypes), ::testing::ValuesIn(bitwiseNetPrecisionsi8),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_Bitwisei8, EltwiseLayerTestCommon, bitwiseParamsi8,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -448,7 +448,7 @@ const auto bitwiseNotParams =
                            ::testing::Values(EltwiseTypes::BITWISE_NOT), ::testing::Values(InputLayerType::CONSTANT),
                            ::testing::ValuesIn(opTypes), ::testing::ValuesIn(bitwiseNetPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(precommit_BitwiseNot, EltwiseLayerTestCommon, bitwiseNotParams,
                          EltwiseLayerTestCommon::getTestCaseName);
@@ -471,7 +471,7 @@ const auto typesParamsUnsigned = ::testing::Combine(
         ::testing::ValuesIn(eltwiseTypesUnsigned), ::testing::Values(InputLayerType::PARAMETER),
         ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsUnsigned),
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Unsigned, EltwiseIntegerLayerTest, typesParamsUnsigned,
                          EltwiseIntegerLayerTest::getTestCaseName);
@@ -489,7 +489,7 @@ const auto typesParamsInteger = ::testing::Combine(
         ::testing::ValuesIn(eltwiseTypesInteger), ::testing::Values(InputLayerType::PARAMETER),
         ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsInteger),
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Signed, EltwiseIntegerLayerTest, typesParamsInteger,
                          EltwiseIntegerLayerTest::getTestCaseName);
@@ -501,25 +501,34 @@ INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Signed, EltwiseIntegerLayerTest, typesPar
 namespace ov {
 namespace test {
 
-class ShaveCodeGenEltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
-
-class ShaveCodeGenEltwiseLayerTestF32Common : public ShaveCodeGenEltwiseLayerTestCommon {
+class ShaveCodeGenEltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {
     void configure_model() override {
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "convert-precision-to-fp16=false";
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
     }
 };
 
-class ShaveCodeGenEltwiseIntegerLayerTest : public EltwiseIntegerLayerTest {};
+class ShaveCodeGenEltwiseLayerTestF32Common : public ShaveCodeGenEltwiseLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "enable-shave-code-gen=true convert-precision-to-fp16=false";
+    }
+};
+
+class ShaveCodeGenEltwiseIntegerLayerTest : public EltwiseIntegerLayerTest {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 TEST_P(ShaveCodeGenEltwiseLayerTestCommon, NPU4000_SW) {
     abs_threshold = 0.6;
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(ShaveCodeGenEltwiseLayerTestF32Common, NPU4000_SW) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -527,7 +536,7 @@ TEST_P(ShaveCodeGenEltwiseLayerTestF32Common, NPU4000_SW) {
 TEST_P(ShaveCodeGenEltwiseIntegerLayerTest, NPU4000_SW) {
     abs_threshold = 0.6;
     setCommonSkipCompilationCallback(this);
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -556,7 +565,7 @@ const auto scgScalarParams =
                            ::testing::ValuesIn(scgEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::SCALAR), ::testing::ValuesIn(netPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ScalarShapesND, ShaveCodeGenEltwiseLayerTestCommon, scgScalarParams,
                          ShaveCodeGenEltwiseLayerTestCommon::getTestCaseName);
@@ -566,7 +575,7 @@ const auto scgScalarParamsF32 =
                            ::testing::ValuesIn(scgEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::SCALAR), ::testing::ValuesIn(netPrecisionsF32),
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ScalarShapesNDF32, ShaveCodeGenEltwiseLayerTestF32Common, scgScalarParamsF32,
                          ShaveCodeGenEltwiseLayerTestF32Common::getTestCaseName);
@@ -595,7 +604,7 @@ const auto scgVectorParams =
                            ::testing::ValuesIn(scgEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisions),
                            ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_VectorShapesND, ShaveCodeGenEltwiseLayerTestCommon, scgVectorParams,
                          ShaveCodeGenEltwiseLayerTestCommon::getTestCaseName);
@@ -605,7 +614,7 @@ const auto scgVectorParamsF32 =
                            ::testing::ValuesIn(scgEltwiseTypes), ::testing::ValuesIn(secondaryInputTypes),
                            ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsF32),
                            ::testing::Values(ov::element::f32), ::testing::Values(ov::element::f32),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_VectorShapesNDF32, ShaveCodeGenEltwiseLayerTestF32Common, scgVectorParamsF32,
                          ShaveCodeGenEltwiseLayerTestF32Common::getTestCaseName);
@@ -622,7 +631,7 @@ const auto scgTypesParamsUnsigned = ::testing::Combine(
         ::testing::ValuesIn(scgEltwiseTypesUnsigned), ::testing::Values(InputLayerType::PARAMETER),
         ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(netPrecisionsUnsigned),
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Unsigned, ShaveCodeGenEltwiseIntegerLayerTest, scgTypesParamsUnsigned,
                          ShaveCodeGenEltwiseIntegerLayerTest::getTestCaseName);
@@ -639,7 +648,7 @@ const auto scgTypesParamsInteger = ::testing::Combine(
         ::testing::ValuesIn(scgEltwiseTypesInteger), ::testing::Values(InputLayerType::PARAMETER),
         ::testing::Values(ov::test::utils::OpType::VECTOR), ::testing::ValuesIn(scgNetPrecisionsInteger),
         ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
-        ::testing::Values(ov::test::utils::DEVICE_NPU), ::testing::Values(ov::test::Config{}));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::test::Config{}));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Eltwise_Signed, ShaveCodeGenEltwiseIntegerLayerTest, scgTypesParamsInteger,
                          ShaveCodeGenEltwiseIntegerLayerTest::getTestCaseName);

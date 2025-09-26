@@ -172,7 +172,16 @@ mlir::LogicalResult MoveThroughSlice::matchAndRewrite(IE::SliceOp origOp, mlir::
     auto orderAttr = origTransposeOp.getOrderValueAttr();
     const auto origPermuteInputOrder = DimsOrder::fromValue(origTransposeOp.getInput());
 
-    for (auto op : llvm::make_early_inc_range(origTransposeOp.getOutput().getUsers())) {
+    SmallVector<mlir::Operation*> users;
+    for (auto* user : llvm::make_early_inc_range(origTransposeOp.getOutput().getUsers())) {
+        users.push_back(user);
+    }
+
+    llvm::sort(users, [](mlir::Operation* lhs, mlir::Operation* rhs) {
+        return !lhs->isBeforeInBlock(rhs);
+    });
+
+    for (auto op : users) {
         if (auto slice = mlir::dyn_cast_or_null<IE::SliceOp>(op)) {
             auto staticSizes = slice.getStaticSizesAttr();
             auto staticOffsets = slice.getStaticOffsetsAttr();

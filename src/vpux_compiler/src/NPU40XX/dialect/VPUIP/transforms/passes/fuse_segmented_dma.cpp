@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/dma_fusion_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/utils/core/error.hpp"
 
 namespace vpux::VPUIP::arch40xx {
@@ -125,7 +125,7 @@ void FuseSegmentedDma::safeRunOnFunc() {
     };
 
     auto module = funcOp->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     const auto getPort = [=](SmallVector<VPURT::TaskOp> tasks) {

@@ -64,13 +64,12 @@ const std::vector<ov::AnyMap> driverCompilerConfigs = {
          ov::intel_npu::compiler_type(ov::intel_npu::CompilerType::DRIVER)}};
 
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_ELF, ElfConfigTests,
-                         ::testing::Combine(::testing::Values(ov::test::utils::DEVICE_NPU),
-                                            ::testing::ValuesIn(configs)),
+                         ::testing::Combine(::testing::Values(test_utils::TARGET_DEVICE), ::testing::ValuesIn(configs)),
                          ElfConfigTests::getTestCaseName);
 
 // Driver compiler type test suite
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest_ELF_Driver, ElfConfigTests,
-                         ::testing::Combine(::testing::Values(ov::test::utils::DEVICE_NPU),
+                         ::testing::Combine(::testing::Values(test_utils::TARGET_DEVICE),
                                             ::testing::ValuesIn(driverCompilerConfigs)),
                          ElfConfigTests::getTestCaseName);
 }  // namespace

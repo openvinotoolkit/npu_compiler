@@ -14,7 +14,7 @@ NDTypeInterface Const::FuseWeightsAttr::inferOutputType(NDTypeInterface input) c
     return getFusedType();
 }
 
-bool vpux::Const::FuseWeightsAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::FuseWeightsAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 
@@ -40,7 +40,7 @@ Const::Content Const::FuseWeightsAttr::transform(Const::Content& input) const {
             const auto packedNumElems = contentType.getNumElements() / CHAR_BIT;
             const auto packedElemType = getUInt8Type(contentType.getContext());
             const auto packedContentType =
-                    contentType.changeShapeElemType(Shape({1, 1, 1, packedNumElems}), packedElemType);
+                    contentType.changeShapeElemType(ShapeRef({1, 1, 1, packedNumElems}), packedElemType);
             auto packedContent = Const::Content::fromRawBuffer(packedContentType, foldedContent.getRawStorageBuf(),
                                                                packedElemType, foldedContent.isSplat());
             appendContentToVector(packedContent, fusedBuffer, index);

@@ -47,7 +47,7 @@ mlir::LogicalResult vpux::VPU::RegionYoloOp::inferReturnTypes(mlir::MLIRContext*
         outputShape.push_back(inType.getShape().raw()[3]);
     }
 
-    const auto outType = inType.changeShape(Shape(outputShape));
+    const auto outType = inType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

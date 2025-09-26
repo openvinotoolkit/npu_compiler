@@ -23,13 +23,6 @@ namespace arch37xx {
 // Passes
 //
 
-std::unique_ptr<mlir::Pass> createAdjustForOptimizedLayersPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSplitRealDFTOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDecomposeMVNPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createApplyTilingMVN1SumPass(bool enablePrefetchTiling = true,
-                                                         Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createCorrectNCEWorkloadsPass(Logger log = Logger::global());
-
 void buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                               Logger log = Logger::global());
 

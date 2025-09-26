@@ -54,6 +54,7 @@ def IE_AccumulateOp :
     );
 
     let hasVerifier = 1;
+    let hasCanonicalizer = 1;
 }
 
 def IE_AddOp :

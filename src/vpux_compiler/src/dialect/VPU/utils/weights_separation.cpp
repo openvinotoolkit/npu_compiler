@@ -10,7 +10,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/const/attr_interfaces.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -464,7 +463,8 @@ mlir::Value createMatchingIeOperation(mlir::OpBuilder& builder, mlir::Location l
                 return builder.create<IE::ReorderOp>(loc, input, reorder.getOrder());
             })
             .Case<Const::RescaleAttr>([&](Const::RescaleAttr rescale) {
-                const auto scaleValue = checked_cast<float>(rescale.getScale().getValueAsDouble());
+                auto foldedAttr = rescale.getScale().fold();
+                const auto scaleValue = foldedAttr.getSplatValue<float>();
 
                 const auto scaleLoc = appendLoc(loc, "_scale");
                 SmallVector<int64_t> shapeRank = {1};
@@ -551,9 +551,51 @@ bool isSupportedTransformation(vpux::NDTypeInterface inType, Const::TransformAtt
 /// Returns a VPU operation for the given constant transformation.
 mlir::Value createMatchingVpuOperation(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                        Const::TransformAttrInterface t) {
+    auto ctx = input.getContext();
+    auto inputType = mlir::cast<NDTypeInterface>(input.getType());
+
+    VPUX_THROW_WHEN(!ViewLikeUtils::isViewLike(inputType, t), "Transformation {0} has to be view-like", loc);
+
     return llvm::TypeSwitch<Const::TransformAttrInterface, mlir::Value>(t)
+            .Case([&](Const::ReshapeAttr reshape) -> mlir::Value {
+                if (inputType.getDimsOrder().isIdentity()) {
+                    // Type inference rules between the attribute and the operation doesn't match
+                    // Example: 2x4 #CN -> 2x2x2 isn't possible
+                    return builder.create<VPU::ReshapeOp>(loc, input, nullptr, false, reshape.getShape());
+                }
+
+                return builder.create<VPU::ShapeCastOp>(loc, input, reshape.getShape());
+            })
             .Case([&](Const::SubViewAttr subView) -> mlir::Value {
                 return builder.create<VPU::SliceOp>(loc, input, subView.getOffset(), subView.getShape());
+            })
+            .Case([&](Const::LayoutCastAttr layoutCast) -> mlir::Value {
+                return builder.create<VPU::LayoutCastOp>(loc, input, layoutCast.getDstOrder());
+            })
+            .Case([&](Const::MemPermuteAttr permute) -> mlir::Value {
+                return builder.create<VPU::PermuteCastOp>(loc, input, permute.getDstOrder(), permute.getMemPerm());
+            })
+            .Case([&](Const::TransposeAttr transpose) -> mlir::Value {
+                const auto outType = transpose.inferOutputType(inputType);
+                const auto outShape = getIntArrayAttr(builder, outType.getShape());
+
+                if (transpose.getOrder().getValue().isIdentity()) {
+                    return builder.create<VPU::ReshapeOp>(loc, input, nullptr, false, outShape);
+                }
+
+                return builder.create<VPU::ShapeCastOp>(loc, input, outShape);
+            })
+            .Case([&](Const::ReorderAttr reorder) -> mlir::Value {
+                const auto inOrder = inputType.getDimsOrder();
+                auto outType = reorder.inferOutputType(inputType);
+                const auto outOrder = outType.getDimsOrder();
+                const auto memPerm = mlir::AffineMap::getPermutationMap(ArrayRef(computeOrder(inOrder, outOrder)), ctx);
+                return builder.create<VPU::PermuteCastOp>(loc, input, reorder.getOrder(),
+                                                          mlir::AffineMapAttr::get(memPerm));
+            })
+            .Case([&](Const::AffineReshapeAttr affineReshape) -> mlir::Value {
+                return builder.create<VPU::AffineReshapeOp>(loc, input, affineReshape.getDimMapping(),
+                                                            affineReshape.getShapeValue());
             })
             .Default([](Const::TransformAttrInterface) -> mlir::Value {
                 return nullptr;
@@ -779,18 +821,23 @@ TransformationsSplit::TransformationsSplit(Const::DeclareOp declareOp)
         : _loc(declareOp.getLoc()), _contentAttr(declareOp.getContentAttr()) {
     const auto contentAttr = declareOp.getContentAttr();
     auto transformations = contentAttr.getTransformations();
-
-    if (mlir::isa<Const::SubViewAttr>(transformations.back())) {
-        // move subviews to main since this reduces constant forwarding
-        // between init and main (e.g. improves I/O interactions).
-        _inInitTransformations = transformations.drop_back();
-        _postInitTransformations = transformations.take_back();
-    } else {
-        _inInitTransformations = transformations;
-        _postInitTransformations = {};
-    }
-
     auto baseType = contentAttr.getBaseContent().getType();
+
+    auto splitElements = [&]() {
+        auto previousType = mlir::cast<vpux::NDTypeInterface>(baseType);
+        auto splitIndex = 0;
+        for (auto [idx, trans] : transformations | indexed) {
+            if (!ViewLikeUtils::isViewLike(previousType, trans)) {
+                splitIndex = idx + 1;
+            }
+            previousType = trans.inferOutputType(previousType);
+        }
+        return transformations.size() - splitIndex;
+    }();
+
+    _inInitTransformations = transformations.drop_back(splitElements);
+    _postInitTransformations = transformations.take_back(splitElements);
+
     auto finalType = Const::inferFinalType(baseType, _inInitTransformations);
 
     // quantized types are not supported for network IO
@@ -1183,6 +1230,8 @@ void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp f
         inputValue.replaceAllUsesWith(castOp.getResult());
 
         offsets[0] += shape[Dim(0)];
+
+        log.debug("value #{0} is {1}, obfuscated as {2}", index, inputValue.getType(), obfuscatedType);
     }
 
     // Note: avoid index recalculation by deleting from the end first
@@ -1224,6 +1273,8 @@ void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp 
         auto castOp = builder.create<Core::ReinterpretCastOp>(appendLoc(returnOp.getLoc(), "obfuscated{0}", index),
                                                               type, returnValue);
         allReturns[index] = castOp.getResult();
+
+        log.debug("value #{0} is {1}, obfuscated as {2}", index, returnValue.getType(), type);
     }
 
     // concatenate obfuscated tensors

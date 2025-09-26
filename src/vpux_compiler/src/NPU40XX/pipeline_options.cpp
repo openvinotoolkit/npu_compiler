@@ -98,7 +98,18 @@ void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOpt
     }
 }
 
-void setupPWLMParams(DefaultHWOptions40XX& compilationOptions) {
+void setupPWLMParams(DefaultHWOptions40XX& compilationOptions, LogLevel logLevel) {
+    Logger log("wlm-options-parser", logLevel);
+
+    if (compilationOptions.workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA &&
+        compilationOptions.workloadManagementMode != WorkloadManagementMode::PWLM_V1_BARRIER_FIFO) {
+        log.warning("Unsupported compilation option value '{0}' for option '{1}'. Reset to '{2}'.",
+                    stringifyEnum(compilationOptions.workloadManagementMode.getValue()),
+                    compilationOptions.workloadManagementMode.ArgStr,
+                    stringifyEnum(WorkloadManagementMode::PWLM_V0_LCA));
+        compilationOptions.workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA;
+    }
+
     bool isWorkloadManagementBarrierProgrammingModeSet =
             compilationOptions.workloadManagementBarrierProgrammingMode.hasValue();
 
@@ -112,10 +123,6 @@ void setupPWLMParams(DefaultHWOptions40XX& compilationOptions) {
         case WorkloadManagementMode::PWLM_V2_PAGES:
             compilationOptions.workloadManagementBarrierProgrammingMode =
                     WorkloadManagementBarrierProgrammingMode::INITIAL_BARRIER_DMAS_SCHEDULED;
-            break;
-        case WorkloadManagementMode::FWLM_V1_PAGES:
-            compilationOptions.workloadManagementBarrierProgrammingMode =
-                    WorkloadManagementBarrierProgrammingMode::ALL_BARRIER_DMAS_SCHEDULED;
             break;
         default:
             compilationOptions.workloadManagementBarrierProgrammingMode =

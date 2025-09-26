@@ -3,7 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/BuiltinTypes.h>
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/utils/core/range.hpp"
 
 using namespace vpux;
 
@@ -18,8 +20,15 @@ mlir::LogicalResult vpux::IE::OnlineSDPAOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(onlineSdpa.getQuery().getType());
-    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType());
+    const auto qShape = getShape(onlineSdpa.getQuery());
+    const auto vShape = getShape(onlineSdpa.getValue());
+
+    const auto vEmbedding = vShape.back();
+    auto outShape = to_small_vector(qShape);
+    outShape.back() = vEmbedding;
+
+    auto qType = mlir::cast<mlir::RankedTensorType>(onlineSdpa.getQuery().getType());
+    inferredReturnShapes.emplace_back(outShape, qType.getElementType());
 
     return mlir::success();
 }

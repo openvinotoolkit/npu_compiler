@@ -42,13 +42,13 @@ mlir::LogicalResult vpux::VPU::ExperimentalDetectronROIFeatureExtractorOp::infer
     outputShapeFeatures.push_back(outputSize);
     outputShapeFeatures.push_back(outputSize);
 
-    const auto outTypeFeatures = inType.changeShape(Shape(outputShapeFeatures));
+    const auto outTypeFeatures = inType.changeShape(ShapeRef(outputShapeFeatures));
     inferredReturnTypes.push_back(outTypeFeatures);
 
     outputShapeROI.push_back(inputShapeROI[Dim(0)]);
     outputShapeROI.push_back(inputShapeROI[Dim(1)]);
 
-    const auto outTypeROI = inType.changeShape(Shape(outputShapeROI));
+    const auto outTypeROI = inType.changeShape(ShapeRef(outputShapeROI));
     inferredReturnTypes.push_back(outTypeROI);
 
     return mlir::success();

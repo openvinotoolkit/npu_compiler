@@ -369,6 +369,51 @@ Example:
 #include "vpux/compiler/init.hpp"
 ```
 
+### Forward declarations
+
+Some headers can grow very large in time, which can negatively affect the build time of the project. During the project build, the headers need to be processed for all of the files that include them. As a consequence, if the headers are large, a significant amount of time will be spent processing the same header. One way to prevent this is to avoid having large headers included in other headers, by using forward declarations where possible. For example:
+
+```cpp
+// BAD: `VPUIP/IR/ops.hpp` contains the definitions of all of the operations in the VPUIP dialect,
+//      which can result in tens of thousands of lines included in the file, while this header only needs to know that VPUIP::NCEClusterTaskOp exists
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+vpux::VPUIP::NCEClusterTaskOp processNCEOp(vpux::VPUIP::NCEClusterTaskOp);
+
+// OK: the `vpux::VPUIP::NCEClusterTaskOp` symbol is forward-declared, so it is known to the rest of the header; the large `VPUIP/IR/ops.hpp` does not need to be included
+namespace vpux::VPUIP {
+class NCEClusterTaskOp;
+}
+vpux::VPUIP::NCEClusterTaskOp processNCEOp(vpux::VPUIP::NCEClusterTaskOp);
+```
+
+By using forward declarations, the definition of a symbol is no longer known to the file. The declaration is sufficient for simple cases like the one above, where the symbol is used in the signature of a function (as an argument or a return value). Forward declaration however is not usable in case the definition of a symbol is necessary, such as when the size of the object or its internal details (e.g. methods) must be known. Examples:
+
+```cpp
+// The `getInput` method of `vpux::VPUIP::NCEClusterTaskOp` is accessed, so its definition must be known
+// Note: the function is inline, so it can be defined in a header file
+inline mlir::Value getNCEInput(vpux::VPUIP::NCEClusterTaskOp nceOp) {
+    return nceOp.getInput();
+}
+
+// The definitions of `mlir::IntegerAttr` and `mlir::MLIRContext` must be known
+// Note: the function is a template one, so it can be defined in a header file
+template <typename T>
+mlir::IntegerAttr getIntAttr(mlir::MLIRContext* ctx, T val) {
+    return mlir::IntegerAttr::get(mlir::IntegerType::get(ctx, 64), val);
+}
+
+// The definition of `vpux::VPUIP::NCEClusterTaskOp` must be known, for it to have a default value
+void processNCEOp(vpux::VPUIP::NCEClusterTaskOp = nullptr);
+```
+
+Based on these examples, it should be clear when it is feasible to use forward declarations. In case the definition of a symbol is necessary because it is used in template / inline functions or because it has a default value, consideration should be given to refactoring this code. It is possible under many circumstances to move such function definitions to source files or to avoid default arguments, especially when the build time of the project might negatively suffer.
+
+When using forward declaration for a symbol, its definition will likely be necessary in the source file(s) that use it. For the first example above, the source file that defines the `processNCEOp` method will need to include the `VPUIP/IR/ops.hpp` header. The benefit of this approach is that only this source file will have to process `VPUIP/IR/ops.hpp` during the project build, instead of all of the sources which include the header that declares `processNCEOp`.
+
+**Note:** The forward declaration of a symbol must be the identical to the definition. For example, if an enum is defined as `enum class MyEnum : uint64_t {...}`, its forward declaration must reflect this type as well: `enum class MyEnum : uint64_t;`. Otherwise, the project will fail to build with an error.
+
+**Note:** In case the definition of a symbol is necessary, but a translation unit only has access to its declaration, an incomplete type error will appear during build. To solve this, the header which contains the symbol's definition should be included in the source that requires it.
+
 ## Patterns
 
 ### Return Early Pattern
@@ -525,6 +570,13 @@ const auto newType = callOnShapeOf(type, [&](const auto& shape) {
 
 <u>Note:</u> The return type of the callable must be the same regardless of the input shape type.
 
+<u>Note:</u> It is recommended to use the `getBoundedShape/getBoundedMemShape` helper functions instead of `getShape/getMemShape` whenever static or dynamic shapes are possible.
+ * Prefer `getBoundedShape/getBoundedMemShape` if shapes might be dynamic, and logic should operate on upper bounds in that case.
+ `getBoundedShape/getBoundedMemShape` returns the upper bounds of the shape if it is bounded, otherwise returns the shape itself.
+ * Use `getShape/getMemShape` when you specifically need to know which dimensions are dynamic. Be aware that for dynamic dimensions, `getShape/getMemShape` will return `mlir::ShapedType::kDynamic` as the value. Ensure your logic correctly handles this case and works with IR as expected.
+ * Use `getShape/getMemShape` if you are certain that the operation will only ever encounter static shapes. In this case, all dimensions are known at compile time, and `getShape` will return concrete values for each dimension.
+
+This helps ensure that any logic relying on shape information is robust to both static and dynamic cases and avoids unexpected behavior when working with tensors or arrays whose dimensions may not be fully known at compile time.
 ### Using method 'llvm::make_early_inc_range'
 
 This method is useful when you iterate through a list of objects and you need to change this range at the same time. From the description:
@@ -850,7 +902,7 @@ void implementPattern(IE::ConvolutionOp origOp) {
 However, `mlir::UnknownLoc` and `mlir::NameLoc` can be used in cases, where operation does not originate from original nGraph network or represents compiler internals. Usually such operations belongs to top-level module op. PSS tests and mapped-inference related passes are also an exception.
 
 ```cpp
-innerBuilder.create<IE::MemoryResourceOp>(mlir::UnknownLoc::get(ctx), memSpace.getLeafReference(), byteSizeAttr, nullptr); // OK, memory reservation is not a real operation
+innerBuilder.create<config::MemoryResourceOp>(mlir::UnknownLoc::get(ctx), memSpace.getLeafReference(), byteSizeAttr, nullptr); // OK, memory reservation is not a real operation
 
 auto newFuncOp = innerModuleBuilder.create<mlir::func::FuncOp>(mlir::UnknownLoc::get(ctx), functionName, funcType); // OK, funcOp here is external shave function
 

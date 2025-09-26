@@ -478,7 +478,7 @@ TEST_P(ReifyDimTests, ReifyDimTest) {
     auto order = DimsOrder::fromNumDims(rank);
     const auto desc = vpux::getTensorAttr(
             &context, order.toAffineMap(&context),
-            vpux::IndexedSymbolAttr::get(&context, stringifyEnum(VPU::MemoryKind::CMX_NN)), Bounds(params.bounds));
+            vpux::IndexedSymbolAttr::get(&context, stringifyEnum(VPU::MemoryKind::CMX_NN)), BoundsRef(params.bounds));
     auto inType = mlir::RankedTensorType::get(params.shape, builder.getF16Type(), desc);
 
     auto funcType = builder.getFunctionType({inType}, {});

@@ -214,7 +214,7 @@ void foldSingleConstant(Const::DeclareOp& origOp) {
     const auto isUnsupportedSubByteStorageType = elemTypeBitSize < CHAR_BIT && elemTypeBitSize > 1;
     if (isUnsupportedSubByteStorageType) {
         rankedTensorType = mlir::cast<mlir::RankedTensorType>(contentType.changeShapeElemType(
-                Shape({1, 1, 1, checked_cast<int32_t>(bufSize)}), getUInt8Type(contentType.getContext())));
+                ShapeRef({1, 1, 1, checked_cast<int32_t>(bufSize)}), getUInt8Type(contentType.getContext())));
     } else if (auto qtype = mlir::dyn_cast<mlir::quant::QuantizedType>(contentElemType)) {
         rankedTensorType =
                 mlir::cast<mlir::RankedTensorType>(contentType.changeElemType(normalizeQuantStorageType(qtype)));

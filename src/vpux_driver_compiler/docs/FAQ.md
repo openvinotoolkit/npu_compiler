@@ -205,6 +205,36 @@ For installation, it is **not recommended** to use `cmake --install . --prefix /
 - Any TBB version can be used when generating the LLVM cache, but when building with the cache, the parameters must match those in `build_manifest.txt`. 
 - Please note that when using sideloading on Windows, you must use the OneCore version of oneTBB.
 
+## VCL Related Questions
+### VCL BuildFlags and Compilation Options
+
+**General  Format**: `"--inputs_precisions=\"input1:P1 input2:P2 input3:P3 ... inputN:PN\" --inputs_layouts=\"input1:L1 input2:L2 input3:L3 ... inputN:LN\" --outputs_precisions=\"output1:P1 output2:P2 output3:P3 ... outputN:PN\" --outputs_layouts=\"output1:L1 output2:L2 output3:L3 ... outputN:LN\" --config [CONFIG_OPTIONS]`
+
+> Example: `"--inputs_precisions=\"input_node_name:fp16\" --inputs_layouts=\"input_node_name:NCHW\" --outputs_precisions=\"output_node_name:fp16\" --outputs_layouts=\"output_node_name:NC\" --config NPU_PLATFORM=\"4000\" [OTHER_OPTIONS]`
+
+List of [supported precisions](https://github.com/openvinotoolkit/openvino/blob/d6727a7b87330a9105741fe47a095e9f43586581/src/core/include/openvino/core/type/element_type.hpp#L39-L68) and [supported layouts](https://github.com/openvinotoolkit/npu_compiler/blob/45eb516c57e6130b8626179b418dcfe25636da46/src/vpux_driver_compiler/src/vpux_compiler_l0/vcl_common.cpp#L47-L48).
+
+The `BuildFlags`, which is also the `options` member from `vcl_executable_desc_t` struct, consists of 2 main parts, which are the I/O Layout & Precisions, and config (such as log level, NPU Platform). In the current VCL API, I/O layouts and I/O precisions are no longer mandatory for all models. Hence, it is **not recommended** to pass I/O Layouts & I/O Precisions manually unless absolutely necessary.
+
+**Only for IRv10** models, users are allowed to override the original values by passing different I/O Layouts and I/O Precisions manually (For example forcing an IRV10 FP32 model to run in FP16). Passing different I/O Layouts and I/O Precisions values to an **IRv11 model will not override** the original value.
+
+<details>
+<summary>BuildFlag format</summary>
+
+The `options` member from `vcl_executable_desc_t` struct corresponds to the configuration of the legacy usage of [compilerTest](./test_and_debug/legacy_test.md). If you pass a config file to compilerTest, the `options` should match the content of your config file. Alternatively, you can also construct the `options` string directly. In order to generate the `options` for `vcl_executable_desc_t` struct you should do the following:
+- Use XML file of IR model to get the `options` content (It is recommended to use this method to obtain the input configuration. For output node names, see the next section for a more convenient approach):
+- Find the input layer with type `Parameter`, e.g., "<layer id="0" name="image_input" type="Parameter" version="opset1">". Take the name attribute as input node name.
+- Find the output layer with type `Result`, e.g., "<layer id="5" name="Y/sink_port_0" type="Result" version="opset1">", then locate its preceding node to determine the output node name. The reason for using the name of the node preceding the `Result` node in the config file is based on [the code](https://github.com/openvinotoolkit/openvino/blob/d6727a7b87330a9105741fe47a095e9f43586581/src/plugins/intel_npu/src/compiler_adapter/src/driver_compiler_adapter.cpp#L580). The final string format of `options` should be `"--inputs_precisions=\"input:fp16\" --inputs_layouts=\"input:C\" --outputs_precisions=\"output:fp16\" --outputs_layouts=\"output:C\" --config NPU_PLATFORM=\"4000\""`.
+        - For multiple inputs or outputs, separate each entry with a space, e.g., `--inputs_precisions=/"input1:fp16 input2:u8/" --inputs_layouts=/"input1:C input2:C/" --outputs_precisions=/"output1:fp16 output2:fp32/" --outputs_layouts=/"output1:C output2:C/" --config NPU_PLATFORM=/"4000/"`
+    - For config-related content, you can refer to this [README.md](https://github.com/openvinotoolkit/openvino/blob/master/src/plugins/intel_npu/README.md) to see the supported properties.
+
+- Use a visualization tool (such as [Netron](https://netron.app)) to easily find the output node names:
+- For example, using Netron:
+        - Enter the URL, click `Open Model...`, then select the model you want to use and click `open`. Wait for the network visualization to load.
+        - Press `Ctrl + F` to search for ‘result’ nodes. Click on these nodes, and the corresponding node will be displayed directly. Click the node preceding the result node to view its attributes in the sidebar. Find the `name` attribute, which is the name of the output node to use in the config.
+
+- Use `benchmark_app` to obtain the `options` member. If you have the `benchmark_app` tool from OpenVINO Project, you can also use this method to generate the content of the `options`. Please refer to the [legacy test method](./test_and_debug/legacy_test.md).
+</details>
 
 ## Additional Notes
 

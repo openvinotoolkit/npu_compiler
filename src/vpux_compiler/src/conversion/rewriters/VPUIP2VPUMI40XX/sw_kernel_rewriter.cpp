@@ -136,6 +136,8 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
                 return sw_params::DataType::NN_U8;
             case 4:
                 return sw_params::DataType::NN_U4;
+            case 2:
+                return sw_params::DataType::NN_U2;
             case 1:
                 return sw_params::DataType::NN_BIN;
             }
@@ -165,6 +167,11 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
                 mlir::isa<mlir::quant::QuantileQuantizedType, mlir::quant::QuantileQuantizedPerAxisType>(qType);
         auto isFloatStorage = mlir::isa<mlir::FloatType>(qType.getStorageType());
         switch (bitWidth) {
+        case 16:
+            if (!isQuantileType && !isFloatStorage) {
+                return isSigned ? sw_params::DataType::NN_I16 : sw_params::DataType::NN_U16;
+            }
+            break;
         case 8:
             if (!isQuantileType && !isFloatStorage) {
                 return isSigned ? sw_params::DataType::NN_I8 : sw_params::DataType::NN_U8;
@@ -176,6 +183,11 @@ sw_params::DataType getDataTypeFromMlirType(mlir::Type type) {
             }
             if (isNF4SpecQuantized(qType)) {
                 return sw_params::DataType::NN_NF4;
+            }
+            break;
+        case 2:
+            if (!isQuantileType && !isFloatStorage) {
+                return isSigned ? sw_params::DataType::NN_I2 : sw_params::DataType::NN_U2;
             }
             break;
         }
@@ -443,9 +455,7 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
                                          : convertOrUnrollBuffer(builder, swKernelOp.getOutputBuffs()[0]);
 
     auto paramsVector = createKernelParams(swKernelOp, isJitCompiled);
-    auto paramsSize = static_cast<int64_t>(paramsVector.size());
-    auto paramsData =
-            mlir::DenseIntElementsAttr::get(mlir::VectorType::get({paramsSize}, getUInt8Type(ctx)), paramsVector);
+    auto paramsData = getIntArrayAttr(ctx, paramsVector);
     auto kernelParamsOp = builder.create<VPUMI40XX::KernelParamsOp>(
             swKernelOp.getLoc(), indexType, swKernelOp.getInputs(), actKernalParamResults, dynInputShapesRange,
             dynOutputShapesRange, swKernelELF, paramsData, isOutputBroadcasted,
@@ -513,8 +523,7 @@ void createCacheOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder builder
             swKernelTextOp, swKernelArgsOp, swKernelEntryOp,
             mlir::SymbolRefAttr::get(ctx, swKernelTaskTypeLeaf.strref()), parentTaskOp.getWlmPageAttr());
 
-    auto kernelParamsData = mlir::DenseIntElementsAttr::get(mlir::VectorType::get({int64_t{1}}, getUInt8Type(ctx)),
-                                                            SmallVector<uint8_t>{0xFF});
+    auto kernelParamsData = getIntArrayAttr(ctx, SmallVector<uint8_t>{0xFF});
 
     auto kernelParamsOp =
             builder.create<VPUMI40XX::KernelParamsOp>(swKernelOp.getLoc(), indexType,
@@ -565,12 +574,13 @@ mlir::LogicalResult SWKernelRewriter::matchAndRewrite(VPUIP::SwKernelOp origOp, 
     } else if (auto jitCompiledSwKernelFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(kernelFuncSym)) {
         auto llvmFuncOpName = jitCompiledSwKernelFuncOp.getNameAttr();
 
-        vpux::translateToLLVMIR(moduleOp, kernelFuncSym,
-                                vpux::Logger("translate-to-LLVMIR", vpux::Logger::global().level()));
+        llvm::LLVMContext llvmContext;
+        auto llvmModule = vpux::translateToLLVMIR(moduleOp, kernelFuncSym, llvmContext);
 
         createComputeOpSwKernel(origOp, rewriter, llvmFuncOpName, index, true);
 
-        vpux::lowerLLVMToBinary(moduleOp, kernelFuncSym);
+        auto log = vpux::Logger("translate-to-LLVMIR", vpux::Logger::global().level());
+        vpux::lowerLLVMToBinary(moduleOp, std::move(llvmModule), kernelFuncSym, log);
         ShaveBinaryResources::loadElfData(moduleOp);
     }
 

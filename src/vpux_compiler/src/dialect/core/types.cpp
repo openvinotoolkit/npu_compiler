@@ -50,7 +50,7 @@ BoundedTensorType BoundedTensorType::get(mlir::Type type, BoundsRef bounds) {
     return mlir::cast<BoundedTensorType>(tensorType);
 }
 
-Bounds BoundedTensorType::getBounds() const {
+BoundsRef BoundedTensorType::getBounds() const {
     auto rankedType = mlir::cast<mlir::RankedTensorType>(*this);
 
     if (const auto desc = vpux::getTensorAttr(rankedType)) {
@@ -111,7 +111,7 @@ DynamicDimsMaskTensorType DynamicDimsMaskTensorType::get(mlir::Type type, Dynami
     return mlir::cast<DynamicDimsMaskTensorType>(tensorType);
 }
 
-DynamicDimsMask DynamicDimsMaskTensorType::getDynamicDimsMask() const {
+DynamicDimsMaskRef DynamicDimsMaskTensorType::getDynamicDimsMask() const {
     auto rankedType = mlir::cast<mlir::RankedTensorType>(*this);
 
     if (const auto desc = vpux::getTensorAttr(rankedType)) {

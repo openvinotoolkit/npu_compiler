@@ -55,7 +55,7 @@ const auto layerSpeficParams =
 const auto params = testing::Combine(
         layerSpeficParams, testing::Values(ov::element::f16),
         testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{4, 4}, {50, 50}})),
-        testing::Values(DEVICE_NPU));
+        testing::Values(test_utils::TARGET_DEVICE));
 
 const auto precommit_layerSpeficParams =
         testing::Combine(testing::ValuesIn(std::vector<std::vector<float>>{{2.56f, 7.3f, 6.75f}}),
@@ -66,7 +66,7 @@ const auto precommit_layerSpeficParams =
 const auto paramsPrecommit = testing::Combine(
         precommit_layerSpeficParams, testing::Values(ov::element::f16),
         testing::Values(static_shapes_to_test_representation(std::vector<ov::Shape>{{4, 4}, {13, 13}})),
-        testing::Values(DEVICE_NPU));
+        testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_PriorBoxClustered, PriorBoxClusteredLayerTestCommon, params,
                          PriorBoxClusteredLayerTestCommon::getTestCaseName);

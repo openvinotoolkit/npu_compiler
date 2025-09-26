@@ -185,9 +185,10 @@ public:
             return details::makeConvertCb<InT, OutT>();
         });
 
-        const Bit storageElemTypeSize = vpux::getElemTypeSize(_storageElemType);
-        VPUX_THROW_WHEN(storageElemTypeSize.count() < CHAR_BIT, "Unsupported storage type of size '{0}' bits.",
-                        storageElemTypeSize.count());
+        const Bit logicalElemBitSize = vpux::getElemTypeSize(_storageElemType);
+        auto isSubbyte = logicalElemBitSize.count() < CHAR_BIT;
+        const Bit storageElemTypeSize = isSubbyte ? Bit(8) : logicalElemBitSize;
+
         return details::ContentRange<OutT>(_data.data(), _isSplat, storageElemTypeSize, getType().getNumElements(),
                                            std::move(cvtOp));
     }

@@ -191,13 +191,8 @@ mlir::LogicalResult VerticalFusionOutliningPass::initializeOptions(
 }
 
 void VerticalFusionOutliningPass::initializeFromOptions() {
-    if (verticalFusionTileThreshold.hasValue()) {
-        _verticalFusionTileThreshold = verticalFusionTileThreshold.getValue();
-    }
-
-    if (numInstanceThreshold.hasValue()) {
-        _numInstanceThreshold = numInstanceThreshold.getValue();
-    }
+    _verticalFusionTileThreshold = verticalFusionTileThreshold.getValue();
+    _numInstanceThreshold = numInstanceThreshold.getValue();
 }
 
 //

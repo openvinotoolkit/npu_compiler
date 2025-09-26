@@ -55,6 +55,40 @@ def LowerMathToShaveIntrinsics : PassBase<"lower-math-to-shave-intrinsics", "vpu
     ];
 }
 
+def LinalgTileAndFuseSwLayers : PassBase<"linalg-tile-and-fuse-sw-layers", "vpux::ModulePass"> {
+    let summary = "In-kernel tile and fuse pass";
+
+    let description = [{
+       The purpose is to remove (ideally all) of the temporary buffers. The resulting tiles
+       will be promotable to allocas which in turn will later be promoted to registers.
+       This pass should run after all of the various other tiling passes.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createLinalgTileAndFuseSwLayersPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::linalg::LinalgDialect",
+        "mlir::scf::SCFDialect"
+    ];
+}
+
+def ShaveStackAllocation : PassBase<"shave-stack-allocation", "vpux::ModulePass"> {
+    let summary = "Performs stack optimizations for shave";
+
+    let description = [{
+       Runs post bufferization transforms (promoting tensors to stack where possible,
+       hoisting allocations, etc).
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createShaveStackAllocationPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::bufferization::BufferizationDialect"
+    ];
+}
+
 
 //
 // AdaptLLVMFuncsForShave
@@ -127,6 +161,21 @@ def EarlyCodeGenCapsuleFusion : PassBase<"early-codegen-capsule-fusion", "vpux::
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+}
+
+def FlattenEltwiseKernel : PassBase<"flatten-eltwise-kernel", "vpux::ModulePass"> {
+    let summary = "Flatten element-wise kernels";
+
+    let description = [{
+        Collapses dimensions for element-wise kernels in the software module when possible.
+    }];
+
+    let constructor = "vpux::ShaveCodeGen::createFlattenEltwiseKernelPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::linalg::LinalgDialect"
     ];
 }
 

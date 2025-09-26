@@ -12,10 +12,10 @@ module @OneDMAWithoutAttributes {
   } outputsInfo : {
     DataInfo "output_0" : tensor<1x2x3x4xf16>
   }
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0
+        config.MemoryResource 512 bytes of @CMX_NN offset 0
       }
     }
   }

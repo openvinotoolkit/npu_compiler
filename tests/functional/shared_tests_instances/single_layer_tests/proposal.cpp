@@ -229,7 +229,7 @@ const auto proposalParams0 = ::testing::Combine(
                            ::testing::ValuesIn(std::vector<std::vector<float>>{{0.25f, 0.5f, 1.0f, 2.0f}}),
                            ::testing::ValuesIn(std::vector<bool>{true}), ::testing::ValuesIn(std::vector<bool>{false}),
                            ::testing::ValuesIn(std::vector<std::string>{"tensowflow"})),
-        ::testing::Values(ov::element::f16), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(ov::element::f16), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto proposalParams1 = ::testing::Combine(
         ::testing::Combine(::testing::ValuesIn(std::vector<size_t>{4}), ::testing::ValuesIn(std::vector<size_t>{6000}),
@@ -240,7 +240,7 @@ const auto proposalParams1 = ::testing::Combine(
                            ::testing::ValuesIn(std::vector<std::vector<float>>{{1.2f}}),
                            ::testing::ValuesIn(std::vector<bool>{true}), ::testing::ValuesIn(std::vector<bool>{false}),
                            ::testing::ValuesIn(std::vector<std::string>{""})),
-        ::testing::Values(ov::element::f16), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(ov::element::f16), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Proposal_conformance_tf, ProposalLayerTestCommon, proposalParams0,
                          ProposalLayerTestCommon::getTestCaseName);

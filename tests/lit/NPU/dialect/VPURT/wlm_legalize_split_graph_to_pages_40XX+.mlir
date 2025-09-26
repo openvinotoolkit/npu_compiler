@@ -9,13 +9,13 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
-    %bar0 = VPURT.DeclareVirtualBarrier {isStartBarrier, wlmPage = 0 : i64} -> !VPURT.Barrier
-    %bar1 = VPURT.DeclareVirtualBarrier {wlmPage = 0 : i64} -> !VPURT.Barrier
-    %bar2 = VPURT.DeclareVirtualBarrier {wlmPage = 1 : i64} -> !VPURT.Barrier
-    %bar3 = VPURT.DeclareVirtualBarrier {wlmPage = 1 : i64} -> !VPURT.Barrier
-    %bar4 = VPURT.DeclareVirtualBarrier {wlmPage = 2 : i64} -> !VPURT.Barrier
-    %bar5 = VPURT.DeclareVirtualBarrier {wlmPage = 2 : i64} -> !VPURT.Barrier
-    %bar6 = VPURT.DeclareVirtualBarrier {isFinalBarrier, wlmPage = 3 : i64} -> !VPURT.Barrier
+    %bar0 = VPURT.DeclareVirtualBarrier <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+    %bar1 = VPURT.DeclareVirtualBarrier <{wlmPage = 0 : i64}> -> !VPURT.Barrier
+    %bar2 = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
+    %bar3 = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
+    %bar4 = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
+    %bar5 = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
+    %bar6 = VPURT.DeclareVirtualBarrier <{isFinalBarrier, wlmPage = 3 : i64}> -> !VPURT.Barrier
 
     // dummy buffer
     %cst0 = const.Declare memref<16x16x1x1xf16, #NHWC> =
@@ -144,13 +144,13 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
     //  Page3       bar6(3)
     // _______
 
-    // CHECK:   [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier {isStartBarrier, wlmPage = 0 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier {wlmPage = 0 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier {wlmPage = 1 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier {wlmPage = 1 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier {wlmPage = 2 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier {wlmPage = 2 : i64} -> !VPURT.Barrier
-    // CHECK:   [[BAR6:%.+]] = VPURT.DeclareVirtualBarrier {isFinalBarrier, wlmPage = 3 : i64} -> !VPURT.Barrier
+    // CHECK:   [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier <{isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 0 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
+    // CHECK:   [[BAR6:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, wlmPage = 3 : i64}> -> !VPURT.Barrier
 
     // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK:   VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {

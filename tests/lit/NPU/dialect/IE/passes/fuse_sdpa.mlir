@@ -25,7 +25,7 @@ func.func @FuseSDPA_FullyConnectedWithMultiply(%arg0: tensor<1x1x1x64xf32>, %arg
   return %11 : tensor<1x1x1x64xf32>
 
     // CHECK: [[TRANSPOSEK:%.+]] = IE.Transpose([[ARG1]]) {order_value = #NCWH} : tensor<1x1x64x64xf32> -> tensor<1x1x64x64xf32>
-    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[TRANSPOSEK]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
+    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[TRANSPOSEK]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
     // CHECK: return [[SDPA]] : tensor<1x1x1x64xf32>
 }
 
@@ -48,7 +48,7 @@ func.func @FuseSDPA_FullyConnectedWithDivide(%arg0: tensor<1x1x1x64xf32>, %arg1:
 
   return %10 : tensor<1x1x1x64xf32>
 
-    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
+    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
     // CHECK: return [[SDPA]] : tensor<1x1x1x64xf32>
 }
 
@@ -71,7 +71,7 @@ func.func @FuseSDPA_FullyConnectedWithMultiplyInsteadOfDivide(%arg0: tensor<1x1x
 
   return %10 : tensor<1x1x1x64xf32>
 
-    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
+    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
     // CHECK: return [[SDPA]] : tensor<1x1x1x64xf32>
 }
 
@@ -95,7 +95,7 @@ func.func @FuseSDPA_FullyConnectedAdaptiveStripping(%arg0: tensor<1x1x1x64xf32>,
 
   return %11 : tensor<1x1x1x64xf32>
 
-    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
+    // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[ARG4]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x1x1x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x64x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x1x1x64xf32>
     // CHECK: return [[SDPA]] : tensor<1x1x1x64xf32>
 }
 
@@ -104,9 +104,9 @@ func.func @FuseSDPA_FullyConnectedAdaptiveStripping(%arg0: tensor<1x1x1x64xf32>,
 // CHECK-LABEL: @FuseSDPA_AdjustSDPA
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x18x12x8xf32>, [[ARG1:%.+]]: tensor<1x18x16x8xf32>, [[ARG2:%.+]]: tensor<1x18x16x4xf32>, [[ARG3:%.+]]: tensor<1x1x1x1xf32>, [[ARG4:%.+]]: tensor<1xf32>)
 func.func @FuseSDPA_AdjustSDPA(%arg0: tensor<1x18x12x8xf32>, %arg1: tensor<1x18x16x8xf32>, %arg2: tensor<1x18x16x4xf32>, %arg3: tensor<1x1x1x1xf32>, %arg4: tensor<1xf32>) -> tensor<1x18x12x4xf32> {
-  %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3, %arg4) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0>} : tensor<1x18x12x8xf32>, tensor<1x18x16x8xf32>, tensor<1x18x16x4xf32>, tensor<1x1x1x1xf32>, tensor<1xf32> -> tensor<1x18x12x4xf32>
+  %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3, %arg4) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>} : tensor<1x18x12x8xf32>, tensor<1x18x16x8xf32>, tensor<1x18x16x4xf32>, tensor<1x1x1x1xf32>, tensor<1xf32> -> tensor<1x18x12x4xf32>
   return %0 : tensor<1x18x12x4xf32>
-  
+
   // CHECK: [[TRANSPOSEV:%.+]] = IE.Transpose([[ARG2]]) {order_value = #NCWH} : tensor<1x18x16x4xf32> -> tensor<1x18x4x16xf32>
-  // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[TRANSPOSEV]], [[ARG3]], [[ARG4]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 0>} : tensor<1x18x12x8xf32>, tensor<1x18x16x8xf32>, tensor<1x18x4x16xf32>, tensor<1x1x1x1xf32>, tensor<1xf32> -> tensor<1x18x12x4xf32>
+  // CHECK: [[SDPA:%.+]] = IE.SDPA([[ARG0]], [[ARG1]], [[TRANSPOSEV]], [[ARG3]], [[ARG4]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 1>} : tensor<1x18x12x8xf32>, tensor<1x18x16x8xf32>, tensor<1x18x4x16xf32>, tensor<1x1x1x1xf32>, tensor<1xf32> -> tensor<1x18x12x4xf32>
 }

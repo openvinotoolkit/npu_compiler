@@ -3,19 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
-
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
-
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
+
+#include <vpu_cost_model.h>
+#include <vpu_layer_cost_model.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SPLITNCEOPSONTOWORKLOADS
@@ -176,7 +177,7 @@ void SplitNCEOpsOntoWorkloadsPass::safeRunOnFunc() {
 
     const auto arch = config::getArch(module);
 
-    auto nceCluster = IE::getTileExecutor(module);
+    auto nceCluster = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(nceCluster != nullptr, "Failed to get NCE_Cluster information");
 
     auto dpuExec = nceCluster.getSubExecutor(VPU::ExecutorKind::DPU);

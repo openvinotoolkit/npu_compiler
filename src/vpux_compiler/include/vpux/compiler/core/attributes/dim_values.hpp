@@ -354,6 +354,7 @@ public:
     using Tag<DimValuesRefBase<T>>::Tag;
 
     DimValuesRef() = default;
+    ~DimValuesRef() = default;
 
     DimValuesRef(const DimValuesRef<D, T, Tag>& other) = default;
     DimValuesRef& operator=(const DimValuesRef<D, T, Tag>& other) = default;
@@ -367,6 +368,21 @@ public:
 
     template <typename U, typename = require_t<std::is_convertible<U*, T*>>>
     DimValuesRef(const DimValues<D, U, Tag>& values): Tag<DimValuesRefBase<T>>(values.raw()) {
+    }
+
+    // Note: construction / assignment from a temporary (non-*Ref) object is UB
+    template <typename U, typename = require_t<std::is_convertible<U*, T*>>>
+    DimValuesRef(DimValues<D, U, Tag>&& values) = delete;
+    template <typename U, typename = require_t<std::is_convertible<U*, T*>>>
+    DimValuesRef& operator=(DimValues<D, U, Tag>&& values) = delete;
+
+    template <typename U, typename = require_t<std::is_convertible<U*, T*>>>
+    DimValuesRef& operator=(const DimValues<D, U, Tag>& values) {
+        // Note: classical assignment via swap
+        DimValuesRef tmp(values);
+        using std::swap;
+        swap(*this, tmp);
+        return *this;
     }
 
 public:

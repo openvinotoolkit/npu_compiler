@@ -84,6 +84,10 @@ SpecializedContentSetup<T> SpecializedContentSetup<T>::rescale(double scale) {
     return addTransformation(Const::RescaleAttr::get(getFPAttr(getContext(), scale)));
 }
 template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::rescale(vpux::Const::ContentAttr attr) {
+    return addTransformation(Const::RescaleAttr::get(attr));
+}
+template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::relocateWeightsTablePointers(
         ArrayRef<uint32_t> weightsPtr, uint64_t sparsityPtr, vpux::ShapeRef offsets, uint64_t weightsTableSize,
         uint64_t weightsElemBitSize, VPUIP::SparsityCompressionAttr weightsCompression, uint64_t channelOffset,
@@ -124,10 +128,6 @@ template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::subview(vpux::ShapeRef offset, vpux::ShapeRef shape) {
     return addTransformation(
             Const::SubViewAttr::get(getIntArrayAttr(getContext(), offset), getIntArrayAttr(getContext(), shape)));
-}
-template <typename T>
-SpecializedContentSetup<T> SpecializedContentSetup<T>::bitPack(int64_t width) {
-    return addTransformation(Const::BitPackAttr::get(getIntAttr(getContext(), width)));
 }
 template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::transpose(vpux::DimsOrder newOrder) {
@@ -188,6 +188,15 @@ template <typename T>
 SpecializedContentSetup<T> SpecializedContentSetup<T>::affineReshape(mlir::ArrayAttr dimMapping,
                                                                      mlir::ArrayAttr shapeValue) {
     return addTransformation(Const::AffineReshapeAttr::get(dimMapping, shapeValue));
+}
+template <typename T>
+SpecializedContentSetup<T> SpecializedContentSetup<T>::interpolate(mlir::ArrayAttr axes, mlir::ArrayAttr sizes,
+                                                                   mlir::StringAttr mode, mlir::StringAttr coordMode,
+                                                                   mlir::StringAttr nearestMode,
+                                                                   mlir::BoolAttr antialias, mlir::ArrayAttr padsBegin,
+                                                                   mlir::ArrayAttr padsEnd, mlir::FloatAttr cubeCoeff) {
+    return addTransformation(Const::InterpolateAttr::get(axes, sizes, mode, coordMode, nearestMode, antialias,
+                                                         padsBegin, padsEnd, cubeCoeff));
 }
 
 // Note: this lists explicit template instantiations. we know exactly how many

@@ -3,9 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <llvm/ADT/TypeSwitch.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
@@ -20,6 +17,12 @@
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <llvm/ADT/TypeSwitch.h>
+#include <mlir/IR/PatternMatch.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+#include <queue>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_ADJUSTFAKEQDQPARAMS
@@ -175,6 +178,11 @@ bool isFqRangeOutOfBounds(IE::FakeQuantizeOp fqOp, float inScale = 1.0f, float o
     auto [inLow, inHigh, outLow, outHigh] = getFqValues(fqOp);
     return (hasExceededFp16Range(inLow * inScale, inHigh * inScale) ||
             hasExceededFp16Range(outLow * outScale, outHigh * outScale));
+}
+
+bool areFQValsEqual(IE::FakeQuantizeOp fqOp) {
+    auto [inLow, inHigh, outLow, outHigh] = getFqValues(fqOp);
+    return (inLow == outLow) && (inHigh == outHigh);
 }
 
 //
@@ -946,7 +954,9 @@ mlir::LogicalResult FakeQdqParamsRewriter::matchAndRewrite(IE::FakeQuantizeOp fa
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }
 
-    if (!IE::isPerTensorFQ({fakeQuantizeOp}) || !isFqRangeOutOfBounds(fakeQuantizeOp)) {
+    // FQ with in_low != out_low or in_high != out_high is replaced with a ScaleShift op in HandleU16FakeQuantize pass.
+    if (!IE::isPerTensorFQ({fakeQuantizeOp}) || !isFqRangeOutOfBounds(fakeQuantizeOp) ||
+        !areFQValsEqual(fakeQuantizeOp)) {
         return matchFailed(rewriter, fakeQuantizeOp, "Skipping AdjustFQParams pass as FQ {0} at {1} is in range",
                            fakeQuantizeOp->getName(), fakeQuantizeOp->getLoc());
     }

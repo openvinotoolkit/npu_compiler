@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -18,7 +19,6 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -164,6 +164,9 @@ void ConvertPrecisionToFP16Pass::safeRunOnModule() {
         return typeConverter.isSignatureLegal(funcOp.getFunctionType());
     });
 
+    const auto internalHintPrefix = "internal_";
+    auto internalMvnHighNorm = false;
+
     if (!_computeLayersWithHigherPrecision.empty()) {
         std::istringstream optionsStream(_computeLayersWithHigherPrecision);
         std::string dialectNamespace = IE::IEDialect::getDialectNamespace().str() + ".";
@@ -173,6 +176,15 @@ void ConvertPrecisionToFP16Pass::safeRunOnModule() {
             if (isAddRMSNorm) {
                 option = std::string("Add");
             }
+
+            if (option.find(internalHintPrefix, 0) != std::string::npos) {
+                const auto internalMvnOption = std::string(internalHintPrefix) + "MvnNormalize";
+                if (option.find(internalMvnOption, 0) != std::string::npos) {
+                    internalMvnHighNorm = true;
+                }
+                continue;
+            }
+
             std::string fullOption = dialectNamespace + option;
             StringRef opnameRef(fullOption);
             auto opname = mlir::OperationName(opnameRef, &ctx);
@@ -227,6 +239,12 @@ void ConvertPrecisionToFP16Pass::safeRunOnModule() {
                 })
                 .Case<IE::OneHotOp, IE::RandomUniformOp, IE::EyeOp>([&](auto op) {
                     op.setOutputType(convertElemType(op.getOutputType()));
+                })
+                .Case<IE::MVNOp>([&](auto op) {
+                    if (internalMvnHighNorm) {
+                        // fp16 buffs with f32 internal processing for normalization
+                        op.setHighPrecisionNormalize(true);
+                    }
                 })
                 .Case<IE::DynamicDataMaskOp>([&](auto op) {
                     auto outTensorType = mlir::cast<NDTypeInterface>(op.getOutputTensorType());

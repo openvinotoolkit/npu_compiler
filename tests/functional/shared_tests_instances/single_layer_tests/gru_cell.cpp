@@ -52,7 +52,7 @@ const auto gruCellParams = testing::Combine(
         ::testing::ValuesIn(inputSize), ::testing::ValuesIn(activations), ::testing::ValuesIn(clip),
         ::testing::ValuesIn(shouldLinearBeforeReset), ::testing::ValuesIn(WRBLayerTypes),
         ::testing::ValuesIn(WRBLayerTypes), ::testing::ValuesIn(WRBLayerTypes), ::testing::ValuesIn(modelTypes),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUCell, GRUCellLayerTest_NPU3720, gruCellParams,
                          GRUCellTest::getTestCaseName);

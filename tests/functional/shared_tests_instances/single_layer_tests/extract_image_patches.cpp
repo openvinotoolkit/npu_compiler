@@ -39,7 +39,7 @@ const auto test1ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{5, 5}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}, {2, 2}}),                   // rates
         ::testing::ValuesIn({PadType::VALID}),                                                   // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke1_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test1ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -50,7 +50,7 @@ const auto test2ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{8, 8}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                           // rates
         ::testing::ValuesIn({PadType::VALID}),                                                   // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke2_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test2ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -61,7 +61,7 @@ const auto test3ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{9, 9}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}, {2, 2}}),                   // rates
         ::testing::ValuesIn({PadType::SAME_UPPER}),                                              // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke3_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test3ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -72,7 +72,7 @@ const auto test4ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{3, 3}}),                         // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                         // rates
         ::testing::ValuesIn({PadType::VALID}),                                                 // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke4_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test4ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -83,7 +83,7 @@ const auto test5ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 2}}),                            // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 2}}),                            // rates
         ::testing::ValuesIn({PadType::SAME_LOWER}),                                               // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke5_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test5ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -94,7 +94,7 @@ const auto test6ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{5, 5}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                           // rates
         ::testing::ValuesIn({PadType::SAME_UPPER, PadType::SAME_LOWER}),                         // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke6_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test6ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -105,7 +105,7 @@ const auto test7ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 4}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                           // rates
         ::testing::ValuesIn({PadType::VALID, PadType::SAME_LOWER}),                              // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke7_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test7ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -116,7 +116,7 @@ const auto test8ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 4}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                           // rates
         ::testing::ValuesIn({PadType::SAME_UPPER}),                                              // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke8_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test8ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -128,7 +128,7 @@ const auto test9ExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 2}}),                            // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{1, 1}}),                            // rates
         ::testing::ValuesIn(paddingType),                                                         // pad type
-        ::testing::ValuesIn({ov::element::i32}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::i32}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke9_ExtractImagePatches, ExtractImagePatchesLayerTestCommon, test9ExtractImagePatchesParams,
                          ExtractImagePatchesTest::getTestCaseName);
@@ -139,7 +139,7 @@ const auto testPrecommitExtractImagePatchesParams = ::testing::Combine(
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{5, 5}}),                           // strides
         ::testing::ValuesIn(std::vector<std::vector<size_t>>{{2, 2}}),                           // rates
         ::testing::ValuesIn({PadType::VALID}),                                                   // pad type
-        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::f16}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ExtractImagePatches, ExtractImagePatchesLayerTestCommon,
                          testPrecommitExtractImagePatchesParams, ExtractImagePatchesTest::getTestCaseName);

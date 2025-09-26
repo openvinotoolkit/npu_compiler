@@ -17,19 +17,19 @@ module @age_gender attributes {config.arch = #config.arch_kind<NPU37XX>, config.
     func.func private @builtin_Convert(memref<*xf32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "convert.cpp", VPU.kernel_entry = "convert"} loc(#loc0)
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"} loc(#loc0)
   } loc(#loc0)
-  IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
+  config.Resources 2 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @DmaProfilingReservedMemory {
-        IE.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc0)
+        config.MemoryResource 512 bytes of @CMX_NN offset 0 loc(#loc0)
       } loc(#loc0)
     } loc(#loc0)
-    IE.ExecutorResource 1 of @DPU  loc(#loc0)
-    IE.ExecutorResource 2 of @SHAVE_ACT  loc(#loc0)
-    IE.ExecutorResource 1 of @SHAVE_NN  loc(#loc0)
-    IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc0)
+    config.ExecutorResource 1 of @DPU  loc(#loc0)
+    config.ExecutorResource 2 of @SHAVE_ACT  loc(#loc0)
+    config.ExecutorResource 1 of @SHAVE_NN  loc(#loc0)
+    config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64} loc(#loc0)
   } loc(#loc0)
-  IE.ExecutorResource 2 of @DMA_NN  loc(#loc0)
-  IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc0)
+  config.ExecutorResource 2 of @DMA_NN  loc(#loc0)
+  config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64} loc(#loc0)
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "data" : tensor<1x3x62x62xf32> loc(#loc0)
   } outputsInfo : {

@@ -13,7 +13,7 @@
 // CHECK-SAME:     [[INPUT1:%arg[0-9]]]: tensor<1x1920x3x1080xf16, {order = #NHWC}>)
 
 module @executors {
-IE.TileResource 3 of @NCE at 1.700000e+03 MHz
+config.Resources 3 of @NCE at 1.700000e+03 MHz
 
 func.func @HandleEltwiseWithSmallHeight(%arg0: tensor<1x1920x3x1080xf16, {order = #NHWC}>, %arg1: tensor<1x1920x3x1080xf16, {order = #NHWC}>) -> tensor<1x1920x3x1080xf32, {order = #NHWC}> {
     %0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1920x3x1080xf16, {order = #NHWC}>, tensor<1x1920x3x1080xf16, {order = #NHWC}> -> tensor<1x1920x3x1080xf16, {order = #NHWC}>

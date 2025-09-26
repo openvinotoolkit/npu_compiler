@@ -7,9 +7,9 @@
 // REQUIRES: arch-NPU40XX
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitSwConvOverOC
@@ -44,9 +44,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitSwMaxPoolOverH
@@ -79,9 +79,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitSoftMaxWithSoK
@@ -100,9 +100,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitSoftMaxOverW
@@ -121,9 +121,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @InterpSplitOverC
@@ -155,9 +155,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @InterpSplitOverHW
@@ -188,9 +188,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @InterpSplitOverCNoCommonFactor
@@ -219,9 +219,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitPReluOverW
@@ -243,9 +243,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitLeakyReluOverW
@@ -266,47 +266,43 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @GenericTiling
     // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x144x20x20xf16, {order = #NHWC}>,
     // CHECK-SAME:        [[WEIGHTS1:%arg[0-9]]]: tensor<144x144x3x3xf16, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS2:%arg[0-9]]]: tensor<576x144x3x3xf16, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS_TABLE1:%arg[0-9]]]: tensor<144x1x1x4xsi32, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS_TABLE2:%arg[0-9]]]: tensor<576x1x1x4xsi32, {order = #NHWC}>
+    // CHECK-SAME:        [[WEIGHTS2:%arg[0-9]]]: tensor<576x144x3x3xf16, {order = #NHWC}>
     func.func @GenericTiling(
             %input: tensor<1x144x20x20xf16, {order = #NHWC}>,
             %weights1: tensor<144x144x3x3xf16, {order = #NHWC}>,
-            %weights2: tensor<576x144x3x3xf16, {order = #NHWC}>,
-            %weights_table1: tensor<144x1x1x4xsi32, {order = #NHWC}>,
-            %weights_table2: tensor<576x1x1x4xsi32, {order = #NHWC}>)
+            %weights2: tensor<576x144x3x3xf16, {order = #NHWC}>)
                 -> tensor<1x576x20x20xf16, {order = #NHWC}> {
-        %1 = VPU.NCE.Convolution(%input, %weights1, %weights_table1) {
+        %1 = VPU.NCE.Convolution(%input, %weights1) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [144, 144, 3, 3],
             strides = [1, 1]
-        } : tensor<1x144x20x20xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}>, tensor<144x1x1x4xsi32, {order = #NHWC}> -> tensor<1x144x20x20xf16, {order = #NHWC}>
+        } : tensor<1x144x20x20xf16, {order = #NHWC}>, tensor<144x144x3x3xf16, {order = #NHWC}> -> tensor<1x144x20x20xf16, {order = #NHWC}>
         %2 = VPU.NCE.Eltwise(%1, %1) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>} : tensor<1x144x20x20xf16, {order = #NHWC}>, tensor<1x144x20x20xf16, {order = #NHWC}> -> tensor<1x144x20x20xf16, {order = #NHWC}>
-        %3 = VPU.NCE.Convolution(%2, %weights2, %weights_table2) {
+        %3 = VPU.NCE.Convolution(%2, %weights2) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [576, 144, 3, 3],
             strides = [1, 1]
-        } : tensor<1x144x20x20xf16, {order = #NHWC}>, tensor<576x144x3x3xf16, {order = #NHWC}>, tensor<576x1x1x4xsi32, {order = #NHWC}> -> tensor<1x576x20x20xf16, {order = #NHWC}>
+        } : tensor<1x144x20x20xf16, {order = #NHWC}>, tensor<576x144x3x3xf16, {order = #NHWC}> -> tensor<1x576x20x20xf16, {order = #NHWC}>
         return %3 : tensor<1x576x20x20xf16, {order = #NHWC}>
 
-        // CHECK:       [[CONV_1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS1]], [[WEIGHTS_TABLE1]])
+        // CHECK:       [[CONV_1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS1]])
         // CHECK-SAME:     {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [144, 144, 3, 3], strides = [1, 1]}
         // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
         // CHECK:       [[AND:%.+]] = VPU.NCE.Eltwise([[CONV_1]], [[CONV_1]]) {op_type = #VPU.eltwise_type<ADD>, ppe = #VPU.PPEStub<>}
         // CHECK-SAME:          -> tensor<1x144x20x20xf16, {order = #NHWC}>
 
-        // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS2]], [[WEIGHTS_TABLE2]])
+        // CHECK:       [[OUTPUT:%.+]] = VPU.NCE.Convolution([[AND]], [[WEIGHTS2]])
         // CHECK-SAME:     {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [576, 144, 3, 3], strides = [1, 1], tilingStrategy = [1, 4, 1, 1]}
         // CHECK-SAME:          -> tensor<1x576x20x20xf16, {order = #NHWC}>
 
@@ -320,9 +316,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @NoTileWithSOH
@@ -332,23 +328,20 @@ module @executors {
                 -> tensor<1x128x100x100xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<128x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00>
             : tensor<128x32x3x3xf16>, [#const.Reorder<#NHWC>]
-        %weights_table = const.Declare tensor<128x1x1x4xsi32> = dense<1>
-            : tensor<128x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights) {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [128, 32, 3, 3],
             strides = [1, 1]
-        } : tensor<1x32x100x100xf16, {order = #NHWC}>, tensor<128x32x3x3xf16, {order = #NHWC}>, tensor<128x1x1x4xsi32> -> tensor<1x128x100x100xf16, {order = #NHWC}>
+        } : tensor<1x32x100x100xf16, {order = #NHWC}>, tensor<128x32x3x3xf16, {order = #NHWC}> -> tensor<1x128x100x100xf16, {order = #NHWC}>
 
         return %0 : tensor<1x128x100x100xf16, {order = #NHWC}>
 
         // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<128x32x3x3xf16, {order = #NHWC}>
-        // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<128x1x1x4xsi32>
 
-        // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+        // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]])
         // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
         // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
         // CHECK-SAME:          rawFilterShape = [128, 32, 3, 3]
@@ -365,9 +358,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @TileWithSOH
@@ -377,23 +370,20 @@ module @executors {
                 -> tensor<1x32x210x512xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<32x16x3x3xf16, {order = #NHWC}> = dense<1.000000e+00>
             : tensor<32x16x3x3xf16>, [#const.Reorder<#NHWC>]
-        %weights_table = const.Declare tensor<32x1x1x4xsi32> = dense<1>
-            : tensor<32x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights) {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [32, 16, 3, 3],
             strides = [1, 1]
-        } : tensor<1x16x210x512xf16, {order = #NHWC}>, tensor<32x16x3x3xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x210x512xf16, {order = #NHWC}>
+        } : tensor<1x16x210x512xf16, {order = #NHWC}>, tensor<32x16x3x3xf16, {order = #NHWC}> -> tensor<1x32x210x512xf16, {order = #NHWC}>
 
         return %0 : tensor<1x32x210x512xf16, {order = #NHWC}>
 
         // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<32x16x3x3xf16, {order = #NHWC}>
-        // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32>
 
-        // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+        // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]])
         // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>
         // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
         // CHECK-SAME:          rawFilterShape = [32, 16, 3, 3]
@@ -408,9 +398,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @NoTileWithSOK
@@ -420,23 +410,20 @@ module @executors {
                 -> tensor<1x240x10x10xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<240x32x7x7xf16, {order = #NHWC}> = dense<1.000000e+00>
             : tensor<240x32x7x7xf16>, [#const.Reorder<#NHWC>]
-        %weights_table = const.Declare tensor<240x1x1x4xsi32> = dense<1>
-            : tensor<240x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights) {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [240, 32, 7, 7],
             strides = [1, 1]
-        } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<240x32x7x7xf16, {order = #NHWC}>, tensor<240x1x1x4xsi32> -> tensor<1x240x10x10xf16, {order = #NHWC}>
+        } : tensor<1x32x10x10xf16, {order = #NHWC}>, tensor<240x32x7x7xf16, {order = #NHWC}> -> tensor<1x240x10x10xf16, {order = #NHWC}>
 
         return %0 : tensor<1x240x10x10xf16, {order = #NHWC}>
 
         // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<240x32x7x7xf16, {order = #NHWC}>
-        // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<240x1x1x4xsi32>
 
-        // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+        // CHECK:       [[CONV:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]])
         // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
         // CHECK-SAME:          pad = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
         // CHECK-SAME:          rawFilterShape = [240, 32, 7, 7],
@@ -454,9 +441,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @LargeConstPipeliningSOKFor
@@ -466,25 +453,21 @@ module @executors {
                 -> tensor<1x512x14x14xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<512x256x3x3xf16, {order = #NHWC}> = dense<1.000000e+00>
             : tensor<512x256x3x3xf16>, [#const.Reorder<#NHWC>]
-        %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<1>
-            : tensor<512x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights) {
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [512, 256, 3, 3],
             strides = [1, 1]
-        } : tensor<1x256x14x14xf16, {order = #NHWC}>, tensor<512x256x3x3xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x14x14xf16, {order = #NHWC}>
+        } : tensor<1x256x14x14xf16, {order = #NHWC}>, tensor<512x256x3x3xf16, {order = #NHWC}> -> tensor<1x512x14x14xf16, {order = #NHWC}>
 
         return %0 : tensor<1x512x14x14xf16, {order = #NHWC}>
 
         // CHECK-DAG:       [[WEIGHTS:%.+]] = const.Declare tensor<512x256x3x3xf16, {order = #NHWC}> = dense<1.000000e+00>
         // CHECK-SAME:          : tensor<512x256x3x3xf16>, [#const.Reorder<#NHWC>]
-        // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<512x1x1x4xsi32> = dense<1>
-        // CHECK-SAME:          : tensor<512x1x1x4xsi32>
 
-        // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+        // CHECK:       [[CONV1:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS]])
         // CHECK-SAME:          multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>
         // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>
         // CHECK-SAME:          rawFilterShape = [512, 256, 3, 3]
@@ -500,9 +483,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitNCEEltwise
@@ -532,9 +515,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @NoPrefetchingForEltwise
@@ -545,14 +528,13 @@ module @executors {
             %arg1: tensor<1x64x70x50xf16, {order = #NHWC}>)
                 -> tensor<1x64x70x50xf16, {order = #NHWC}> {
         %weights = const.Declare tensor<64x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x32x3x3xf16>, [#const.Reorder<#NHWC>]
-        %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
-        %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+        %0 = VPU.NCE.Convolution(%arg0, %weights) {
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [64, 32, 3, 3],
             strides = [1, 1]
-        } : tensor<1x32x70x50xf16, {order = #NHWC}>, tensor<64x32x3x3xf16, {order = #NHWC}>, tensor<64x1x1x4xsi32> -> tensor<1x64x70x50xf16, {order = #NHWC}>
+        } : tensor<1x32x70x50xf16, {order = #NHWC}>, tensor<64x32x3x3xf16, {order = #NHWC}> -> tensor<1x64x70x50xf16, {order = #NHWC}>
 
         %1 = VPU.NCE.Eltwise(%0, %arg1) {
             ppe = #VPU.PPEStub<>,
@@ -562,9 +544,8 @@ module @executors {
         return %1 : tensor<1x64x70x50xf16, {order = #NHWC}>
 
         // CHECK-DAG:       [[WEIGHTS:%.+]]       = const.Declare tensor<64x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00>
-        // CHECK-DAG:       [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<64x1x1x4xsi32> = dense<1>
 
-        // CHECK:       [[PARENT_CONV:%.+]] = VPU.NCE.Convolution([[INPUT_0]], [[WEIGHTS]], [[WEIGHTS_TABLE]])
+        // CHECK:       [[PARENT_CONV:%.+]] = VPU.NCE.Convolution([[INPUT_0]], [[WEIGHTS]])
         // CHECK-SAME:          -> tensor<1x64x70x50xf16, {order = #NHWC}>
 
         // Eltwise is not tiled for prefetching
@@ -581,9 +562,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitAveragePoolOverW
@@ -607,9 +588,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 1 of @NCE {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 1 of @NCE {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   func.func @MVN1NormalizeSplit
@@ -633,9 +614,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 4 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   func.func @MVN1NormalizeSplitOverH
@@ -654,9 +635,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @ClampSplitOverW
@@ -675,9 +656,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @ReLUSplitOverW
@@ -698,9 +679,9 @@ module @executors {
     #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @LogSplitOverW
@@ -719,9 +700,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @AbsSplitOverW
@@ -740,9 +721,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitFloorModEltwiseSw
@@ -760,9 +741,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitModEltwiseSw
@@ -780,9 +761,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitPowerEltwiseSw
@@ -801,9 +782,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitLogicalOrEltwiseSw
@@ -822,9 +803,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitLogicalXorEltwiseSw
@@ -843,9 +824,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitEqualEltwiseSw
@@ -864,9 +845,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitNotEqualEltwiseSw
@@ -885,9 +866,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitLessEltwiseSw
@@ -906,9 +887,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitLessEqualEltwiseSw
@@ -927,9 +908,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitGreaterEltwiseSw
@@ -948,9 +929,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitGreaterEqualEltwiseSw
@@ -971,9 +952,9 @@ module @executors {
     #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitErfOverW
@@ -992,9 +973,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitFloorOverW
@@ -1015,9 +996,9 @@ module @executors {
     #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @TanSplitOverW
@@ -1036,9 +1017,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SwishSplitOverW
@@ -1057,9 +1038,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @HSigmoidSplitOverW
@@ -1078,9 +1059,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitNegativeActivationSw
@@ -1099,9 +1080,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitCeilingActivationSw
@@ -1120,9 +1101,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitSignActivationSw
@@ -1138,12 +1119,14 @@ module @executors {
     }
 
 }
+
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
     }
 
     // CHECK-LABEL: @SplitSelectEltwiseSw
@@ -1159,12 +1142,13 @@ module @executors {
     }
 
 }
+
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitAddEltwiseSw
@@ -1183,9 +1167,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitRoundActivationSw
@@ -1204,9 +1188,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitGeluActivationSw
@@ -1225,9 +1209,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitTopK
@@ -1248,9 +1232,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitStridedSliceOverW
@@ -1269,9 +1253,9 @@ module @executors {
     // -----
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitLogicalNotEltwiseSw
@@ -1295,41 +1279,37 @@ module @executors {
     !qElemType = !quant.uniform<u8:f16, 1.0>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @PrefetchTilingWithParentConsidered
     // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x512x14x14x!qElemType, {order = #NHWC}>,
     // CHECK-SAME:        [[WEIGHTS1:%arg[0-9]]]: tensor<512x512x3x3x!qElemType, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS2:%arg[0-9]]]: tensor<2048x512x1x1x!qElemType, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS_TABLE1:%arg[0-9]]]: tensor<512x1x1x4xsi32, {order = #NHWC}>,
-    // CHECK-SAME:        [[WEIGHTS_TABLE2:%arg[0-9]]]: tensor<2048x1x1x4xsi32, {order = #NHWC}>
+    // CHECK-SAME:        [[WEIGHTS2:%arg[0-9]]]: tensor<2048x512x1x1x!qElemType, {order = #NHWC}>
     func.func @PrefetchTilingWithParentConsidered(
             %input: tensor<1x512x14x14x!qElemType, {order = #NHWC}>,
             %weights1: tensor<512x512x3x3x!qElemType, {order = #NHWC}>,
-            %weights2: tensor<2048x512x1x1x!qElemType, {order = #NHWC}>,
-            %weights_table1: tensor<512x1x1x4xsi32, {order = #NHWC}>,
-            %weights_table2: tensor<2048x1x1x4xsi32, {order = #NHWC}>)
+            %weights2: tensor<2048x512x1x1x!qElemType, {order = #NHWC}>)
                 -> tensor<1x2048x7x7x!qElemType, {order = #NHWC}> {
-        %0 = VPU.NCE.Convolution(%input, %weights1, %weights_table1) {
+        %0 = VPU.NCE.Convolution(%input, %weights1) {
             pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [512, 512, 3, 3], strides = [2, 2]}
-                : tensor<1x512x14x14x!qElemType, {order = #NHWC}>, tensor<512x512x3x3x!qElemType, {order = #NHWC}>, tensor<512x1x1x4xsi32, {order = #NHWC}> -> tensor<1x512x7x7x!qElemType, {order = #NHWC}>
-        %1 = VPU.NCE.Convolution(%0, %weights2, %weights_table2) {
+                : tensor<1x512x14x14x!qElemType, {order = #NHWC}>, tensor<512x512x3x3x!qElemType, {order = #NHWC}> -> tensor<1x512x7x7x!qElemType, {order = #NHWC}>
+        %1 = VPU.NCE.Convolution(%0, %weights2) {
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [2048, 512, 1, 1], strides = [1, 1]}
-                : tensor<1x512x7x7x!qElemType, {order = #NHWC}>, tensor<2048x512x1x1x!qElemType, {order = #NHWC}>, tensor<2048x1x1x4xsi32, {order = #NHWC}> -> tensor<1x2048x7x7x!qElemType, {order = #NHWC}>
+                : tensor<1x512x7x7x!qElemType, {order = #NHWC}>, tensor<2048x512x1x1x!qElemType, {order = #NHWC}> -> tensor<1x2048x7x7x!qElemType, {order = #NHWC}>
         return %1 : tensor<1x2048x7x7x!qElemType, {order = #NHWC}>
 
         // Prefetching mode is triggered for the child conv
         // with tiled parent memory considered
-        // CHECK:       [[PARENT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS1]], [[WEIGHTS_TABLE1]])
+        // CHECK:       [[PARENT:%.+]] = VPU.NCE.Convolution([[INPUT]], [[WEIGHTS1]])
         // CHECK-SAME:  tilingStrategy = [1, 2, 1, 1]
-        // CHECK:       [[CHILD:%.+]] = VPU.NCE.Convolution([[PARENT]], [[WEIGHTS2]], [[WEIGHTS_TABLE2]])
+        // CHECK:       [[CHILD:%.+]] = VPU.NCE.Convolution([[PARENT]], [[WEIGHTS2]])
         // CHECK-SAME:  tilingStrategy = [1, 64, 1, 1]
     }
 
@@ -1340,9 +1320,9 @@ module @executors {
     !qElemType = !quant.uniform<i4:f16, 1.000000e+00>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitDequantizeWithSoH
@@ -1371,9 +1351,9 @@ module @executors {
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitPReluOverH
@@ -1401,16 +1381,15 @@ module @executors {
 
 !qElemType = !quant.uniform<u8:f16, 0.0016544117647058823>
 module @executors {
-    IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 4 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 // CHECK-LABEL: @NCEMatMulSOGAndPipelined
   func.func @NCEMatMulSOGAndPipelined(%arg0: tensor<1x32x4x32xf16, {order = #NHWC}>) ->  tensor<32x1x1408x1x1xf16, {order = #GNHWC}>{
-    %weight_table_depth_conv = const.Declare tensor<32x1x1x4xsi32> = dense<5> : tensor<32x1x1x4xsi32>
     %weight_depth_conv = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<0.0> : tensor<32x16x1x1xf16, {order = #NHWC}>
 
-    %depth_conv = VPU.NCE.DepthConvolution(%arg0, %weight_depth_conv, %weight_table_depth_conv) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 1, 1, 1], strides = [1, 1]} -> tensor<1x32x4x32xf16, {order = #NHWC}>
+    %depth_conv = VPU.NCE.DepthConvolution(%arg0, %weight_depth_conv) {multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [32, 1, 1, 1], strides = [1, 1]} -> tensor<1x32x4x32xf16, {order = #NHWC}>
     %31 = VPU.ShapeCast {shape = [1, 128, 32, 1]} inputs(%depth_conv : tensor<1x32x4x32xf16, {order = #NHWC}>) -> tensor<1x128x32x1xf16, {order = #NHWC}> loc(fused<{name = "Multiply_72943", type = "Multiply"}>["Multiply_72943"])
     %32 = VPU.PermuteCast(%31) {dst_order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, mem_perm = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>} : tensor<1x128x32x1xf16, {order = #NHWC}> -> tensor<1x32x1x128xf16> loc(fused<{name = "Multiply_72943", type = "Multiply"}>["Multiply_72943", "reorder_out"])
     %47 = VPU.AffineReshape(%32) {dim_mapping = [[0], [0], [1], [2, 3, 4]], shape_value = [32, 1, 128, 1, 1]} : tensor<1x32x1x128xf16> -> tensor<32x1x128x1x1xf16> loc(fused<{name = "Multiply_72943", type = "Multiply"}>["Multiply_72943", "reorder_out"])
@@ -1435,25 +1414,24 @@ module @executors {
     !qElemType = !quant.quantile<u4:f16:f16, {-1.000000e+00,-0.69619280099868774,-0.52507305145263672,-0.39491748809814453,-0.28444138169288635,-0.18477343022823334,-0.091050036251544952,0.000000e+00,0.07958029955625534,0.16093020141124725,0.24611230194568634,0.33791524171829224,0.44070982933044434,0.56261700391769409,0.72295683622360229,1.000000e+00}:1.000000e+00>
 
 module @executors {
-    IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 4 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @SplitConvWithLargeFilter
     func.func @SplitConvWithLargeFilter(%arg0: tensor<1x3840x1x1xf16, {order = #NHWC}>, %arg1: tensor<1536x3840x!quantileFloatType>) -> tensor<1x1536x1x1xf16, {order = #NHWC}> {
-        %cst = const.Declare tensor<1536x1x1x4xsi32> = dense<0> : tensor<1536x1x1x4xsi32>
         %0 = VPU.QuantizeCast(%arg1) {dstElemType = !qElemType} : tensor<1536x3840x!quantileFloatType> -> tensor<1536x3840x!qElemType>
         %1 = VPU.AffineReshape(%0) {dim_mapping = [[0], [1, 2, 3]], shape_value = [1536, 3840, 1, 1]} : tensor<1536x3840x!qElemType> -> tensor<1536x3840x1x1x!qElemType>
         %2 = VPU.PermuteCast(%1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1536x3840x1x1x!qElemType> -> tensor<1536x3840x1x1x!qElemType, {order = #NHWC}>
-        %3 = VPU.NCE.Convolution(%arg0, %2, %cst) {
+        %3 = VPU.NCE.Convolution(%arg0, %2) {
             mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
             multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
             rawFilterShape = [1536, 3840, 1, 1],
             strides = [1, 1]
-        } : tensor<1x3840x1x1xf16, {order = #NHWC}>, tensor<1536x3840x1x1x!qElemType, {order = #NHWC}>, tensor<1536x1x1x4xsi32> -> tensor<1x1536x1x1xf16, {order = #NHWC}>
+        } : tensor<1x3840x1x1xf16, {order = #NHWC}>, tensor<1536x3840x1x1x!qElemType, {order = #NHWC}> -> tensor<1x1536x1x1xf16, {order = #NHWC}>
 
         return %3 : tensor<1x1536x1x1xf16, {order = #NHWC}>
 

@@ -32,7 +32,7 @@ mlir::LogicalResult vpux::VPU::OneHotOp::inferReturnTypes(mlir::MLIRContext* ctx
         outShape.insert(outShape.begin() + axis, depth);
     }
 
-    inferredReturnTypes.push_back(anyRankedTensorType.changeShape(Shape(outShape)));
+    inferredReturnTypes.push_back(anyRankedTensorType.changeShape(ShapeRef(outShape)));
 
     return mlir::success();
 }

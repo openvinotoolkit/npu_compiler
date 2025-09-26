@@ -48,16 +48,17 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith1ActShaveEngineOn1Cl
             config.PipelineOptions @Options {
                 config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
             }
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 1 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.700000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 1 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 1 of @DMA_NN
-            IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 1 of @DMA_NN
+                config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 
             module @VPU.SW  {
@@ -143,15 +144,17 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith2ActShaveEngineOn1Cl
             config.PipelineOptions @Options {
                 config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
             }
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 2 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.700000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 1 of @DMA_NN
-            IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 1 of @DMA_NN
+                config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
 
             VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 
@@ -242,15 +245,16 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
             config.PipelineOptions @Options {
                 config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
             }
-            IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-                IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-                IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-                IE.ExecutorResource 2 of @SHAVE_ACT
-                IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.700000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @DMA_NN
-            IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @DMA_NN
+                config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 
             module @VPU.SW  {

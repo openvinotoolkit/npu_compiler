@@ -26,8 +26,8 @@ mlir::LogicalResult vpux::IE::LessOp::inferReturnTypeComponents(
     const auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type),
                                                           ShapeInfo::fromNDType(in2Type), less.getAutoBroadcast(), loc);
 
-    const auto outDesc =
-            vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr, Bounds(outShapeInfo.bounds));
+    const auto outDesc = vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
+                                             BoundsRef(outShapeInfo.bounds));
 
     // Explicitly set the output type to boolean since input and output types are not the same
     inferredReturnShapes.emplace_back(outShapeInfo.shape, getBool8Type(ctx), outDesc);

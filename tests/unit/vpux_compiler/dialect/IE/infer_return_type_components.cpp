@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/utils/core/range.hpp"
 
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
 
@@ -133,7 +134,7 @@ public:
         const auto elemType = mlir::Float16Type::get(ctx);
         const auto affineMap = mlir::AffineMapAttr::get(DimsOrder::fromNumDims(shape.size()).toAffineMap(ctx));
 
-        const auto tensorAttr = vpux::TensorAttr::get(ctx, affineMap, /*memSpace=*/nullptr, Bounds(inBounds), {});
+        const auto tensorAttr = vpux::TensorAttr::get(ctx, affineMap, /*memSpace=*/nullptr, BoundsRef(inBounds), {});
         const auto tensorType = mlir::RankedTensorType::get(shape, elemType, tensorAttr);
         return builder.create<mlir::tensor::EmptyOp>(loc, tensorType, mlir::ValueRange{});
     }
@@ -373,10 +374,10 @@ TEST_P(InferReturnTypeComponents, PropagatesBounds) {
         const auto tensorType = mlir::cast<mlir::RankedTensorType>(outputNDType);
         ASSERT_NE(tensorType, nullptr);
 
-        const auto outputboundedType = mlir::dyn_cast<Core::BoundedTensorType>(tensorType);
-        EXPECT_TRUE(outputboundedType != nullptr);
+        const auto outputBoundedType = mlir::dyn_cast<Core::BoundedTensorType>(tensorType);
+        EXPECT_TRUE(outputBoundedType != nullptr);
 
-        const auto outputBounds = outputboundedType.getBounds().raw();
+        const auto outputBounds = to_small_vector(outputBoundedType.getBounds());
         EXPECT_EQ(outputBounds, GetParam()->m_expectedShapesInfo[result.index()].bounds);
     }
 }

@@ -47,29 +47,29 @@ const std::vector<ov::op::v0::DepthToSpace::DepthToSpaceMode> modes = {
 const auto DepthToSpaceBS2_PRECOMMIT =
         ::testing::Combine(::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 4, 3, 3}})}),
                            ::testing::ValuesIn(inputPrecisions), ::testing::ValuesIn(modes), ::testing::Values(2),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto DepthToSpaceBS3_PRECOMMIT =
         ::testing::Combine(::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 9, 3, 3}})}),
                            ::testing::ValuesIn(inputPrecisions), ::testing::ValuesIn(modes), ::testing::Values(3),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto smoke_DepthToSpaceBS4_with_tiling =
         ::testing::Combine(::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{1, 48, 80, 80}})}),
                            ::testing::Values(ov::element::f16), ::testing::ValuesIn(modes), ::testing::Values(4),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 std::vector<std::vector<ov::Shape>> inputShapesBS4 = {
         {{1, 16, 5, 4}}, {{1, 16, 9, 7}}, {{1, 128, 5, 4}}, {{1, 128, 9, 7}}};
 const auto smoke_DepthToSpaceBS4 = ::testing::Combine(
         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapesBS4)), ::testing::Values(ov::element::f16),
         ::testing::Values(DepthToSpace::DepthToSpaceMode::DEPTH_FIRST), ::testing::Values(4),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto DepthToSpaceBS2_with_large_height =
         ::testing::Combine(::testing::Values(static_shapes_to_test_representation({ov::Shape{1, 4, 300, 3}})),
                            ::testing::ValuesIn(inputPrecisions), ::testing::ValuesIn(modes), ::testing::Values(2),
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_DepthToSpaceBS2, DepthToSpaceLayerTestCommon, DepthToSpaceBS2_PRECOMMIT,
                          DepthToSpaceLayerTestCommon::getTestCaseName);

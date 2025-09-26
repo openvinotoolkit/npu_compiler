@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/scope_exit.hpp"
 
 #include "common/utils.hpp"
 
@@ -173,9 +174,17 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_SOH) {
     mlir::OpBuilder builder(&ctx);
     auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
                                                                  VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    VPUX_SCOPE_EXIT {
+        clusterOperand->erase();
+    };
 
     SmallVector<mlir::Value> outPerCluster;
     SmallVector<SmallVector<mlir::Value>> outItiPerCluster;
+    VPUX_SCOPE_EXIT {
+        for (auto value : outPerCluster) {
+            value.getDefiningOp()->erase();
+        }
+    };
 
     std::tie(outPerCluster, outItiPerCluster) = VPUIP::getPerClusterOutputHaloBuffers(
             &ctx, mlir::UnknownLoc::get(&ctx), "output", clusterOperand, numClusters);
@@ -332,9 +341,17 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_SOK) {
     mlir::OpBuilder builder(&ctx);
     auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
                                                                  VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    VPUX_SCOPE_EXIT {
+        clusterOperand->erase();
+    };
 
     SmallVector<mlir::Value> outPerCluster;
     SmallVector<SmallVector<mlir::Value>> outItiPerCluster;
+    VPUX_SCOPE_EXIT {
+        for (auto value : outPerCluster) {
+            value.getDefiningOp()->erase();
+        }
+    };
 
     std::tie(outPerCluster, outItiPerCluster) = VPUIP::getPerClusterOutputHaloBuffers(
             &ctx, mlir::UnknownLoc::get(&ctx), "output", clusterOperand, numClusters);
@@ -521,9 +538,17 @@ TEST_F(MLIR_ITIUnrollTest, getPerClusterOutputHaloBuffers_HKSwitch) {
     mlir::OpBuilder builder(&ctx);
     auto clusterOperand = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), distributedBufferType,
                                                                  VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
+    VPUX_SCOPE_EXIT {
+        clusterOperand->erase();
+    };
 
     SmallVector<mlir::Value> outPerCluster;
     SmallVector<SmallVector<mlir::Value>> outItiPerCluster;
+    VPUX_SCOPE_EXIT {
+        for (auto value : outPerCluster) {
+            value.getDefiningOp()->erase();
+        }
+    };
 
     std::tie(outPerCluster, outItiPerCluster) = VPUIP::getPerClusterOutputHaloBuffers(
             &ctx, mlir::UnknownLoc::get(&ctx), "output", clusterOperand, numClusters);

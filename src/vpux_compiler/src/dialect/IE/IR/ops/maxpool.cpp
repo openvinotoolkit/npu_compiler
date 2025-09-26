@@ -45,7 +45,7 @@ mlir::LogicalResult vpux::IE::MaxPoolOp::inferReturnTypeComponents(
     }
 
     auto outBounds = !outShapeInfo.bounds.empty() ? outShapeInfo.bounds : SmallVector<int64_t>{};
-    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(outBounds));
+    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
 
     inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 

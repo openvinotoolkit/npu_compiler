@@ -97,6 +97,40 @@ func.func @Fold(%arg0: tensor<1x3x512x512xf16>) -> tensor<1x3x512x512xf16> {
 
 // -----
 
+// CHECK-LABEL: @FoldCubicInterpolateWithSplatConstInput
+func.func @FoldCubicInterpolateWithSplatConstInput() -> tensor<1x384x27x27xf16> {
+        %cst = const.Declare tensor<1x384x37x37xf16> = dense<1.0> : tensor<1x384x37x37xf16>
+        %0 = IE.Interpolate(%cst)
+         {attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01 : f64, mode = <CUBIC>, nearest_mode = <FLOOR>,
+         pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>, axes_attr = [2, 3],
+         operandSegmentSizes = array<i32: 1, 0, 0, 0>, scales_attr = [0.72972972972972971, 0.72972972972972971], sizes_attr = [27, 27]
+         } : tensor<1x384x37x37xf16> -> tensor<1x384x27x27xf16>
+
+    return %0 : tensor<1x384x27x27xf16>
+
+    // CHECK-NOT:    IE.Interpolate
+    // CHECK:       return %cst : tensor<1x384x27x27xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FoldCubicInterpolateWithNonSplatConstInput
+func.func @FoldCubicInterpolateWithNonSplatConstInput() -> tensor<1x1x3x3xf16> {
+        %cst = const.Declare tensor<1x1x2x2xf16> = dense<[[[[1.0, 2.0], [3.0, 4.0]]]]> : tensor<1x1x2x2xf16>
+        %0 = IE.Interpolate(%cst)
+         {attr = #IE.Interpolate<antialias = false, coord_mode = <HALF_PIXEL>, cube_coeff = -7.500000e-01 : f64, mode = <CUBIC>, nearest_mode = <FLOOR>,
+         pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>, axes_attr = [2, 3],
+         operandSegmentSizes = array<i32: 1, 0, 0, 0>, scales_attr = [1.5, 1.5], sizes_attr = [3, 3]
+         } : tensor<1x1x2x2xf16> -> tensor<1x1x3x3xf16>
+
+    return %0 : tensor<1x1x3x3xf16>
+
+    // CHECK-NOT:    IE.Interpolate
+    // CHECK:       return %cst : tensor<1x1x3x3xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @ConvertToNearestWithSIZESMode
 func.func @ConvertToNearestWithSIZESMode(%arg0: tensor<1x96x1x1xf32>) -> tensor<1x96x33x33xf32> {
     %cst = const.Declare tensor<2xsi64> = dense<33> : tensor<2xsi64>

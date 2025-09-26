@@ -1,5 +1,3 @@
-
-
 //
 // Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
@@ -84,3 +82,9 @@ struct LimitedToArch {
 };
 }  // namespace config
 }  // namespace vpux
+
+//
+// Generated
+//
+
+#include <vpux/compiler/dialect/config/ops_interfaces.hpp.inc>

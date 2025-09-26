@@ -378,7 +378,7 @@ vpux::NDTypeInterface vpux::Const::SubViewAttr::inferOutputType(vpux::NDTypeInte
     return input.extractDenseTile(ShapeRef(offset), ShapeRef(shape));
 }
 
-bool vpux::Const::SubViewAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::SubViewAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

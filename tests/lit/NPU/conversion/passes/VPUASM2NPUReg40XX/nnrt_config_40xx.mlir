@@ -7,9 +7,9 @@
 // REQUIRES: arch-NPU40XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 6 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<1x2x3x4xf16>
   } outputsInfo : {
@@ -46,7 +46,7 @@ module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
 //CHECK:     NNRTCfg_stack_10 = UINT 0,
 //CHECK:     NNRTCfg_stack_11 = UINT 0,
 //CHECK:     NNRTCfg_stack_size = UINT 0,
-//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x23E0,
+//CHECK:     NNRTCfg_code_window_buffer_size = UINT 0x2410,
 //CHECK:     NNRTCfg_perf_metrics_mask = UINT 0,
 //CHECK:     NNRTCfg_runtime_version = UINT 0x10009,
 //CHECK:     NNRTCfg_use_schedule_embedded_rt = UINT 1,

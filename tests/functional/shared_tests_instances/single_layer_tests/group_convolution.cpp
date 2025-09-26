@@ -68,12 +68,14 @@ const auto groupConv1DParams_AutoPadValid = ::testing::Combine(
         ::testing::ValuesIn(numOutChannels1d), ::testing::ValuesIn(numGroups1d),
         ::testing::Values(ov::op::PadType::VALID));
 
-const auto groupConv1D_ExplicitPadding = testing::Combine(
-        groupConv1DParams_ExplicitPadding, ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1d)), ::testing::Values(DEVICE_NPU));
-const auto groupConv1D_AutoPadValid = testing::Combine(
-        groupConv1DParams_AutoPadValid, ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1d)), ::testing::Values(DEVICE_NPU));
+const auto groupConv1D_ExplicitPadding =
+        testing::Combine(groupConv1DParams_ExplicitPadding, ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1d)),
+                         ::testing::Values(test_utils::TARGET_DEVICE));
+const auto groupConv1D_AutoPadValid =
+        testing::Combine(groupConv1DParams_AutoPadValid, ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes1d)),
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution1D_ExplicitPadding, GroupConvolutionLayerTest_SW,
                          groupConv1D_ExplicitPadding, GroupConvolutionLayerTest::getTestCaseName);
@@ -106,15 +108,18 @@ const auto groupConv2DParams_LargeStrides = ::testing::Combine(
         ::testing::ValuesIn(dilations), ::testing::ValuesIn(numOutChannels), ::testing::ValuesIn(numGroups),
         ::testing::Values(ov::op::PadType::VALID));
 
-const auto groupConv2D_ExplicitPadding = testing::Combine(
-        groupConv2DParams_ExplicitPadding, ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[0]})}), ::testing::Values(DEVICE_NPU));
-const auto groupConv2D_AutoPadValid = testing::Combine(
-        groupConv2DParams_AutoPadValid, ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[1]})}), ::testing::Values(DEVICE_NPU));
-const auto groupConv2D_LargeStrides = testing::Combine(
-        groupConv2DParams_LargeStrides, ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[1]})}), ::testing::Values(DEVICE_NPU));
+const auto groupConv2D_ExplicitPadding =
+        testing::Combine(groupConv2DParams_ExplicitPadding, ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[0]})}),
+                         ::testing::Values(test_utils::TARGET_DEVICE));
+const auto groupConv2D_AutoPadValid =
+        testing::Combine(groupConv2DParams_AutoPadValid, ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[1]})}),
+                         ::testing::Values(test_utils::TARGET_DEVICE));
+const auto groupConv2D_LargeStrides =
+        testing::Combine(groupConv2DParams_LargeStrides, ::testing::ValuesIn(modelTypes),
+                         ::testing::ValuesIn({static_shapes_to_test_representation({inputShapes[1]})}),
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution2D_ExplicitPadding, GroupConvolutionLayerTest_SW,
                          groupConv2D_ExplicitPadding, GroupConvolutionLayerTest::getTestCaseName);
@@ -140,7 +145,7 @@ const auto groupConv3DParams_ExplicitPadding = ::testing::Combine(
 INSTANTIATE_TEST_SUITE_P(smoke_GroupConvolution3D_ExplicitPadding, GroupConvolutionLayerTest_HW,
                          ::testing::Combine(groupConv3DParams_ExplicitPadding, ::testing::ValuesIn(modelTypes),
                                             ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes3d)),
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          GroupConvolutionLayerTest::getTestCaseName);
 
 }  // namespace

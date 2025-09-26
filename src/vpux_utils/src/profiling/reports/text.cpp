@@ -36,7 +36,7 @@ void vpux::profiling::printProfilingAsText(const std::vector<TaskInfo>& tasks, c
         case TaskInfo::ExecType::SW:
             exec_type_str = "SW";
             output << "Task(" << exec_type_str << "): " << std::setw(60) << taskName << "\tTime(us): " << std::setw(8)
-                   << (float)task.duration_ns / 1000 << "\tCycles:" << task.total_cycles << "(" << task.stall_cycles
+                   << (float)task.duration_ns / 1000 << "\tCycles:" << task.active_cycles << "(" << task.stall_cycles
                    << ")"
                    << "\tStart(us): " << std::setw(8) << (float)task.start_time_ns / 1000 << std::endl;
             break;

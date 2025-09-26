@@ -6,22 +6,10 @@
 #include "vpux/compiler/NPU40XX/dialect_pipeline_strategy.hpp"
 #include "vpux/compiler/NPU40XX/pipeline_options.hpp"
 
-#include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
-
-#include "vpux/compiler/NPU40XX/conversion.hpp"
-#include "vpux/compiler/NPU40XX/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPURT/transforms/passes.hpp"
-
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
-#include "vpux/compiler/dialect/const/passes.hpp"
-#include "vpux/compiler/dialect/core/transforms/passes.hpp"
-
 #include "vpux/compiler/pipelines/options_setup.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
 
 using namespace vpux;
 
@@ -48,19 +36,13 @@ public:
         if (config.get<intel_npu::TURBO>()) {
             overwriteIfUnset(options.optimizationLevel, 3);
         }
-        setupOptionsCommon(options);
+        setupOptionsCommon(options, getLogLevel(config));
     }
 
-    static void setupOptionsCommon(DefaultHWOptions40XX& options) {
+    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
         setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
-        setupPWLMParams(options);
+        setupPWLMParams(options, logLevel);
     }
-};
-
-class ShaveCodeGenSetup40XX : public OptionsSetupBase<ShaveCodeGenSetup40XX, DefaultHWOptions40XX> {
-public:
-    using Base = OptionsSetupBase<ShaveCodeGenSetup40XX, DefaultHWOptions40XX>;
-    using Base::Base;
 };
 
 class ReferenceSWSetup40XX : public OptionsSetupBase<ReferenceSWSetup40XX, DefaultHWOptions40XX> {
@@ -71,6 +53,7 @@ public:
     static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
         Base::setupOptionsImpl(options, config);
         setupOptionsCommon(options);
+        setupPWLMParams(options, getLogLevel(config));
     }
 
     static void setupOptionsCommon(DefaultHWOptions40XX& options) {
@@ -81,6 +64,7 @@ public:
         overwriteIfUnset(options.fuseMvn6ScaleBias, false);
         overwriteIfUnset(options.enableConvertFCToConv, false);
         overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
+        overwriteIfUnset(options.enableQDQOptimizationAggressive, false);
         overwriteIfUnset(options.enableAdaptiveStripping, false);
         overwriteIfUnset(options.enableExtraStaticShapeOps, false);
         overwriteIfUnset(options.enableOptimizeReorders, false);
@@ -112,13 +96,12 @@ private:
         DefaultHWSetup40XX::setupOptionsImpl(options, config);
 
         // HostCompileSetup40XX common options
-        setupOptionsCommon(options);
+        setupOptionsCommon(options, getLogLevel(config));
     }
 
-    static void setupOptionsCommon(DefaultHWOptions40XX& options) {
+    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
         // DefaultHW specific options
-        DefaultHWSetup40XX::setupOptionsCommon(options);
-
+        DefaultHWSetup40XX::setupOptionsCommon(options, logLevel);
         // HostCompile specific options
         overwriteIfUnset(options.enableDynamicShapeTransformationsPipeline, false);
         overwriteIfUnset(options.enableSCFTiling, true);
@@ -141,12 +124,12 @@ private:
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
         Base::setupOptionsImpl(options, config);
-        setupOptionsCommon(options);
+        setupOptionsCommon(options, getLogLevel(config));
     }
 
-    static void setupOptionsCommon(DefaultHWOptions40XX& options) {
+    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
         setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
-        setupPWLMParams(options);
+        setupPWLMParams(options, logLevel);
     }
 };
 
@@ -164,7 +147,7 @@ private:
 
     static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
         Base::setupOptionsImpl(options, config);
-        setupPWLMParams(options);
+        setupPWLMParams(options, getLogLevel(config));
     }
 };
 
@@ -185,6 +168,10 @@ public:
 
     void initializePipeline(mlir::OpPassManager& pm, Logger log) override {
         VPU::buildInitCompilerPipeline(pm, _optionsContainer->getInitCompilerOptions(), log.nest());
+
+        // TRACK: E#179877
+        // This is needed for the HostCompile pipeline to properly set up outlined NPU compute ops
+        pm.addPass(VPU::createCloneReservedResourcesFromTopModulePass(log));
     }
 
     void buildIEPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -197,7 +184,7 @@ public:
             pm.addPass(createConvertIEToVPUM2IPass(log));
         }
 
-        vpux::arch37xx::buildLowerIE2VPUPipeline(pm, log);
+        vpux::buildLowerIE2VPUPipeline(pm, log);
     }
 
     void buildVPUPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -205,9 +192,9 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerVPU2VPUIPPipeline(
-                pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
+                                          _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization,
+                                          log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -242,7 +229,7 @@ public:
     }
 
     void buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerIE2VPUPipeline(pm, log);
+        vpux::buildLowerIE2VPUPipeline(pm, log);
     }
 
     void buildVPUPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -250,9 +237,8 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerVPU2VPUIPPipeline(pm,
-                                                    _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                                    /*useMemrefForHostFunctionBufferization*/ false, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
+                                          /*useMemrefForHostFunctionBufferization*/ false, log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -274,9 +260,6 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
     switch (compilationMode) {
     case config::CompilationMode::DefaultHW: {
         return std::make_unique<DialectPipelineStrategy40XX<DefaultHWSetup40XX>>(config);
-    }
-    case config::CompilationMode::ShaveCodeGen: {
-        return std::make_unique<DialectPipelineStrategy40XX<ShaveCodeGenSetup40XX>>(config);
     }
     case config::CompilationMode::ReferenceSW: {
         // return std::make_unique<DialectPipelineStrategy40XX<ReferenceSWSetup40XX>>(config);
@@ -333,4 +316,15 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
         VPUX_THROW("Unsupported compilation mode {0} for Monolithic WS.", config::stringifyEnum(compilationMode));
         return {};
     }
+}
+
+template <>
+std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40XXHostCompile(
+        config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
+        const DefaultHWOptions40XX* options) {
+    VPUX_THROW_UNLESS(compilationMode == config::CompilationMode::HostCompile,
+                      "Unsupported compilation mode {0} for Host Compile.", config::stringifyEnum(compilationMode));
+
+    auto wrapper = std::make_unique<HostCompileSetup40XX>(initCompilerOptions, options);
+    return std::make_unique<DialectPipelineStrategy40XX<HostCompileSetup40XX>>(std::move(wrapper));
 }

@@ -109,8 +109,16 @@ VPUIP::DMADescriptorAttr NNDMARewriter::getDmaDescriptorAttr(VPUMI40XX::NNDMAOp 
 
         } else if (outputTransferRank == 2) {
             // 2D to 3D transaction
+            auto inputElemTypeSize = vpux::Byte(vpux::getElemTypeSize(inputType)).count();
+            auto outputElemTypeSize = vpux::Byte(vpux::getElemTypeSize(outputType)).count();
+
             dstPlaneStride = reducedDimsOutput.strides[0];
-            numPlanes = inputTotalLength / reducedDimsOutput.dims[0];
+
+            if (inputElemTypeSize != outputElemTypeSize && inputElemTypeSize > outputElemTypeSize) {
+                numPlanes = inputTotalLength / (reducedDimsOutput.dims[0] * (inputElemTypeSize / outputElemTypeSize));
+            } else {
+                numPlanes = inputTotalLength / reducedDimsOutput.dims[0];
+            }
 
             planeLen = inputTotalLength / numPlanes;
             if (inputTotalLength == static_cast<int64_t>(srcWidth)) {
@@ -215,6 +223,7 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
     auto taskIdx = mlir::TypeAttr::get(op.getType());
 
     auto dmaHwpIdAttr = op.getDmaHwpIdAttr();
+    auto addressingModeAttr = op.getAddressingModeAttr();
 
     auto descriptor = op.getDmaDescriptor().has_value() ? op.getDmaDescriptorAttr() : getDmaDescriptorAttr(op, ctx);
     if (!descriptor) {
@@ -223,7 +232,7 @@ mlir::FailureOr<SymbolizationResult> NNDMARewriter::symbolize(VPUMI40XX::NNDMAOp
     auto newOp = rewriter.create<VPUASM::NNDMAOp>(
             op.getLoc(), symName, taskIdx, taskLocation, nextLink, input, outputs, waitAttr, updateAttr, startAfter,
             cleanAfter, accelerationMode, isOutOfOrder, isCritical, enableMSC, actCompressionSizeEntryAttr,
-            sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr);
+            sparsityMapAttr, transaction, descriptor, dmaHwpIdAttr, cmxTiles, indicesAttr, addressingModeAttr);
 
     mlir::SmallVector<mlir::StringAttr> refsToUpdate;
     if (nextLink && nextLink.getNestedReferences().empty()) {

@@ -45,6 +45,6 @@ struct BackendCompilationOptions40XX final : public BackendCompilationOptionsBas
 
 void setupParamsAccordingToOptimizationLevel(int optimizationLevel, DefaultHWOptions40XX& compilationOptions,
                                              bool useWlm);
-void setupPWLMParams(DefaultHWOptions40XX& compilationOptions);
+void setupPWLMParams(DefaultHWOptions40XX& compilationOptions, LogLevel logLevel = LogLevel::None);
 
 }  // namespace vpux

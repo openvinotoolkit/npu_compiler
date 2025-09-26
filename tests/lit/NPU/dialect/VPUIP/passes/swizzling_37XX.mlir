@@ -631,9 +631,9 @@ func.func @SetSwizzlingForQuantConstantsSOK(%input : !Input_DDR) -> !Output_DDR
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 2100000 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 2100000 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @DoNotSwizzleDueToAlignmentMemIncrease(%in : memref<1x16x180x180xf16, #NHWC, @DDR>,
@@ -1094,9 +1094,9 @@ func.func @SetSwizzlingForDpuToDpuBufferWithInplace(%in0 : memref<1x240x8x98xf16
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 1 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1470000 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @CannotSwizzledDueToMultiUserWhichCannotSwizzled(%arg0 : memref<1x256x5x80xf16, #NHWC, @DDR>,

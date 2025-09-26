@@ -66,4 +66,5 @@ function(add_npu_library name)
 
     update_npu_src_lib_list(${name})
     enable_warnings_as_errors(${name} WIN_STRICT)
+    ov_build_target_faster(${name} PCH_HEADER ${VPU_COMPILER_PCH_FILE})
 endfunction(add_npu_library)

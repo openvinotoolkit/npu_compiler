@@ -44,8 +44,9 @@ llvm::ArrayRef<uint8_t> ShaveBinaryResources::getElf(llvm::StringRef kernelPath)
     return llvm::ArrayRef<uint8_t>(symbolData, symbolSize);
 }
 
-void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, std::vector<uint8_t>& binary, llvm::StringRef arch,
-                                          bool overwrite) {
+void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, llvm::ArrayRef<uint8_t> binary,
+                                          config::ArchKind archKind, bool overwrite) {
+    auto arch = getSwKernelArchString(archKind);
     auto symbolName = printToString("{0}_{1}_elf", funcName, arch);
     auto data = shaveBinaryResourcesMap.find(symbolName);
 
@@ -66,7 +67,28 @@ void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, std::vector<
     shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), binary.size())));
 }
 
+void ShaveBinaryResources::addCompiledElf(llvm::StringRef funcName, std::unique_ptr<uint8_t[]> binary, size_t size,
+                                          config::ArchKind archKind, bool overwrite) {
+    auto arch = getSwKernelArchString(archKind);
+    auto symbolName = printToString("{0}_{1}_elf", funcName, arch);
+    auto data = shaveBinaryResourcesMap.find(symbolName);
+
+    if (data != shaveBinaryResourcesMap.end()) {
+        if (!overwrite) {
+            return;
+        }
+        shaveBinaryResourcesMap.erase(symbolName);
+    }
+    _elfPermStorage.push_back(std::move(binary));
+    auto& ref = _elfPermStorage.back();
+
+    shaveBinaryResourcesMap.insert(std::make_pair(symbolName, std::make_pair(ref.get(), size)));
+}
+
 void ShaveBinaryResources::loadElfData(mlir::ModuleOp module) {
+#if defined(_WIN32) || defined(_WIN64)
+    return;
+#endif
     ShaveBinaryResources& sbr = ShaveBinaryResources::getInstance();
 
     std::string line;
@@ -97,9 +119,8 @@ void ShaveBinaryResources::loadElfData(mlir::ModuleOp module) {
         std::getline(ifileList, funcName);
 
         config::ArchKind archKind = config::getArch(module.getOperation());
-        auto kernelArch = getSwKernelArchString(archKind);
 
-        sbr.addCompiledElf(funcName, binary, kernelArch, true);
+        sbr.addCompiledElf(funcName, binary, archKind, true);
     }
 
     ifileList.close();

@@ -1025,7 +1025,7 @@ func.func @NCEPermuteOverlap(%arg0: !Input_DDR) -> !Output_CMX {
  {mode = "SEGMENTED", num_tiles = [6, 1, 1, 1, 1], num_clusters = 6 : i64}>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: @MatMulRewriter
 func.func @MatMulRewriter(%arg0: !InputDistributed,%arg1: !WeightsDistributed) -> tensor<6x1x32x4x1xf16, {order =#GNHWC}> {
     %cst = const.Declare tensor<6x32x1x1x4xsi32, {mem_space = @CMX, order = #GNCHW}> = dense<1> : tensor<6x32x1x1x4xsi32,  {mem_space = @CMX}>
@@ -1112,7 +1112,7 @@ func.func @MatMulRewriter(%arg0: !InputDistributed,%arg1: !WeightsDistributed) -
 
 
 module @executors {
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: @MatMulUnevenDistributionRewriter
 func.func @MatMulUnevenDistributionRewriter(%arg0: !InputDistributed,%arg1: !WeightsDistributed) -> tensor<6x1x32x4x1xf16, {order =#GNHWC}> {
     %cst = const.Declare tensor<6x32x1x1x4xsi32, {mem_space = @CMX, order = #GNCHW}> = dense<1> : tensor<6x32x1x1x4xsi32,  {mem_space = @CMX}>

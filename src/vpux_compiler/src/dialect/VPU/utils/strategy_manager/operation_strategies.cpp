@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/operation_strategies.hpp"
 #include <vpux/compiler/utils/attributes.hpp>
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 #include <llvm/ADT/StringExtras.h>
 

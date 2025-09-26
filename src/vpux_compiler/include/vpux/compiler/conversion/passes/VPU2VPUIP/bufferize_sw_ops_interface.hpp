@@ -24,7 +24,7 @@ class SoftwareLayerOpBufferizeModel :
 public:
     mlir::LogicalResult bufferizeImpl(MainOpType origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions&,
-                                      typename MainOpType::Adaptor adaptor) const {
+                                      typename MainOpType::Adaptor& adaptor) const {
         auto log = Logger::global().nest("one-shot-bufferize-SoftwareLayerOp", 0);
         log.trace("Got {0} at {1}", origOp->getName(), origOp->getLoc());
 

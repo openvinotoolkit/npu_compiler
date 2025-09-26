@@ -824,7 +824,7 @@ TEST_P(DetectionOutputLayerTestCommon, NPU4000_HW) {
 const auto detectionOutputParams =
         ::testing::Combine(::testing::ValuesIn(normalizationParams), ::testing::ValuesIn(tensorShapeParams),
                            detectionOutputAttributes, ::testing::ValuesIn(additionalInputsParams),
-                           ::testing::ValuesIn(metaParams), ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::ValuesIn(metaParams), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_DetectionOutput, DetectionOutputLayerTestCommon, detectionOutputParams,
                          PrintTestCaseName());
@@ -854,7 +854,7 @@ const auto ssdliteMobilenetV2Attributes = ::testing::Combine(  //
 const auto ssdliteMobilenetV2Params = ::testing::Combine(
         ::testing::Values(normalizedWithNonEncodedVariance), ::testing::Values(ssdliteMobilenetV2ShapeParams),
         ssdliteMobilenetV2Attributes, ::testing::ValuesIn(additionalInputsParams), ::testing::ValuesIn(metaParams),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_ssdlite_mobilenet_v2, DetectionOutputLayerTestCommon,
                          ssdliteMobilenetV2Params, PrintTestCaseName());
@@ -884,7 +884,7 @@ const auto personDetection0100Attributes = ::testing::Combine(  //
 const auto personDetection0100Params = ::testing::Combine(
         ::testing::Values(normalizedWithNonEncodedVariance), ::testing::Values(personDetection0100ShapeParams),
         personDetection0100Attributes, ::testing::ValuesIn(additionalInputsParams),
-        ::testing::ValuesIn(metaParamsPersonDetection0100), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::ValuesIn(metaParamsPersonDetection0100), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_person_detection_0100, DetectionOutputLayerTestCommon,
                          personDetection0100Params, PrintTestCaseName());
@@ -911,7 +911,7 @@ const auto efficientdetD0Attributes = ::testing::Combine(    //
 const auto efficientdetD0Params = ::testing::Combine(
         ::testing::Values(normalizedWithNonEncodedVariance), ::testing::Values(efficientdetD0ShapeParams),
         efficientdetD0Attributes, ::testing::ValuesIn(additionalInputsParams), ::testing::ValuesIn(metaParams),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_efficientdet_d0, DetectionOutputLayerTestCommon,
                          efficientdetD0Params, PrintTestCaseName());
@@ -926,7 +926,7 @@ const auto efficientdetD1ShapeParams = TensorShapeParams{NumPriors(76725), NumCl
 const auto efficientdetD1Params = ::testing::Combine(
         ::testing::Values(normalizedWithNonEncodedVariance), ::testing::Values(efficientdetD1ShapeParams),
         efficientdetD0Attributes, ::testing::ValuesIn(additionalInputsParams), ::testing::ValuesIn(metaParams),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_efficientdet_d1, DetectionOutputLayerTestCommon,
                          efficientdetD1Params, PrintTestCaseName());
@@ -956,7 +956,7 @@ const auto fasterRcnnAttributes = ::testing::Combine(        //
 const auto fasterRcnnParams =
         ::testing::Combine(::testing::Values(normalizedWithEncodedVariance), ::testing::Values(fasterRcnnShapeParams),
                            fasterRcnnAttributes, ::testing::ValuesIn(additionalInputsParams),
-                           ::testing::ValuesIn(metaParams), ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::ValuesIn(metaParams), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_faster_rcnn, DetectionOutputLayerTestCommon, fasterRcnnParams,
                          PrintTestCaseName());
@@ -986,7 +986,7 @@ const auto fasterRcnnResnetAttributes = ::testing::Combine(  //
 const auto fasterRcnnResnetParams = ::testing::Combine(
         ::testing::Values(fasterRcnnResnetNormalization), ::testing::Values(fasterRcnnResnetShapeParams),
         fasterRcnnResnetAttributes, ::testing::ValuesIn(additionalInputsParams), ::testing::ValuesIn(metaParams),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(precommit_smoke_DetectionOutput_faster_rcnn_resnet, DetectionOutputLayerTestCommon,
                          fasterRcnnResnetParams, PrintTestCaseName());
@@ -1011,7 +1011,7 @@ const auto ssdResnet101Attributes = ::testing::Combine(      //
 const auto ssdResnet101Params = ::testing::Combine(
         ::testing::Values(normalizedWithNonEncodedVariance), ::testing::Values(ssdResnet101ShapeParams),
         ssdResnet101Attributes, ::testing::ValuesIn(additionalInputsParams), ::testing::ValuesIn(metaParams),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 // Unexpected application crash with code: 14
 // Inputs: {1, 524160}, {1, 78886080}, {1, 2, 524160}

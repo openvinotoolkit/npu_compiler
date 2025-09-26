@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
 using namespace vpux;
@@ -106,4 +105,43 @@ vpux::InputTiling vpux::VPU::LayoutCastOp::backInferTileInfo(const vpux::TileInf
 
 void vpux::VPU::LayoutCastOp::adjustAttrs(const TilingInfo&, const TileInfo&, ShapeRef) {
     // Do nothing
+}
+
+//
+// FuseLayoutCasts
+//
+
+namespace {
+class FuseLayoutCasts final : public mlir::OpRewritePattern<VPU::LayoutCastOp> {
+public:
+    using mlir::OpRewritePattern<VPU::LayoutCastOp>::OpRewritePattern;
+
+public:
+    mlir::LogicalResult matchAndRewrite(VPU::LayoutCastOp origOp, mlir::PatternRewriter& rewriter) const final;
+};
+
+mlir::LogicalResult FuseLayoutCasts::matchAndRewrite(VPU::LayoutCastOp origOp, mlir::PatternRewriter& rewriter) const {
+    // Transform
+    // Input type1 -> VPU.LayoutCast type2 -> VPU.LayoutCast type3 -> Output type3
+    // into
+    // Input type1 -> VPU.LayoutCast type3 -> Output type3
+    auto producerOp = origOp.getInput().getDefiningOp<VPU::LayoutCastOp>();
+    if (producerOp == nullptr || !producerOp.getOutput().hasOneUse()) {
+        return mlir::failure();
+    }
+
+    rewriter.replaceOpWithNewOp<VPU::LayoutCastOp>(origOp, origOp.getOutput().getType(), producerOp.getInput(),
+                                                   origOp.getDstOrderAttr());
+
+    return mlir::success();
+}
+
+}  // namespace
+
+//
+// getCanonicalizationPatterns
+//
+
+void vpux::VPU::LayoutCastOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* ctx) {
+    patterns.add<FuseLayoutCasts>(ctx);
 }

@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x1000xf16>
   } outputsInfo : {
@@ -36,7 +36,7 @@ module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
     %5 = VPUMI40XX.DeclareKernelText kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
     %6 = VPUMI40XX.DeclareKernelEntry kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
     %7 = VPUMI40XX.DeclareKernelArgs kernel_path("softmax") -> !VPURegMapped.Index<0:0:0>
-    %8 = VPUMI40XX.KernelParams inputs(%3 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%4 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params(dense<[0, 0, 32, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]> : vector<80xui8>) -> !VPURegMapped.Index<0:0:0>
+    %8 = VPUMI40XX.KernelParams inputs(%3 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) outputs(%4 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) kernel_type("softmax") kernel_params([0, 0, 32, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) -> !VPURegMapped.Index<0:0:0>
     %9 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<0, -1> -> !VPURegMapped.Index<0:0:0>
     %10 = VPUMI40XX.ConfigureBarrier {consumer_count = 1 : ui8, producer_count = 1 : ui8}<1, -1> -> !VPURegMapped.Index<0:0:1>
     %11 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%tb_dma_00 : !VPURegMapped.Index<0:0:0>) inputs(%0 : memref<1x1x1x1000xf16, @DDR>) outputs(%3 : memref<1x1x1x1000xf16, [@CMX_NN, 0]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
@@ -48,6 +48,7 @@ module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
 
     VPUMI40XX.MappedInference dmas((%11, %12) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%13): (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%14): (!VPURegMapped.Index<0:0:0>)) barriers(%9: !VPURegMapped.Index<0:0:0>) dmaCount([[1, 1]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[1, 0]]) actKernelInvocationsCount([[1, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

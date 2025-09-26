@@ -6,12 +6,11 @@
 #include "vpux/compiler/NPU40XX/conversion.hpp"
 
 #include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/VPUASM/passes.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
-#include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/abi_version.hpp"
@@ -52,14 +51,13 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     // Those can be moved to the end of VPURT once WLM rollback does not happen.
     // Currently only ELF backend is retriggered during rollback and IR after VPURT
     // needs to be left in a state suitable for nonWLM flow.
-    if (backendCompilationOptions.workloadManagementEnable &&
-        backendCompilationOptions.workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
+    if (backendCompilationOptions.workloadManagementEnable) {
         if (backendCompilationOptions.workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
-            pm.addPass(VPURT::arch40xx::createFindWlmEnqueueBarrierPass(
+            pm.addPass(VPURT::createFindWlmEnqueueBarrierPass(
                     backendCompilationOptions.workloadManagementMode,
                     backendCompilationOptions.workloadManagementDmaFifoType == DMAFifoType::HW, log));
         } else {
-            pm.addPass(VPURT::arch40xx::createOrderBarriersForWlmPass(log));
+            pm.addPass(VPURT::createOrderBarriersForWlmPass(log));
         }
     }
 
@@ -69,6 +67,7 @@ void vpux::arch40xx::buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(ELF::createAddABIVersionPass(log, NPUReg40XX::ABI_VERSION_MAJOR, NPUReg40XX::ABI_VERSION_MINOR,
                                             NPUReg40XX::ABI_VERSION_PATCH));
+    pm.addPass(ELF::createAddCompilerHashPass(log));
     elfSubsetPipelineVPUMI(pm, backendCompilationOptions.workloadManagementEnable,
                            backendCompilationOptions.workloadManagementMode,
                            backendCompilationOptions.enableDumpStatisticsOfWlmOps,
@@ -118,37 +117,25 @@ void vpux::arch40xx::elfSubsetPipelineVPUMI(
     } else {
         pm.addPass(VPUMI40XX::reorderMappedInferenceOpsPass(log));
 
+        // No passes following this point need barriers ordered for FWLM
         pm.addPass(VPUMI40XX::createBarrierTopologicalMappingPass(log));
         pm.addPass(VPUMI40XX::createGroupExecutionOpsPass(log));
-        if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-            pm.addPass(VPUMI40XX::createConvertFetchDmasToFetchTaskOpsPass(log));
-        } else {
-            pm.addPass(VPUMI40XX::createAddFetchOpsPass(log));
-        }
+        pm.addPass(VPUMI40XX::createAddFetchOpsPass(log));
         pm.addPass(VPUMI40XX::createResolveWLMTaskLocationPass(log));
         pm.addPass(VPUMI40XX::createUnGroupExecutionOpsPass(log));
         pm.addPass(VPUMI40XX::createPropagateFinalBarrierPass(log));
         pm.addPass(mlir::createCanonicalizerPass());
         pm.addPass(VPUMI40XX::createNextSameIdAssignmentPass(log));
-        // TODO: Skip AddEnqueueOps for FWLM_V1_PAGES once E#170833 is done
         pm.addPass(VPUMI40XX::createAddEnqueueOpsPass(workloadManagementMode, log));
         pm.addPass(VPUMI40XX::createUnrollFetchTaskOpsPass(log));
         if (workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
             pm.addPass(VPUMI40XX::createAddBarrierConfigurationOps(workloadManagementMode,
                                                                    workloadManagementBarrierProgrammingMode, log));
         }
-        if (workloadManagementMode != WorkloadManagementMode::FWLM_V1_PAGES) {
-            pm.addPass(VPUMI40XX::createAddBootstrapBarriersPass(log));
-        }
+        pm.addPass(VPUMI40XX::createAddBootstrapBarriersPass(log));
         pm.addPass(VPUMI40XX::createAddBootstrapWorkItemsPass(workloadManagementMode, log));
-
-        // TODO: For FWLM_V1_PAGES skip SplitEnqueueOps and use SplitEnqueueDmaOps once E#170833 is done
         pm.addPass(VPUMI40XX::createSplitEnqueueOpsPass(log));
         pm.addPass(VPUMI40XX::createLinkEnqueueTargetsPass(workloadManagementMode, log));
-        // TODO: For FWLM_V1_PAGES remove AddEnqueueDMAOps and use UpdateEnqueueDMAInputAndOutput once E#170833 is done
-        if (workloadManagementMode == WorkloadManagementMode::FWLM_V1_PAGES) {
-            pm.addPass(VPUMI40XX::createAddEnqueueDMAOps(log));
-        }
         pm.addPass(VPUMI40XX::createUnrollEnqueueOpsPass(log));
         if (workloadManagementMode != WorkloadManagementMode::PWLM_V0_LCA) {
             pm.addPass(VPUMI40XX::createLinkEnqueueOpsForSameBarrierPass(log));
@@ -181,19 +168,6 @@ void vpux::arch40xx::elfSubsetPipelineVPUASM(mlir::OpPassManager& pm, bool workl
 //
 
 void vpux::arch40xx::registerConversionPipeline() {
-    mlir::PassPipelineRegistration<>("lower-IE-to-VPU", "Performs full lowering from the IE Dialect to VPU Dialect",
-                                     [](mlir::OpPassManager& pm) {
-                                         vpux::arch37xx::buildLowerIE2VPUPipeline(pm);
-                                     });
-
-    mlir::PassPipelineRegistration<vpux::DefaultHWOptions40XX>(
-            "lower-VPU-to-VPUIP",
-            "Performs full lowering from the VPU Dialect to VPUIP Dialect, SW operations are converted to SWKernelOp",
-            [](mlir::OpPassManager& pm, const vpux::DefaultHWOptions40XX& options) {
-                vpux::arch37xx::buildLowerVPU2VPUIPPipeline(pm, options.enableInPlaceBufferization,
-                                                            options.useMemrefForHostFunctionBufferization);
-            });
-
     mlir::PassPipelineRegistration<BackendCompilationOptions40XX>(
             "lower-VPUIP-to-ELF", "Performs full lowering from the VPUIP Dialect to the VPUMI40XX and ELF Dialects",
             [](mlir::OpPassManager& pm, const BackendCompilationOptions40XX& options) {

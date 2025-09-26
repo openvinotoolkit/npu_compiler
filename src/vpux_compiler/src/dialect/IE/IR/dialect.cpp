@@ -21,7 +21,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/resources.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -143,10 +142,6 @@ void vpux::IE::IEDialect::initialize() {
     addOperations<
 #define GET_OP_LIST
 #include <vpux/compiler/dialect/IE/ops/reduce.cpp.inc>
-            >();
-    addOperations<
-#define GET_OP_LIST
-#include <vpux/compiler/dialect/IE/ops/resources.cpp.inc>
             >();
     addOperations<
 #define GET_OP_LIST

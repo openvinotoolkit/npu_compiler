@@ -6,15 +6,15 @@
 // REQUIRES: arch-NPU40XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-  IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "Input" : tensor<1x1024xui8>
   } outputsInfo : {

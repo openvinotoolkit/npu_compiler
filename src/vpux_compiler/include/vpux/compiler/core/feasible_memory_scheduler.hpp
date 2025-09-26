@@ -11,7 +11,9 @@
 #include "vpux/compiler/utils/linear_scan.hpp"
 #include "vpux/compiler/utils/partitioner.hpp"
 
-#include <vpu_cost_model.h>
+namespace VPUNN {
+class VPUCostModel;
+}  // namespace VPUNN
 
 namespace vpux {
 

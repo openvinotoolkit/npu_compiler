@@ -193,4 +193,14 @@ INSTANTIATE_TEST_SUITE_P(GroupQuantWithMultiZp_FP32_U4, GroupQuantWithMultiZpTes
                                             ::testing::Values(ov::element::u4), ::testing::ValuesIn(testShapes)),
                          GroupQuantWithMultiZpTestCommon::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(GroupQuantWithMultiZp_FP16_U2, GroupQuantWithMultiZpTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::f16), ::testing::Values(ov::element::u2),
+                                            ::testing::Values(ov::element::u2), ::testing::ValuesIn(testShapes)),
+                         GroupQuantWithMultiZpTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(GroupQuantWithMultiZp_FP32_U2, GroupQuantWithMultiZpTestCommon,
+                         ::testing::Combine(::testing::Values(ov::element::f32), ::testing::Values(ov::element::u2),
+                                            ::testing::Values(ov::element::u2), ::testing::ValuesIn(testShapes)),
+                         GroupQuantWithMultiZpTestCommon::getTestCaseName);
+
 }  // namespace ov::test::subgraph

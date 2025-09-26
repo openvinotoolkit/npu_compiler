@@ -19,15 +19,15 @@ module @NoLegalizationDueToFIFOOrdering attributes {config.compilationMode = #co
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -135,15 +135,15 @@ module @LegalizeWithJustDMAs attributes {config.compilationMode = #config.compil
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -254,15 +254,15 @@ module @LegalizeGroupThreeWithSharedBarrier attributes {config.compilationMode =
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -372,26 +372,26 @@ module @LegalizeGroupsWithBothSharedBarriers attributes {config.compilationMode 
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
     DataInfo "Multiply_5095/fq_input_0" : tensor<1x64x56x56xf16>
   }
   func.func @main(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<1x64x56x56xf16, @DDR>) -> memref<1x64x56x56xf16, @DDR> {
-    %0 = VPURT.DeclareVirtualBarrier {"barrier-index" = 0 : i64} -> !VPURT.Barrier
-    %1 = VPURT.DeclareVirtualBarrier {"barrier-index" = 1 : i64} -> !VPURT.Barrier
-    %2 = VPURT.DeclareVirtualBarrier {"barrier-index" = 2 : i64} -> !VPURT.Barrier
-    %3 = VPURT.DeclareVirtualBarrier {"barrier-index" = 3 : i64} -> !VPURT.Barrier
-    %4 = VPURT.DeclareVirtualBarrier {"barrier-index" = 4 : i64} -> !VPURT.Barrier
+    %0 = VPURT.DeclareVirtualBarrier <{barrierIndex = 0}> -> !VPURT.Barrier
+    %1 = VPURT.DeclareVirtualBarrier <{barrierIndex = 1}> -> !VPURT.Barrier
+    %2 = VPURT.DeclareVirtualBarrier <{barrierIndex = 2}> -> !VPURT.Barrier
+    %3 = VPURT.DeclareVirtualBarrier <{barrierIndex = 3}> -> !VPURT.Barrier
+    %4 = VPURT.DeclareVirtualBarrier <{barrierIndex = 4}> -> !VPURT.Barrier
     %11 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x114x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>
     %12 = VPURT.DeclareBuffer <NetworkInput> [0] <48832> -> memref<1x3x115x224xf16, {order = #NCHW, strides = [150528, 50176, 224, 1]}, @DDR>
     %13 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x64x28x56xf16, {order = #NCHW, strides = [200704, 3136, 56, 1]}, @DDR>
@@ -427,7 +427,7 @@ module @LegalizeGroupsWithBothSharedBarriers attributes {config.compilationMode 
         PPETask {ppe = #VPU.PPEStub<>}
       }
     }
-    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) attributes {"task-index" = 3 : i64} {
+    VPURT.Task waits(%0 : !VPURT.Barrier) updates(%1 : !VPURT.Barrier) <{taskIndex = 3}> {
       %31 = VPUIP.NCEClusterTask {is_permute_quantize, is_superdense, task_type = #VPUIP.nce_task_type<ELTWISE>} input(%27 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) weights(%26 : memref<1x224x3x114xf16, #NHWC, [@CMX_NN, 0]>) parent_input(%25 : !VPUIP.DistributedBuffer<1x224x3x224xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64}>) parent_output(%16 : !VPUIP.DistributedBuffer<1x224x4x224x!qElemType, #NWCH, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], kernel = [7, 7], pads = #VPU.Padding<left = 3 : i64, right = 2 : i64, top = 3 : i64, bottom = 2 : i64>, strides = [2, 2], num_clusters = 2 : i64, equal_memory_and_compute_view}>) outputs(%17 : memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]>) -> memref<1x224x4x114x!qElemType, #NWCH, [@CMX_NN, 0]> variants : {
         DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [113, 2, 223], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
       } PPE : {
@@ -514,15 +514,15 @@ module @LegalizeWithJustDMAWithWaitingDMABeforeGrandParent attributes {config.co
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -643,15 +643,15 @@ module @LegalizeWithBarrierAndDMAWithWaitingDMABeforeGrandParent attributes {con
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -768,15 +768,15 @@ module @LegalizeGroupThreeWithSharedBarrierMultiTile attributes {config.compilat
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 4 of @SHAVE_ACT
-    IE.ExecutorResource 2 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 4 of @SHAVE_ACT
+    config.ExecutorResource 2 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -940,15 +940,15 @@ module @LegalizeWithoutAnyDMAPresent attributes {config.compilationMode = #confi
     config.Option @VPU.MetadataMaxKernelInvocationCount : 4
     config.Option @VPU.MetadataMaxKernelRangeCount : 4
   }
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {

@@ -183,6 +183,24 @@ def AddABIVersion : PassBase<"add-abi-version", "vpux::FunctionPass"> {
 }
 
 //
+// AddCompilerHash
+//
+
+def AddCompilerHash : PassBase<"add-compiler-hash", "vpux::FunctionPass"> {
+    let summary = "Add compiler hash op to ELF";
+
+    let description = [{
+        The pass adds ELF.CompilerHashOp to IR. Operation compiler_hash argument stores compiler hash string.
+    }];
+
+    let constructor = "vpux::ELF::createAddCompilerHashPass()";
+
+    let dependentDialects = [
+        "vpux::ELF::ELFDialect",
+    ];
+}
+
+//
 // SetCMXSymbolValue
 //
 

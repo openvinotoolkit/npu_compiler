@@ -27,8 +27,8 @@ mlir::LogicalResult vpux::VPU::ProposalOp::inferReturnTypes(mlir::MLIRContext* c
     const SmallVector<int64_t> probsShape{inType.getShape().front() *
                                           proposal.getProposalAttrs().getPostNmsTopN().getInt()};
 
-    const auto outType = inType.changeShape(Shape(outShape));
-    const auto probsType = inType.changeShape(Shape(probsShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
+    const auto probsType = inType.changeShape(ShapeRef(probsShape));
     inferredReturnTypes.push_back(outType);
     inferredReturnTypes.push_back(probsType);
 

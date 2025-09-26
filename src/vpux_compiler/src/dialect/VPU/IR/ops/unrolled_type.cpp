@@ -5,7 +5,6 @@
 
 #include <mlir/IR/PatternMatch.h>
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
 

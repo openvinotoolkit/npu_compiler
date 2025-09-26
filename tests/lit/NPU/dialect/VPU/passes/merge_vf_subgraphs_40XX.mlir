@@ -307,7 +307,7 @@ func.func @BuildSubgraphMinimalRequirements(%arg0: tensor<1x768x128x4xf16, {orde
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
 
 module @executors {
-    IE.TileResource 4 of @NCE at 1.850000e+03 MHz
+    config.Resources 4 of @NCE at 1.850000e+03 MHz
 
 
   // CHECK-LABEL: @BuildSubgraphWithOtherAxis
@@ -815,8 +815,8 @@ func.func @MergeDequantizeAndConvSOK() -> tensor<1x1280x8x8xf16, {order = #NHWC}
 !qElemType = !quant.uniform<u8:f16, 0.072965068443148748>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1000000 bytes of @CMX_NN
+config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1000000 bytes of @CMX_NN
 }
 
 // CHECK-LABEL: @NotMergeVFDueToCost

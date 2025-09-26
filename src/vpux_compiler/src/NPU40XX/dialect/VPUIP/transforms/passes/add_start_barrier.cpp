@@ -5,10 +5,10 @@
 
 #include <algorithm>
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/logging.hpp"
@@ -234,7 +234,7 @@ void addExplicitDependencyBetweenDmaListsAndStartBarrier(mlir::func::FuncOp func
                                                          VPURT::TaskOpQueues& taskQueueTypeMap,
                                                          VPURT::DeclareVirtualBarrierOp startBarrierOp, Logger log) {
     const auto module = func->getParentOfType<mlir::ModuleOp>();
-    const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     auto dmaChannels = getDMAChannelsWithIndependentLinkAgents(config::getArch(module));
     for (auto dmaPortIdx : irange(dmaPortNum)) {
         for (auto dmaChannel : dmaChannels) {
@@ -264,12 +264,14 @@ void addExplicitDependencyBetweenDmaListsAndStartBarrier(mlir::func::FuncOp func
 
 class AddStartBarrierPass final : public VPUIP::arch40xx::impl::AddStartBarrierBase<AddStartBarrierPass> {
 public:
-    explicit AddStartBarrierPass(Logger log) {
+    explicit AddStartBarrierPass(std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
+            : _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
+    std::optional<WorkloadManagementMode> _workloadManagementMode;
 };
 
 void AddStartBarrierPass::safeRunOnFunc() {
@@ -318,10 +320,14 @@ void AddStartBarrierPass::safeRunOnFunc() {
                                                         _log);
 
     barrierInfo.clearAttributes();
-    VPURT::verifyBarrierSlots(func, _log);
+
+    if (!_workloadManagementMode.has_value() || _workloadManagementMode <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        VPURT::verifyBarrierSlots(func, _log);
+    }
 }
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::arch40xx::createAddStartBarrierPass(Logger log) {
-    return std::make_unique<AddStartBarrierPass>(log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::arch40xx::createAddStartBarrierPass(
+        std::optional<WorkloadManagementMode> workloadManagementMode, Logger log) {
+    return std::make_unique<AddStartBarrierPass>(workloadManagementMode, log);
 }

@@ -4,22 +4,10 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect_pipeline_strategy.hpp"
-#include "vpux/compiler/NPU37XX/pipeline_options.hpp"
-
 #include "vpux/compiler/NPU37XX/conversion.hpp"
-#include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
-
+#include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 #include "vpux/compiler/conversion.hpp"
-#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
-#include "vpux/compiler/dialect/const/passes.hpp"
-#include "vpux/compiler/dialect/core/transforms/passes.hpp"
-
 #include "vpux/compiler/pipelines/options_setup.hpp"
-#include "vpux/compiler/utils/rewriter.hpp"
 
 using namespace vpux;
 
@@ -33,25 +21,6 @@ class DefaultHWSetup37XX : public OptionsSetupBase<DefaultHWSetup37XX, DefaultHW
 public:
     using Base = OptionsSetupBase<DefaultHWSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
-};
-
-class ShaveCodeGenSetup37XX : public OptionsSetupBase<ShaveCodeGenSetup37XX, DefaultHWOptions37XX> {
-public:
-    using Base = OptionsSetupBase<ShaveCodeGenSetup37XX, DefaultHWOptions37XX>;
-    using Base::Base;
-    // Expose setupOptionsImpl() to OptionsSetup
-    friend Base::Base;
-
-private:
-    static void setupOptionsImpl(DefaultHWOptions37XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
-
-        // E#154882 Ensure standard VPUX passes compatibility with ShaveCodeGen path
-        overwriteIfUnset(options.locationsVerificationMode, "off");
-        overwriteIfUnset(options.enableShaveKernelTiling, false);
-        // E#154882 Ensure standard VPUX passes compatibility with ShaveCodeGen path
-        overwriteIfUnset(options.enableOptimizeCopies, false);
-    }
 };
 
 class ReferenceSWSetup37XX : public OptionsSetupBase<ReferenceSWSetup37XX, DefaultHWOptions37XX> {
@@ -91,6 +60,7 @@ public:
         overwriteIfUnset(options.fuseMvn6ScaleBias, false);
         overwriteIfUnset(options.enableConvertFCToConv, false);
         overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
+        overwriteIfUnset(options.enableQDQOptimizationAggressive, false);
         overwriteIfUnset(options.enableAdaptiveStripping, false);
         overwriteIfUnset(options.enableExtraStaticShapeOps, false);
 
@@ -102,6 +72,12 @@ public:
 class WSMonolithicSetup37XX final : public WSMonolithicSetupBase<WSMonolithicSetup37XX, DefaultHWOptions37XX> {
 public:
     using Base = WSMonolithicSetupBase<WSMonolithicSetup37XX, DefaultHWOptions37XX>;
+    using Base::Base;
+};
+
+class WSInitSetup37XX : public WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX> {
+public:
+    using Base = WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
 };
 
@@ -129,7 +105,7 @@ public:
     }
 
     void buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerIE2VPUPipeline(pm, log);
+        vpux::buildLowerIE2VPUPipeline(pm, log);
     }
 
     void buildVPUPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -137,9 +113,9 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerVPU2VPUIPPipeline(
-                pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
+                                          _optionsContainer->getPipelineOptions().useMemrefForHostFunctionBufferization,
+                                          log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -182,9 +158,8 @@ public:
     }
 
     void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
-        vpux::arch37xx::buildLowerVPU2VPUIPPipeline(pm,
-                                                    _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
-                                                    /*useMemrefForHostFunctionBufferization*/ false, log);
+        vpux::buildLowerVPU2VPUIPPipeline(pm, _optionsContainer->getPipelineOptions().enableInPlaceBufferization,
+                                          /*useMemrefForHostFunctionBufferization*/ false, log);
     }
 
     void buildVPUIPPipeline(mlir::OpPassManager& pm, Logger log) override {
@@ -207,14 +182,14 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy37X
     case config::CompilationMode::DefaultHW: {
         return std::make_unique<DialectPipelineStrategy37XX<DefaultHWSetup37XX>>(config);
     }
-    case config::CompilationMode::ShaveCodeGen: {
-        return std::make_unique<DialectPipelineStrategy37XX<ShaveCodeGenSetup37XX>>(config);
-    }
     case config::CompilationMode::ReferenceSW: {
         return std::make_unique<DialectPipelineStrategyReferenceSW37XX>(config);
     }
     case config::CompilationMode::WSMonolithic: {
         return std::make_unique<DialectPipelineStrategy37XX<WSMonolithicSetup37XX>>(config);
+    }
+    case config::CompilationMode::WSInit: {
+        return std::make_unique<DialectPipelineStrategy37XX<WSInitSetup37XX>>(config);
     }
     default:
         VPUX_THROW("Unsupported compilation mode '{0}'", compilationMode);

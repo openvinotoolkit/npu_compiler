@@ -43,10 +43,11 @@ const std::vector<ov::element::Type> model_types = {
         // ov::element::f16 Unsupported precision [C#138797]
 };
 const auto params = ::testing::Combine(::testing::ValuesIn(model_types), ::testing::ValuesIn(equationsWithInput_PBI),
-                                       ::testing::Values(DEVICE_NPU));
+                                       ::testing::Values(test_utils::TARGET_DEVICE));
 
-const auto params_precommit = ::testing::Combine(
-        ::testing::ValuesIn(model_types), ::testing::ValuesIn(equationsWithInput), ::testing::Values(DEVICE_NPU));
+const auto params_precommit =
+        ::testing::Combine(::testing::ValuesIn(model_types), ::testing::ValuesIn(equationsWithInput),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Einsum, EinsumLayerTestCommon, params_precommit,
                          EinsumLayerTest::getTestCaseName);

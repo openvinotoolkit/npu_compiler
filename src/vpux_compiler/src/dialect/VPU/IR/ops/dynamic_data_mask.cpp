@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
-#include "vpux/compiler/utils/infer_output_shape.hpp"
-
 using namespace vpux;
 
 mlir::LogicalResult vpux::VPU::DynamicDataMaskOp::inferReturnTypes(

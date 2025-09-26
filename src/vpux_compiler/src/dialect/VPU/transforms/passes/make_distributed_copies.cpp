@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
@@ -201,15 +203,25 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
     target.addLegalDialect<mlir::arith::ArithDialect>();
     target.addLegalDialect<mlir::scf::SCFDialect>();
     target.addLegalDialect<mlir::affine::AffineDialect>();
+    target.addLegalDialect<mlir::cf::ControlFlowDialect>();
     target.addLegalOp<mlir::tensor::ExtractSliceOp>();
     target.addLegalOp<mlir::tensor::InsertSliceOp>();
     target.addLegalOp<mlir::tensor::EmptyOp>();
+    target.addLegalOp<mlir::cf::AssertOp>();
+    target.addLegalOp<mlir::tensor::CastOp>();
+
     target.addDynamicallyLegalOp<VPU::ShapeCastOp>([&](VPU::ShapeCastOp shapeCast) -> bool {
         if (isDistributedType(shapeCast.getSource())) {
             return true;
         }
-
-        if (!shapeCast.getResult().hasOneUse()) {
+        auto hasSameUTOpUsers = llvm::all_of(shapeCast->getUsers(), [&](mlir::Operation* user) {
+            auto curUTUser = mlir::dyn_cast_or_null<VPU::UnrolledTypeOp>(user);
+            if (curUTUser == nullptr) {
+                return false;
+            }
+            return curUTUser.getOutput().getType() == shapeCast->user_begin()->getResult(0).getType();
+        });
+        if (!hasSameUTOpUsers) {
             return true;
         }
 
@@ -247,6 +259,40 @@ void MakeDistributedCopiesPass::safeRunOnFunc() {
         auto prevEltwiseOp = prevUTOp.getInput().getDefiningOp<VPU::NCEEltwiseOp>();
         if ((prevEltwiseOp != nullptr) && (prevEltwiseOp.getIsInplace().value_or(false))) {
             return true;
+        }
+
+        // Skip the optimization in case the prevClusteredOp with updated distribution could not fit into CMX
+        auto prevUTInputClusteredOp =
+                mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(prevUTOp.getInput().getDefiningOp());
+        auto nextUTOutputClusteredOp =
+                mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(*nextUTOp.getOutput().getUsers().begin());
+        if (prevUTInputClusteredOp != nullptr && nextUTOutputClusteredOp != nullptr) {
+            SmallVector<Byte> buffersSize{};
+            // Calculate required CMX size for inputs
+            for (auto input : prevUTInputClusteredOp->getOperands()) {
+                auto inputDistTensorType = mlir::dyn_cast_or_null<VPU::DistributedTensorType>(input.getType());
+                if (inputDistTensorType != nullptr) {
+                    buffersSize.push_back(VPU::getTotalAllocSizeWithDistribution(
+                            input.getType(),
+                            VPU::DistributionInfo::getClassFromAttr(inputDistTensorType.getDistribution())));
+                }
+            }
+
+            // Calculate required CMX size for output which updated distribution
+            auto nextClusteredOpInput = nextUTOutputClusteredOp->getOperands()[0];
+            auto newOutputDistTensorType =
+                    mlir::dyn_cast_or_null<VPU::DistributedTensorType>(nextClusteredOpInput.getType());
+            if (newOutputDistTensorType != nullptr) {
+                buffersSize.push_back(VPU::getTotalAllocSizeWithDistribution(
+                        nextClusteredOpInput.getType(),
+                        VPU::DistributionInfo::getClassFromAttr(newOutputDistTensorType.getDistribution())));
+            }
+
+            const auto totalRequiredCMXSize = vpux::VPU::calculateAlignedBuffersMemoryRequirement(
+                                                      config::getArch(prevUTInputClusteredOp), buffersSize)
+                                                      .count();
+            const auto totalAvailableCMXSize = getTotalCMXSize(prevUTInputClusteredOp).count();
+            return totalRequiredCMXSize > totalAvailableCMXSize;
         }
 
         return false;

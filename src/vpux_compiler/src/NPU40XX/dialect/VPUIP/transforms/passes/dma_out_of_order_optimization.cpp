@@ -12,6 +12,8 @@
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 
+#include <deque>
+
 namespace vpux::VPUIP::arch40xx {
 #define GEN_PASS_DECL_DMAOUTOFORDEROPTIMIZATION
 #define GEN_PASS_DEF_DMAOUTOFORDEROPTIMIZATION
@@ -29,13 +31,15 @@ namespace {
 class DMAOutOfOrderOptimizationPass final :
         public VPUIP::arch40xx::impl::DMAOutOfOrderOptimizationBase<DMAOutOfOrderOptimizationPass> {
 public:
-    explicit DMAOutOfOrderOptimizationPass(Logger log) {
+    explicit DMAOutOfOrderOptimizationPass(std::optional<WorkloadManagementMode> workloadManagementMode, Logger log)
+            : _workloadManagementMode(workloadManagementMode) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
     bool isMemoryOverlap(VPURT::DeclareBufferOp bufOp1, VPURT::DeclareBufferOp bufOp2);
+    std::optional<WorkloadManagementMode> _workloadManagementMode;
 };
 
 bool DMAOutOfOrderOptimizationPass::isMemoryOverlap(VPURT::DeclareBufferOp bufOp1, VPURT::DeclareBufferOp bufOp2) {
@@ -172,7 +176,9 @@ void DMAOutOfOrderOptimizationPass::safeRunOnFunc() {
         }
     });
 
-    VPURT::verifyBarrierSlots(funcOp, _log);
+    if (!_workloadManagementMode.has_value() || _workloadManagementMode <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        VPURT::verifyBarrierSlots(funcOp, _log);
+    }
 }
 
 }  // namespace
@@ -181,6 +187,7 @@ void DMAOutOfOrderOptimizationPass::safeRunOnFunc() {
 // createDMAOutOfOrderOptimizationPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::arch40xx::createDMAOutOfOrderOptimizationPass(Logger log) {
-    return std::make_unique<DMAOutOfOrderOptimizationPass>(log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::arch40xx::createDMAOutOfOrderOptimizationPass(
+        std::optional<WorkloadManagementMode> workloadManagementMode, Logger log) {
+    return std::make_unique<DMAOutOfOrderOptimizationPass>(workloadManagementMode, log);
 }

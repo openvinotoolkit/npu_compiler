@@ -1051,7 +1051,7 @@ func.func @I4WeightsConvToNCE(%arg0: tensor<1x16x16x16xf16, {order = #NHWC}>) ->
     // CHECK-SAME:          clamp_high = 2147483647 : i64,
     // CHECK-SAME:          lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.3385416269302368 : f64>,
     // CHECK-SAME:      rawFilterShape = [16, 16, 1, 1], strides = [1, 1]}
-    // CHECK-SAME:      -> tensor<1x16x16x16xf16, {order = #NHWC}
+    // CHECK-SAME:      -> tensor<1x16x16x16xf16, {order = #NHWC}>
 
     // CHECK:       return [[VAL0]] : tensor<1x16x16x16xf16, {order = #NHWC}>
 }
@@ -1334,4 +1334,20 @@ func.func @DontConvertGroupConvToNCEIfDilatedConv(%arg0: tensor<1x16x48x48xf16, 
 
     // CHECK-NOT: VPU.NCE.DepthConvolution
     // CHECK:     IE.GroupConvolution
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @DontConvertAddToNCEIfMultiBatch
+func.func @DontConvertAddToNCEIfMultiBatch(%arg0: tensor<2x64x28x28xf16, {order = #NHWC}>, %arg1: tensor<2x64x28x28xf16, {order = #NHWC}>) -> tensor<2x64x28x28xf16, {order = #NHWC}> {
+    %0 = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY>, post_op = #IE.Relu<> } :
+        tensor<2x64x28x28xf16, {order = #NHWC}>, tensor<2x64x28x28xf16, {order = #NHWC}>
+        -> tensor<2x64x28x28xf16, {order = #NHWC}>
+
+    return %0 : tensor<2x64x28x28xf16, {order = #NHWC}>
+
+    // CHECK-NOT: VPU.NCE.Eltwise
+    // CHECK: IE.Add
 }

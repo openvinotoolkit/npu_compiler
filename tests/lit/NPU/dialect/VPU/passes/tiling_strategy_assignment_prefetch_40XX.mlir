@@ -6,6 +6,28 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --tiling-strategy-assignment %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
+module @executors {
+    config.Resources 3 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    }
+    // CHECK-LABEL:   @MultiplyPipeliningTiling
+    // CHECK-SAME:    ([[INPUT0:%.+]]: tensor<1x1024x1x3072xf16>,
+    // CHECK-SAME:     [[INPUT1:%.+]]: tensor<1x1x1x3072xf16>)
+    func.func @MultiplyPipeliningTiling(%arg0: tensor<1x1024x1x3072xf16>, %arg1: tensor<1x1x1x3072xf16>) -> tensor<1x1024x1x3072xf16> {
+        %multiply = VPU.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} :
+            tensor<1x1024x1x3072xf16>, tensor<1x1x1x3072xf16> -> tensor<1x1024x1x3072xf16>
+        return %multiply : tensor<1x1024x1x3072xf16>
+
+    // pipelining tiling is disabled for Multiply operation
+    // CHECK:      VPU.Multiply
+    // CHECK-SAME:      tilingStrategy = [1, 1, 1, 5]
+    // CHECK-NOT:       tilingStrategy = [1, 1, 1, 6]
+    }
+}
+
+// -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !qElemType = !quant.uniform<u8:f16, 0.0043085547638874429:24>
 
@@ -137,7 +159,7 @@ func.func @NCEMatMulSOGAndGHTile(%arg0: tensor<12x1x512x512xf16>, %arg1: tensor<
   return %8 : tensor<12x1x512x512x1xf16, {order = #GNHWC}>
 
   // CHECK:         VPU.NCE.MatMul
-  // CHECK-SAME:    tilingStrategy = [2, 1, 1, 2, 1]
+  // CHECK-SAME:    tilingStrategy = [1, 1, 1, 16, 1]
 }
 
 // -----
@@ -145,9 +167,9 @@ func.func @NCEMatMulSOGAndGHTile(%arg0: tensor<12x1x512x512xf16>, %arg1: tensor<
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-  IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 4 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
   // CHECK-LABEL: @pipeliningTilingForBigFilter
@@ -166,9 +188,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   @SplitNCEConvOverOH
@@ -210,9 +232,9 @@ module @executors {
 !qElemType = !quant.uniform<i4:f16, 1.3385416666666667>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   @SplitI4QuantNCEConvOverOC
@@ -253,9 +275,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @TileOverCWithBigC
@@ -297,9 +319,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitNCEPoolOverH
@@ -329,9 +351,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @TileWithSOK
@@ -378,9 +400,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   @SplitSparseNCEConvOverOH
@@ -431,9 +453,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   @SplitSparseNCEConvOverOH
@@ -483,9 +505,9 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: @SplitNCEAveragePoolOverW
@@ -507,9 +529,9 @@ module @executors {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL:   @SplitNCECompressConv
@@ -546,9 +568,9 @@ module @executors {
 !qElemType = !quant.uniform<u8:f16, 1.0>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
 
     // CHECK-LABEL: func.func @PrefetchTilingWithSOHParentConsidered

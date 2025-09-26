@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
@@ -86,7 +87,7 @@ void MultiClusterStrategyAssignmentPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE_Cluster information");
 
     if (tileOp.getCount() < 2) {
@@ -107,7 +108,7 @@ void MultiClusterStrategyAssignmentPass::safeRunOnFunc() {
     StrategyManager strategyManager(func, tileOp.getCount(), _enablePrefetchTiling, _mcOptimizationScope,
                                     siblingAnalysis, std::move(layerCostModel), _log.nest());
     _log.debug("Greedy Strategy Assignment");
-    auto enableMultiClusterForSWLayer = IE::getAvailableExecutor(module, VPU::ExecutorKind::SHAVE_ACT) != nullptr;
+    auto enableMultiClusterForSWLayer = config::getAvailableExecutor(module, VPU::ExecutorKind::SHAVE_ACT) != nullptr;
     strategyManager.assignMultiClusterStrategy(enableMultiClusterForSWLayer);
 
     _log.debug("Execute Subgraph Optimization");

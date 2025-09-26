@@ -51,7 +51,7 @@ mlir::LogicalResult vpux::IE::LSTMSequenceOp::inferReturnTypeComponents(
             }
         }
         auto outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outputHiddenValuesShape.size()), nullptr,
-                                           Bounds(outHVBounds));
+                                           BoundsRef(outHVBounds));
         inferredReturnShapes.emplace_back(outputHiddenValuesShape, elementType, outDesc);  // outputHiddenValues
 
     } else {

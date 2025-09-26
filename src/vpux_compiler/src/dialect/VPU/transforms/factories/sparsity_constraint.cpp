@@ -7,8 +7,6 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/sparsity_constraint.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/sparsity_constraint.hpp"
 
-#include "vpux/utils/core/error.hpp"
-
 using namespace vpux;
 
 VPU::SparsityConstraint VPU::getSparsityConstraint(config::ArchKind arch) {

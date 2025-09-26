@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/ELFNPU37XX/metadata.hpp"
 #include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
@@ -243,7 +245,8 @@ void createOVNodes(std::vector<elf::OVNode>& nodes, ArrayRef<net::DataInfoOp> da
         // Serialize metadata only for model primary parameters and results, skip state and shape nodes
         const auto name = dataInfo.getName().str();
         if (intel_npu::isStateInputName(name) || intel_npu::isStateOutputName(name) ||
-            intel_npu::isShapeTensorName(name)) {
+            intel_npu::isShapeTensorName(name) || intel_npu::isInitInputWeightsName(name) ||
+            intel_npu::isInitOutputWeightsName(name) || intel_npu::isMainInputWeightsName(name)) {
             continue;
         }
 
@@ -386,73 +389,96 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
     metadata.mProfilingOutputs.resize(profilingOutputsInfo.size());
 
     const auto architecture = config::getArch(module);
+
+    const bool isLLVMMainForHostCompile =
+            (config::getCompilationMode(module) == config::CompilationMode::HostCompile) &&
+            (module->getParentOfType<mlir::ModuleOp>() == nullptr);
+
+    auto setTensor = [&](elf::TensorRef& netInput, elf::TensorRef& tensorDesc, NDTypeInterface type,
+                         vpux::net::DataInfoOp userInfo) {
+        const auto userType = mlir::cast<vpux::NDTypeInterface>(userInfo.getUserType());
+
+        // For dynamic shape, userType is required as it has both size and bounds.
+        netInput = createTensorRef(isLLVMMainForHostCompile ? userType : type, userInfo.getName());
+        tensorDesc = createTensorRef(userType, userInfo.getName());
+    };
+
     if (architecture >= config::ArchKind::NPU40XX) {
-        auto ioBindings = VPUASM::IOBindingsOp::getFromModule(module);
-        auto inputDeclarations =
-                to_small_vector(ioBindings.getInputDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
+        if (!isLLVMMainForHostCompile) {
+            auto ioBindings = VPUASM::IOBindingsOp::getFromModule(module);
+            auto inputDeclarations =
+                    to_small_vector(ioBindings.getInputDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
 
-        for (const auto& p : inputsInfo | indexed) {
-            const auto index = checked_cast<uint32_t>(p.index());
-            auto userInfo = p.value();
-            auto inputDeclaration = inputDeclarations[index];
+            for (const auto& p : inputsInfo | indexed) {
+                const auto index = checked_cast<uint32_t>(p.index());
+                auto inputDeclaration = inputDeclarations[index];
+                auto declaredInputType = mlir::cast<NDTypeInterface>(inputDeclaration.getBufferType().getMemref());
 
-            auto declaredInputType = mlir::cast<NDTypeInterface>(inputDeclaration.getBufferType().getMemref());
-            const auto userType = mlir::cast<vpux::NDTypeInterface>(userInfo.getUserType());
+                setTensor(metadata.mNetInputs[index], metadata.mInTensorDescriptors[index], declaredInputType,
+                          p.value());
+            }
 
-            metadata.mNetInputs[index] = createTensorRef(declaredInputType, userInfo.getName());
-            metadata.mInTensorDescriptors[index] = createTensorRef(userType, userInfo.getName());
-        }
+            auto outDeclarations =
+                    to_small_vector(ioBindings.getOutputDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
+            for (const auto& p : outputsInfo | indexed) {
+                const auto index = p.index();
+                auto outDeclaration = outDeclarations[index];
+                auto declaredOutType = mlir::cast<NDTypeInterface>(outDeclaration.getBufferType().getMemref());
 
-        auto outDeclarations =
-                to_small_vector(ioBindings.getOutputDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
-        for (const auto& p : outputsInfo | indexed) {
-            const auto index = p.index();
-            auto userInfo = p.value();
-            auto outDeclaration = outDeclarations[index];
+                setTensor(metadata.mNetOutputs[index], metadata.mOutTensorDescriptors[index], declaredOutType,
+                          p.value());
+            }
 
-            auto declaredOutType = mlir::cast<NDTypeInterface>(outDeclaration.getBufferType().getMemref());
-            const auto userType = mlir::cast<vpux::NDTypeInterface>(userInfo.getUserType());
-            metadata.mNetOutputs[index] = createTensorRef(declaredOutType, userInfo.getName());
-            metadata.mOutTensorDescriptors[index] = createTensorRef(userType, userInfo.getName());
-        }
+            // profiling
+            auto profilingDeclarations = to_small_vector(
+                    ioBindings.getProfilingBuffDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
+            for (const auto& p : profilingOutputsInfo | indexed) {
+                const auto index = p.index();
+                auto profilingDeclaration = profilingDeclarations[index];
 
-        // profiling
-        auto profilingDeclarations =
-                to_small_vector(ioBindings.getProfilingBuffDeclarations().front().getOps<VPUASM::DeclareBufferOp>());
-        for (const auto& p : profilingOutputsInfo | indexed) {
-            const auto index = p.index();
-            auto profilingDeclaration = profilingDeclarations[index];
+                auto declaredProfileBuffType =
+                        mlir::cast<NDTypeInterface>(profilingDeclaration.getBufferType().getMemref());
 
-            auto declaredProfileBuffType =
-                    mlir::cast<NDTypeInterface>(profilingDeclaration.getBufferType().getMemref());
+                metadata.mProfilingOutputs[index] = createTensorRef(declaredProfileBuffType, p.value().getName());
+            }
+        } else {
+            // Host Compile does not create IOBindingsOp in its pipeline for a entry function
+            // Will check if IOBindingsOp can be created.
 
-            metadata.mProfilingOutputs[index] = createTensorRef(declaredProfileBuffType, p.value().getName());
+            // input
+
+            for (const auto& p : inputsInfo | indexed) {
+                const auto index = checked_cast<uint32_t>(p.index());
+                // Refer to userType as it provides all information (shape, bounds for dynamic shape)
+                // No need to pass a function arg
+                setTensor(metadata.mNetInputs[index], metadata.mInTensorDescriptors[index], {}, p.value());
+            }
+
+            // output
+            for (const auto& p : outputsInfo | indexed) {
+                const auto index = p.index();
+                // Refer to userType as it provides all information (shape, bounds for dynamic shape)
+                // No need to pass a function arg
+                setTensor(metadata.mNetOutputs[index], metadata.mOutTensorDescriptors[index], {}, p.value());
+            }
+
+            // Currently, profiling feature is not supported
+            VPUX_THROW_UNLESS(profilingOutputsInfo.size() == 0, "Profiling is not supported for HostCompile Mode");
         }
     } else {
         // input
         for (const auto& p : inputsInfo | indexed) {
             const auto index = checked_cast<uint32_t>(p.index());
-            auto userInfo = p.value();
-            const auto val = netFunc.getArgument(index);
-
-            const auto userType = mlir::cast<NDTypeInterface>(userInfo.getUserType());
-
-            metadata.mNetInputs[index] = createTensorRef(val, userInfo.getName());
-            metadata.mInTensorDescriptors[index] = createTensorRef(userType, userInfo.getName());
+            setTensor(metadata.mNetInputs[index], metadata.mInTensorDescriptors[index],
+                      netFunc.getArgument(index).getType(), p.value());
         }
 
         // output
         for (const auto& p : outputsInfo | indexed) {
             const auto index = p.index();
-            const auto funcArgIndex = inputsInfo.size() + index;
-
-            auto userInfo = p.value();
-            const auto val = netFunc.getArgument(checked_cast<uint32_t>(funcArgIndex));
-
-            const auto userType = mlir::cast<NDTypeInterface>(userInfo.getUserType());
-
-            metadata.mNetOutputs[index] = createTensorRef(val, userInfo.getName());
-            metadata.mOutTensorDescriptors[index] = createTensorRef(userType, userInfo.getName());
+            const auto funcArgIndex = checked_cast<uint32_t>(inputsInfo.size() + index);
+            setTensor(metadata.mNetOutputs[index], metadata.mOutTensorDescriptors[index],
+                      netFunc.getArgument(funcArgIndex).getType(), p.value());
         }
 
         // profiling
@@ -475,4 +501,12 @@ std::unique_ptr<elf::NetworkMetadata> ELFNPU37XX::constructMetadata(mlir::Module
     printMetadata(&metadata, log);
 
     return metadataPtr;
+}
+
+void vpux::ELFNPU37XX::setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata) {
+    auto nBarrs = VPUIP::getNumAvailableBarriers(moduleOp);
+    metadata.mResourceRequirements.nn_barriers_ = checked_cast<uint8_t>(nBarrs);
+    metadata.mResourceRequirements.nn_slice_count_ = checked_cast<uint8_t>(VPUIP::getNumTilesUsed(moduleOp));
+    metadata.mResourceRequirements.nn_slice_length_ =
+            checked_cast<uint32_t>(config::getAvailableMemory(moduleOp, vpux::VPU::MemoryKind::CMX_NN).getByteSize());
 }

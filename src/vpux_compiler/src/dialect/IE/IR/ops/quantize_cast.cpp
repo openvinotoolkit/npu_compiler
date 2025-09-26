@@ -7,7 +7,6 @@
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/cast_utils.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 

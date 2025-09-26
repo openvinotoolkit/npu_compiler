@@ -88,11 +88,13 @@ unsigned BaseClusterBufferScheduler::getRequiredDdrMemory() const {
 void BaseClusterBufferScheduler::scheduleNceTask(VPUIP::NCEClusterTaskOp nceClusterTaskOp) {
     const auto taskSignature = getTaskSignature(nceClusterTaskOp);
     const auto maxDpuTasks = taskSignature._maxSubTasks;
-
     const auto requiredMemory = maxDpuTasks * _profilingWorkloadSize;
-    VPUX_THROW_WHEN(requiredMemory > VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE,
+
+    const auto arch = config::getArch(nceClusterTaskOp);
+    const auto dpuProfMaxBufferSize = VPUIP::getDPUProfMaxBufferSize(arch);
+    VPUX_THROW_WHEN(requiredMemory > dpuProfMaxBufferSize,
                     "NCEClusterTask at '{0}' requires more memory {1} than currently supported. Change  "
-                    "HW_DPU_PROFILING_MAX_BUFFER_SIZE.",
+                    "DPU profiling max buffer size.",
                     nceClusterTaskOp->getLoc(), requiredMemory);
     _nceTaskSignatures.push_back(taskSignature);
     // Trying to reuse last profiling buffer
@@ -100,7 +102,7 @@ void BaseClusterBufferScheduler::scheduleNceTask(VPUIP::NCEClusterTaskOp nceClus
     const auto newBufferSize = currentBufferSize + maxDpuTasks;
     // If we can store profiling result of current task in last buffer without exceeding
     // max size - reuse it, otherwise - scheduling one more
-    if (newBufferSize * _profilingWorkloadSize > VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) {
+    if (newBufferSize * _profilingWorkloadSize > dpuProfMaxBufferSize) {
         _profilingBufferSizes.push_back(maxDpuTasks);
     } else {
         _profilingBufferSizes.pop_back();
@@ -172,10 +174,12 @@ void BaseClusterBufferScheduler::addProfilingOps(unsigned& currentDDROffset, Sma
         const unsigned dpuTasksAmount = nceTaskSignature._maxSubTasks * _clustersNum;
         auto profilingSamplesInCMX = countDpuTasks(nceProfilingOutputs);
         const auto expectedCMXMemoryUsage = (profilingSamplesInCMX + dpuTasksAmount) * _profilingWorkloadSize;
+        const auto arch = config::getArch(nceTaskOp);
+        const auto dpuProfMaxBufferSize = VPUIP::getDPUProfMaxBufferSize(arch);
         // If couldnt place current task in the end of cmx buffer flushing all previous tasks to DDR
-        // expectedCMXMemoryUsage counts size for all clusters, while HW_DPU_PROFILING_MAX_BUFFER_SIZE only for one
+        // expectedCMXMemoryUsage counts size for all clusters, while dpuProfMaxBufferSize only for one
         // so, need to align them for comparison
-        if (expectedCMXMemoryUsage > VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE * _clustersNum) {
+        if (expectedCMXMemoryUsage > dpuProfMaxBufferSize * _clustersNum) {
             flushCMX2DDR();  // Flush current CMX content to DDR
             profilingSamplesInCMX = 0;
             allocateProfilingBufferCMX();  // Allocate next CMX buffer

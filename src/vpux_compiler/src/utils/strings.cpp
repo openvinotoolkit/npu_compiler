@@ -129,6 +129,18 @@ std::string vpux::stringifyPrimaryLocation(mlir::Location location) {
     return encodeLocationAsString(parts);
 }
 
+// to sanitize the output of stringifyPrimaryLocation
+std::string vpux::stringifyPrimaryLocationSanitized(mlir::Location location) {
+    std::string str = vpux::stringifyPrimaryLocation(location);
+    std::replace_if(
+            str.begin(), str.end(),
+            [](char c) {
+                return !std::isalnum(c);
+            },
+            '_');
+    return str;
+}
+
 /**
  * Retrieves the original OV layer type from the task's location.
  */

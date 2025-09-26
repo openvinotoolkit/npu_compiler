@@ -21,12 +21,6 @@ namespace arch40xx {
 // Passes
 //
 
-std::unique_ptr<mlir::Pass> createFuseM2IOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConvertM2IOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createComputeNCEInputWorkloadsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createMoveConvertAroundViewLikeOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createCorrectNCEWorkloadsPass(Logger log = Logger::global());
-
 void buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                               Logger log = Logger::global());
 
@@ -44,6 +38,11 @@ struct DefaultHWOptions : public VPU::DefaultHWOptionsDialectBase, virtual vpux:
 
     BoolOption enableVPUNNPreSplit{*this, "enable-vpunn-pre-split", llvm::cl::desc("Enable VPUNN LayersPreSplit API"),
                                    llvm::cl::init(false)};
+    BoolOption enableDequantWeightEnsuranceBeforeStrategy{
+            *this, "enable-dequant-weight-ensurance-before-strategy",
+            llvm::cl::desc("Enable dequantize weight op size ensurance before strategy is assigned in "
+                           "EnsureNCEOpsSizeRequirements pass"),
+            llvm::cl::init(true)};
 };
 
 void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());

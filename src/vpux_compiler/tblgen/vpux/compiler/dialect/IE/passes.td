@@ -407,20 +407,6 @@ def FuseRoPE : PassBase<"fuse-rope", "vpux::FunctionPass"> {
 }
 
 //
-// ExpandSoftmaxAxis
-//
-def ExpandSoftmaxAxis : PassBase<"expand-softmax-axis", "vpux::FunctionPass"> {
-    let summary = "Fuse Slice and Expand if necessary to ExpandSoftmaxAxis";
-    let description = [{
-        If certain conditions are met, we can fuse the slice and expand operators around Softmax, inside a padded Softmax Operator.
-    }];
-    let constructor = "vpux::IE::createExpandSoftmaxAxisPass()";
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
 // FuseSDPA
 //
 def FuseSDPA : PassBase<"fuse-sdpa", "vpux::FunctionPass"> {
@@ -430,6 +416,21 @@ def FuseSDPA : PassBase<"fuse-sdpa", "vpux::FunctionPass"> {
         We may encounter various types of patterns that can be integrated into SDPA, and this process is designed to address most of them, based on the input shapes.
     }];
     let constructor = "vpux::IE::createFuseSDPAPass()";
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// FuseSoftmax
+//
+def FuseSoftmax : PassBase<"fuse-softmax", "vpux::FunctionPass"> {
+    let summary = "Fuse MatMul-Divide-Add-Softmax-MatMul to SDPA";
+    let description = [{
+        SDPA is a sequence of ops that is used to implement the Self-Attention mechanism.
+        We may encounter various types of patterns that can be integrated into SDPA, and this process is designed to address most of them, based on the input shapes.
+    }];
+    let constructor = "vpux::IE::createFuseSoftmaxPass()";
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
@@ -1271,25 +1272,30 @@ def OptDynamicEltwiseWithShapeOf : PassBase<"opt-dynamic-eltwise-shapeof", "vpux
 }
 
 //
-// ConvertConvBackpropDataToTransposedConv
+// ConvertConvBackpropDataToConvOrTransposedConv
 //
 
-def ConvertConvBackpropDataToTransposedConv : PassBase<"convert-convbackpropdata-to-transposedconv", "vpux::FunctionPass"> {
-    let summary = "Convert (Group)ConvolutionBackPropData to (Group)TransposedConvolution";
+def ConvertConvBackpropDataToConvOrTransposedConv : PassBase<"convert-convbackpropdata-to-conv-or-transposedconv", "vpux::FunctionPass"> {
+    let summary = "Convert (Group)ConvolutionBackPropData to (Group)TransposedConvolution or 2x2/3x3 Convolution";
 
     let description = [{
-        Converts (Group)ConvolutionBackPropData operations to (Group)TransposedConvolution.
+        Converts (Group)ConvolutionBackPropData operations to (Group)TransposedConvolution or 2x2/3x3 Convolution.
+
+        2x2/3x3 convolution is chosen when kernel has 4x4 shape, with strides (2,2) and pad (1,1).
+
+        Choosing 2x2 vs 3x3 kernel is based on output H*W size limit, to avoid large DMA writes.
 
         This is done since the two operations have different ordering for the weights:
         - (Group)ConvolutionBackPropData: [(GROUPS,) C_IN, C_OUT, Z, Y, X]
         - (Group)TransposedConvolution:   [(GROUPS,) C_OUT, C_IN, Z, Y, X]
+        - Convolution: [C_OUT, C_IN, Z, Y, X]
 
-        The order used by (Group)TransposedConvolution is aligned with the order used by
+        The order used by (Group)TransposedConvolution or Convolution is aligned with the order used by
         all other convolution operations in the compiler, making it simple to work with
         this operation and convert between transposed and forward convolutions.
     }];
 
-    let constructor = "vpux::IE::createConvertConvBackpropDataToTransposedConvPass()";
+    let constructor = "vpux::IE::createConvertConvBackpropDataToConvOrTransposedConvPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -2451,19 +2457,22 @@ def MergeFakeQuant : PassBase<"merge-fake-quant", "vpux::FunctionPass"> {
 }
 
 //
-// PropagateQuantizeDequantize
+// PropagateAndFuseQuantizeDequantize
 //
 
-def PropagateQuantizeDequantize : PassBase<"propagate-quantize-dequantize", "vpux::FunctionPass"> {
+def PropagateAndFuseQuantizeDequantize : PassBase<"propagate-and-fuse-quantize-dequantize", "vpux::FunctionPass"> {
     let summary = "Propagate Quantize/Dequantize through agnostic operations";
 
         let description = [{
         The pass is a part of LowPrecision pipeline.
 
         Quantize/Dequantize are propagated through operations
+
+        And also convert Quantize -> Dequantize-> Multiply(with Const) to
+        Quantize -> quantizeCast(fuse with multiply const) -> Dequantize.
         }];
 
-    let constructor = "vpux::IE::createPropagateQuantizeDequantizePass()";
+    let constructor = "vpux::IE::createPropagateAndFuseQuantizeDequantizePass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect",
@@ -2525,7 +2534,7 @@ def AdjustFakeQuantizeParams : PassBase<"adjust-fake-quantize-params", "vpux::Fu
 // AdjustFakeQdqParams
 //
 def AdjustFakeQdqParams : PassBase<"adjust-fake-qdq-params", "vpux::FunctionPass"> {
-    let summary = "Check QDQ and FQ layers if input or output quantization params exceeds FP16 range and adjust params to be in scale.";
+    let summary = "Checks FQ layers to see whether input or output quantization params exceeds FP16 range and adjusts the parameters to be in scale.";
 
     let description = [{
         The pass checks if the FQ params are in FP16 range.
@@ -2872,7 +2881,7 @@ def SwapViewOpAndClamp : PassBase<"swap-viewop-and-clamp", "vpux::FunctionPass">
         Therefore, we may get such subgraph:
         ARG -> FQ -> Clamp -> Concat
 
-        Then after SplitFakeQuant and PropagateQuantizeDequantize we have:
+        Then after SplitFakeQuant and PropagateAndFuseQuantizeDequantize we have:
         ARG -> Q -> Clamp -> D -> Concat
 
         Then after ConvertQuantizeOpsToNceOps we have:
@@ -2892,20 +2901,18 @@ def SwapViewOpAndClamp : PassBase<"swap-viewop-and-clamp", "vpux::FunctionPass">
 }
 
 //
-// FuseOpWithQuantize
+// FuseConvertWithQDQ
 //
 
-def FuseOpWithQuantize : PassBase<"fuse-op-with-quantize", "vpux::FunctionPass"> {
+def FuseConvertWithQDQ : PassBase<"fuse-convert-with-qdq", "vpux::FunctionPass"> {
     let summary = "Fuse Convert with Quantize into QuantCast operation";
 
     let description = [{
         Pass detects pattern Convert(i8/ui8 -> FP16) -> Quantize(FP16 -> !quant.uniform<...>)
         and fuses it into single QuantCast(i8/ui8 -> !quant.uniform<...>) operation.
-        And also convert Quantize -> Dequantize-> Multiply(with Const) to
-        Quantize -> quantizeCast(fuse with multiply const) -> Dequantize.
     }];
 
-    let constructor = "vpux::IE::createFuseOpWithQuantizePass()";
+    let constructor = "vpux::IE::createFuseConvertWithQDQPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -3245,6 +3252,16 @@ def UniquifyBranches : PassBase<"uniquify-branches", "vpux::FunctionPass"> {
                                              -> Consumer
 
             in case the split axis will be in lower memory dim after Reorder.
+
+        * Also convert this subgraph:
+                         -> Sin -> Reorder -> Consumer
+                Producer -> Cos -> Reorder -> Consumer
+                         -> Tan -> Reorder -> Consumer
+
+            into this:
+                                    -> Sin -> Consumer
+                Producer -> Reorder -> Cos -> Consumer
+                                    -> Tan -> Consumer
     }];
 
     let constructor = "vpux::IE::createUniquifyBranchesPass()";
@@ -3381,7 +3398,7 @@ def PropagateDequantThroughConcat : PassBase<"propagate-dequant-through-concat",
     let summary = "Propagate Dequant operation through Concat";
 
     let description = [{
-        Dequant is not propagated through Concat in PropagateQuantizeDequantize pass
+        Dequant is not propagated through Concat in PropagateAndFuseQuantizeDequantize pass
         if it has only one quantized input and non-quantized constants.
         Such Concat is usually introduced to add padding (either from Pad or for Convolution).
 
@@ -3555,6 +3572,36 @@ def OptimizeOpSlice : PassBase<"optimize-op-slice", "vpux::FunctionPass"> {
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ExpandActivationChannels
+//
+
+def ExpandActivationChannels : PassBase<"expand-activation-channels", "vpux::FunctionPass"> {
+    let summary = "Align input tensors shape of DPU operation with hardware requirements";
+
+    let description = [{
+        The pass is a part of `buildHardwareModePipeline` pipeline.
+
+        This pass processes operations that can be compiled as DPU tasks and expands the number
+            of channels to a number divisible by 16 if they do not satisfy hardware requirements.
+        The input channels may be aligned to 4 instead of 16 for compressed convolutions.
+    }];
+
+    let constructor = "vpux::IE::createExpandActivationChannelsPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "seOpsEnabled", "se-ops-enabled",
+            "bool", "false",
+            "Flag to identify whether operations that can be executed using the Storage Element hardware feature are enabled"
+        >
     ];
 }
 
@@ -4446,7 +4493,7 @@ def UnrollFullyConnected : PassBase<"unroll-fully-connected", "vpux::FunctionPas
 
         Motivation: this transformation eliminates `IE.Concat` from the subgraph.
         Such concat is problematic because its axis (d0) is different from the quantization axis (d2).
-        `PropagateQuantizeDequantize` pass cannot handle the case when the axes differ.
+        `PropagateAndFuseQuantizeDequantize` pass cannot handle the case when the axes differ.
         Therefore, a dequantize cannot be fused into a convolution.
         Without the `IE.Concat`, the fusion is possible.
     }];
@@ -5259,17 +5306,19 @@ def InputQuantizationRestoration : PassBase<"input-quantization-restoration", "v
 }
 
 //
-// PropagateFQ
+// PropagateAndCleanUpFQ
 //
 
-def PropagateFQ : PassBase<"propagate-fq", "vpux::FunctionPass"> {
-    let summary = "Propagates FQ up and down through FQ-agnostic ops";
+def PropagateAndCleanUpFQ : PassBase<"propagate-and-clean-up-fq", "vpux::FunctionPass"> {
+    let summary = "Propagates FQ up and down through FQ-agnostic ops and then remove FQ operations with equal input and output low/high values.";
 
     let description = [{
         The pass is a part of `PostImportPipeline` pipeline.
         And was moved here from the nGraph transformations.
 
-        Propagates FQ up and down through FQ-agnostic ops.
+        The pass includes 2 types of transformations:
+
+        1. Propagates FQ up and down through FQ-agnostic ops.
         This transformation helps to "quantize" as many HW ops as possible.
         Please note "propagate" does not just mean to "move" an operation, but also to "duplicate" it.
         For example:
@@ -5281,37 +5330,14 @@ def PropagateFQ : PassBase<"propagate-fq", "vpux::FunctionPass"> {
             Transpose -> FQ -> MaxPool -> FQ -> Squeeze -> FQ -> Softmax
         ```
 
-        This is a temporary solution that should be replaced with PropagateQuantizeDequantize: #-152958
-        This pass is paired with CleanupFQ pass.
-    }];
-
-    let constructor = "vpux::IE::createPropagateFQPass()";
-
-    let dependentDialects = [
-        "vpux::IE::IEDialect"
-    ];
-}
-
-//
-// CleanupFQ
-//
-
-def CleanupFQ : PassBase<"cleanup-fq", "vpux::FunctionPass"> {
-    let summary = "Remove FQ operations with equal input and output low/high values.";
-
-    let description = [{
-        The pass is a part of `PostImportPipeline` pipeline.
-        And was moved here from the nGraph transformations.
-
-        Pass removes FQ operations where:
+        2. Removes FQ operations where:
             - input low == output low && input high == output high
             - producer and all consumers are "view-like"(not "computational") operations e.g. TransposeOp, SplitOp, ReshapeOp, etc.
 
-        Consider removing this pass: #-152958
-        This pass is paired with PropagateFQ pass.
+        This is a temporary solution that should be replaced with PropagateAndFuseQuantizeDequantize: #-152958
     }];
 
-    let constructor = "vpux::IE::createCleanupFQPass()";
+    let constructor = "vpux::IE::createPropagateAndCleanUpFQPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"
@@ -5487,6 +5513,14 @@ def DecomposeOnlineSDPA : PassBase<"decompose-online-sdpa", "vpux::FunctionPass"
     let dependentDialects = [
         "vpux::IE::IEDialect"
     ];
+
+    let options = [
+        Option<
+            "disableIncrementalSDPADecomposition", "disable-incremental-sdpa-decomposition",
+            "bool", "false",
+            "Avoid adding Divide operation at the end to handle the division in the IncrementalSDPA SW kernel"
+        >
+    ];
 }
 
 //
@@ -5579,7 +5613,7 @@ def DecomposeMultiZPQuantizationPattern : PassBase<"decompose-multi-zp-quantizat
     ];
 }
 
-// 
+//
 // LoadExternalKernelResources
 //
 
@@ -5592,6 +5626,491 @@ def LoadExternalKernelResources : PassBase<"load-external-kernel-resources", "vp
     }];
 
     let constructor = "vpux::IE::createLoadExternalKernelResourcesPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertToMixPrecision
+//
+
+def ConvertToMixedPrecision: PassBase<"convert-to-mixed-precision", "vpux::FunctionPass"> {
+    let summary = "Convert DPU task without fake quantize behind to mixed-precision operation";
+
+    let description = [{
+        The pass is a part of `LowPrecision` pipeline.
+        Converts DPU task to mixed-precision operation where there is no quantize operation for the output of a DPU task
+    }];
+
+    let constructor = "vpux::IE::createConvertToMixedPrecision()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "enableFloatInQuantWeightsMixedMode", "enable-float-in-quant-weights-mixed-mode",
+            "bool", "true",
+            "Enable mixed mode for NCE tasks with float input and quantized weights"
+        >
+    ];
+}
+
+//
+// SwapMaxPoolWithActivation
+//
+
+def SwapMaxPoolWithActivation : PassBase<"swap-maxpool-with-act", "vpux::FunctionPass"> {
+    let summary = "Swaps the MaxPool and activation";
+
+    let description = [{
+        This pass is needed for VPUX37XX only since HW MaxPool does not support post-op operations.
+        Operations are swapped only if there is an operation before MaxPool that supports post-ops.
+    }];
+
+    let constructor = "vpux::IE::createSwapMaxPoolWithActivation()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// PropagateReorderToNCE
+//
+
+def PropagateReorderToNCE : PassBase<"propagate-reorder-to-nce", "vpux::FunctionPass"> {
+    let summary = "Propagate reorder back to NCE task through act shave layers";
+
+    let description = [{
+        Converts these subgraphs:
+        ```
+            Input [NHWC] -> IE.Convolution [NHWC] -> Act shave layer -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.GroupConvolution [NHWC] -> Act shave layer -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.MaxPool [NHWC] -> Act shave layer -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.AvgPool [NHWC] -> Act shave layer -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.Add [NHWC] -> Act shave layer -> IE.Reorder [NCHW]
+        ```
+        Into the following subgraphs respectively:
+        ```
+            Input [NHWC] -> IE.Convolution [NHWC] -> IE.Reorder [NCHW] -> Act shave layer [NCHW]
+            Input [NHWC] -> IE.GroupConvolution [NHWC] -> IE.Reorder [NCHW] -> Act shave layer [NCHW]
+            Input [NHWC] -> IE.MaxPool [NHWC] -> IE.Reorder [NCHW] -> Act shave layer [NCHW]
+            Input [NHWC] -> IE.AvgPool [NHWC] -> IE.Reorder [NCHW] -> Act shave layer [NCHW]
+            Input [NHWC] -> IE.Add [NHWC] -> IE.Reorder [NCHW] -> Act shave layer [NCHW]
+        ```
+    }];
+
+    let constructor = "vpux::IE::createPropagateReorderToNCEPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertFFTToConv
+//
+
+def ConvertFFTToConv : PassBase<"convert-fft-to-conv", "vpux::FunctionPass"> {
+    let summary = "Replace FFT operations (I/R/ DFT) with a subgraph of smaller operations";
+
+    let description = [{
+        Decomposes `FFT` operations (DFT, IDFT, RDFT, IRDFT) into smaller `convolution` friendly operations.
+    }];
+
+    let constructor = "vpux::IE::createConvertFFTToConvPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ProcessAsymmetricZeroPointsForMatmul
+//
+
+def ProcessAsymmetricZeroPointsForMatmul : PassBase<"process-asymmetric-zero-points-for-matmul", "vpux::FunctionPass"> {
+    let summary = "Decompose matmuls to change u8 zero point to 128";
+
+    let description = [{
+        Decompose matmuls ( which are mapped to convolution at this stage) and convolutions with 1x1 kernel size.
+        This decomposition changes zero point of u8 weights to 128 to enable mixed precision execution. Mixed precision
+        required i8 weights with ZP=0 ,so we can fix zero point of u8 to 128 here to enable i8 conversion.
+
+        Original Formula for Matmul with u8 quantized weights
+            A: Float matrix of shape (I, J) , input matrix
+            B_q: Integer quantized matrix (uint8) derived from B, shape (J, K), weights matrix
+            S: Float scale vector for B, shape (1, K) (one scale per column k of B)
+            ZP: Integer zero-point vector for B, shape (1, K) (one ZP per column k of B)
+            C: Resulting float output matrix, shape (I, K)
+
+            B[j, k] = (B_q[j, k] - ZP[k]) * S[k]  ( Dequantization of B_q)
+            C[i, k] = sum_{j=0}^{J-1} (A[i, j] * B[j, k])
+            When B is subtituted
+            C[i, k] = sum_{j=0}^{J-1} (A[i, j] * [(B_q[j, k] - ZP[k]) * S[k]])
+
+            C[i, k] = S[k] * (sum_{j=0}^{J-1} A[i, j] * B_q[j, k]) - S[k] * ZP[k] * (sum_{j=0}^{J-1} A[i, j])
+            So from above we can see that zp related calculation can be separated and does not depend on inside iteration
+
+            Originally a matmul with zp 128 has this formula
+            C[i, k] = S[k] * (sum_{j=0}^{J-1} A[i, j] * (B_q[j, k] - 128)
+            if zp not = 128
+            C[i, k] = S[k] * (sum_{j=0}^{J-1} A[i, j] * (B_q[j, k] - zp[k])
+            to convert to zp 128 we add fix (+ zp[k]  -128 ) to inside , we also subtract it so results stays same
+            Added value does not depend on B so or internal matmul multiplication so can be pulled out :
+            C[i, k] = S[k] * (sum_{j=0}^{J-1} A[i, j] * (B_q[j, k] - zp[k] + zp[k]  -128]) - S[k] * (zp[k] -128) sum_{j=0}^{J-1} A[i, j]
+            Negate subtract to use add Op we end up with final formula
+            C[i, k] = Subtract( [Matmul(A[i, k],B_128[j, k])] , [S[k] * (- zp[k]+128)  * ReduceSum(A,dim=1)]);
+
+    }];
+
+    let constructor = "vpux::IE::createProcessAsymmetricZeroPointsForMatmulPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+
+    let options = [
+        Option<
+            "matmulMixedPrecisionDecompositionRatio", "matmul-mixed-precision-decomposition-ratio",
+            "double", "250",
+            "Determines when to enable Matmul Mixed Precision Decomposition"
+             "Ratio = (MatMul input size)/(Sum of Inputs of newly added ops by decomposition)"
+        >
+    ];
+}
+
+//
+// ConvertWeightsToI8Pass
+//
+
+def ConvertWeightsToI8 : PassBase<"convert-weights-to-i8", "vpux::FunctionPass"> {
+    let summary = "Converts weights to i8 for mixed precision convolution and matmul";
+
+    let description = [{
+        Converts weights to i8 for mixed precision convolution and matmul.
+        This pass converts u8 weights with zero point 128 to i8 weights with zero point 0.
+        For mixed precison support i8 weights must have zero point of 0.
+        Matmuls are converted to Convolutions before this pass so this pass only deals
+        with Convolutions.
+        Reason for conversion is to enable mixed precision convolution with F16 activation
+        and i8 weights to reduce memory/dma usage.
+        Simply convert data types and reduces values by 128.
+        Pass converts below pattern :
+        Tensor:F16 -> Convolution <- Dequantise(F16) <- ConstDeclare(u8: ZeroPoint:128) to :
+        Tensor:F16 -> Convolution <- Dequantise(F16) <- ConstDeclare(i8: ZeroPoint:0)
+        Which is transformed by next pass ( ConvertToMixedPrecision ) to :
+        Tensor:F16 -> Convolution <- ConstDeclare(i8: ZeroPoint:0)
+        As a result resulting constDeclare wont be affected by future passes ConvertToU8/I4 etc
+    }];
+
+    let constructor = "vpux::IE::createConvertWeightsToI8Pass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// FusePermuteQuantizeExpand
+//
+
+def FusePermuteQuantizeExpand : PassBase<"fuse-permute-quantize-expand", "vpux::FunctionPass"> {
+    let summary = "Converts Quantize-MemPermute-Expand combination in 1 common operation";
+
+    let description = [{
+        Converts Quantize-MemPermute-Expand combination in 1 common operation.
+    }];
+
+    let constructor = "vpux::IE::createFusePermuteQuantizeExpandPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// FuseOutstandingDequant
+//
+
+def FuseOutstandingDequant: PassBase<"fuse-outstanding-dequant", "vpux::FunctionPass"> {
+    let summary = "Fuse outstanding dequantize after NCE task";
+
+    let description = [{
+        The pass is a part of `LowPrecision` pipeline.
+
+        Pass walks through quant-agnostic ops and removes dequantize after
+        NCE task with quantized output.
+
+        Converts :
+        `u8_Convolution_u8 -> u8_ElemTypeInfoOp_u8 -> ... -> u8_Dequantize_f16 -> f16_SWKernel_f16`
+        To :
+        `u8_Convolution_f16 -> f16_ElemTypeInfoOp_f16 -> ... -> f16_SWKernel_f16`
+    }];
+
+    let constructor = "vpux::IE::createFuseOutstandingDequant()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ConvertSubGRUSequenceToConv
+//
+
+def ConvertSubGRUSequenceToConv : PassBase<"convert-sub-gru-sequence-to-conv", "vpux::FunctionPass"> {
+    let summary = "Convert sub GRUSequence to convolution";
+
+    let description = [{
+        GRUSequence can be split into two parts, GRUSequenceFirstPart and GRUSequenceLastPart.
+        GRUSequenceFirstPart is similar to matrix multiply, and GRUSequenceLastPart will use output
+        of GRUSequenceFirstPart and other inputs of original GRUSequence to get outputs.
+
+        This pass will convert GRUSequenceFirstPart to HW convolution to utilize hardware feature of NPU
+        for performance improvement.
+    }];
+
+    let constructor = "vpux::IE::createConvertSubGRUSequenceToConvPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// FuseStaticScale
+//
+
+def FuseStaticScale : PassBase<"fuse-static-scale", "vpux::FunctionPass"> {
+    let summary = "Fuses suitable `IE.Multiply` with const operand to `IE.Convolution` or `IE.AvgPool`";
+
+    let description = [{
+        This transformation takes the following subgraph:
+        ```
+            IE.Convolution / IE.AvgPool     Const.Declare
+                        \                       /
+                                IE.Multiply
+        ```
+        and fuses the `IE.Multiply` into `IE.Convolution` or `IE.AvgPool` (see `static_scale`
+        attribute and weights table generation for details).
+
+        Fusing multiplication by a constant to a Conv or Pooling makes the
+        multiplication itself effectively no-op on several HW architectures.
+
+        Aplly the pass before ConvertToScaleShift and after ConvertDivideToMultiply to increase
+        the applicability.
+    }];
+
+    let constructor = "vpux::IE::createFuseStaticScalePass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// FuseReordersPass
+//
+
+def FuseReordersPass : PassBase<"fuse-reorders", "vpux::FunctionPass"> {
+    let summary = "Fuses reorder to previous NCE task as ODU permutation";
+
+    let description = [{
+        Converts these subgraphs:
+        ```
+            Input [NHWC] -> IE.Convolution [NHWC] -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.GroupConvolution [NHWC] -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.MaxPool [NHWC] -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.AvgPool [NHWC] -> IE.Reorder [NCHW]
+            Input [NHWC] -> IE.Add [NHWC] -> IE.Reorder [NCHW]
+        ```
+        Into the following subgraphs respectively:
+        ```
+            Input [NHWC] -> IE.Convolution [NCHW]
+            Input [NHWC] -> IE.GroupConvolution [NCHW]
+            Input [NHWC] -> IE.MaxPool [NCHW]
+            Input [NHWC] -> IE.AvgPool [NCHW]
+            Input [NHWC] -> IE.Add [NCHW]
+        ```
+    }];
+
+    let constructor = "vpux::IE::createFuseReordersPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ProcessAsymmetricZeroPointsForConvolution
+//
+
+def ProcessAsymmetricZeroPointsForConvolution : PassBase<"process-asymmetric-zero-points-for-convolution", "vpux::FunctionPass"> {
+    let summary = "Changes zero point of convolution weights to 128 via decomposition";
+
+    let description = [{
+        Changes zero point of convolution weights to 128 via decomposition.
+        This is done to support mixed precision convolution which must have f16 input and i8 weights with zero
+        point of 0, only u8 weights with zero point of 128 are converted to i8 ( by ConvertWeightsToI8Pass) so
+        this pass fixes zero points of u8 weights to 128.
+        Pass first look for this pattern for convolution filter:
+        FakeQuantize -> Optional(Transpose) -> Optional(AffineReshape)  -> Convolution
+        Full pattern with Transpose and AffineReshape captures matmuls which are converted to Convolutions.
+        FakeQuantize -> Convolution pattern captures ops which were originally convolution in the input graph.
+        Additional conditions are checked for the pattern to be valid.
+        Quantized type must be unsigned 8 bit number with zero point different than 128.
+        Converts : input -> Convolution <- FakeQuantize <- constDeclare
+        To :
+        P1 =  input -> Convolution <- (ModifiedFakeQuantize ZeroPoint = 128 ) <- constDeclare
+        P2 =  input -> Convolution <- constDeclare ( same size as original filter, values are (128-ZeroPoint) * scale)
+            P1 -> Add <- P2
+        Current implementation causes a regression as it increases #DPU task 2x, and DMA size is not any
+        less than original flow. There are plans to reduce DMA size E#126278.
+    }];
+
+    let constructor = "vpux::IE::createProcessAsymmetricZeroPointsForConvolutionPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// PropagateExpand
+//
+
+def PropagateExpand : PassBase<"propagate-expand", "vpux::FunctionPass"> {
+    let summary = "Propagate Expand operation in order to fuse it with other layers";
+
+    let description = [{
+        Propagate Expand through Eltwise Add in case layers before might be fused with Expand
+        in following cases:
+        1. PermuteQuntize might be fused with Expand in FusePermuteQuantizeExpand pass
+        2. DepthToSpace is used with padded channels' descriptor
+        3. SpaceToDepth might be executed with expanded input on dpu with following convolution with padded filter
+    }];
+
+    let constructor = "vpux::IE::createPropagateExpandPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// InsertIdentityPoolBeforeOp
+//
+
+def InsertIdentityPoolBeforeOp : PassBase<"insert-identity-pool-before-op", "vpux::FunctionPass"> {
+    let summary = "Insert Maxpool/AvgPool op before Activation ops and MemPermute ops";
+
+    let description = [{
+        The pass inserts MaxPool/AvgPool op before Activation ops and MemPermute ops.
+        MaxPool/AvgPool will be lowered to a NCE op and the activation op will be fused into it.
+        Supported activations: LeakyRelu, Clamp.
+    }];
+
+    let constructor = "vpux::IE::createInsertIdentityPoolBeforeOpPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// OptimizeNetworkInputConvert
+//
+
+def OptimizeNetworkInputConvert: PassBase<"optimize-network-input-convert", "vpux::FunctionPass"> {
+    let summary = "Fuses outstanding Convert operations into input of quantized consumers";
+
+    let description = [{
+        The pass is a part of `LowPrecision` pipeline.
+        To avoid extra FP->Quant Convert operations at network start, fuses these Convert ops into quantized consumers
+        resulting mixed precision operations with FP input and Quant output.
+        As a side effect, also the original quantized weights are dequantized.
+        There is later logic which attempts to enable mixed precision of FP input activations and Quant weights.
+    }];
+
+    let constructor = "vpux::IE::createOptimizeNetworkInputConvertPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// WeightsQuantFusedIntoTaskPass
+//
+
+def WeightsQuantFusedIntoTask: PassBase<"weights-quant-fused-into-task", "vpux::FunctionPass"> {
+    let summary = "Flag that weights quant is fused into task";
+
+    let description = [{
+        The pass is a part of `LowPrecision` pipeline.
+
+        Pass walks through weights constants and flag if it's fused into task
+    }];
+
+    let constructor = "vpux::IE::createWeightsQuantFusedIntoTaskPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// ReduceNumTilesForSmallModelsPass
+//
+
+def ReduceNumTilesForSmallModelsPass: PassBase<"reduce-num-tiles-for-small-models", "vpux::ModulePass"> {
+    let summary = "Reduce number of clusters for small models";
+
+    let description = [{
+        There are some cases when running a model on all clusters can be slower than on one cluster.
+
+        Based on observations, it happens on transformer models when the following conditions are met:
+            1) The model's inference latency is small, e.g. few hundreds of microseconds.
+            2) The shapes for most of the layers are small, e.g. ~10,000 elements.
+            3) From these small layers there are a lot of Add & Multiply that are not fused into Convolution,
+                so they end up being a separate DPU operation.
+
+        Running such a model on all clusters introduces overhead, that is bigger than the improvement mostly because:
+            1) Shave initialization takes longer, as we need to initialize more shaves.
+            2) There are a lot of tasks (both compute and DMA), which creates pressure on scheduler.
+            3) A lot of small DMA transactions create pressure on DMA unit.
+
+        The pass makes a choice based on two main heuristics comparing them with experimental numbers:
+            1) Mean and standard deviation of tensor sizes.
+            2) Ratio of MatMul/Multiply/SoftMax operations (that are frequently met in transformer models).
+    }];
+
+    let constructor = "vpux::IE::createReduceNumTilesForSmallModelsPass()";
+
+    let dependentDialects = [
+        "vpux::IE::IEDialect"
+    ];
+}
+
+//
+// OptimizeSliceExpand
+//
+
+def OptimizeSliceExpand : PassBase<"optimize-slice-expand", "vpux::FunctionPass"> {
+    let summary = "Optimize patterns Slice->Expand and Slice->Implicit operations ->Expand";
+
+    let description = [{
+        The pass is a part of `buildHardwareModePipeline` pipeline.
+
+        Optimize patterns Slice->Expand and Slice->Implicit operations ->Expand in order to avoid extra DMAs
+    }];
+
+    let constructor = "vpux::IE::createOptimizeSliceExpandPass()";
 
     let dependentDialects = [
         "vpux::IE::IEDialect"

@@ -5,17 +5,12 @@
 
 #include <vpux/utils/core/error.hpp>
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
-#include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/types.hpp"
-#include "vpux/utils/core/range.hpp"
-#include "vpux/utils/core/type/float16.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/Operation.h>

@@ -53,7 +53,7 @@ mlir::LogicalResult inferReduceReturnTypes(mlir::Location loc, mlir::Value input
             TypeComponents()
                     .setDimsOrder(keepDims ? inType.getDimsOrder()
                                            : vpux::IE::calculateReducedOutputLayout(inType.getDimsOrder(), axes))
-                    .setShape(Shape(outShape));
+                    .setShape(ShapeRef(outShape));
     vpux::DimsOrder outOrder = newOutputType.dimsOrder.value();
     const auto tensorAttr = vpux::getTensorAttr(inType.getContext(), outOrder.toAffineMap(input.getType().getContext()),
                                                 inType.getMemSpace(), getBounds(input.getType()));

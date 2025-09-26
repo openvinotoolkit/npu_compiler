@@ -114,7 +114,7 @@ func.func @ParallelUpdateBarriers() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
     // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -139,7 +139,7 @@ func.func @MergeParallelOutputPathsFromSharedBarrier() -> memref<1x16x1x1xf16, #
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %bar4 = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    %bar4 = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
 
     // dummy buffers
 
@@ -236,7 +236,7 @@ func.func @MergeParallelOutputPathsFromSharedBarrier() -> memref<1x16x1x1xf16, #
     // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -378,7 +378,7 @@ func.func @LinearizeBarrierWithMultipleConsumers() -> memref<1x16x1x1xf16, #NHWC
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -546,7 +546,7 @@ func.func @LinearizeBarrierWithMultipleConsumersAndProducers() -> memref<1x16x1x
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR8:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR9:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR9:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -692,7 +692,7 @@ func.func @LinearizeBarriersWithMultipleConsumersVariousOrder() -> memref<1x16x1
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -813,7 +813,7 @@ func.func @ParallelWaitBarriers() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
     // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -931,7 +931,7 @@ func.func @MergeParallelInputPathsFromSharedBarrier() -> memref<1x16x1x1xf16, #N
     // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -1074,7 +1074,7 @@ func.func @LinearizeBarriersWithMultipleProducers() -> memref<1x16x1x1xf16, #NHW
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -1219,7 +1219,7 @@ func.func @ExtremeLinearization() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -1335,7 +1335,7 @@ func.func @TwoPaths() -> memref<1x16x1x1xf16, #NHWC, @DDR> {
     // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -1480,7 +1480,7 @@ func.func @ThreeOutputPathsFromSharedBarrier() -> memref<1x16x1x1xf16, #NHWC, @D
     // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}
@@ -1512,7 +1512,7 @@ func.func @ReassignFinalBarrierOptimizeRedundantDepsWithoutLinearization() -> me
     %bar8 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar9 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %bar2 = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    %bar2 = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar4 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar5 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -1572,7 +1572,7 @@ func.func @ReassignFinalBarrierOptimizeRedundantDepsWithoutLinearization() -> me
 
     // CHECK: [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // CHECK: VPURT.Task updates([[BAR0]] : !VPURT.Barrier) attributes {idx = 0 : i64}

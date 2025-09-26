@@ -7,10 +7,22 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_INSERTIDENTITYPOOLBEFOREOP
+#define GEN_PASS_DEF_INSERTIDENTITYPOOLBEFOREOP
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -61,4 +73,58 @@ mlir::LogicalResult vpux::IE::genericIdInserter(mlir::Operation* concreteOp, con
     rewriter.replaceOp(concreteOp, newLayerOp->getResult(0));
 
     return mlir::success();
+}
+
+using namespace vpux;
+
+namespace {
+
+mlir::Operation* insertAvgPool(mlir::Operation* concreteOp, mlir::PatternRewriter& rewriter, Logger log) {
+    if (!IE::isEligiblePostOp(concreteOp, log)) {
+        return nullptr;
+    }
+
+    auto input = concreteOp->getOperand(0);
+    return IE::createIdentityAvgPool(input, input.getType(), rewriter, concreteOp->getLoc());
+}
+
+//
+// InsertIdentityPoolBeforeOpPass
+//
+
+class InsertIdentityPoolBeforeOpPass final :
+        public IE::impl::InsertIdentityPoolBeforeOpBase<InsertIdentityPoolBeforeOpPass> {
+public:
+    explicit InsertIdentityPoolBeforeOpPass(Logger log): _log(log) {
+        _log.setName(Base::getArgumentName());
+    }
+
+private:
+    void safeRunOnFunc() final;
+
+private:
+    Logger _log;
+};
+
+void InsertIdentityPoolBeforeOpPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+    auto func = getOperation();
+
+    // LeakyReLU and Clamp can bypass pooling checks.
+    // The channels of resulting poolings will be aligned in the future passes.
+    // This not the case for MemPermute.
+    mlir::RewritePatternSet patterns(&ctx);
+    patterns.add<IE::InsertIdPoolRewriter<IE::LeakyReluOp>>(&ctx, insertAvgPool, _log);
+    patterns.add<IE::InsertIdPoolRewriter<IE::ClampOp>>(&ctx, insertAvgPool, _log);
+    patterns.add<IE::InsertIdPoolRewriter<IE::ReLUOp>>(&ctx, insertAvgPool, _log);
+
+    if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        signalPassFailure();
+    }
+}
+
+}  // namespace
+
+std::unique_ptr<mlir::Pass> vpux::IE::createInsertIdentityPoolBeforeOpPass(Logger log) {
+    return std::make_unique<InsertIdentityPoolBeforeOpPass>(log);
 }

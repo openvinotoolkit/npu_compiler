@@ -44,9 +44,10 @@ public:
     }
 
     void testFuncCreate() {
-        auto module = mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
+        mlir::OwningOpRef<mlir::ModuleOp> module =
+                mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
         auto log = Logger{"mapped register test", LogLevel::Trace};
-        auto builder = mlir::OpBuilder(module.getBodyRegion());
+        auto builder = mlir::OpBuilder(module->getBodyRegion());
 
         const auto funcType = builder.getFunctionType({}, {});
 
@@ -61,27 +62,29 @@ public:
 
         funcbuilder.create<mlir::func::ReturnOp>(builder.getUnknownLoc());
 
-        mlir::PassManager pm(module->getName(), mlir::OpPassManager::Nesting::Implicit);
+        mlir::PassManager pm(module.get()->getName(), mlir::OpPassManager::Nesting::Implicit);
         auto initCompilerOptions =
                 VPU::InitCompilerOptions(vpux::config::ArchKind::NPU40XX, config::CompilationMode::DefaultHW);
 
         VPU::buildInitCompilerPipeline(pm, initCompilerOptions, log);
 
-        VPUX_THROW_UNLESS(mlir::succeeded(pm.run(module)), "Compilation failed");
-        VPUX_THROW_UNLESS(mlir::succeeded(mlir::verify(module)),
+        VPUX_THROW_UNLESS(mlir::succeeded(pm.run(module.get())), "Compilation failed");
+        VPUX_THROW_UNLESS(mlir::succeeded(mlir::verify(module.get())),
                           "Failed to create a valid MLIR module for the IR model");
     }
     void testFuncCheckSize() {
-        auto module = mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
-        auto builder = mlir::OpBuilder(module.getBodyRegion());
+        mlir::OwningOpRef<mlir::ModuleOp> module =
+                mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
+        auto builder = mlir::OpBuilder(module->getBodyRegion());
 
         auto reg = registerType::get(builder, registerType::getResetInitilizationValues());
 
         EXPECT_EQ(reg.getWidth(), testedRegisterDesc.getSize());
     }
     void testVersion() {
-        auto module = mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
-        auto builder = mlir::OpBuilder(module.getBodyRegion());
+        mlir::OwningOpRef<mlir::ModuleOp> module =
+                mlir::ModuleOp::create(mlir::UnknownLoc::get(ctx.get()), StringRef("mainModule"));
+        auto builder = mlir::OpBuilder(module->getBodyRegion());
 
         auto reg = registerType::get(builder, registerType::getResetInitilizationValues());
 

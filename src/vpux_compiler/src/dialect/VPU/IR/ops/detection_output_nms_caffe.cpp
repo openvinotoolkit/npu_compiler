@@ -31,7 +31,7 @@ mlir::LogicalResult VPU::DetectionOutputNmsCaffeOp::inferReturnTypes(
     const auto boxesShape = boxesType.getShape();
     const auto outBoxesShape =
             SmallVector<int64_t>{boxesShape[Dims4D::Act::N], numClasses, topK, boxesShape[Dims4D::Act::W]};
-    const auto outBoxesType = boxesType.changeShape(Shape(outBoxesShape));
+    const auto outBoxesType = boxesType.changeShape(ShapeRef(outBoxesShape));
 
     const auto sizesType = mlir::cast<vpux::NDTypeInterface>(nmsCaffe.getSizes().getType());
 

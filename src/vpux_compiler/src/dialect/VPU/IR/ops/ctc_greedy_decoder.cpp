@@ -29,7 +29,7 @@ mlir::LogicalResult vpux::VPU::CTCGreedyDecoderOp::inferReturnTypes(
 
     SmallVector<int64_t> outputShape{inShape[1], inShape[0], 1, 1};
 
-    const auto outType = inType.changeShape(Shape(outputShape));
+    const auto outType = inType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

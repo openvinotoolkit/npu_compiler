@@ -12,7 +12,7 @@
 
 module @Test {
 
-IE.TileResource 1 of @NCE
+config.Resources 1 of @NCE
 
 net.NetworkInfo
     entryPoint : @main

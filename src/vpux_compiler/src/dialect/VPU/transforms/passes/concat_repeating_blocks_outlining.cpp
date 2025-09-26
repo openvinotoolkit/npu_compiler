@@ -10,7 +10,6 @@
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/function_outlining_splitter.hpp"
 #include "vpux/compiler/utils/hash.hpp"
-#include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 #include "vpux/utils/core/format.hpp"

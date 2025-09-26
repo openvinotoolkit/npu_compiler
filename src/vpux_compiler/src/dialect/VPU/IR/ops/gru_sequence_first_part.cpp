@@ -24,7 +24,7 @@ mlir::LogicalResult vpux::VPU::GRUSequenceFirstPartOp::inferReturnTypes(
     const auto weightsShape = weightsType.getShape().raw();
     const auto seqLength = gru.getSeqLength();
     SmallVector<int64_t> outputShape = {inputDataShape[0], weightsShape[0], seqLength, weightsShape[1]};
-    const auto outputType = weightsType.changeShape(Shape(outputShape));
+    const auto outputType = weightsType.changeShape(ShapeRef(outputShape));
 
     inferredReturnShapes.push_back(outputType);
 

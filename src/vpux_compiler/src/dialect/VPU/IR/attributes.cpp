@@ -4,19 +4,19 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops/resources.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
+#include "vpux/compiler/dialect/VPU/utils/profiling_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/platform_resources.hpp"
-#include "vpux/utils/IE/private_properties.hpp"
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/core/numeric.hpp"
+#include "vpux/utils/profiling/parser/freq.hpp"
 
 #include <mlir/IR/Builders.h>
 #include <mlir/IR/BuiltinTypes.h>
@@ -24,7 +24,8 @@
 #include <llvm/ADT/StringExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
 
-#include "vpu/performance.h"
+#include <performance_mode.h>
+#include <vpu/performance.h>
 
 using namespace vpux;
 
@@ -92,9 +93,24 @@ unsigned int vpux::VPU::getDpuFrequency(vpux::config::ArchKind arch, vpux::confi
         if (rev >= config::RevisionID::REVISION_B) {
             return 1850;  // MHz; TODO: switch to the value from vpunn, once this frequency is implemented. E#127567
         }
-        return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
+        return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);  // 1700 MHZ currently
     default:
+        Logger::global().warning("Use default NPU_4 DPU frequency for {0}", arch);
         return VPUNN::get_dpu_fclk(VPUNN::VPUDevice::VPU_4_0);
+    }
+}
+
+// Perf_clock is correct name in HAS
+// Prof_clock is the old name in compiler
+double vpux::VPU::getPerfClock(vpux::config::ArchKind arch) {
+    switch (arch) {
+    case config::ArchKind::NPU37XX:
+        return profiling::ProfClk37XX::PROF_CLK_DEFAULT_VALUE_MHZ;
+    case config::ArchKind::NPU40XX:
+        return profiling::ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ;
+    default:
+        Logger::global().warning("Use default NPU_4 perf clock for {0}", arch);
+        return profiling::ProfClk40XX::PROF_CLK_DEFAULT_VALUE_MHZ;
     }
 }
 
@@ -131,12 +147,15 @@ Byte vpux::VPU::getTotalCMXSize(mlir::ModuleOp module) {
     // because we want to get exactly same compiled networks with profiling enabled and disabled.
     // Two buffer sizes are required in case when profiling allocates new buffer and old buffer
     // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
+    const auto arch = config::getArch(module);
     int64_t dynamicProfilingBufferSize =
-            vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE + vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
+            (vpux::VPU::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
+                                                   : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
+            vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
 
     auto cmxSpaceAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-    auto cmxSize = IE::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
-    auto reservedCMXSize = IE::getReservedMemorySize(module, cmxSpaceAttr);
+    auto cmxSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
+    auto reservedCMXSize = config::getReservedMemorySize(module, cmxSpaceAttr);
 
     return cmxSize - Byte(reservedCMXSize) - Byte(2 * dynamicProfilingBufferSize);
 }
@@ -146,8 +165,8 @@ Byte vpux::VPU::getTotalCMXSize(mlir::Operation* op) {
 }
 
 Byte vpux::VPU::getTotalCMXFragmentationAwareSize(mlir::ModuleOp module) {
-    auto cmxRes = IE::getAvailableMemory(module,
-                                         mlir::SymbolRefAttr::get(module.getContext(), VPU::CMX_NN_FragmentationAware));
+    auto cmxRes = config::getAvailableMemory(
+            module, mlir::SymbolRefAttr::get(module.getContext(), VPU::CMX_NN_FragmentationAware));
     VPUX_THROW_UNLESS(cmxRes != nullptr, "Can't get information about {0} memory", VPU::CMX_NN_FragmentationAware);
 
     const auto arch = config::getArch(module);
@@ -158,7 +177,9 @@ Byte vpux::VPU::getTotalCMXFragmentationAwareSize(mlir::ModuleOp module) {
     // Two buffer sizes are required in case when profiling allocates new buffer and old buffer
     // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
     const int64_t profilingBufferSize =
-            vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE + vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE +
+            vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE +
+            (vpux::VPU::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
+                                                   : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
             ((arch == config::ArchKind::NPU37XX) ? vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE : 0);
 
     return cmxRes.size() - Byte(2 * profilingBufferSize);

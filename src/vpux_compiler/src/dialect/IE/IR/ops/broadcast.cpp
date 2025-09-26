@@ -107,7 +107,7 @@ mlir::OpFoldResult vpux::IE::BroadcastOp::fold(FoldAdaptor adaptor) {
         auto contentAttrSetup = contentAttr.transform();
 
         if (adjustedInputShape != inputShape) {
-            contentAttrSetup = contentAttrSetup.reshape(Shape(adjustedInputShape));
+            contentAttrSetup = contentAttrSetup.reshape(ShapeRef(adjustedInputShape));
         }
 
         for (const auto& dim : enumerate(outputShape)) {

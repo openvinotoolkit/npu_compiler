@@ -12,6 +12,7 @@
 #include "vpux/compiler/utils/net/network_info_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
+#include "vpux/utils/core/scope_exit.hpp"
 
 #include <llvm/ADT/Hashing.h>
 #include <mlir/IR/Builders.h>
@@ -76,9 +77,16 @@ public:
         Base::initLogger(log, Base::getArgumentName());
     }
 
-    explicit ConcatInitResults(StringRef wsExtractionModeString, const Logger& log) {
+    explicit ConcatInitResults(StringRef wsExtractionModeString, std::optional<int64_t> initPart,
+                               std::optional<Byte> limit, const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
-        wsExtractionMode = wsExtractionModeString.str();
+        this->wsExtractionMode = wsExtractionModeString.str();
+        if (initPart.has_value()) {
+            this->initPart = initPart.value();
+        }
+        if (limit.has_value()) {
+            this->memoryLimit = limit.value().count();
+        }
     }
 
 private:
@@ -102,6 +110,19 @@ private:
         return info->get();
     }
 
+    const char* stringifyEnum(Mode mode) {
+        switch (mode) {
+        case Mode::GenerateMain:
+            return "gen-main";
+        case Mode::GenerateInit:
+            return "gen-init";
+        case Mode::GenerateAll:
+            return "gen-all";
+        default:
+            return "UNKNOWN";
+        }
+    }
+
     static constexpr int64_t DEFAULT_INIT_PART = -1;
     static constexpr vpux::Byte DEFAULT_MEMORY_LIMIT = vpux::Byte(std::numeric_limits<int64_t>::max());
 
@@ -114,7 +135,8 @@ void ConcatInitResults::updateInit(mlir::func::FuncOp initFunc) {
     std::vector<size_t> outputIndices(initFunc.getNumResults(), 0);
     std::iota(outputIndices.begin(), outputIndices.end(), 0);
     // all outputs become single blob in gen-init
-    VPU::obfuscateOutputs(_log, appendLoc(initFunc.getLoc(), "obfuscated_outputs"), initFunc, outputIndices,
+    _log.debug("Running obfuscateOutputs():");
+    VPU::obfuscateOutputs(_log.nest(), appendLoc(initFunc.getLoc(), "obfuscated_outputs"), initFunc, outputIndices,
                           [](mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<mlir::Value> inputs, int64_t axis) {
                               return builder.create<IE::ConcatOp>(loc, inputs, axis);
                           });
@@ -136,6 +158,9 @@ void ConcatInitResults::updateNetworkInfoForInit(net::NetworkInfoOp netInfo, mli
     // Note: guaranteed single result by definition of this pass
     const auto outputType = stripEncoding(mlir::cast<mlir::RankedTensorType>(initFunc.getFunctionType().getResult(0)));
     builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_out"), outputName, outputType);
+
+    _log.debug("Updating network info for init:");
+    _log.nest().debug("Added \"DataInfo\" {0} : {1}", outputName, outputType);
 }
 
 std::vector<size_t> matchInitPartOutputsToMainInputs(const std::vector<VPU::ConstArg>& allNewMainInputs,
@@ -160,8 +185,17 @@ size_t ConcatInitResults::updateTopLevelMain(mlir::func::FuncOp mainFunc, const 
     const auto& slicedSplits = info.slicedSplits;
     for (size_t i = 0; i < slicedSplits.size(); ++i) {
         auto indices = matchInitPartOutputsToMainInputs(allNewMainInputs, slicedSplits[i], oldBlockArgsBegin);
+        if (_mode == Mode::GenerateAll) {
+            // E#173135: when in "generate all", --introduce-init-function
+            // doesn't perform any "smart" slicing (and constant sorting) and
+            // instead just uses original slices directly. as a result, main has
+            // to acknowledge this as well. practically, this is only because
+            // init pipelining exists.
+            llvm::sort(indices);
+        }
 
-        VPU::obfuscateInputs(_log, appendLoc(mainFunc.getLoc(), "obfuscated_inputs{0}", i), mainFunc, indices,
+        _log.debug("Running obfuscateInputs():");
+        VPU::obfuscateInputs(_log.nest(), appendLoc(mainFunc.getLoc(), "obfuscated_inputs{0}", i), mainFunc, indices,
                              [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                 ArrayRef<int64_t> offsets, ArrayRef<int64_t> sizes) {
                                  return builder.create<VPU::SliceOp>(loc, input, offsets, sizes);
@@ -190,6 +224,7 @@ void ConcatInitResults::updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mli
     net::eraseSectionEntries(inputsRegion, newInputsOffset);
     builder.setInsertionPointToEnd(&inputsRegion.front());
 
+    _log.debug("Updating network info for main:");
     // take naming convention from init results - the order must match by
     // definition of the main update procedure
     for (size_t i = 0; i < info.slicedSplits.size(); ++i) {
@@ -200,6 +235,8 @@ void ConcatInitResults::updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mli
         const auto inputType = stripEncoding(
                 mlir::cast<mlir::RankedTensorType>(mainFunc.getFunctionType().getInput(newInputsOffset + i)));
         builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), "concat_in{0}", i), inputName, inputType);
+
+        _log.nest().debug("Added \"DataInfo\" {0} : {1}", inputName, inputType);
     }
 }
 
@@ -264,6 +301,15 @@ void ConcatInitResults::safeRunOnModule() {
         return;
     }
 
+    // Note: as this pass is run multiple times (at least twice: for init and
+    // main), this debug line helps to split the logs based on this criterion.
+    _log.debug("Running this pass in '{0}' mode, init part = {1} (memory limit = {2:F} KB)", stringifyEnum(_mode),
+               _initPart, (static_cast<double>(_memoryLimit.count()) / 1024.));
+    _log = _log.nest();
+    VPUX_SCOPE_EXIT {
+        _log = _log.unnest();
+    };
+
     net::NetworkInfoOp netInfo;
     mlir::func::FuncOp entryPointFunc;
     net::NetworkInfoOp::getFromModule(moduleOp, netInfo, entryPointFunc);
@@ -274,6 +320,12 @@ void ConcatInitResults::safeRunOnModule() {
         const auto& info = infoOpt->get();
 
         auto splits = info.getCollectedSplits();
+        if (_log.isActive(LogLevel::Debug)) {
+            _log.debug("The following transformation splits are collected in '{0}':", stringifyEnum(_mode));
+            for (const auto& split : splits) {
+                _log.nest().debug("{0} at loc '{1}'", split.getContentAttr(), split.getLoc());
+            }
+        }
 
         DerivedWeightsSeparationInfo data;
 
@@ -287,6 +339,21 @@ void ConcatInitResults::safeRunOnModule() {
 
         return data;
     }();
+
+    if (_log.isActive(LogLevel::Debug)) {
+        _log.debug("Top-level main arguments in '{0}':", stringifyEnum(_mode));
+        for (const auto& [index, arg] : info.topLevelMainArgs | indexed) {
+            _log.nest().debug("Arg #{0}: {1}", index, arg);
+        }
+
+        _log.debug("The amount of inits in '{0}' is {1}", stringifyEnum(_mode), info.slicedSplits.size());
+        _log.debug("Transformation splits for every init in '{0}':", stringifyEnum(_mode));
+        for (const auto& [i, splits] : info.slicedSplits | indexed) {
+            for (const auto& [j, split] : splits | indexed) {
+                _log.nest().debug("Init part #{0}, arg #{1}: {2}", i, j, split);
+            }
+        }
+    }
 
     switch (_mode) {
     case Mode::GenerateInit: {
@@ -378,6 +445,7 @@ std::unique_ptr<mlir::Pass> vpux::VPU::createConcatInitResultsPass(const Logger&
 }
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createConcatInitResultsPass(StringRef wsExtractionModeString,
-                                                                   const Logger& log) {
-    return std::make_unique<ConcatInitResults>(wsExtractionModeString, log);
+                                                                   std::optional<int64_t> initPart,
+                                                                   std::optional<Byte> limit, const Logger& log) {
+    return std::make_unique<ConcatInitResults>(wsExtractionModeString, initPart, limit, log);
 }

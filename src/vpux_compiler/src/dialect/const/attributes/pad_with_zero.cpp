@@ -100,7 +100,7 @@ vpux::NDTypeInterface vpux::Const::PadWithZeroAttr::inferOutputType(vpux::NDType
     return input.pad(ShapeRef(padBefore), ShapeRef(padAfter));
 }
 
-bool vpux::Const::PadWithZeroAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::PadWithZeroAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 

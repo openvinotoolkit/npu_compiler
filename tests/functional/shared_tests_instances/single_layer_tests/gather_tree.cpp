@@ -41,10 +41,10 @@ const std::vector<InputLayerType> secondaryInputTypes = {InputLayerType::CONSTAN
 const std::vector<ov::element::Type> modelType = {ov::element::f32, ov::element::i32, ov::element::f16};
 
 const auto gatherTreeArgsSubsetPrecommit =
-        testing::Combine(testing::ValuesIn(inShapes),             // Input tensors shape
-                         testing::ValuesIn(secondaryInputTypes),  // Secondary input type
-                         testing::ValuesIn(modelType),            // Model type
-                         testing::Values(DEVICE_NPU));            // Device name
+        testing::Combine(testing::ValuesIn(inShapes),                  // Input tensors shape
+                         testing::ValuesIn(secondaryInputTypes),       // Secondary input type
+                         testing::ValuesIn(modelType),                 // Model type
+                         testing::Values(test_utils::TARGET_DEVICE));  // Device name
 
 INSTANTIATE_TEST_SUITE_P(precommit_gather_tree, GatherTreeLayerTestCommon, gatherTreeArgsSubsetPrecommit,
                          GatherTreeLayerTest::getTestCaseName);

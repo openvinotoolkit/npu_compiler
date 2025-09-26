@@ -9,6 +9,10 @@
 #include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
+namespace vpux::VPU {
+class NCEConvolutionOp;
+}
+
 namespace vpux {
 namespace VPU {
 
@@ -30,6 +34,7 @@ bool inputCompatibleWithAutoPad(vpux::NDTypeInterface);
 bool outputCompatibleWithAutoPad(vpux::NDTypeInterface);
 bool canAutopadInput(mlir::Operation*);
 bool canAutopadOutput(mlir::Operation*, std::optional<vpux::NDTypeInterface> type = std::nullopt);
+bool canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb = emptyLogCb);
 
 }  // namespace VPU
 }  // namespace vpux

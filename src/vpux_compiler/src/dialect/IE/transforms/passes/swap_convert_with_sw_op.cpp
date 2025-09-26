@@ -13,9 +13,6 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
-#include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
-#include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/const/utils/utils.hpp"
 
 #include "vpux/compiler/utils/rewriter.hpp"
 

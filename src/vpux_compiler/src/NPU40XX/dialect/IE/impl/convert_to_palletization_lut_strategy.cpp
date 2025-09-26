@@ -14,7 +14,8 @@ namespace vpux::IE::arch40xx {
 // Returns false when type conversion is required;
 // Only require the conversion when zp is asymmetric, per tensor.
 bool isLegalTensorElem40XX(mlir::Type elementType) {
-    return IE::isLegalTensorElemForPalletization(elementType, /*convertOnlyAsymmetricZp=*/true);
+    return IE::isLegalTensorElemForPalletization(elementType, /*convertOnlyAsymmetric=*/true,
+                                                 /*allowPerChannelZp=*/false);
 }
 
 // change quantized type to a quantile quantized type, with float quantile type and zp fully subtracted
@@ -42,7 +43,7 @@ mlir::quant::QuantizedType changeWeightTypeToLUT(mlir::quant::QuantizedType orig
         VPUX_THROW_WHEN(lutElemNum != (originalStorageTypeMax - originalStorageTypeMin + 1),
                         "Unexpected storage type range '{0}'", originalStorageTypeMax - originalStorageTypeMin + 1);
         SmallVector<double> quantileLUT(lutElemNum);
-        const int64_t bitMask = (1ll << bitWidth) - 1ll;
+        const int64_t bitMask = (1LL << bitWidth) - 1LL;
 
         for (int64_t wgtVal = originalStorageTypeMin; wgtVal <= originalStorageTypeMax; ++wgtVal) {
             // Interpreting integer weights with their unsigned encodings (for instance -7 i4 is 4'b1001,

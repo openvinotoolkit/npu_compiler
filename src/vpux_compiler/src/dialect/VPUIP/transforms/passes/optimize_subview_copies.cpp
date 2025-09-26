@@ -252,7 +252,8 @@ void OptimizeSubviewCopiesPass::moveSubviewsAfterCopy(mlir::Value input, SmallVe
 
         subviewInput = newCopyOp->getResult(0);
     } else {
-        newType = newType.changeStrides(inputType.getStrides());
+        const auto strides = inputType.getStrides();
+        newType = newType.changeStrides(strides);
         auto distributedCopy = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(copyType);
         if (distributedCopy != nullptr && distributedCopy.containsDistributedTypes()) {
             subviewInput = builder.createOrFold<VPUIP::DistributedCastOp>(subviews[0]->getLoc(), newType, input);

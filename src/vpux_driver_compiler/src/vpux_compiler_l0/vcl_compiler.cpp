@@ -206,7 +206,16 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
     _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
     _options->add<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
     _options->add<intel_npu::QDQ_OPTIMIZATION>();
+    _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
     _options->add<intel_npu::TURBO>();
+
+#ifdef VPUX_DEVELOPER_BUILD
+    // E#103359: WS is only available in developer builds
+    _options->add<intel_npu::WEIGHTLESS_BLOB>();
+    _options->add<intel_npu::SEPARATE_WEIGHTS_VERSION>();
+    _options->add<intel_npu::WS_COMPILE_CALL_NUMBER>();
+    _options->add<intel_npu::CACHE_MODE>();
+#endif  // VPUX_DEVELOPER_BUILD
 
     // Create compiler instance with the default config
     // COMPILER_TYPE DRIVER is assumed
@@ -257,6 +266,11 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(BuildIn
 
         // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload
         auto network = std::make_shared<const NetworkDescription>(run_in_worker_thread_sync([&] {
+            if (buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
+                return _compiler->compileWsIterative(model, buildInfo.parsedConfig,
+                                                     buildInfo.parsedConfig.get<intel_npu::WS_COMPILE_CALL_NUMBER>());
+            }
+
             return _compiler->compile(model, buildInfo.parsedConfig);
         }));
 
@@ -270,7 +284,7 @@ std::pair<VPUXExecutableL0*, vcl_result_t> VPUXCompilerL0::importNetwork(BuildIn
     }
 
     return std::pair<VPUXExecutableL0*, vcl_result_t>(exe, VCL_RESULT_SUCCESS);
-}
+}  // namespace VPUXDriverCompiler
 
 NetworkDescriptionView VPUXCompilerL0::importNetwork(BuildInfo& buildInfo, BlobAllocator& allocator) {
     StopWatch stopWatch;
@@ -293,6 +307,12 @@ NetworkDescriptionView VPUXCompilerL0::importNetwork(BuildInfo& buildInfo, BlobA
 
     // Isolate the MLIR thread to safely destroy MLIR thread_local objects before CiD unload
     return run_in_worker_thread_sync([&] {
+        if (buildInfo.parsedConfig.get<intel_npu::WEIGHTLESS_BLOB>()) {
+            return _compiler->compileWsIterative(model, buildInfo.parsedConfig,
+                                                 buildInfo.parsedConfig.get<intel_npu::WS_COMPILE_CALL_NUMBER>(),
+                                                 allocator);
+        }
+
         return _compiler->compile(model, buildInfo.parsedConfig, allocator);
     });
 }

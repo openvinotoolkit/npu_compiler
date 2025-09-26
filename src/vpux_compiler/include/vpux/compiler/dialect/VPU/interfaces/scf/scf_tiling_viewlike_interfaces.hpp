@@ -66,6 +66,7 @@ public:
 
         auto resultDenseTile = extractResultType(operation->getResult(0).getType(), sizes, {});
         auto* tiledOp = mlir::cloneWithoutRegions(builder, operation, {resultDenseTile}, tiledOperands);
+        tiledOp->removeAttr(tilingStrategy);
 
         return mlir::TilingResult{{tiledOp}, {tiledOp->getResult(resultNumber)}};
     }

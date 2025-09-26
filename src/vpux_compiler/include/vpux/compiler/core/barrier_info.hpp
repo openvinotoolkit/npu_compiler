@@ -61,6 +61,7 @@ public:
     VPURT::TaskQueueType getTaskQueueType(size_t taskInd) const;
     SmallVector<VPURT::TaskQueueType> getNonEmptyTaskQueueTypes() const;
     size_t getLastTaskForQueueType(VPURT::TaskQueueType taskQueueType) const;
+    std::optional<size_t> getPrevTaskOnQueue(size_t taskInd, VPURT::TaskQueueType taskQueueType) const;
     std::optional<size_t> getPrevTaskOnSameQueue(size_t taskInd) const;
     std::optional<size_t> getNextTaskOnSameQueue(size_t taskInd) const;
     // Return the closest previous task on the same queue that has a wait barrier
@@ -187,6 +188,7 @@ public:
                                                                         bool considerTaskFifoDependency = true,
                                                                         bool ignoreOutOfBlockDependencies = false);
     virtual size_t getNumOfTasks() const;
+    virtual size_t getNumOfTasks(vpux::VPU::ExecutorKind executorKind) const;
     size_t getNumOfBarrierOps() const;
     virtual size_t getBarrierMaxVariantSum() const;
     static size_t getNumOfSlotsUsed(VPURT::TaskOp op);
@@ -201,6 +203,9 @@ public:
                                std::pair<SmallVector<llvm::BitVector>, size_t>& taskControlMapAndOffset,
                                std::optional<size_t>& blockIdxOfTaskControlMap);
     bool isDepFromTaskToBarrier(size_t taskInd, size_t barInd,
+                                std::pair<SmallVector<llvm::BitVector>, size_t>& taskControlMapAndOffset,
+                                std::optional<size_t>& blockIdxOfTaskControlMap);
+    bool isDepFromBarrierToTask(size_t barInd, size_t taskInd,
                                 std::pair<SmallVector<llvm::BitVector>, size_t>& taskControlMapAndOffset,
                                 std::optional<size_t>& blockIdxOfTaskControlMap);
     bool isDepFromBarAToBarB(size_t barA, size_t barB,
@@ -395,6 +400,7 @@ public:
      *
      */
     std::optional<size_t> getControlGraphSyncPoint(size_t taskInd) const;
+    std::optional<size_t> getControlGraphSyncPointForBlock(size_t blockInd) const;
 
     /**
      * @brief Create barrier representation of dependencies implied FIFOs execution order.
@@ -461,8 +467,6 @@ private:
     Logger _log;
     mlir::func::FuncOp _func;
 
-    mlir::StringAttr _taskIndexAttrName;
-    mlir::StringAttr _barrierIndexAttrName;
     mlir::StringAttr _syncTaskAttrName;
 
     SmallVector<VPURT::TaskOp> _allTaskOps;

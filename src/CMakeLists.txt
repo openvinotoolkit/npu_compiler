@@ -19,6 +19,3 @@ endif()
 add_subdirectory(vpux_utils)
 
 add_subdirectory(vpux_compiler)
-
-if((BUILD_SHARED_LIBS AND ENABLE_MLIR_COMPILER))
-endif()

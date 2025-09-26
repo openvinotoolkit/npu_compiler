@@ -78,12 +78,6 @@ func.func @CheckConv(%input: !InputDistributed, %weights: !WeightsDistributed,
     num_clusters = 2 : i64
 }>
 
-!WeightsTableDistributed = !VPU.DistributedTensor<
-    32x1x1x4xsi32, #NCHW, @CMX_NN, {
-    mode = "DUPLICATED",
-    num_clusters = 2 : i64
-}>
-
 !OutputDistributed = !VPU.DistributedTensor<
     1x32x14x14xf16, #NHWC, @CMX_NN, {
     mode = "SEGMENTED",
@@ -94,19 +88,17 @@ func.func @CheckConv(%input: !InputDistributed, %weights: !WeightsDistributed,
 
 // CHECK:       func.func @CheckDepthConv([[INPUT:%.+]]: !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN,
 // CHECK-SAME:                                                                  {mode = "DUPLICATED", num_clusters = 2 : i64}>,
-// CHECK-SAME:                                  [[WEIGHTS:%.+]]: !VPU.DistributedTensor<32x16x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>,
-// CHECK-SAME:                                  [[WT:%.+]]: !VPU.DistributedTensor<32x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
+// CHECK-SAME:                                  [[WEIGHTS:%.+]]: !VPU.DistributedTensor<32x16x1x1xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>)
 
-func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistributed,
-                          %wt: !WeightsTableDistributed) -> !OutputDistributed {
+func.func @CheckDepthConv(%input: !InputDistributed, %weights: !WeightsDistributed) -> !OutputDistributed {
 
-    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights, %wt) { pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
+    %depthConvOut= VPU.NCE.DepthConvolution(%input, %weights) { pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                                                                  ppe = #VPU.PPEStub<>,
                                                                  rawFilterShape = [32, 1, 3, 3], strides = [1, 1]} -> !OutputDistributed
     return %depthConvOut : !OutputDistributed
 }
 
-//CHECK:        [[DCONV:%.*]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]], [[WT]])
+//CHECK:        [[DCONV:%.*]] = VPU.NCE.DepthConvolution([[INPUT]], [[WEIGHTS]])
 //CHECK-SAME:                           {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
 //CHECK-SAME:                            ppe = #VPU.PPEStub<>, rawFilterShape = [32, 1, 3, 3], strides = [1, 1]}
 //CHECK-SAME:   -> !VPU.DistributedTensor<1x32x14x14xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>

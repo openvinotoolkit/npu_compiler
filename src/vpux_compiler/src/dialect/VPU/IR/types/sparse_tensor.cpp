@@ -429,7 +429,7 @@ NDTypeInterface VPU::SparseTensorType::extractDenseTile(ShapeRef tileOffsets, Sh
     Shape inputTileStart(tileOffsets.raw());
     auto seAttr = getSeAttr();
     if (seAttr != nullptr) {
-        seAttr = seAttr.extractTile(tileOffsets, tileShape, ndData.getShape(), inputTileStart, inputTileShape);
+        seAttr = seAttr.extractTile(tileOffsets, tileShape, getBoundedShape(ndData), inputTileStart, inputTileShape);
     }
     const auto data = ndData.extractDenseTile(inputTileStart, inputTileShape);
 
@@ -502,7 +502,8 @@ NDTypeInterface VPU::SparseTensorType::pad(ShapeRef padBefore, ShapeRef padAfter
     Shape paddedOutputShape(data.getShape().toValues());
     if (auto seAttr = getSeAttr()) {
         paddedOutputShape = Shape(ndData.changeShape(getShape()).pad(padBefore, padAfter).getShape().raw());
-        data = data.changeShape(seAttr.backInferInputShape(paddedOutputShape));
+        const auto inferredShape = seAttr.backInferInputShape(paddedOutputShape);
+        data = data.changeShape(inferredShape);
     }
 
     auto sparsityMap = getSparsityMap();
@@ -659,7 +660,7 @@ NDTypeInterface VPU::SparseTensorType::extractDenseTileForExplicitDistribution(
     Shape inputTileStart(tileOffsets.raw());
     auto seAttr = getSeAttr();
     if (seAttr != nullptr) {
-        seAttr = seAttr.extractTile(tileOffsets, tileShape, ndData.getShape(), inputTileStart, inputTileShape);
+        seAttr = seAttr.extractTile(tileOffsets, tileShape, getBoundedShape(ndData), inputTileStart, inputTileShape);
     }
 
     auto dataDistributedAttr = VPU::getExplicitDistrAttrForSparseData(distributedAttr, inputTileShape, seAttr, ctx);

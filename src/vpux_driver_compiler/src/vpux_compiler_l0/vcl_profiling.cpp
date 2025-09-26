@@ -24,7 +24,7 @@ ze::ze_profiling_task_info convertTaskInfo(const profiling::TaskInfo& task) {
     zeTask.exec_type = static_cast<ze::ze_task_execute_type_t>(task.exec_type);
     zeTask.start_time_ns = task.start_time_ns;
     zeTask.duration_ns = task.duration_ns;
-    zeTask.active_cycles = task.total_cycles;
+    zeTask.active_cycles = task.active_cycles;
     zeTask.stall_cycles = task.stall_cycles;
     zeTask.task_id = -1;
     zeTask.parent_layer_id = -1;

@@ -83,20 +83,20 @@ std::vector<std::vector<ov::Shape>> shapesTiling4D = {{{1, 512, 36, 36}}, {{1, 5
 
 const auto params2D = testing::Combine(testing::ValuesIn(axes2D), testing::ValuesIn(eps), testing::ValuesIn(epsMode),
                                        testing::ValuesIn(static_shapes_to_test_representation(shapes2D)),
-                                       testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params3D = testing::Combine(testing::ValuesIn(axes3D), testing::ValuesIn(eps), testing::ValuesIn(epsMode),
                                        testing::ValuesIn(static_shapes_to_test_representation(shapes3D)),
-                                       testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params4D = testing::Combine(testing::ValuesIn(axes4D), testing::ValuesIn(eps), testing::ValuesIn(epsMode),
                                        testing::ValuesIn(static_shapes_to_test_representation(shapes4D)),
-                                       testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsMini4D =
         testing::Combine(testing::ValuesIn(axesMini4D), testing::Values(eps[0]), testing::Values(epsMode[0]),
                          testing::ValuesIn(static_shapes_to_test_representation(shapes4D)),
-                         testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU));
+                         testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_2D, NormalizeL2LayerTestCommon, params2D,
                          NormalizeL2LayerTestCommon::getTestCaseName);
@@ -114,7 +114,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_real_net_tiling_1, NormalizeL2LayerTe
                                           testing::ValuesIn(std::vector<float>{3.0815954528967052E-41}),
                                           testing::Values(epsMode[0]),
                                           testing::ValuesIn(static_shapes_to_test_representation(shapesTiling4D)),
-                                          testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU)),
+                                          testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE)),
                          NormalizeL2LayerTest_2DPU::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_real_net_tiling_1, NormalizeL2LayerTestCommon,
@@ -122,7 +122,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_real_net_tiling_1, NormalizeL2LayerTe
                                           testing::ValuesIn(std::vector<float>{3.0815954528967052E-41}),
                                           testing::Values(epsMode[0]),
                                           testing::ValuesIn(static_shapes_to_test_representation(shapesTiling4D)),
-                                          testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU)),
+                                          testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE)),
                          NormalizeL2LayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_real_net_tiling_2, NormalizeL2LayerTestCommon,
@@ -131,7 +131,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_real_net_tiling_2, NormalizeL2LayerTe
                                           testing::Values(epsMode[1]),
                                           testing::Values(static_shapes_to_test_representation(
                                                   std::vector<ov::Shape>({{3, 3, 64, 2304}}))),
-                                          testing::ValuesIn(modelTypes), testing::Values(DEVICE_NPU)),
+                                          testing::ValuesIn(modelTypes), testing::Values(test_utils::TARGET_DEVICE)),
                          NormalizeL2LayerTestCommon::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_NormalizeL2_4D, NormalizeL2LayerTest_6DPU, paramsMini4D,

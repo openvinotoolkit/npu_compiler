@@ -70,7 +70,7 @@ vpux::NDTypeInterface vpux::Const::AffineReshapeAttr::inferOutputType(vpux::NDTy
                                                   .setDimsOrder(outputLayout.value()));
 }
 
-bool vpux::Const::AffineReshapeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::AffineReshapeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

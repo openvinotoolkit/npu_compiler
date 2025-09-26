@@ -10,10 +10,10 @@
 !dataTypeCmx = memref<1x1x1x1xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
 
 module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN
+        config.MemoryResource 64 bytes of @CMX_NN
       }
     }
   }
@@ -103,10 +103,10 @@ module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
 !dataTypeCmx = memref<1x256x56x56xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
 
 module @DmaSpillSingleCluster {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN
+        config.MemoryResource 64 bytes of @CMX_NN
       }
     }
   }
@@ -193,10 +193,10 @@ module @DmaSpillSingleCluster {
 !dataDistTypeCmx = !VPUIP.DistributedBuffer<1x1x16x16xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments}>
 
 module @DmaSpillMultiClusterNoCompressionCandSmallBuf {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN
+        config.MemoryResource 64 bytes of @CMX_NN
       }
     }
   }
@@ -283,10 +283,10 @@ module @DmaSpillMultiClusterNoCompressionCandSmallBuf {
 !dataDistTypeCmx = !VPUIP.DistributedBuffer<1x256x56x56xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64, uniform_distributed_segments}>
 
 module @DmaSpillMultiCluster {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
       module @CompressDmaReservedMemory {
-        IE.MemoryResource 64 bytes of @CMX_NN
+        config.MemoryResource 64 bytes of @CMX_NN
       }
     }
   }

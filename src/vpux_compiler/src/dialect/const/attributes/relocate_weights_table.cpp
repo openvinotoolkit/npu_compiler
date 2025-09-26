@@ -212,7 +212,7 @@ vpux::NDTypeInterface vpux::Const::RelocateWeightsTableAttr::inferOutputType(vpu
     return input;
 }
 
-bool vpux::Const::RelocateWeightsTableAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::RelocateWeightsTableAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

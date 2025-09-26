@@ -7,12 +7,10 @@
 
 #include "vpux/compiler/pipelines/dialect_pipeline_strategy.hpp"
 
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include "vpux/utils/IE/config.hpp"
-#include "vpux/utils/logger/logger.hpp"
 
 namespace vpux {
 

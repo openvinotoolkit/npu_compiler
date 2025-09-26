@@ -6,7 +6,6 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/utils/core/array_ref.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
 #include <mlir/IR/Builders.h>

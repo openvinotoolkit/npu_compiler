@@ -21,13 +21,6 @@ public:
     void buildPipeline(mlir::OpPassManager& pm) final;
 };
 
-class ShaveCodeGenStrategy final : public IFrontendPipelineStrategy {
-public:
-    using IFrontendPipelineStrategy::IFrontendPipelineStrategy;
-
-    void buildPipeline(mlir::OpPassManager& pm) final;
-};
-
 class ReferenceSWStrategy final : public IFrontendPipelineStrategy {
 public:
     using IFrontendPipelineStrategy::IFrontendPipelineStrategy;

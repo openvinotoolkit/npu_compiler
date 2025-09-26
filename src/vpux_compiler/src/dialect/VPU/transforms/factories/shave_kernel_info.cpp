@@ -8,8 +8,6 @@
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/shave_kernel_info.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
-#include "vpux/utils/core/error.hpp"
-
 using namespace vpux;
 
 std::unique_ptr<VPU::ShaveKernelInfo> VPU::getShaveKernelInfo(mlir::Operation* op) {

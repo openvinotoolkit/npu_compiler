@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_scheduler_interface.hpp"
 
+#include <deque>
+
 namespace vpux::VPU::VF::v1 {
 /*
   Base implementation of scheduling scenario features

@@ -69,12 +69,10 @@ func.func @AllInputsAreBlockArgsNoChages(
 // CHECK-LABEL:   func.func @ConcatDistributedOpOutputAndBlockArgInput(
 // CHECK-SAME:    [[INPUT:%.*]]: tensor<1x48x32x32xf16, {order = #NHWC}>,
 // CHECK-SAME:    [[FILTER:%.*]]: tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-// CHECK-SAME:    [[WT:%.*]]: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
 // CHECK-SAME:    [[MAXP_WT:%.*]]: tensor<96x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
 // CHECK-SAME:    [[INPUT2:%.*]]: tensor<1x32x1536xf16>) -> tensor<1x96x32x32xf16, {order = #NHWC}> {
 func.func @ConcatDistributedOpOutputAndBlockArgInput(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<96x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %input2: tensor<1x32x1536xf16>)
            -> tensor<1x96x32x32xf16, {order = #NHWC}> {
@@ -84,7 +82,7 @@ func.func @ConcatDistributedOpOutputAndBlockArgInput(%input: tensor<1x48x32x32xf
     // Concat input from DPU
     %0 = VPU.Copy (%input) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %1 = VPU.NCE.DepthConvolution(%0, %filter, %weightsTable)
+    %1 = VPU.NCE.DepthConvolution(%0, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -152,8 +150,7 @@ func.func @ConcatDistributedOpOutputAndBlockArgInput(%input: tensor<1x48x32x32xf
 !InputStub_CMX = tensor<1x128x16x32xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
 func.func @ConcatDistributedOpOutputAndConstantInput2(%arg0: !Input_DDR,
-        %weights: tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-        %weightsTable: tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
+        %weights: tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)
            -> !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> {
 
     // constant input
@@ -162,10 +159,10 @@ func.func @ConcatDistributedOpOutputAndConstantInput2(%arg0: !Input_DDR,
 
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> tensor<1x128x16x32xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
-    %conv_output = VPU.NCE.Convolution(%input_cmx, %weights, %weightsTable)
+    %conv_output = VPU.NCE.Convolution(%input_cmx, %weights)
                         {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
                         rawFilterShape = [128, 128, 3, 1], strides = [1, 1]}
-                    : tensor<1x128x16x32xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !VPU.DistributedTensor<1x128x16x32xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+                    : tensor<1x128x16x32xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.DistributedTensor<1x128x16x32xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     %conv_ddr = VPU.Copy(%conv_output) {out_mem_space = @DDR} : !VPU.DistributedTensor<1x128x16x32xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
         -> tensor<1x128x16x32xf16, {order = #NHWC}>
@@ -177,10 +174,10 @@ func.func @ConcatDistributedOpOutputAndConstantInput2(%arg0: !Input_DDR,
     %concat_cmx = VPU.Copy(%concat_output) {out_mem_space = @CMX_NN} : tensor<1x128x16x33xf16, {order = #NHWC}>
             -> !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
-    %conv_2 = VPU.NCE.Convolution(%concat_cmx, %weights, %weightsTable)
+    %conv_2 = VPU.NCE.Convolution(%concat_cmx, %weights)
                     {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
                     rawFilterShape = [128, 128, 3, 1], strides = [1, 1]}
-                : !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>, tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+                : !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>, tensor<128x128x3x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     return %conv_2: !VPU.DistributedTensor<1x128x16x33xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
@@ -190,7 +187,7 @@ func.func @ConcatDistributedOpOutputAndConstantInput2(%arg0: !Input_DDR,
 
     //CHECK:        [[INPUT_CMX:%.*]] = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x128x16x32xf16, {mem_space = @DDR, order = #NHWC}> -> tensor<1x128x16x32xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
-    //CHECK:        [[CONV_OUTPUT:%.*]] = VPU.NCE.Convolution([[INPUT_CMX]], %arg1, %arg2) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [128, 128, 3, 1], strides = [1, 1]}
+    //CHECK:        [[CONV_OUTPUT:%.*]] = VPU.NCE.Convolution([[INPUT_CMX]], %arg1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [128, 128, 3, 1], strides = [1, 1]}
     //CHECK-SAME:                -> !VPU.DistributedTensor<1x128x16x32xf16, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     //CHECK:        [[CONCAT_OUTPUT:%.*]] = VPU.Concat([[CST_INPUT]], [[CONV_OUTPUT]])
@@ -231,9 +228,7 @@ func.func @ConcatDistributedOpOutputAndConstantInput2(%arg0: !Input_DDR,
 
 func.func @ConcatDistributedOpOutputAndConstantInput2WithPerAxisQuantization(%arg0: !Input_DDR,
         %weights: tensor<16x16x3x1x!qElemType4, {mem_space = @CMX_NN, order = #NHWC}>,
-        %weights_dw_conv: tensor<32x16x1x1x!qElemType3, {mem_space = @CMX_NN, order = #NHWC}>,
-        %weightsTable: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
-        %weightsTable_dw_conv: tensor<32x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
+        %weights_dw_conv: tensor<32x16x1x1x!qElemType3, {mem_space = @CMX_NN, order = #NHWC}>)
            -> !VPU.DistributedTensor<1x32x16x157x!qElemType2, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}> {
 
     // constant input
@@ -246,10 +241,10 @@ func.func @ConcatDistributedOpOutputAndConstantInput2WithPerAxisQuantization(%ar
 
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> tensor<1x16x16x157x!qElemType1, {mem_space = @CMX_NN, order = #NHWC}>
 
-    %conv_output = VPU.NCE.Convolution(%input_cmx, %weights, %weightsTable)
+    %conv_output = VPU.NCE.Convolution(%input_cmx, %weights)
                      {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>,
                      rawFilterShape = [16, 16, 3, 1], strides = [1, 1]}
-                 : tensor<1x16x16x157x!qElemType1, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x16x3x1x!qElemType4, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !VPU.DistributedTensor<1x16x16x157x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
+                 : tensor<1x16x16x157x!qElemType1, {mem_space = @CMX_NN, order = #NHWC}>, tensor<16x16x3x1x!qElemType4, {mem_space = @CMX_NN, order = #NHWC}> -> !VPU.DistributedTensor<1x16x16x157x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
     %conv_out_ddr = VPU.Copy(%conv_output) {out_mem_space = @DDR}
                     : !VPU.DistributedTensor<1x16x16x157x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
@@ -262,7 +257,7 @@ func.func @ConcatDistributedOpOutputAndConstantInput2WithPerAxisQuantization(%ar
     %concat_cmx = VPU.Copy(%concat_output) {out_mem_space = @CMX_NN} : tensor<1x32x16x157x!qElemType2, {order = #NHWC}>
             -> !VPU.DistributedTensor<1x32x16x157x!qElemType2, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
 
-    %dw_conv = VPU.NCE.DepthConvolution(%concat_cmx, %weights_dw_conv, %weightsTable_dw_conv) {
+    %dw_conv = VPU.NCE.DepthConvolution(%concat_cmx, %weights_dw_conv) {
           ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
           rawFilterShape = [32, 1, 3, 3], strides = [1, 1]}
           -> !VPU.DistributedTensor<1x32x16x157x!qElemType2, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>
@@ -275,7 +270,7 @@ func.func @ConcatDistributedOpOutputAndConstantInput2WithPerAxisQuantization(%ar
 
     //CHECK:        [[INPUT_CMX:%.*]] = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x16x16x157x!qElemType, {mem_space = @DDR, order = #NHWC}> -> tensor<1x16x16x157x!qElemType, {mem_space = @CMX_NN, order = #NHWC}>
 
-    //CHECK:        [[CONV_OUTPUT:%.*]] = VPU.NCE.Convolution([[INPUT_CMX]], %arg1, %arg3) {
+    //CHECK:        [[CONV_OUTPUT:%.*]] = VPU.NCE.Convolution([[INPUT_CMX]], %arg1) {
     //CHECK-SAME:           pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 1 : i64, bottom = 1 : i64>,
     //CHECK-SAME:           ppe = #VPU.PPEStub<>, rawFilterShape = [16, 16, 3, 1], strides = [1, 1]}
 
@@ -321,15 +316,6 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
     %filter2: tensor<512x16x1x1x!qElemType7, {order = #NHWC}>)
            -> tensor<1x512x13x13x!qElemType6, {order = #NHWC}> {
 
-    %weightsTable0 = const.Declare tensor<256x1x1x4xsi32> =
-        dense<1> : tensor<256x1x1x4xsi32>
-
-    %weightsTable1 = const.Declare tensor<256x1x1x4xsi32> =
-        dense<1> : tensor<256x1x1x4xsi32>
-
-    %weightsTable2 = const.Declare tensor<512x1x1x4xsi32> =
-        dense<1> : tensor<512x1x1x4xsi32>
-
     %act0_cmx = VPU.Copy(%act0) {out_mem_space = @CMX_NN} : tensor<1x2048x13x13x!qElemType2, {order = #NHWC}>
         -> !ConvInputDistributed
 
@@ -337,14 +323,10 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
         -> !VPU.DistributedTensor<256x2048x1x1x!qElemType1, #NHWC, @CMX_NN,
             {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
 
-    %weightsTable0_cmx = VPU.Copy(%weightsTable0) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32>
-        -> !VPU.DistributedTensor<256x1x1x4xsi32, #NCHW, @CMX_NN,
-            {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
-
-    %conv_0 = VPU.NCE.Convolution(%act0_cmx, %filter0_cmx, %weightsTable0_cmx) {
+    %conv_0 = VPU.NCE.Convolution(%act0_cmx, %filter0_cmx) {
         ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         rawFilterShape = [256, 2048, 1, 1], strides = [1, 1]}
-            : !ConvInputDistributed, !VPU.DistributedTensor<256x2048x1x1x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>, !VPU.DistributedTensor<256x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}> -> !VPU.DistributedTensor<1x256x13x13x!qElemType3, #NHWC, @CMX_NN,
+            : !ConvInputDistributed, !VPU.DistributedTensor<256x2048x1x1x!qElemType1, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}> -> !VPU.DistributedTensor<1x256x13x13x!qElemType3, #NHWC, @CMX_NN,
                 {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
 
     %conv_0_ddr = VPU.Copy(%conv_0)
@@ -359,14 +341,10 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
         -> !VPU.DistributedTensor<256x2048x1x1x!qElemType, #NHWC, @CMX_NN,
             {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
 
-    %weightsTable1_cmx = VPU.Copy(%weightsTable1) {out_mem_space = @CMX_NN} : tensor<256x1x1x4xsi32>
-        -> !VPU.DistributedTensor<256x1x1x4xsi32, #NCHW, @CMX_NN,
-            {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
-
-    %conv_1 = VPU.NCE.Convolution(%act1_cmx, %filter1_cmx, %weightsTable1_cmx) {
+    %conv_1 = VPU.NCE.Convolution(%act1_cmx, %filter1_cmx) {
         ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         rawFilterShape = [256, 2048, 1, 1], strides = [1, 1]}
-        : !ConvInputDistributed, !VPU.DistributedTensor<256x2048x1x1x!qElemType, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>, !VPU.DistributedTensor<256x1x1x4xsi32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}> -> !VPU.DistributedTensor<1x256x13x13x!qElemType4, #NHWC, @CMX_NN,
+        : !ConvInputDistributed, !VPU.DistributedTensor<256x2048x1x1x!qElemType, #NHWC, @CMX_NN, {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}> -> !VPU.DistributedTensor<1x256x13x13x!qElemType4, #NHWC, @CMX_NN,
             {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
 
     %conv_1_ddr = VPU.Copy(%conv_1) : !VPU.DistributedTensor<1x256x13x13x!qElemType4, #NHWC, @CMX_NN,
@@ -385,11 +363,7 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
         -> !VPU.DistributedTensor<512x16x1x1x!qElemType7, #NHWC, @CMX_NN,
             {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
 
-    %weightsTable2_cmx = VPU.Copy(%weightsTable2) {out_mem_space = @CMX_NN} : tensor<512x1x1x4xsi32>
-        -> !VPU.DistributedTensor<512x1x1x4xsi32, #NCHW, @CMX_NN,
-            {mode = "SEGMENTED", num_tiles = [2, 1, 1, 1], num_clusters = 2 : i64, alignment = [16, 1, 1, 1]}>
-
-    %dw_conv = VPU.NCE.DepthConvolution(%concat_cmx, %filter2_cmx, %weightsTable2_cmx) {
+    %dw_conv = VPU.NCE.DepthConvolution(%concat_cmx, %filter2_cmx) {
         ppe = #VPU.PPEStub<>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         rawFilterShape = [512, 1, 3, 3], strides = [1, 1]}
         -> !VPU.DistributedTensor<1x512x13x13x!qElemType6, #NHWC, @CMX_NN,
@@ -405,16 +379,11 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
 
     return %dw_conv_ddr : tensor<1x512x13x13x!qElemType6, {order = #NHWC}>
 
-// CHECK:       [[CST0:%.+]] = const.Declare tensor<256x1x1x4xsi32>
-// CHECK:       [[CST1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
-
 // CHECK:       [[INCMX0:%.+]] = VPU.Copy([[ACT0]])
 
 // CHECK:       [[WCMX0:%.+]] = VPU.Copy([[FILTER0]])
 
-// CHECK:       [[WTCMX0:%.+]] = VPU.Copy([[CST0]])
-
-// CHECK:       [[NCE0:%.+]] = VPU.NCE.Convolution([[INCMX0]], [[WCMX0]], [[WTCMX0]])
+// CHECK:       [[NCE0:%.+]] = VPU.NCE.Convolution([[INCMX0]], [[WCMX0]])
 // CHECK-SAME:        {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [256, 2048, 1, 1], strides = [1, 1]}
 // CHECK-SAME:      -> !VPU.DistributedTensor<1x256x13x13x!qElemType5, #NHWC, @CMX_NN
 // CHECK-SAME:          {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -423,9 +392,7 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
 
 // CHECK:       [[WCMX1:%.+]] = VPU.Copy([[FILTER1]])
 
-// CHECK:       [[WTCMX1:%.+]] = VPU.Copy([[CST0]])
-
-// CHECK:       [[NCE1:%.+]] = VPU.NCE.Convolution([[INCMX1]], [[WCMX1]], [[WTCMX1]])
+// CHECK:       [[NCE1:%.+]] = VPU.NCE.Convolution([[INCMX1]], [[WCMX1]])
 // CHECK-SAME:        {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [256, 2048, 1, 1], strides = [1, 1]}
 // CHECK-SAME:      -> !VPU.DistributedTensor<1x256x13x13x!qElemType6, #NHWC, @CMX_NN,
 // CHECK-SAME:          {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -453,9 +420,7 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
 
 // CHECK:       [[WCMX2:%.+]] = VPU.Copy([[FILTER2]])
 
-// CHECK:       [[WTCMX2:%.+]] = VPU.Copy([[CST1]])
-
-// CHECK:       [[NCE2:%.+]] = VPU.NCE.DepthConvolution([[CONCAT]], [[WCMX2]], [[WTCMX2]])
+// CHECK:       [[NCE2:%.+]] = VPU.NCE.DepthConvolution([[CONCAT]], [[WCMX2]])
 // CHECK-SAME:          {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [512, 1, 3, 3], strides = [1, 1]}
 // CHECK-SAME:      -> !VPU.DistributedTensor<1x512x13x13x!qElemType4, #NHWC, @CMX_NN,
 // CHECK-SAME:          {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64, alignment = [1, 16, 1, 1]}>
@@ -469,7 +434,6 @@ func.func @CMXConcatDistributedQuantPerAxisSameAxisAsConcat(
 
 func.func @ConcatNCEOutputAndBlockArgInput(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>,
            %weightsTableMaxPool: tensor<96x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>,
            %input2: tensor<1x32x32x48xf16>)
            -> tensor<1x96x32x32xf16, {order = #NHWC}> {
@@ -479,7 +443,7 @@ func.func @ConcatNCEOutputAndBlockArgInput(%input: tensor<1x48x32x32xf16, {order
     // Concat input from DPU
     %0 = VPU.Copy(%input) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %1 = VPU.NCE.DepthConvolution(%0, %filter, %weightsTable)
+    %1 = VPU.NCE.DepthConvolution(%0, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -510,9 +474,9 @@ func.func @ConcatNCEOutputAndBlockArgInput(%input: tensor<1x48x32x32xf16, {order
 
     // CHECK:       [[IN_DPU:%.+]] = VPU.Copy(%arg0) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}>
     // CHECK-SAME:                      -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
-    // CHECK:       [[OUT_DPU:%.+]] = VPU.NCE.DepthConvolution([[IN_DPU]], %arg1, %arg2)
+    // CHECK:       [[OUT_DPU:%.+]] = VPU.NCE.DepthConvolution([[IN_DPU]], %arg1)
 
-    // CHECK:       [[IN_CONST:%.+]] = VPU.PermuteCast(%arg4) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x32x48xf16>
+    // CHECK:       [[IN_CONST:%.+]] = VPU.PermuteCast(%arg3) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x32x48xf16>
     // CHECK-SAME:                      -> tensor<1x48x32x32xf16, {order = #NHWC}>
     // CHECK:       [[IN_CONST_CMX:%.+]] = VPU.Copy([[IN_CONST]]) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}>
     // CHECK-SAME:                      -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
@@ -522,12 +486,13 @@ func.func @ConcatNCEOutputAndBlockArgInput(%input: tensor<1x48x32x32xf16, {order
     // CHECK-SAME:                      tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>, tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     // CHECK-SAME:                      -> tensor<1x96x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    // CHECK:       [[OUT_CMX:%.+]] = VPU.NCE.MaxPool([[CONCAT_CMX]], %arg3 )
+    // CHECK:       [[OUT_CMX:%.+]] = VPU.NCE.MaxPool([[CONCAT_CMX]], %arg2 )
     // CHECK:       [[OUT_DDR:%.+]] = VPU.Copy([[OUT_CMX]]) : tensor<1x96x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     // CHECK-SAME:                      -> tensor<1x96x32x32xf16, {order = #NHWC}>
 
     // CHECK:       return [[OUT_DDR]] : tensor<1x96x32x32xf16, {order = #NHWC}>
 }
+
 // -----
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -541,7 +506,6 @@ net.NetworkInfo
     inputsInfo : {
         DataInfo "input" : tensor<1x144x32x32xf16>
         DataInfo "filter" : tensor<48x16x1x1xf16, {mem_space = [@CMX_NN, 0]}>
-        DataInfo "weightsTable" : tensor<48x1x1x4xsi32, {mem_space = [@CMX_NN, 0]}>
         DataInfo "weightsTableMaxPool" : tensor<144x1x1x4xsi32, {mem_space = [@CMX_NN, 0]}>
     }
     outputsInfo : {
@@ -550,7 +514,6 @@ net.NetworkInfo
 
 func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>,
            %weightsTableMaxPool: tensor<144x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>)
            -> tensor<1x144x32x32xf16, {order = #NHWC}> {
 
@@ -560,7 +523,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %0 = VPU.Slice %input [0, 0, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %1 = VPU.Copy(%0) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -574,7 +537,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %4 = VPU.Slice %input [0, 48, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %5 = VPU.Copy(%4) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -588,7 +551,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %8 = VPU.Slice %input [0, 96, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %9 = VPU.Copy(%8) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %10 = VPU.NCE.DepthConvolution(%9, %filter, %weightsTable)
+    %10 = VPU.NCE.DepthConvolution(%9, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [48, 1, 3, 3],
@@ -622,7 +585,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL1:%.+]] = VPU.Copy([[VAL0]])
 
     // first tile of NCE task
-    // CHECK:       [[VAL2:%.+]] = VPU.NCE.DepthConvolution([[VAL1]], %arg1, %arg2)
+    // CHECK:       [[VAL2:%.+]] = VPU.NCE.DepthConvolution([[VAL1]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -633,7 +596,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL4:%.+]] = VPU.Copy([[VAL3]])
 
     // second tile of NCE task
-    // CHECK:       [[VAL5:%.+]] = VPU.NCE.DepthConvolution([[VAL4]], %arg1, %arg2)
+    // CHECK:       [[VAL5:%.+]] = VPU.NCE.DepthConvolution([[VAL4]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -644,7 +607,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL7:%.+]] = VPU.Copy([[VAL6]])
 
     // third tile of NCE task
-    // CHECK:       [[VAL8:%.+]] = VPU.NCE.DepthConvolution([[VAL7]], %arg1, %arg2)
+    // CHECK:       [[VAL8:%.+]] = VPU.NCE.DepthConvolution([[VAL7]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -657,7 +620,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK-NOT:   VPU.Copy
 
     // user of the concat uses result of concat without intermediate copy operation
-    // CHECK:       [[VAL10:%.+]] = VPU.NCE.MaxPool([[VAL9]], %arg3 )
+    // CHECK:       [[VAL10:%.+]] = VPU.NCE.MaxPool([[VAL9]], %arg2 )
     // CHECK:       [[VAL11:%.+]] = VPU.Copy([[VAL10]])
 
     // CHECK:       return [[VAL11:%.+]] : tensor<1x144x32x32xf16, {order = #NHWC}>
@@ -678,9 +641,7 @@ net.NetworkInfo
     inputsInfo : {
         DataInfo "input" : tensor<1x144x32x32xf16>
         DataInfo "filter" : tensor<48x16x1x1xf16, {mem_space = [@CMX_NN, 0]}>
-        DataInfo "weightsTable" : tensor<48x1x1x4xsi32, {mem_space = [@CMX_NN, 0]}>
         DataInfo "filterCons" : tensor<144x16x1x1xf16, {mem_space = [@CMX_NN, 0]}>
-        DataInfo "weightsTableCons" : tensor<144x1x1x4xsi32, {mem_space = [@CMX_NN, 0]}>
     }
     outputsInfo : {
         DataInfo "prob1" : tensor<1x144x16x32xf16>
@@ -689,9 +650,7 @@ net.NetworkInfo
 
 func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>,
-           %filterCons: tensor<144x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>,
-           %weightsTableCons: tensor<144x1x1x4xsi32, {mem_space = [@CMX_NN, 0], order = #NCHW}>)
+           %filterCons: tensor<144x16x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>)
            -> (tensor<1x144x16x32xf16, {order = #NHWC}>, tensor<1x144x16x32xf16, {order = #NHWC}>) {
 
     // Create a concat subgraph with three input tiles and two output users
@@ -700,7 +659,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %0 = VPU.Slice %input [0, 0, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %1 = VPU.Copy(%0) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -714,7 +673,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %4 = VPU.Slice %input [0, 48, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %5 = VPU.Copy(%4) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -728,7 +687,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %8 = VPU.Slice %input [0, 96, 0, 0] [1, 48, 32, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x48x32x32xf16, {order = #NHWC}>
     %9 = VPU.Copy(%8) {out_mem_space = [@CMX_NN, 0]} : tensor<1x48x32x32xf16, {order = #NHWC}> -> tensor<1x48x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
-    %10 = VPU.NCE.DepthConvolution(%9, %filter, %weightsTable)
+    %10 = VPU.NCE.DepthConvolution(%9, %filter)
         {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
         ppe = #VPU.PPEStub<>,
         post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [48, 1, 3, 3],
@@ -743,13 +702,13 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %13 = VPU.Slice %12 [0, 0, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x144x16x32xf16, {order = #NHWC}>
     // Concat slice result copy-in for NCE user
     %14 = VPU.Copy(%13) {out_mem_space = [@CMX_NN, 0]} : tensor<1x144x16x32xf16, {order = #NHWC}> -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
-    %15 = VPU.NCE.DepthConvolution(%14, %filterCons, %weightsTableCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %15 = VPU.NCE.DepthConvolution(%14, %filterCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     %16 = VPU.Copy(%15) : tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x144x16x32xf16, {order = #NHWC}>
 
     %17 = VPU.Slice %12 [0, 144, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x144x16x32xf16, {order = #NHWC}>
     // Concat slice result copy-in for NCE user
     %18 = VPU.Copy(%17) {out_mem_space = [@CMX_NN, 0]} : tensor<1x144x16x32xf16, {order = #NHWC}> -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
-    %19 = VPU.NCE.DepthConvolution(%18, %filterCons, %weightsTableCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    %19 = VPU.NCE.DepthConvolution(%18, %filterCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     %20 = VPU.Copy(%19) : tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x144x16x32xf16, {order = #NHWC}>
 
     return %16, %20 : tensor<1x144x16x32xf16, {order = #NHWC}>, tensor<1x144x16x32xf16, {order = #NHWC}>
@@ -763,7 +722,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL1:%.+]] = VPU.Copy([[VAL0]])
 
     // first tile of NCE task
-    // CHECK:       [[VAL2:%.+]] = VPU.NCE.DepthConvolution([[VAL1]], %arg1, %arg2)
+    // CHECK:       [[VAL2:%.+]] = VPU.NCE.DepthConvolution([[VAL1]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -774,7 +733,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL4:%.+]] = VPU.Copy([[VAL3]])
 
     // second tile of NCE task
-    // CHECK:       [[VAL5:%.+]] = VPU.NCE.DepthConvolution([[VAL4]], %arg1, %arg2)
+    // CHECK:       [[VAL5:%.+]] = VPU.NCE.DepthConvolution([[VAL4]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -785,7 +744,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK:       [[VAL7:%.+]] = VPU.Copy([[VAL6]])
 
     // third tile of NCE task
-    // CHECK:       [[VAL8:%.+]] = VPU.NCE.DepthConvolution([[VAL7]], %arg1, %arg2)
+    // CHECK:       [[VAL8:%.+]] = VPU.NCE.DepthConvolution([[VAL7]], %arg1)
 
     // no copy-out to concatinate in DDR
     // CHECK-NOT:   VPU.Copy
@@ -806,7 +765,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK-NOT:   VPU.Copy
 
     // concat user reading from NNCMX slice without intermediate copy operation
-    // CHECK:       [[VAL11:%.+]] = VPU.NCE.DepthConvolution([[VAL10]], %arg3, %arg4)
+    // CHECK:       [[VAL11:%.+]] = VPU.NCE.DepthConvolution([[VAL10]], %arg2)
     // copy-out
     // CHECK:       [[VAL12:%.+]] = VPU.Copy([[VAL11]])
 
@@ -818,7 +777,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     // CHECK-NOT:   VPU.Copy
 
     // user reading from NNCMX without intermediate copy operation
-    // CHECK:       [[VAL14:%.+]] = VPU.NCE.DepthConvolution([[VAL13]], %arg3, %arg4)
+    // CHECK:       [[VAL14:%.+]] = VPU.NCE.DepthConvolution([[VAL13]], %arg2)
     // copy-out
     // CHECK:       [[VAL15:%.+]] = VPU.Copy([[VAL14]])
 
@@ -858,7 +817,6 @@ net.NetworkInfo
     inputsInfo : {
         DataInfo "input" : tensor<1x144x32x32xf16>
         DataInfo "filter" : tensor<48x16x1x1xf16, {mem_space = @CMX_NN}>
-        DataInfo "weightsTable" : tensor<48x1x1x4xsi32, {mem_space = @CMX_NN}>
         DataInfo "maxPoolWeightsTable" : tensor<144x1x1x4xsi32, {mem_space = @CMX_NN}>
     }
     outputsInfo : {
@@ -867,7 +825,6 @@ net.NetworkInfo
 
 func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<144x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
            -> tensor<1x144x32x32xf16, {order = #NHWC}> {
 
@@ -878,7 +835,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -893,7 +850,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -908,7 +865,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %10 = VPU.NCE.DepthConvolution(%9, %filter, %weightsTable)
+    %10 = VPU.NCE.DepthConvolution(%9, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [48, 1, 3, 3],
@@ -1025,7 +982,6 @@ net.NetworkInfo
     inputsInfo : {
         DataInfo "input" : tensor<1x144x32x32xf16>
         DataInfo "filter" : tensor<48x16x1x1xf16, {mem_space = @CMX_NN}>
-        DataInfo "weightsTable" : tensor<48x1x1x4xsi32, {mem_space = @CMX_NN}>
         DataInfo "maxPoolWeightsTable" : tensor<144x1x1x4xsi32, {mem_space = @CMX_NN}>
     }
     outputsInfo : {
@@ -1035,7 +991,6 @@ net.NetworkInfo
 
 func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<144x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
            -> (tensor<1x144x16x32xf16, {order = #NHWC}>, tensor<1x144x16x32xf16, {order = #NHWC}>) {
 
@@ -1046,7 +1001,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1061,7 +1016,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1076,7 +1031,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %10 = VPU.NCE.DepthConvolution(%9, %filter, %weightsTable)
+    %10 = VPU.NCE.DepthConvolution(%9, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [48, 1, 3, 3],
@@ -1213,7 +1168,6 @@ net.NetworkInfo
     inputsInfo : {
         DataInfo "input" : tensor<1x48x32x32xf16>
         DataInfo "filter" : tensor<16x16x1x1xf16, {mem_space = @CMX_NN}>
-        DataInfo "weightsTable" : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>
         DataInfo "maxPoolWeightsTable" : tensor<48x1x1x4xsi32, {mem_space = @CMX_NN}>
     }
     outputsInfo : {
@@ -1222,7 +1176,6 @@ net.NetworkInfo
 
 func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
            %filter: tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
            -> tensor<1x48x16x32xf16, {order = #NHWC}> {
 
@@ -1233,7 +1186,7 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x16x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1248,7 +1201,7 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x16x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1263,7 +1216,7 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
 
     %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x16x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %10 = VPU.NCE.DepthConvolution(%9, %filter, %weightsTable)
+    %10 = VPU.NCE.DepthConvolution(%9, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [16, 1, 3, 3],
@@ -1382,7 +1335,6 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
 
 func.func @main(%input: tensor<1x48x64x32xf16, {order = #NHWC}>,
            %filter: tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
            -> tensor<1x48x64x32xf16, {order = #NHWC}> {
 
@@ -1391,7 +1343,7 @@ func.func @main(%input: tensor<1x48x64x32xf16, {order = #NHWC}>,
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1406,7 +1358,7 @@ func.func @main(%input: tensor<1x48x64x32xf16, {order = #NHWC}>,
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x48x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1497,13 +1449,9 @@ func.func @CMXConcatOverChannelsDistributedSOH(%input: tensor<1x64x20x32xf16, {o
 
     %filter0 = const.Declare tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable0 = const.Declare tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<1> : tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
 
     %filter1 = const.Declare tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable1 = const.Declare tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<1> : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
 
     %maxPoolWeightsTable = const.Declare tensor<64x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
         dense<1> : tensor<64x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
@@ -1513,7 +1461,7 @@ func.func @CMXConcatOverChannelsDistributedSOH(%input: tensor<1x64x20x32xf16, {o
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x48x20x32xf16, {order = #NHWC}> -> !ConcatInput0Distributed
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter0, %weightsTable0)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter0)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1528,7 +1476,7 @@ func.func @CMXConcatOverChannelsDistributedSOH(%input: tensor<1x64x20x32xf16, {o
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x16x20x32xf16, {order = #NHWC}> -> !ConcatInput1Distributed
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter1, %weightsTable1)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter1)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -1777,21 +1725,15 @@ func.func @InputConcatOnlyTilingCopy(%arg0: tensor<1x128x1x1xf16, {mem_space = @
            -> tensor<2x1023x1x1xf16, {order = #NHWC}> {
     %filter0 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable0 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<1> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    %0 = VPU.NCE.Convolution(%arg0, %filter0, %weightsTable0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !OutDistributed
+    %0 = VPU.NCE.Convolution(%arg0, %filter0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !OutDistributed
 
     %1 = VPU.Copy(%0) : !OutDistributed -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
     %filter1 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.1> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable1 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<2> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    %2 = VPU.NCE.Convolution(%arg1, %filter1, %weightsTable1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !OutDistributed
+    %2 = VPU.NCE.Convolution(%arg1, %filter1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !OutDistributed
 
     %3 = VPU.Copy(%2) : !OutDistributed -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
@@ -1802,13 +1744,10 @@ func.func @InputConcatOnlyTilingCopy(%arg0: tensor<1x128x1x1xf16, {mem_space = @
     return %5 : tensor<2x1023x1x1xf16, {order = #NHWC}>
 
 
-    // CHECK-DAG:   [[WEIGHTSTABLE1:%.+]] = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<2> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
     // CHECK-DAG:   [[FILTER1:%.+]] = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.099610e+00> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     // CHECK-DAG:   [[FILTER0:%.+]] = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    // CHECK-DAG:   [[WEIGHTSTABLE0:%.+]] = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<1> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    // CHECK:       [[CONV0:%.+]]  = VPU.NCE.Convolution([[INPUT0]], [[FILTER0]], [[WEIGHTSTABLE0]])
-    // CHECK:       [[CONV1:%.+]]  = VPU.NCE.Convolution([[INPUT1]], [[FILTER1]], [[WEIGHTSTABLE1]])
+    // CHECK:       [[CONV0:%.+]]  = VPU.NCE.Convolution([[INPUT0]], [[FILTER0]])
+    // CHECK:       [[CONV1:%.+]]  = VPU.NCE.Convolution([[INPUT1]], [[FILTER1]])
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]])
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} :
@@ -1840,22 +1779,15 @@ func.func @InputConcatOnlyCopy(%arg0: tensor<1x128x1x1xf16, {mem_space = @CMX_NN
            -> tensor<2x1023x1x1xf16, {order = #NHWC}> {
     %filter0 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable0 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<1> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-
-    %0 = VPU.NCE.Convolution(%arg0, %filter0, %weightsTable0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %0 = VPU.NCE.Convolution(%arg0, %filter0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %1= VPU.Copy(%0) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
 
     %filter1 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.1> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable1 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<2> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    %2 = VPU.NCE.Convolution(%arg1, %filter1, %weightsTable1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %2 = VPU.NCE.Convolution(%arg1, %filter1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %3= VPU.Copy(%2) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
 
@@ -1865,13 +1797,10 @@ func.func @InputConcatOnlyCopy(%arg0: tensor<1x128x1x1xf16, {mem_space = @CMX_NN
 
     return %5 : tensor<2x1023x1x1xf16, {order = #NHWC}>
 
-    // CHECK-DAG:   [[WEIGHTSTABLE1:%.+]] = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<2> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
     // CHECK-DAG:   [[FILTER1:%.+]] = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.099610e+00> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     // CHECK-DAG:   [[FILTER0:%.+]] = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    // CHECK-DAG:   [[WEIGHTSTABLE0:%.+]] = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<1> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    // CHECK:       [[CONV0:%.+]]  = VPU.NCE.Convolution([[INPUT0]], [[FILTER0]], [[WEIGHTSTABLE0]])
-    // CHECK:       [[CONV1:%.+]]  = VPU.NCE.Convolution([[INPUT1]], [[FILTER1]], [[WEIGHTSTABLE1]])
+    // CHECK:       [[CONV0:%.+]]  = VPU.NCE.Convolution([[INPUT0]], [[FILTER0]])
+    // CHECK:       [[CONV1:%.+]]  = VPU.NCE.Convolution([[INPUT1]], [[FILTER1]])
 
     // CHECK:       [[CONCAT:%.+]] = VPU.Concat([[CONV0]], [[CONV1]])
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<2x1024x1x1xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
@@ -1901,21 +1830,15 @@ func.func @NotConcatForNotHighestDim(%arg0: tensor<1x128x1x1xf16, {mem_space = @
            -> tensor<1x1023x1x2xf16, {order = #NHWC}> {
     %filter0 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable0 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<1> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    %0 = VPU.NCE.Convolution(%arg0, %filter0, %weightsTable0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !OutDistributed
+    %0 = VPU.NCE.Convolution(%arg0, %filter0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !OutDistributed
 
     %1 = VPU.Copy(%0) : !OutDistributed -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
     %filter1 = const.Declare tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.1> : tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-    %weightsTable1 = const.Declare tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
-        dense<2> : tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
-
-    %2 = VPU.NCE.Convolution(%arg1, %filter1, %weightsTable1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
-            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> -> !OutDistributed
+    %2 = VPU.NCE.Convolution(%arg1, %filter1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 128, 1, 1], strides = [1, 1]}
+            : tensor<1x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x128x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> !OutDistributed
 
     %3 = VPU.Copy(%2) : !OutDistributed -> tensor<1x1024x1x1xf16, {order = #NHWC}>
 
@@ -1926,10 +1849,8 @@ func.func @NotConcatForNotHighestDim(%arg0: tensor<1x128x1x1xf16, {mem_space = @
     return %5 : tensor<1x1023x1x2xf16, {order = #NHWC}>
 
 
-    // CHECK-DAG:   [[WEIGHTSTABLE1:%.+]] = const.Declare tensor<1024x1x1x4xsi32
     // CHECK-DAG:   [[FILTER1:%.+]] = const.Declare tensor<1024x128x1x1xf16
     // CHECK-DAG:   [[FILTER0:%.+]] = const.Declare tensor<1024x128x1x1xf16
-    // CHECK-DAG:   [[WEIGHTSTABLE0:%.+]] = const.Declare tensor<1024x1x1x4xsi32
 
     // CHECK:       [[CONV0:%.+]] = VPU.NCE.Convolution
     // CHECK:       [[COPY0:%.+]] = VPU.Copy
@@ -2076,7 +1997,6 @@ func.func @InputConcatOnlyForCompatibleUser(
 // CHECK-SAME:    [[INPUT0:%.+]]: tensor<1x32x64x32xf16, {order = #NHWC}>
 func.func @NoCMXConcatWhenTilingOnCAndSOC(%input: tensor<1x32x64x32xf16, {order = #NHWC}>,
            %filter: tensor<16x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>,
-           %weightsTable: tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>,
            %maxPoolWeightsTable: tensor<32x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>)
            -> tensor<1x32x64x32xf16, {order = #NHWC}> {
 
@@ -2085,7 +2005,7 @@ func.func @NoCMXConcatWhenTilingOnCAndSOC(%input: tensor<1x32x64x32xf16, {order 
 
     %1 = VPU.Copy(%0) {out_mem_space = @CMX_NN} : tensor<1x16x64x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %2 = VPU.NCE.DepthConvolution(%1, %filter, %weightsTable)
+    %2 = VPU.NCE.DepthConvolution(%1, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -2100,7 +2020,7 @@ func.func @NoCMXConcatWhenTilingOnCAndSOC(%input: tensor<1x32x64x32xf16, {order 
 
     %5 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x16x64x32xf16, {order = #NHWC}> -> !DistributedTile
 
-    %6 = VPU.NCE.DepthConvolution(%5, %filter, %weightsTable)
+    %6 = VPU.NCE.DepthConvolution(%5, %filter)
             {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             ppe = #VPU.PPEStub<>,
             post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>,
@@ -2159,4 +2079,42 @@ func.func @NoCMXConcatWhenTilingOnCAndSOC(%input: tensor<1x32x64x32xf16, {order 
 
     // CHECK:       [[NCE_OUT:%.+]] = VPU.NCE.MaxPool
     // CHECK-SAME:      [[COPY2_CMX]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: func.func @DoNotConcatCMXForDimsHigherThanThreshold
+func.func @DoNotConcatCMXForDimsHigherThanThreshold(%arg0: tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, %arg1: tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)
+           -> tensor<2x9120x1x1xf16, {order = #NHWC}> {
+    %filter0 = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
+        dense<1.0> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %0 = VPU.NCE.Convolution(%arg0, %filter0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 9120, 1, 1], strides = [1, 1]}
+            : tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %1= VPU.Copy(%0) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
+    %filter1 = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
+        dense<1.1> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %2 = VPU.NCE.Convolution(%arg1, %filter1) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 9120, 1, 1], strides = [1, 1]}
+            : tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    %3= VPU.Copy(%2) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
+    %4 = VPU.Concat(%1, %3) {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x1024x1x1xf16, {order = #NHWC}>, tensor<1x1024x1x1xf16, {order = #NHWC}> -> tensor<2x1024x1x1xf16, {order = #NHWC}>
+    %5 = VPU.Slice %4 [0, 0, 0, 0] [2, 9120, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<2x9120x1x1xf16, {order = #NHWC}>
+
+    return %5 : tensor<2x9120x1x1xf16, {order = #NHWC}>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.099610e+00> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+
+    // CHECK:     [[CONV0:%.+]] = VPU.NCE.Convolution(%arg0, [[CST_1]]) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 9120, 1, 1], strides = [1, 1]} : tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    // CHECK:     [[COPY0:%.+]] = VPU.Copy([[CONV0]]) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
+
+    // CHECK:     [[CONV1:%.+]] = VPU.NCE.Convolution(%arg1, [[CST_0]]) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 9120, 1, 1], strides = [1, 1]} : tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
+    // CHECK:     [[COPY1:%.+]] = VPU.Copy([[CONV1]]) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
+
+    // CHECK:     [[CONCAT:%.+]] = VPU.Concat([[COPY0]], [[COPY1]])
+    // CHECK-SAME{LITERAL}:         {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x1024x1x1xf16, {order = #NHWC}>, tensor<1x1024x1x1xf16, {order = #NHWC}> -> tensor<2x1024x1x1xf16, {order = #NHWC}>
+
+    // CHECK:     [[SLICE:%.+]] = VPU.Slice [[CONCAT]] [0, 0, 0, 0] [2, 9120, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<2x9120x1x1xf16, {order = #NHWC}>
+
+    // CHECK:     return [[SLICE]] : tensor<2x9120x1x1xf16, {order = #NHWC}>
 }

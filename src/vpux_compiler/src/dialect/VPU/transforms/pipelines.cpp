@@ -67,9 +67,11 @@ std::optional<double> getWeightsSparsityThreshold(const DoubleOption& weightsSpa
 void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerOptions& options,
                                           Logger log) {
     log.info("InitCompilerOptions:\n arch = {0}\n DPU groups = {1}\n DMA ports = {2}\n"
-             " compilation mode = {3}\n WLM rollback = {4}\n PPE version = {5}\n adaptive stripping = {6}",
+             " compilation mode = {3}\n WLM rollback = {4}\n PPE version = {5}\n adaptive stripping = {6}\n agressive "
+             "QDQ = {7}",
              options.arch, options.numberOfDPUGroups, options.numberOfDMAPorts, options.compilationMode,
-             options.wlmRollback, options.ppeVersion, options.enableAdaptiveStripping);
+             options.wlmRollback, options.ppeVersion, options.enableAdaptiveStripping,
+             options.enableQDQOptimizationAggressive);
 
     pm.addPass(VPU::createInitResourcesPass(options, log));
     pm.addPass(VPU::createSetupPipelineOptionsPass(options, log));
@@ -150,6 +152,7 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
 
     pm.addPass(VPU::createTilingStrategyAssignmentPass(options.enablePrefetchTiling, options.enableVPUNNCostForTiling,
                                                        options.enableShaveDDRAccessOptimization, log));
+    pm.addPass(VPU::createConvolutionSplitOverInputChannelPass(log));
 
     // We call this as part of VF Pipeline, no need to call it here in such case
     if (!options.enableVerticalFusion) {
@@ -179,6 +182,17 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
     pm.addPass(VPU::createApplyTilingPass(options.enableSCFTiling, log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(VPU::createCorrectStorageElementTableSeSizeForSEPDWConvPass(log));
+}
+
+//
+// Scf Compute Ops outlining Pipeline
+//
+
+void vpux::VPU::buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(VPU::createConvertVPUOpsToUpstreamOpsPass(log));
+    pm.addPass(VPU::createRestorePadAttrAfterSCFTilingPass(log));
+    pm.addPass(VPU::createScfComputeOpsOutliningPass(log));
+    pm.addPass(VPU::createConvertDynamicToStaticKernelsPass(log));
 }
 
 //
@@ -229,5 +243,7 @@ void vpux::VPU::buildSMPipeline(mlir::OpPassManager& pm, const vpux::MCAndTiling
     pm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
 
     // Ensure the nce op size requirements are met
-    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(true, log));
+    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
+                                                           /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
+                                                           /*skipNonConvOC=*/false, log));
 }

@@ -44,7 +44,7 @@ mlir::LogicalResult vpux::VPU::DeformableConvolutionOp::inferReturnTypes(
                                      offsetShape[2],   // spatial axes Y
                                      offsetShape[3]};  // spatial axes X
 
-    const auto outType = inType.changeShape(Shape(outputShape));
+    const auto outType = inType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

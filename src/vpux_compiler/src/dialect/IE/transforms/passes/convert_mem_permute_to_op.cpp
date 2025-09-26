@@ -10,11 +10,10 @@
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -30,6 +29,9 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
+
+const uint32_t levelCount = 4;
+SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
 DimsOrder getNHWCOutputLayout(DimsOrder memPermute) {
     // To use NCE accelerate Permutation, we always cast the input tensor's layout to NHWC based on phyical layout.
@@ -157,16 +159,10 @@ bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType,
         return false;
     }
     if (mlir::isa<mlir::FloatType>(elementType) &&
-        mlir::cast<mlir::FloatType>(elementType).getWidth() > mlir::Float16Type::get(ctx).getWidth()) {
-        log.trace("NCE MaxPool does not support float type larger than 16 bits");
+        mlir::cast<mlir::FloatType>(elementType).getWidth() != mlir::Float16Type::get(ctx).getWidth()) {
+        log.trace("NCE MaxPool does not support float type width different from 16 bits");
         return false;
     }
-
-    if (inShape[Dim(0)] != 1) {
-        log.trace("MemPermuteOp with dim N > 1");
-        return false;
-    }
-
     if (isTrivialPermute(inMemShape, memPermMap)) {
         log.trace("MemPermuteOp is actually a permute cast");
         return false;
@@ -209,15 +205,23 @@ bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType,
     const auto targetOrder = getNHWCOutputLayout(memPerm);
 
     // Calculate the inputType of maxPoolOp
-    Shape poolInLogicShape(inShape.size());
-    auto poolInOrder = DimsOrder::NHWC;
-    for (const auto idx : irange(inShape.size())) {
-        poolInLogicShape[poolInOrder.dimAt(idx)] = inMemShape[MemDim(idx)];
+    const auto poolInType = inferNewTypeWithMemPerm(
+            inputType, getPermutationFromOrders(DimsOrder::NCHW, DimsOrder::NCHW, ctx), DimsOrder::NHWC);
+    const auto poolInLogicShape = poolInType.getShape();
+    if (poolInLogicShape[Dims4D::Act::N] != 1) {
+        log.trace("MaxPoolOp with dim N > 1");
+        return false;
     }
 
     const auto IC = poolInLogicShape[Dims4D::Act::C];
     const auto alignedChannel = VPU::NCEInvariant::getAlignment(outputType.getElementType());
     if (IC % alignedChannel != 0) {
+        // Not use shapeCast for per axis type
+        bool isPerAxisQuant = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(poolInType.getElementType());
+        if (isPerAxisQuant) {
+            log.trace("Can not reshape for per axis quant");
+            return false;
+        }
         auto conversionMap = calculateConversions(targetInShape, alignedChannel, targetOrder);
         auto hasSmallHeightNum = [&](const std::pair<Shape, DimsOrder>& map) {
             const int64_t PERFORMANT_HEIGHT_NUM_OF_PER_CLUSTER = 4;
@@ -226,15 +230,20 @@ bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType,
         bool hasToSplitOnDimC = llvm::any_of(conversionMap, hasSmallHeightNum);
         // If new MaxPool has to be split on Dim C which is the inner most dimension,
         // it is not performant because of strided DMA.
-        auto isNotPerformant = memPerm == DimsOrder::NHCW && (hasToSplitOnDimC || conversionMap.size() > 2);
+        // For the case of memPerm DimsOrder::NCWH, there may exist maxPool conversions size > 2
+        auto isNotPerformant = (memPerm == DimsOrder::NHCW || memPerm == DimsOrder::NCWH) &&
+                               (hasToSplitOnDimC || conversionMap.size() > 2);
         if (conversionMap.empty() || isNotPerformant) {
             log.trace("Channels of an IE.MaxPool are not aligned or the Conversion is not performant.");
             return false;
         }
-
-        auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(outputType.getElementType());
-        if (perAxisType && perAxisType.getQuantizedDimension() == Dims4D::Act::C.ind()) {
-            log.trace("It's illegal to reshape perAxisType when quantizeDim is also IC");
+    } else {
+        const auto poolOutType = mlir::cast<vpux::NDTypeInterface>(poolInType).changeDimsOrder(targetOrder);
+        // If types exist per axis quantize, check if both types are consistent
+        auto inputPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(poolInType.getElementType());
+        auto outputPerAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(poolOutType.getElementType());
+        if ((inputPerAxisType || outputPerAxisType) && poolInType.getElementType() != poolOutType.getElementType()) {
+            log.trace("NCE MaxPool does not support inconsistent element type");
             return false;
         }
     }
@@ -257,14 +266,14 @@ bool isLegalConvertToPool(IE::MemPermuteOp memPermuteOp, mlir::AffineMap memPerm
 }
 
 //
-// MemPermuteRewriter
+// ConvertMemPermuteToMaxPool
 //
 
-class MemPermuteRewriter final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+class ConvertMemPermuteToMaxPool final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
-    MemPermuteRewriter(mlir::MLIRContext* ctx, int64_t numClusters, Logger log)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _numClusters(numClusters), _log(log) {
-        this->setDebugName("MemPermuteRewriter");
+    ConvertMemPermuteToMaxPool(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, int64_t numClusters, Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _numClusters(numClusters), _log(log) {
+        this->setDebugName("ConvertMemPermuteToMaxPool");
     }
 
 private:
@@ -275,20 +284,23 @@ private:
     Logger _log;
 };
 
-mlir::LogicalResult MemPermuteRewriter::matchAndRewrite(IE::MemPermuteOp origOp,
-                                                        mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult ConvertMemPermuteToMaxPool::matchAndRewrite(IE::MemPermuteOp origOp,
+                                                                mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
 
     // Check whether it is legal to convert
-    if (!isLegalConvertToPool(origOp, origOp.getMemPerm(), rewriter.getContext(), _numClusters, getDebugName(),
-                              _log.nest())) {
+    const auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+    const auto memPerm = origOp.getMemPerm();
+    const auto arch = config::getArch(origOp);
+    if (!isLegalConvertToPool(inputType, outputType, origOp.getInput().getDefiningOp(), memPerm, rewriter.getContext(),
+                              _numClusters, getDebugName(), arch, _log.nest())) {
         return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool");
     }
 
     const auto inOrder = DimsOrder::fromValue(origOp.getInput());
     const auto inShape = getShape(origOp.getInput());
     const auto inMemShape = inOrder.toMemoryOrder(inShape);
-    const auto memPerm = DimsOrder::fromAffineMap(origOp.getMemPerm());
 
     // Populate the target shape following NCHW order of dimensions.
     // Physical layout NHWC corresponds to logical layout NCHW.
@@ -303,7 +315,7 @@ mlir::LogicalResult MemPermuteRewriter::matchAndRewrite(IE::MemPermuteOp origOp,
                                                               DimsOrder::NHWC.toAffineMap(ctx), identityMap);
     inferReturnTypes(inPermuteCastOp, InferShapedTypeMode::ALL);
 
-    const auto targetOrder = getNHWCOutputLayout(memPerm);
+    const auto targetOrder = getNHWCOutputLayout(DimsOrder::fromAffineMap(memPerm));
 
     // Calculate the inputType of maxPoolOp
     Shape poolInLogicShape(inShape.size());
@@ -355,23 +367,24 @@ mlir::LogicalResult MemPermuteRewriter::matchAndRewrite(IE::MemPermuteOp origOp,
 }
 
 //
-// ConvertMemPermuteWithDimNChanged
+// ConvertMemPermuteWithPermuteCast
 //
-// Convert input shape of MemPermuteOp to make it feasible to convert to pool:
-//       Input: 1x1024x16x128xf16#NCHW                          Input: 1x1024x16x128xf16#NCHW
-//           |                                   ==>                   |
-//  MemPermute: 16x128x1x1024xf16#NCHW                      Shapecast: 1x1x1024x2048xf16#NCHW
-//           |    (mem_perm: [d2, d3, d0, d1])                         |   (mem_perm: [d0, d1, d3, d2])
-//                                                         MemPermute: 1x1x2048x1024xf16#NCHW
-//                                                                     |
-//                                                          Shapecast: 16x128x1x1024xf16#NCHW
+// Permute cast MemPermuteOp to make it feasible to convert to pool:
+//       Input: 1024x1x1x128xf16#NCHW                            Input: 1024x1x1x128xf16#NCHW
+//           |                                   ==>                 |
+//  MemPermute: 128x1024x1x1xf16#NHWC                      PermuteCast: 1x1024x1x128xf16#NCHW
+//           |    (mem_perm: [d3, d1, d2, d0])                       |    (mem_perm: [d1, d0, d2, d3])
+//                                                          MemPermute: 1x1024x128x1xf16#NHWC
+//                                                                   |    (mem_perm: [d0, d3, d2, d1])
+//                                                         PermuteCast: 128x1024x1x1xf16#NHWC
 //
 
-class ConvertMemPermuteWithDimNChanged final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+class ConvertMemPermuteWithPermuteCast final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
-    ConvertMemPermuteWithDimNChanged(mlir::MLIRContext* ctx, int64_t numClusters, Logger log)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _numClusters(numClusters), _log(log) {
-        this->setDebugName("ConvertMemPermuteWithDimNChanged");
+    ConvertMemPermuteWithPermuteCast(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, int64_t numClusters,
+                                     Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _numClusters(numClusters), _log(log) {
+        this->setDebugName("ConvertMemPermuteWithPermuteCast");
     }
 
 private:
@@ -382,82 +395,146 @@ private:
     Logger _log;
 };
 
-mlir::LogicalResult ConvertMemPermuteWithDimNChanged::matchAndRewrite(IE::MemPermuteOp origOp,
+mlir::LogicalResult ConvertMemPermuteWithPermuteCast::matchAndRewrite(IE::MemPermuteOp origOp,
                                                                       mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
     auto ctx = rewriter.getContext();
     const int64_t SUPPORTED_RANK = 4;
 
-    auto memPerm = DimsOrder::fromAffineMap(origOp.getMemPerm());
-    if (memPerm.dimAt(0) == Dims4D::Act::N) {
-        return matchFailed(_log.nest(), rewriter, origOp, "Not MemPermuteOp with DimN changed");
+    if (IE::hasDynamicTensors(origOp)) {
+        return matchFailed(_log.nest(), rewriter, origOp, "MemPermuteOp has dynamic tensors");
     }
-
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
-    if (inputType.getRank() != SUPPORTED_RANK) {
-        return matchFailed(_log.nest(), rewriter, origOp, "Not supported rank");
+    const auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+    const auto memPerm = origOp.getMemPerm();
+    const auto arch = config::getArch(origOp);
+    if (isLegalConvertToPool(inputType, outputType, origOp.getInput().getDefiningOp(), memPerm, ctx, _numClusters,
+                             getDebugName(), arch, _log.nest())) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Op is already legal to convert to Pool");
     }
-
-    auto [mergedPermutation, mergedMemShape] =
-            vpux::getMergedPermutationAndShape(inputType, origOp.getMemPerm(), SUPPORTED_RANK);
+    auto [mergedPermutation, mergedMemShape] = vpux::getMergedPermutationAndShape(inputType, memPerm, SUPPORTED_RANK);
     extendPermutationAndShape(mergedPermutation, mergedMemShape, SUPPORTED_RANK);
     auto mergedLogicShape = inputType.getDimsOrder().toLogicalOrder(MemShape(mergedMemShape));
-
-    IE::PermuteCastOp inPermuteCast = nullptr;
-    IE::ShapeCastOp inputShapeCast = nullptr;
-    bool isPerAxisQuant = false;
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType())) {
-        isPerAxisQuant = true;
-        auto hasValidPermuteCast = vpux::tryToFindPermuteCastOp(origOp.getLoc(), origOp.getInput(),
-                                                                inputType.getDimsOrder(), mergedLogicShape, rewriter);
-        if (!hasValidPermuteCast.has_value()) {
-            return matchFailed(_log.nest(), rewriter, origOp, "Not supported per axis quantize type");
-        }
-        inPermuteCast = hasValidPermuteCast.value();
-    } else {
-        // Create input ShapeCast
-        inputShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), origOp.getInput(), mergedLogicShape.raw(), rewriter);
-    }
-    // Create new MemPermuteOp
     auto newMemPermAttr = mlir::AffineMap::getPermutationMap(ArrayRef(mergedPermutation), ctx);
-    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(
-            origOp.getLoc(), isPerAxisQuant ? inPermuteCast.getOutput() : inputShapeCast.getResult(),
-            origOp.getDstOrder(), newMemPermAttr);
+    if (mergedLogicShape == inputType.getShape() && memPerm == newMemPermAttr) {
+        return matchFailed(_log.nest(), rewriter, origOp, "No need to permute cast");
+    }
+    auto hasValidInPermutationMap =
+            vpux::tryToFindPermutationForPermuteCast(inputType, inputType.getDimsOrder(), mergedLogicShape, rewriter);
+    if (!hasValidInPermutationMap.has_value()) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Can not convert to inPermuteCastOp");
+    }
     // Check whether it is legal to convert with new memPerm
-
-    if (!isLegalConvertToPool(newMemPermuteOp, newMemPermAttr, rewriter.getContext(), _numClusters, getDebugName(),
-                              _log.nest())) {
-        rewriter.eraseOp(newMemPermuteOp);
-        if (inputShapeCast) {
-            rewriter.eraseOp(inputShapeCast);
-        }
-        if (inPermuteCast) {
-            rewriter.eraseOp(inPermuteCast);
-        }
+    auto newMemPermuteInput =
+            inferNewTypeWithMemPerm(inputType, hasValidInPermutationMap.value(), inputType.getDimsOrder());
+    auto newMemPermuteOutput = inferNewTypeWithMemPerm(newMemPermuteInput, newMemPermAttr, outputType.getDimsOrder());
+    if (!isLegalConvertToPool(newMemPermuteInput, newMemPermuteOutput, nullptr, newMemPermAttr, ctx, _numClusters,
+                              getDebugName(), arch, _log.nest())) {
         return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool");
     }
-
-    // change shape back
-    if (isPerAxisQuant) {
-        const auto outType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
-        const auto outOrder = outType.getDimsOrder();
-        auto hasValidPermuteCast = vpux::tryToFindPermuteCastOp(origOp.getLoc(), newMemPermuteOp.getOutput(), outOrder,
-                                                                getShape(origOp.getResult()), rewriter);
-        if (!hasValidPermuteCast.has_value()) {
-            return matchFailed(_log.nest(), rewriter, origOp, "Not supported per axis quantize type");
-        }
-        rewriter.replaceOp(origOp, hasValidPermuteCast.value().getOutput());
-    } else {
-        auto outputShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), newMemPermuteOp.getOutput(),
-                                                        getShape(origOp.getResult()), rewriter);
-        rewriter.replaceOp(origOp, outputShapeCast);
+    auto hasValidOutPermutationMap = vpux::tryToFindPermutationForPermuteCast(
+            newMemPermuteOutput, outputType.getDimsOrder(), getShape(origOp.getResult()), rewriter);
+    if (!hasValidOutPermutationMap.has_value()) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Can not convert to outPermuteCastOp");
     }
+
+    // Create in PermuteCastOp
+    auto inPermuteCast = rewriter.create<IE::PermuteCastOp>(
+            origOp.getLoc(), origOp.getInput(), mlir::AffineMapAttr::get(inputType.getDimsOrder().toAffineMap(ctx)),
+            mlir::AffineMapAttr::get(hasValidInPermutationMap.value()));
+    // Create new MemPermuteOp
+    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), inPermuteCast.getOutput(),
+                                                             origOp.getDstOrder(), newMemPermAttr);
+    // Create out PermuteCastOp
+    auto outPermuteCast =
+            rewriter.create<IE::PermuteCastOp>(origOp.getLoc(), newMemPermuteOp.getOutput(),
+                                               mlir::AffineMapAttr::get(outputType.getDimsOrder().toAffineMap(ctx)),
+                                               mlir::AffineMapAttr::get(hasValidOutPermutationMap.value()));
+    rewriter.replaceOp(origOp, outPermuteCast.getOutput());
 
     return mlir::success();
 }
 
 //
-// ConvertMemPermuteWithUnalignedChannel
+// ConvertMemPermuteWithShapeCast
+//
+// Shape cast MemPermuteOp to make it feasible to convert to pool:
+//       Input: 2x256x16x64xf16#NCHW                             Input: 2x256x16x64xf16#NCHW
+//           |                                   ==>                 |
+//  MemPermute: 2x16x64x256xf16#NCHW                         ShapeCast: 1x2x256x1024xf16#NCHW
+//           |    (mem_perm: [d3, d1, d2, d0])                       |
+//                                                          MemPermute: 1x2x1024x256xf16#NCHW
+//                                                                   |    (mem_perm: [d0, d1, d3, d2])
+//                                                           ShapeCast: 2x16x64x256xf16#NCHW
+//
+
+class ConvertMemPermuteWithShapeCast final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+public:
+    ConvertMemPermuteWithShapeCast(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, int64_t numClusters,
+                                   Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _numClusters(numClusters), _log(log) {
+        this->setDebugName("ConvertMemPermuteWithShapeCast");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    int64_t _numClusters;
+    Logger _log;
+};
+
+mlir::LogicalResult ConvertMemPermuteWithShapeCast::matchAndRewrite(IE::MemPermuteOp origOp,
+                                                                    mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+    auto ctx = rewriter.getContext();
+    const int64_t SUPPORTED_RANK = 4;
+
+    if (IE::hasDynamicTensors(origOp)) {
+        return matchFailed(_log.nest(), rewriter, origOp, "MemPermuteOp has dynamic tensors");
+    }
+    const auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
+    const auto memPerm = origOp.getMemPerm();
+    const auto arch = config::getArch(origOp);
+    if (isLegalConvertToPool(inputType, outputType, origOp.getInput().getDefiningOp(), memPerm, ctx, _numClusters,
+                             getDebugName(), arch, _log.nest())) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Op is already legal to convert to Pool");
+    }
+    bool isPerAxisQuant = mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType());
+    if (isPerAxisQuant) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Can not reshape for per axis quant");
+    }
+    auto [mergedPermutation, mergedMemShape] = vpux::getMergedPermutationAndShape(inputType, memPerm, SUPPORTED_RANK);
+    extendPermutationAndShape(mergedPermutation, mergedMemShape, SUPPORTED_RANK);
+    auto mergedLogicShape = inputType.getDimsOrder().toLogicalOrder(MemShape(mergedMemShape));
+    auto newMemPermAttr = mlir::AffineMap::getPermutationMap(ArrayRef(mergedPermutation), ctx);
+    if (mergedLogicShape == inputType.getShape() && memPerm == newMemPermAttr) {
+        return matchFailed(_log.nest(), rewriter, origOp, "No need to shape cast");
+    }
+    // Check whether it is legal to convert with new memPerm
+    auto newMemPermuteInput = inputType.changeShape(mergedLogicShape);
+    auto newMemPermuteOutput = inferNewTypeWithMemPerm(newMemPermuteInput, newMemPermAttr, outputType.getDimsOrder());
+    if (!isLegalConvertToPool(newMemPermuteInput, newMemPermuteOutput, nullptr, newMemPermAttr, ctx, _numClusters,
+                              getDebugName(), arch, _log.nest())) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool");
+    }
+
+    // Create input ShapeCast
+    auto inShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), origOp.getInput(), mergedLogicShape.raw(), rewriter);
+    // Create new MemPermuteOp
+    auto newMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), inShapeCast.getResult(),
+                                                             origOp.getDstOrder(), newMemPermAttr);
+    // change shape back
+    auto outShapeCast = vpux::IE::buildShapeCast(origOp.getLoc(), newMemPermuteOp.getOutput(),
+                                                 getShape(origOp.getResult()), rewriter);
+    rewriter.replaceOp(origOp, outShapeCast);
+
+    return mlir::success();
+}
+
+//
+// ConvertMemPermuteWithExpand
 //
 // Insert Expand before MemPermuteOp to align channel and convert it to pool:
 //       Input: 1x16x1575x72xf16#NCHW
@@ -475,11 +552,11 @@ mlir::LogicalResult ConvertMemPermuteWithDimNChanged::matchAndRewrite(IE::MemPer
 //           |    (mem_perm: [d0, d1, d3, d2])
 //      Slice: 1x16x72x1575xf16#NCHW
 
-class ConvertMemPermuteWithUnalignedChannel final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+class ConvertMemPermuteWithExpand final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
 public:
-    ConvertMemPermuteWithUnalignedChannel(mlir::MLIRContext* ctx, int64_t numClusters, Logger log)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _numClusters(numClusters), _log(log) {
-        this->setDebugName("ConvertMemPermuteWithUnalignedChannel");
+    ConvertMemPermuteWithExpand(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, int64_t numClusters, Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx, benefit), _numClusters(numClusters), _log(log) {
+        this->setDebugName("ConvertMemPermuteWithExpand");
     }
 
 private:
@@ -490,8 +567,8 @@ private:
     Logger _log;
 };
 
-mlir::LogicalResult ConvertMemPermuteWithUnalignedChannel::matchAndRewrite(IE::MemPermuteOp origOp,
-                                                                           mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult ConvertMemPermuteWithExpand::matchAndRewrite(IE::MemPermuteOp origOp,
+                                                                 mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
     auto ctx = rewriter.getContext();
 
@@ -499,9 +576,11 @@ mlir::LogicalResult ConvertMemPermuteWithUnalignedChannel::matchAndRewrite(IE::M
     if (inputType.getRank() != int64_t(4)) {
         return matchFailed(_log.nest(), rewriter, origOp, "Only supports 4D shape rank");
     }
-
+    const auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
     const auto memPerm = origOp.getMemPerm();
-    if (isLegalConvertToPool(origOp, memPerm, ctx, _numClusters, getDebugName(), _log.nest())) {
+    const auto arch = config::getArch(origOp);
+    if (isLegalConvertToPool(inputType, outputType, origOp.getInput().getDefiningOp(), memPerm, ctx, _numClusters,
+                             getDebugName(), arch, _log.nest())) {
         return matchFailed(_log.nest(), rewriter, origOp,
                            "It is legal to convert MemPermute to Pool, no need to align channel");
     }
@@ -677,135 +756,6 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
 }
 
 //
-// AdaptTwoDimOnlyPermuteForDPU
-//
-
-class AdaptTwoDimOnlyPermuteForDPU final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
-public:
-    AdaptTwoDimOnlyPermuteForDPU(mlir::MLIRContext* ctx, int64_t numClusters, Logger log)
-            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _numClusters(numClusters), _log(log) {
-        this->setDebugName("AdaptTwoDimOnlyPermuteForDPU");
-    }
-
-private:
-    mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp origOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    int64_t _numClusters;
-    Logger _log;
-};
-
-mlir::LogicalResult AdaptTwoDimOnlyPermuteForDPU::matchAndRewrite(IE::MemPermuteOp origOp,
-                                                                  mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
-
-    auto ctx = rewriter.getContext();
-    auto nestedLog = _log.nest();
-    auto inputType = mlir::cast<NDTypeInterface>(origOp.getInput().getType());
-    auto outputType = mlir::cast<NDTypeInterface>(origOp.getOutput().getType());
-
-    constexpr int64_t SUPPORTED_RANK = 4;
-    if (inputType.getRank() != SUPPORTED_RANK) {
-        return matchFailed(nestedLog, rewriter, origOp, "Unsupported rank '{0}' != '{1}'", inputType.getRank(),
-                           SUPPORTED_RANK);
-    }
-
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputType.getElementType()) ||
-        mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outputType.getElementType())) {
-        return matchFailed(nestedLog, rewriter, origOp, "Input and/or output data type is quantized per axis.");
-    }
-
-    const auto inMemShape = inputType.getMemShape();
-    const auto memPermMap = origOp.getMemPerm();
-    if (isTrivialPermute(inMemShape, memPermMap)) {
-        return matchFailed(nestedLog, rewriter, origOp, "MemPermuteOp is trivial, no need to optimize.");
-    }
-
-    const auto numOnes = std::count_if(inMemShape.begin(), inMemShape.end(), [](auto val) {
-        return val == 1;
-    });
-
-    if (numOnes != 2) {
-        return matchFailed(nestedLog, rewriter, origOp,
-                           "Shape is unsupported for this optimization: there are {0} dims == 1; expected = 2",
-                           numOnes);
-    }
-
-    if (inputType.getShape()[Dims4D::Act::N] == 1) {
-        return matchFailed(nestedLog, rewriter, origOp, "No need to apply rewriter: batch is 1");
-    }
-
-    if (isLegalConvertToPool(origOp, memPermMap, ctx, _numClusters, getDebugName(), nestedLog)) {
-        return matchFailed(nestedLog, rewriter, origOp, "Op is already legal to convert to Pool");
-    }
-
-    // Aim to have 2 dims permuted among themselves
-    auto [mergedPermutation, mergedMemShape] = vpux::getMergedPermutationAndShape(inputType, memPermMap, 2);
-    if (mergedMemShape.size() != 2 || mergedPermutation != SmallVector<uint32_t>{1, 0}) {
-        return matchFailed(nestedLog, rewriter, origOp,
-                           "Merged memShape is too large, should have rank 2 (actual = {0}) and mergedPermutation "
-                           "should be {1, 0}",
-                           mergedMemShape.size());
-    }
-
-    const auto newShape = Shape({1, mergedMemShape[1], mergedMemShape[0], 1});
-    auto newMemPermuteInput = inputType.changeShape(newShape).changeDimsOrder(DimsOrder::NHWC);
-    auto newMemPermuteOutput = outputType.changeShape(newShape).changeDimsOrder(DimsOrder::NCHW);
-
-    // MemPermutation between NHWC -> NCHW is {0, 3, 1, 2}
-    const auto newMemPerm = DimsOrder::NWCH.toAffineMap(ctx);
-
-    auto arch = config::getArch(origOp);
-    // Passing nullptr as parent op, since the parent op will be a PermuteCast that has not yet been created
-    if (!isLegalConvertToPool(newMemPermuteInput, newMemPermuteOutput, /*parentOp = */ nullptr, newMemPerm, ctx,
-                              _numClusters, getDebugName(), arch, nestedLog)) {
-        return matchFailed(
-                nestedLog, rewriter, origOp,
-                "MemPermute after adaptation will not be a supported DPU permute. Do not apply transformation.");
-    }
-
-    auto getMemPerm = [&ctx](ArrayRef<int64_t> inputMemShape, ArrayRef<int64_t> outputMemShape) -> mlir::AffineMap {
-        SmallVector<int64_t> perm;
-        for (auto oIdx : irange(outputMemShape.size())) {
-            for (auto iIdx : irange(inputMemShape.size())) {
-                if (inputMemShape[iIdx] != outputMemShape[oIdx]) {
-                    continue;
-                }
-
-                if (llvm::find(perm, iIdx) != perm.end()) {
-                    continue;
-                }
-
-                perm.push_back(static_cast<int64_t>(iIdx));
-                break;
-            }
-        }
-
-        return mlir::AffineMap::getPermutationMap(perm, ctx);
-    };
-
-    auto inputPermCastMemPerm = getMemPerm(inMemShape.raw(), newMemPermuteInput.getMemShape().raw());
-    auto inPermCast = rewriter.create<IE::PermuteCastOp>(appendLoc(origOp.getLoc(), "_in_perm_cast"),
-                                                         newMemPermuteInput, origOp.getInput(),
-                                                         DimsOrder::NHWC.toAffineMap(ctx), inputPermCastMemPerm);
-
-    auto dpuFriendlyPermute =
-            rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), newMemPermuteOutput, inPermCast.getOutput(),
-                                              DimsOrder::NCHW.toAffineMap(ctx), newMemPerm);
-
-    const auto outMemShape = outputType.getMemShape();
-    auto outputPermCastMemPerm = getMemPerm(newMemPermuteOutput.getMemShape().raw(), outMemShape.raw());
-    auto outPermCast = rewriter.create<IE::PermuteCastOp>(
-            appendLoc(origOp.getLoc(), "_out_perm_cast"), outputType, dpuFriendlyPermute.getOutput(),
-            outputType.getDimsOrder().toAffineMap(ctx), outputPermCastMemPerm);
-
-    rewriter.replaceOp(origOp, outPermCast);
-    nestedLog.trace("Successfully adapted MemPermute to be convertible to DPU op.");
-
-    return mlir::success();
-}
-
-//
 // ConvertMemPermuteToOpPass
 //
 
@@ -834,14 +784,17 @@ void ConvertMemPermuteToOpPass::safeRunOnFunc() {
         signalPassFailure();
     }
 
-    auto tileOp = IE::getTileExecutor(func);
+    auto tileOp = config::getTileExecutor(func);
     auto numClusters = tileOp.getCount();
 
+    // For HW limitation, only N = 1 NHWC and channel aligned MemPermute can be converted to MaxPool directly.
+    // And for those can not be converted directly, first do some conversions, and then convert to MaxPool.
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<AdaptTwoDimOnlyPermuteForDPU>(&ctx, numClusters, _log);
-    patterns.add<ConvertMemPermuteWithDimNChanged>(&ctx, numClusters, _log);
-    patterns.add<ConvertMemPermuteWithUnalignedChannel>(&ctx, numClusters, _log);
-    patterns.add<MemPermuteRewriter>(&ctx, numClusters, _log);
+    // PermuteCast works much better than ShapeCast later on during tiling/multiclustering/VF passes
+    patterns.add<ConvertMemPermuteWithPermuteCast>(&ctx, benefitLevels[0], numClusters, _log);
+    patterns.add<ConvertMemPermuteWithShapeCast>(&ctx, benefitLevels[1], numClusters, _log);
+    patterns.add<ConvertMemPermuteWithExpand>(&ctx, benefitLevels[2], numClusters, _log);
+    patterns.add<ConvertMemPermuteToMaxPool>(&ctx, benefitLevels[3], numClusters, _log);
 
     if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

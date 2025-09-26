@@ -9,6 +9,9 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
+#include <mlir/Dialect/Arith/Utils/Utils.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+
 using namespace vpux;
 
 //
@@ -114,6 +117,25 @@ mlir::LogicalResult vpux::VPU::SliceOp::inferReturnTypes(mlir::MLIRContext* ctx,
         inferredTypes.emplace_back(newType);
     }
 
+    return mlir::success();
+}
+
+mlir::LogicalResult VPU::SliceOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                    mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    SmallVector<mlir::OpFoldResult> shapes;
+    auto loc = getOperation()->getLoc();
+    auto outputShapedType = llvm::cast<mlir::ShapedType>(getOutput().getType());
+    for (int64_t dim : llvm::seq<int64_t>(0, outputShapedType.getRank())) {
+        if (!outputShapedType.isDynamicDim(dim)) {
+            // Static dim: Return IntegerAttr.
+            shapes.push_back(builder.getIndexAttr(outputShapedType.getDimSize(dim)));
+        } else {
+            // Dynamic dim: Return Value.
+            mlir::OpFoldResult ofr = builder.createOrFold<mlir::tensor::DimOp>(loc, getInput(), dim);
+            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, ofr));
+        }
+    }
+    reifiedReturnShapes.emplace_back(std::move(shapes));
     return mlir::success();
 }
 

@@ -286,7 +286,7 @@ mlir::LogicalResult vpux::IE::ConcatOp::inferReturnTypeComponents(
 
         // Return inferred components
         const auto outDesc =
-                vpux::getTensorAttr(ctx, inDesc.getOrder(), inDesc.getMemSpace(), Bounds(outBounds.value().raw()));
+                vpux::getTensorAttr(ctx, inDesc.getOrder(), inDesc.getMemSpace(), BoundsRef(outBounds.value().raw()));
         inferredReturnShapes.emplace_back(outShape.value().raw(), outElemType.value(), outDesc);
     }
     return mlir::success();

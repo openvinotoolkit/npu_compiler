@@ -104,15 +104,24 @@ private:
             if (dynamicQuantization.has_value() && dynamicQuantization.value()) {
                 _initCompilerOptions->weightsTableReuseMode = vpux::WeightsTableReuseMode::ENABLED;
             }
-            maybeSetValue(_initCompilerOptions->enableAdaptiveStripping, getQDQOptimization(configVal));
+
+            auto optimizationAggressiveEnabled = getQDQOptimizationAggressive(configVal);
+            maybeSetValue(_initCompilerOptions->enableQDQOptimizationAggressive, optimizationAggressiveEnabled);
+
+            auto optimizationEnabled = getQDQOptimization(configVal);
+            _initCompilerOptions->enableAdaptiveStripping =
+                    optimizationAggressiveEnabled.value_or(false) || optimizationEnabled.value_or(false);
+
+            maybeSetValue(_initCompilerOptions->enableProfiling, getPerfCount(configVal));
 
             const auto& numOfDPUGroups = _initCompilerOptions->numberOfDPUGroups;
             const auto& numOfDMAPorts = _initCompilerOptions->numberOfDMAPorts;
-            VPUX_THROW_WHEN(numOfDPUGroups.hasValue() && numOfDMAPorts.hasValue() &&
-                                    numOfDMAPorts.getValue() > numOfDPUGroups.getValue(),
+
+            bool invalidConfig = numOfDPUGroups.hasValue() && numOfDMAPorts.hasValue() &&
+                                 numOfDMAPorts.getValue() > numOfDPUGroups.getValue();
+            VPUX_THROW_WHEN(invalidConfig,
                             "Requested configuration not supported by runtime. Number of DMA ports ({0}) larger than "
-                            "NCE clusters "
-                            "({1})",
+                            "NCE clusters ({1})",
                             numOfDMAPorts.getValue(), numOfDPUGroups.getValue());
 
             // TODO: #169147 remove this WA
@@ -189,11 +198,14 @@ protected:
 
 private:
     static void setupOptionsCommon(ArchSpecificOptionsType& options) {
+        // E#127228 Enable profiling
         overwriteIfUnset(options.enableProfiling, false);
         // E#127228 Introduce IE.Swizzle operation
         overwriteIfUnset(options.enableWeightsSwizzling, false);
         // E#127235 Introduce IE.Sparsify operation
         overwriteIfUnset(options.enableWeightsSparsity, false);
+        // E#182190: Enable vertical fusion outlining
+        overwriteIfUnset(options.enableVerticalFusionOutlining, false);
     }
 };
 
@@ -216,8 +228,12 @@ protected:
 
 private:
     static void setupOptionsCommon(ArchSpecificOptionsType& options) {
+        // E#176434: remove option
+        overwriteIfUnset(options.enableConvertQuantizeOpsToNceOps, false);
         overwriteIfUnset(options.enableAdjustPrecisionPipeline, false);
         overwriteIfUnset(options.enableConvertWeightsToU8I4, false);
+        // E#182190: Enable vertical fusion outlining
+        overwriteIfUnset(options.enableVerticalFusionOutlining, false);
     }
 };
 

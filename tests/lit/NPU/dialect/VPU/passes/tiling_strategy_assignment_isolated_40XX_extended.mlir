@@ -8,9 +8,9 @@
 
 module @Test {
 
-IE.TileResource 1 of @NCE {
-IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+config.Resources 1 of @NCE {
+config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: func.func @MVNTileOverCEvenly
@@ -43,9 +43,9 @@ func.func @MVNTileOverCEvenly(%arg0: tensor<1x18x93200x1xf16>) -> tensor<1x18x93
 
 module @Test {
 
-IE.TileResource 1 of @NCE {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+config.Resources 1 of @NCE {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: func.func @GruGatesSplitH
@@ -66,4 +66,3 @@ func.func @GruGatesSplitH(%arg0: tensor<1x1x200x76800xf16>, %arg1: tensor<1x1x20
 }
 
 }
-

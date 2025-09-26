@@ -3,7 +3,9 @@
 //
 
 #include "subgraph_tests/memory_LSTMCell.hpp"
+#include <common_test_utils/test_constants.hpp>
 #include <shared_test_classes/subgraph/memory_LSTMCell.hpp>
+#include "common/npu_test_env_cfg.hpp"
 #include "vpu_test_tool.hpp"
 
 using namespace ov::test::utils;
@@ -45,7 +47,7 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_MemoryLSTMCellTest, MemoryLSTMCellTest,
         ::testing::Combine(
                 ::testing::ValuesIn(transformation),
-                ::testing::Values(std::string(ov::test::utils::DEVICE_NPU) + "." +
+                ::testing::Values(std::string(test_utils::TARGET_DEVICE) + "." +
                                   removeDeviceNameOnlyID(ov::test::utils::getTestsPlatformFromEnvironmentOr("3720"))),
                 ::testing::Values(ov::element::f32), ::testing::ValuesIn(inputSizes), ::testing::ValuesIn(hiddenSizes),
                 ::testing::Values(additionalConfig)),

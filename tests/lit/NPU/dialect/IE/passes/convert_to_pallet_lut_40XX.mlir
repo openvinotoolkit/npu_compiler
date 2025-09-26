@@ -41,9 +41,9 @@ func.func @DontConvertU4UniformSymmZpPerAxisType(%arg0: tensor<1x16x16x16xf16>) 
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 
@@ -61,9 +61,9 @@ func.func @DontConvertI2UniformSymmZp(%arg0: tensor<1x16x16x16xf16>) -> tensor<1
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 
@@ -81,9 +81,9 @@ func.func @DontConvertU2UniformSymmZp(%arg0: tensor<1x16x16x16xf16>) -> tensor<1
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 
@@ -153,9 +153,9 @@ func.func @ConvertU4UniformAsymmZpPerAxisTypeAllEqualZp(%arg0: tensor<1x16x16x16
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 
@@ -173,9 +173,9 @@ func.func @ConvertI2UniformAsymmZpToFp16Quantile(%arg0: tensor<1x16x16x16xf16>) 
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 
@@ -193,9 +193,9 @@ func.func @ConvertU2UniformAsymmZpToFp16Quantile(%arg0: tensor<1x16x16x16xf16>) 
 
   return %result : tensor<1x16x16x16xf16>
 
-  //CHECK: [[CST:%.*]] = const.Declare tensor<16x16x1x1x!qElemType>
-  //CHECK: [[DEQUANT:%.*]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
-  //CHECK: [[CONV:%.*]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
+  //CHECK: [[CST:%.+]] = const.Declare tensor<16x16x1x1x!qElemType>
+  //CHECK: [[DEQUANT:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<16x16x1x1x!qElemType> -> tensor<16x16x1x1xf16>
+  //CHECK: [[CONV:%.+]] = IE.Convolution([[ARG0]], [[DEQUANT]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x16x16xf16>, tensor<16x16x1x1xf16> -> tensor<1x16x16x16xf16>
   //CHECK: return [[CONV]]
 }
 

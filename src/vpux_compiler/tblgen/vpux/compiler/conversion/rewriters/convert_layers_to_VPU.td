@@ -21,7 +21,6 @@ include "vpux/compiler/dialect/IE/ops/normalization.td"
 include "vpux/compiler/dialect/IE/ops/pooling.td"
 include "vpux/compiler/dialect/IE/ops/recurrent.td"
 include "vpux/compiler/dialect/IE/ops/reduce.td"
-include "vpux/compiler/dialect/IE/ops/resources.td"
 include "vpux/compiler/dialect/IE/ops/shape_manipulation.td"
 include "vpux/compiler/dialect/IE/ops/specialized.td"
 
@@ -152,6 +151,27 @@ def RewriteAvgPool :
         Pat<
             (IE_AvgPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $exclude_pads, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
             (createAvgPoolOp $input, $kernel_size, $strides, $pads_begin, $pads_end, $rounding_type, $exclude_pads),
+            [
+                (ShouldBeNull<"post_op must be null">:$post_op),
+                (ShouldBeNull<"clamp must be null">:$clamp),
+                (ShouldBeNull<"static_scale must be null">:$static_scale)
+            ]
+        >;
+
+//
+// IE.AvgPool16 -> VPU.AvgPool16
+//
+
+def createAvgPool16Op :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::AvgPool16Op>(
+                $_loc, $0, $1, $2, $3, $4, $5, $6, $7)
+        }]>;
+
+def RewriteAvgPool16 :
+        Pat<
+            (IE_AvgPool16Op $input, $kernel_size, $strides, $dilations, $pads_begin, $pads_end, $rounding_type, $exclude_pads, $post_op, $clamp, $static_scale, $output_padding, $input_padding),
+            (createAvgPool16Op $input, $kernel_size, $strides, $dilations, $pads_begin, $pads_end, $rounding_type, $exclude_pads),
             [
                 (ShouldBeNull<"post_op must be null">:$post_op),
                 (ShouldBeNull<"clamp must be null">:$clamp),
@@ -1586,13 +1606,13 @@ def RewriteReorgYolo :
 def createMVNOp :
         NativeCodeCall<[{
             $_builder.create<vpux::VPU::MVNOp>(
-                $_loc, $0, $1, $2, $3, $4)
+                $_loc, $0, $1, $2, $3, $4, $5)
         }]>;
 
 def RewriteMVN :
         Pat<
-            (IE_MVNOp $input, $across_channels, $normalize_variance, $eps, $internal_reshape),
-            (createMVNOp $input, $across_channels, $normalize_variance, $eps, $internal_reshape)
+            (IE_MVNOp $input, $across_channels, $normalize_variance, $eps, $internal_reshape, $norm_high_prc),
+            (createMVNOp $input, $across_channels, $normalize_variance, $eps, $internal_reshape, $norm_high_prc)
         >;
 
 //
@@ -2285,14 +2305,14 @@ def createSDPAOp :
             $_builder.create<vpux::VPU::SDPAOp>($_loc, $0, $1, $2,
             $3.size() == 1 ? $3[0] : nullptr,
             $4.size() == 1 ? $4[0] : nullptr,
-            $5.size() == 1 ? $5[0] : nullptr,
+            nullptr,
             nullptr)
         }]>;
 
 def RewriteSDPA :
         Pat<
-            (IE_SDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputBias),
-            (createSDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $inputBias)
+            (IE_SDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $causal),
+            (createSDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale)
         >;
 
 //

@@ -114,28 +114,28 @@ const auto params_trueI420 =
                          testing::ValuesIn(dTypes),     // elem Type
                          testing::Values(true, false),  // conv_to_RGB
                          testing::Values(true),         // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params_falseI420 =
         testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(inputShapeFalseI420)),
                          testing::ValuesIn(dTypes),     // elem Type
                          testing::Values(true, false),  // conv_to_RGB
                          testing::Values(false),        // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 // NV12
 const auto params_trueNV12 =
         testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(inputShapeTrueNV12)),
                          testing::ValuesIn(dTypes),     // elem Type
                          testing::Values(true, false),  // conv_to_RGB
                          testing::Values(true),         // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params_falseNV12 =
         testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(inputShapeFalseNV12)),
                          testing::ValuesIn(dTypes),     // elem Type
                          testing::Values(true, false),  // conv_to_RGB
                          testing::Values(false),        // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 // Case for 4000 M2I
 auto inputShapeM2ITrueI420 = generate_input_static_shapes(inShapeM2I, I420, true);
 auto inputShapeM2ITrueNV12 = generate_input_static_shapes(inShapeM2I, NV12, true);
@@ -146,14 +146,14 @@ const auto paramsM2II420 =
                          testing::Values(ov::element::u8),                                                // elem Type
                          testing::Values(true, false),                                                    // conv_to_RGB
                          testing::Values(true),  // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 // NV12
 const auto paramsM2INV12 =
         testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(inputShapeM2ITrueNV12)),  // QVGA
                          testing::Values(ov::element::u8),                                                // elem Type
                          testing::Values(true, false),                                                    // conv_to_RGB
                          testing::Values(true),  // is_single_plane
-                         testing::Values(DEVICE_NPU));
+                         testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ConvertColorNV12_true, ConvertColorNV12LayerTestCommon, params_trueNV12,
                          ConvertColorNV12LayerTestCommon::getTestCaseName);

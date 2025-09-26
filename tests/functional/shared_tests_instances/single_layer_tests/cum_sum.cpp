@@ -55,23 +55,23 @@ const auto testCaseAxis_0 =
                          testing::Values(axes[0]),                                                // Axis
                          testing::Values(exclusive[0]),                                           // Exclusive
                          testing::Values(reverse[1]),                                             // Reverse
-                         testing::Values(DEVICE_NPU));                                            // Device name
+                         testing::Values(test_utils::TARGET_DEVICE));                             // Device name
 
-const auto testCasesNegativeAxis =
-        testing::Combine(testing::ValuesIn({static_shapes_to_test_representation({shapes[0]})}),
-                         testing::Values(inputPrecision[1]), testing::ValuesIn(negativeAxes),
-                         testing::Values(exclusive[1]), testing::Values(reverse[0]), testing::Values(DEVICE_NPU));
+const auto testCasesNegativeAxis = testing::Combine(
+        testing::ValuesIn({static_shapes_to_test_representation({shapes[0]})}), testing::Values(inputPrecision[1]),
+        testing::ValuesIn(negativeAxes), testing::Values(exclusive[1]), testing::Values(reverse[0]),
+        testing::Values(test_utils::TARGET_DEVICE));
 
 std::vector<std::vector<ov::Shape>> iShape(shapes.begin() + 1, shapes.end());
 const auto testCasesRealNet =
         testing::Combine(testing::ValuesIn(static_shapes_to_test_representation(iShape)),
                          testing::Values(inputPrecision[0]), testing::Values(axes[1]), testing::Values(exclusive[1]),
-                         testing::Values(reverse[1]), testing::Values(DEVICE_NPU));
+                         testing::Values(reverse[1]), testing::Values(test_utils::TARGET_DEVICE));
 
-const auto testCasePrecommit =
-        testing::Combine(testing::ValuesIn({static_shapes_to_test_representation({shapes[4]})}),
-                         testing::ValuesIn(inputLowPrecision), testing::ValuesIn(negativeAxes),
-                         testing::ValuesIn(exclusive), testing::ValuesIn(reverse), testing::Values(DEVICE_NPU));
+const auto testCasePrecommit = testing::Combine(testing::ValuesIn({static_shapes_to_test_representation({shapes[4]})}),
+                                                testing::ValuesIn(inputLowPrecision), testing::ValuesIn(negativeAxes),
+                                                testing::ValuesIn(exclusive), testing::ValuesIn(reverse),
+                                                testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_CumSum_axis_0, CumSumLayerTestCommon, testCaseAxis_0,
                          CumSumLayerTestCommon::getTestCaseName);

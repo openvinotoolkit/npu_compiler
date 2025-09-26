@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/BuiltinAttributes.h>
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
@@ -155,7 +156,7 @@ bool isAdaptiveStripping(mlir::Value output, mlir::Value& input1, mlir::Value& i
 }
 
 void createSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK, mlir::Value inputV, mlir::Value mask,
-                mlir::Value scale, mlir::Value bias, IE::TransposeOp transposeK = nullptr) {
+                mlir::Value scale, IE::TransposeOp transposeK = nullptr) {
     auto builder = mlir::OpBuilder(op);
     mlir::Value sdpaKInput = inputK;
     if (transposeK) {
@@ -163,8 +164,9 @@ void createSDPA(mlir::Operation* op, mlir::Value inputQ, mlir::Value inputK, mli
                                                              transposeK.getOrderValueAttr());
         sdpaKInput = transposedKOp.getOutput();
     }
-    auto sdpaOp =
-            builder.create<IE::SDPAOp>(appendLoc(op->getLoc(), "_sdpa"), inputQ, sdpaKInput, inputV, mask, scale, bias);
+    auto causal = nullptr;  // information about the causality of the original SDPAOp is lost
+    auto sdpaOp = builder.create<IE::SDPAOp>(appendLoc(op->getLoc(), "_sdpa"), inputQ, sdpaKInput, inputV, mask, scale,
+                                             causal);
     op->replaceAllUsesWith(sdpaOp);
 }
 
@@ -228,7 +230,7 @@ void FuseSDPAPass::safeRunOnFunc() {
                                                              nullptr, orderAttr);
         auto newSdpaOp = builder.create<IE::SDPAOp>(
                 appendLoc(sdpaOp->getLoc(), "_sdpa"), sdpaOp.getInputQ(), sdpaOp.getInputK(), transposedVOp.getOutput(),
-                sdpaOp.getInputMask(), sdpaOp.getInputScale(), sdpaOp.getInputBias());
+                sdpaOp.getInputMask(), sdpaOp.getInputScale(), sdpaOp.getCausalAttr());
         newSdpaOp->setAttrs(sdpaOp->getAttrs());
         sdpaOp->replaceAllUsesWith(newSdpaOp);
     });
@@ -257,7 +259,7 @@ void FuseSDPAPass::safeRunOnFunc() {
                 if (!isLegalSDPA(inputQ)) {
                     return;
                 }
-                createSDPA(reshape0Op, inputQ, inputK, inputV, mask, nullptr, nullptr);
+                createSDPA(reshape0Op, inputQ, inputK, inputV, mask, nullptr);
             }
             return;
         }
@@ -292,7 +294,7 @@ void FuseSDPAPass::safeRunOnFunc() {
         if (!isLegalSDPA(inputQ)) {
             return;
         }
-        createSDPA(reshape0Op, inputQ, inputK, inputV, mask, nullptr, nullptr, transposeK);
+        createSDPA(reshape0Op, inputQ, inputK, inputV, mask, nullptr, transposeK);
     });
 }
 

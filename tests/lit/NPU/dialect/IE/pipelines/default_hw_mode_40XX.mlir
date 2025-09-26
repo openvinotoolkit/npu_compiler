@@ -104,6 +104,8 @@ module @TwoFunctions {
 
 // -----
 
+#map1 = affine_map<(d0, d1, d2, d3) -> (d1, d3, d0, d2)>
+
 // CHECK-LABEL-DAG: @MatMulWithGroupQuant
 // CHECK-DAG: [[Q_TYPE:!.*]] = !quant.uniform<i4:f16, 2.000000e+00>
 // CHECK-DAG: [[Q_TYPE1:!.*]] = !quant.uniform<u4:f16, 2.000000e+00:8>
@@ -171,10 +173,6 @@ module @MatMulWithGroupQuant {
         // CHECK-SAME:      strides = [1, 1]
         // CHECK-SAME:  } : tensor<1x1024x4x4xf16, {order = #NHWC}>, tensor<4096x1024x1x1x!qElemType, {order = #NHWC}> -> tensor<1x4096x4x4xf16, {order = #NHWC}>
 
-        // CHECK:   [[RESHAPE_CONV_0:%.*]] = IE.AffineReshape([[CONV_0]]) {
-        // CHECK-SAME:      shape_value = [1, 4096, 16, 1]
-        // CHECK-SAME:  } : tensor<1x4096x4x4xf16, {order = #NHWC}> -> tensor<1x4096x16x1xf16, {order = #NHWC}>
-
         // CHECK:   [[RESHAPE_SLICE_1:%.*]] = IE.AffineReshape([[SLICE_1]]) {
         // CHECK-SAME:      shape_value = [16, 1024, 1, 1]
         // CHECK-SAME:  } : tensor<1x1x16x1024xf16> -> tensor<16x1024x1x1xf16>
@@ -193,10 +191,6 @@ module @MatMulWithGroupQuant {
         // CHECK-SAME:      pads_end = [0, 0],
         // CHECK-SAME:      strides = [1, 1]
         // CHECK-SAME:  } : tensor<1x1024x4x4xf16, {order = #NHWC}>, tensor<4096x1024x1x1x!qElemType, {order = #NHWC}> -> tensor<1x4096x4x4xf16, {order = #NHWC}>
-
-        // CHECK:   [[RESHAPE_CONV_1:%.*]] = IE.AffineReshape([[CONV_1]]) {
-        // CHECK-SAME:      shape_value = [1, 4096, 16, 1]
-        // CHECK-SAME:  } : tensor<1x4096x4x4xf16, {order = #NHWC}> -> tensor<1x4096x16x1xf16, {order = #NHWC}>
 
         // CHECK:   [[RESHAPE_SLICE_2:%.*]] = IE.AffineReshape([[SLICE_2]]) {
         // CHECK-SAME:      shape_value = [16, 1024, 1, 1]
@@ -217,28 +211,28 @@ module @MatMulWithGroupQuant {
         // CHECK-SAME:      strides = [1, 1]
         // CHECK-SAME:  } : tensor<1x1024x4x4xf16, {order = #NHWC}>, tensor<4096x1024x1x1x!qElemType, {order = #NHWC}> -> tensor<1x4096x4x4xf16, {order = #NHWC}>
 
-        // CHECK:   [[RESHAPE_CONV_2:%.*]] = IE.AffineReshape([[CONV_2]]) {
+        // CHECK:   [[ADD_0:%.+]] = IE.Add([[CONV_0]], [[CONV_1]])
+        // CHECK:   [[ADD_1:%.+]] = IE.Add([[ADD_0]], [[CONV_2]])
+
+        // CHECK:   [[RESHAPE_ADD_OUT:%.+]] = IE.AffineReshape([[ADD_1]]) {
         // CHECK-SAME:      shape_value = [1, 4096, 16, 1]
-        // CHECK-SAME:  } : tensor<1x4096x4x4xf16, {order = #NHWC}> -> tensor<1x4096x16x1xf16, {order = #NHWC}>
+        // CHECK-SAME:  } : tensor<1x4096x4x4xf32, {order = #NHWC}> -> tensor<1x4096x16x1xf32, {order = #NHWC}>
 
-        // CHECK:   [[ADD_0:%.*]] = IE.Accumulate([[RESHAPE_CONV_0]], [[RESHAPE_CONV_1]])
-        // CHECK:   [[ADD_1:%.*]] = IE.Accumulate([[ADD_0]], [[RESHAPE_CONV_2]])
-
-        // CHECK:   [[PERMUTE_CAST_OUT:%.*]] = IE.PermuteCast([[ADD_1]]) {
+        // CHECK:   [[PERMUTE_CAST_OUT:%.+]] = IE.PermuteCast([[RESHAPE_ADD_OUT]]) {
         // CHECK-SAME:      dst_order = #NCHW,
-        // CHECK-SAME:      mem_perm = #NHCW
-        // CHECK-SAME:  } : tensor<1x4096x16x1xf16, {order = #NHWC}> -> tensor<1x1x16x4096xf16>
+        // CHECK-SAME:      mem_perm = #map1
+        // CHECK-SAME:  } : tensor<1x4096x16x1xf32, {order = #NHWC}> -> tensor<16x4096x1x1xf32>
 
-        // CHECK:   [[CONVERT_OUT:%.*]] = IE.Convert([[PERMUTE_CAST_OUT]]) {
-        // CHECK-SAME:      dstElemType = f32
-        // CHECK-SAME:  } : tensor<1x1x16x4096xf16> -> tensor<1x1x16x4096xf32>
+        // CHECK:   [[RESHAPE_OUT_0:%.+]] = IE.AffineReshape([[PERMUTE_CAST_OUT]]) {
+        // CHECK-SAME:      shape_value = [1, 1, 16, 4096]
+        // CHECK-SAME:  } : tensor<16x4096x1x1xf32> -> tensor<1x1x16x4096xf32>
 
-        // CHECK:   [[RESHAPE_OUT:%.*]] = IE.AffineReshape([[CONVERT_OUT]]) {
+        // CHECK:   [[RESHAPE_OUT_1:%.+]] = IE.AffineReshape([[RESHAPE_OUT_0]]) {
         // CHECK-SAME:      shape_value = [16, 4096]
         // CHECK-SAME:  } : tensor<1x1x16x4096xf32> -> tensor<16x4096xf32>
 
         return %GEMM : tensor<16x4096xf32>
-        // CHECK:   return [[RESHAPE_OUT]] : tensor<16x4096xf32>
+        // CHECK:   return [[RESHAPE_OUT_1]] : tensor<16x4096xf32>
     }
 }
 

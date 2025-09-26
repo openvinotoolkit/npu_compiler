@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -101,23 +102,24 @@ void FuseRoPEPass::safeRunOnFunc() {
         if (!stridedSliceOp1) {
             return;
         }
-        auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(stridedSliceOp1->getOperand(0).getType());
+        auto tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(stridedSliceOp1->getOperand(0).getType());
         if (!tensorType || tensorType.getRank() != 4) {
             return;
         }
 
-        // For avoiding performance decrese for certain networks, we limit the cases in which H = 1 only to
-        // dimensions {N, 1, 1, 64} and {N, 64, 1, 64}
-        // Follow next ticket for updates on generalizing the pass: E#162922
-        const int unsupportedH = 1;
-        const int supportedC1 = 1;
-        const int supportedC2 = 64;
-        const int supportedW = 64;
-        auto shape = tensorType.getShape();
+        const auto shape = tensorType.getShape();
 
-        if (shape[2] == unsupportedH && !(shape[1] == supportedC1 && shape[3] == supportedW) &&
-            !(shape[1] == supportedC2 && shape[3] == supportedW)) {
-            return;
+        // For avoiding performance decrease for certain networks, we limit the cases below for H = 1.
+        // Follow next ticket for updates on generalizing the pass: E#162922
+        constexpr int64_t unsupportedH = 1;
+        const auto channelAndWidth = SmallVector<SmallVector<int64_t>>{{1, 64}, {64, 64}, {16, 128}, {2, 128}};
+
+        if (shape[Dims4D::Act::H] == unsupportedH) {
+            auto it = std::find(channelAndWidth.begin(), channelAndWidth.end(),
+                                SmallVector<int64_t>{shape[Dims4D::Act::C], shape[Dims4D::Act::W]});
+            if (it == channelAndWidth.end()) {
+                return;
+            }
         }
 
         _log.trace("RoPE pattern matched for operation {0} at {1}", addOp->getName(), addOp->getLoc());

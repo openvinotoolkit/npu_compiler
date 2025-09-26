@@ -3,20 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
-#include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
-
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/cache_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
+#include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-
-#include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -105,7 +104,8 @@ bool AddSwKernelInstructionPrefetch::hasVPUSWModule(mlir::Operation* funcOp) {
 }
 
 size_t AddSwKernelInstructionPrefetch::getOffsetReservedMem(const mlir::ModuleOp module) {
-    auto cachePrefetchMem = IE::getDummySwKernelsForInstructionPrefetchReservedMemory(module, VPU::MemoryKind::CMX_NN);
+    auto cachePrefetchMem =
+            config::getDummySwKernelsForInstructionPrefetchReservedMemory(module, VPU::MemoryKind::CMX_NN);
     auto offsetCachePrefetch = cachePrefetchMem.getOffset();
     VPUX_THROW_WHEN(!offsetCachePrefetch.has_value(),
                     "DummySwKernelsForInstructionPrefetchReservedMemory offset is not set!");
@@ -142,7 +142,7 @@ mlir::SymbolRefAttr AddSwKernelInstructionPrefetch::getPrefetchSymbol(mlir::Oper
 }
 
 size_t AddSwKernelInstructionPrefetch::getNumTiles(mlir::ModuleOp moduleOp) {
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     return tileOp.getCount();
 }
 
@@ -232,6 +232,9 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelOpBeforeFirst
             builder, mlir::ValueRange(), updateBarrier, newLoc, mlir::ValueRange(srcBuffers),
             mlir::ValueRange(dstBuffers), nullptr, kernelNameToSymbol[kernelName], kernelOp.getTileIndexAttr(),
             kernelOp.getInputStridesAttr(), kernelOp.getOutputStridesAttr());
+    // The dummy kernels here are generated after ActShaveProfilingPass,
+    // so we need to add skipProfiling as attribute to avoid capturing their metadata
+    cachePrefetchSwKernel->setAttr("skipProfiling", mlir::UnitAttr::get(firstSwTask->getContext()));
 
     auto args =
             (kernelName == "convert") ? mlir::ArrayAttr::get(moduleOp->getContext(), {}) : kernelNameToArgs[kernelName];
@@ -384,7 +387,7 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     const auto numClusters = getNumTiles(moduleOp);
     const auto noOfShavesPerCluster =
-            IE::getTileExecutor(moduleOp).getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
+            config::getTileExecutor(moduleOp).getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
     _log.info("numClusters {0}, noOfShavesPerCluster: {1}", numClusters, noOfShavesPerCluster);
     std::vector<VPUIP::SwKernelOp> prefetchedKernels{};
     prefetchedKernels.reserve(numClusters * noOfShavesPerCluster);
@@ -427,9 +430,10 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
     _log.trace("Finished simulation");
 
     auto allTasks = infSim.getTaskCycleConfig();
-    std::sort(allTasks.begin(), allTasks.end(), [](const VPURT::TaskConfig& first, const VPURT::TaskConfig& second) {
-        return first.cycleStart < second.cycleStart;
-    });
+    std::stable_sort(allTasks.begin(), allTasks.end(),
+                     [](const VPURT::TaskConfig& first, const VPURT::TaskConfig& second) {
+                         return first.cycleStart < second.cycleStart;
+                     });
 
     auto [useDummyKernelForInstructionPrefetch, minimumShaveStartTimeForPrefetch] =
             vpux::VPUIP::getSwKernelInstructionPrefetchConfig(arch);
@@ -447,7 +451,7 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
 
     if (_useDummyKernelForInstructionPrefetch) {
         auto memSpaceAttr = mlir::SymbolRefAttr::get(module->getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
-        auto dummyKernelResMem = IE::getDummySwKernelsForInstructionPrefetchReservedMemory(module, memSpaceAttr);
+        auto dummyKernelResMem = config::getDummySwKernelsForInstructionPrefetchReservedMemory(module, memSpaceAttr);
         VPUX_THROW_WHEN(dummyKernelResMem == nullptr,
                         "Cannot find DummySWKernelsForInstructionPrefetchReservedMemory!");
     }

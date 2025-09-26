@@ -35,19 +35,19 @@ const auto precommit_SpaceToBatch_3D = ::testing::Combine(
         ::testing::Values(std::vector<int64_t>{1, 1, 8}), ::testing::Values(std::vector<int64_t>{0, 0, 2}),
         ::testing::Values(std::vector<int64_t>{0, 0, 4}),
         ::testing::ValuesIn({ov::test::static_shapes_to_test_representation({shapes[0]})}),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto precommit_SpaceToBatch_4D = ::testing::Combine(
         ::testing::Values(std::vector<int64_t>{1, 6, 4, 1}), ::testing::Values(std::vector<int64_t>{0, 1, 0, 0}),
         ::testing::Values(std::vector<int64_t>{0, 3, 0, 0}),
         ::testing::ValuesIn({ov::test::static_shapes_to_test_representation({shapes[1]})}),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto precommit_SpaceToBatch_5D = ::testing::Combine(
         ::testing::Values(std::vector<int64_t>{1, 6, 4, 1, 1}), ::testing::Values(std::vector<int64_t>{0, 1, 0, 0, 0}),
         ::testing::Values(std::vector<int64_t>{0, 3, 0, 0, 0}),
         ::testing::ValuesIn({ov::test::static_shapes_to_test_representation({shapes[2]})}),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_SpaceToBatch_3D, SpaceToBatchLayerTestCommon, precommit_SpaceToBatch_3D,
                          SpaceToBatchLayerTestCommon::getTestCaseName);

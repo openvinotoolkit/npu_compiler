@@ -34,10 +34,10 @@ mlir::LogicalResult vpux::VPU::CTCGreedyDecoderSeqLenOp::inferReturnTypes(
 
     auto outType = inType.changeElemType(outElemType);
 
-    outType = outType.changeShape(Shape(outputShape));
+    outType = outType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
-    outType = outType.changeShape(Shape(outputLengthShape));
+    outType = outType.changeShape(ShapeRef(outputLengthShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

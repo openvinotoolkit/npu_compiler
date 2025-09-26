@@ -42,18 +42,19 @@ CustomArgsVector RawProfilingDMA40Record::getCustomArgs(FrequenciesSetup frequen
 CustomArgsVector RawProfilingACTRecord::getCustomArgs(FrequenciesSetup) const {
     CustomArgsVector customArgs;
     customArgs.push_back({"Total cycles:", std::to_string(_data.clockCycles)});
-    customArgs.push_back({"Stall cycles:", std::to_string(_data.stallCycles)});
-
+    customArgs.push_back({"Active cycles:", std::to_string(_data.executedInstructions)});
+    customArgs.push_back({"Stall cycles:", std::to_string(_data.clockCycles - _data.executedInstructions)});
     return customArgs;
 }
 
 CustomArgsVector RawProfilingACTExRecord::getCustomArgs(FrequenciesSetup) const {
     CustomArgsVector customArgs;
     customArgs.push_back({"Total cycles:", std::to_string(_data.clockCycles)});
-    customArgs.push_back({"Stall cycles:", std::to_string(_data.lsu0Stalls + _data.lsu1Stalls + _data.instStalls)});
-    customArgs.push_back({"LSU0 stall cycles:", std::to_string(_data.lsu0Stalls)});
-    customArgs.push_back({"LSU1 stall cycles:", std::to_string(_data.lsu1Stalls)});
-    customArgs.push_back({"Instruction stall cycles:", std::to_string(_data.instStalls)});
+    customArgs.push_back({"Active cycles:", std::to_string(_data.executedInstructions)});
+    customArgs.push_back({"Stall cycles:", std::to_string(_data.clockCycles - _data.executedInstructions)});
+    customArgs.push_back({"LSU0 stalls:", std::to_string(_data.lsu0Stalls)});
+    customArgs.push_back({"LSU1 stalls:", std::to_string(_data.lsu1Stalls)});
+    customArgs.push_back({"Instruction stalls:", std::to_string(_data.instStalls)});
     return customArgs;
 }
 

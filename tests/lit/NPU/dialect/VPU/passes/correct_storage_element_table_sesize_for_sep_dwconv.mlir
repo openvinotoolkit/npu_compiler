@@ -9,12 +9,11 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @CorrectSESize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DWConvWithSEPSOK
 func.func @DWConvWithSEPSOK(%arg0: tensor<1x160x1x1xf16, {order = #NHWC}>) -> tensor<1x160x2x2xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<160x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<160x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %weights_table = const.Declare tensor<160x1x1x4xsi32> = dense<1> : tensor<160x1x1x4xsi32>
     %sparsity_map = const.Declare tensor<1x160x2x2xi1> = dense<1> : tensor<1x160x2x2xi1>
 
     %storage_element = VPU.StorageElementTable {
@@ -38,7 +37,7 @@ func.func @DWConvWithSEPSOK(%arg0: tensor<1x160x1x1xf16, {order = #NHWC}>) -> te
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 160, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -59,12 +58,11 @@ func.func @DWConvWithSEPSOK(%arg0: tensor<1x160x1x1xf16, {order = #NHWC}>) -> te
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @CorrectSESize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DWConvWithSEPSOH
 func.func @DWConvWithSEPSOH(%arg0: tensor<1x64x4x4xf16, {order = #NHWC}>) -> tensor<1x64x8x8xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
     %sparsity_map = const.Declare tensor<1x64x8x8xi1> = dense<1> : tensor<1x64x8x8xi1>
 
     %storage_element = VPU.StorageElementTable {
@@ -87,7 +85,7 @@ func.func @DWConvWithSEPSOH(%arg0: tensor<1x64x4x4xf16, {order = #NHWC}>) -> ten
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 8, 8]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
@@ -110,7 +108,6 @@ func.func @DWConvWithSEPSOH(%arg0: tensor<1x64x4x4xf16, {order = #NHWC}>) -> ten
 // CHECK-LABEL: @DWConvWithSEPNoMCStrategy
 func.func @DWConvWithSEPNoMCStrategy(%arg0: tensor<1x64x1x1xf16, {order = #NHWC}>) -> tensor<1x64x2x2xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
     %sparsity_map = const.Declare tensor<1x64x2x2xi1> = dense<1> : tensor<1x64x2x2xi1>
 
     %storage_element = VPU.StorageElementTable {
@@ -133,7 +130,7 @@ func.func @DWConvWithSEPNoMCStrategy(%arg0: tensor<1x64x1x1xf16, {order = #NHWC}
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
         rawFilterShape = [64, 1, 1, 1],
@@ -165,7 +162,6 @@ func.func @DWConvWithSEPNoMCStrategy(%arg0: tensor<1x64x1x1xf16, {order = #NHWC}
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x64x1x1xf16, {order = #NHWC}>)
 func.func @DWConvWithSEPChannelSliceWithDepth1(%arg0: tensor<1x64x1x1xf16, {order = #NHWC}>) -> tensor<1x64x2x2xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %weights_table = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
     %sparsity_map = const.Declare tensor<1x64x2x2xi1> = dense<1> : tensor<1x64x2x2xi1>
 
     %storage_element = VPU.StorageElementTable {dataElemType = f16, seDepth = 1, seSize = [128], dataShape = [1, 128, 1, 1],
@@ -187,7 +183,7 @@ func.func @DWConvWithSEPChannelSliceWithDepth1(%arg0: tensor<1x64x1x1xf16, {orde
                            #VPU.SEInterpolate<mode = <NEAREST>, coordinate_transformation_mode = <ASYMMETRIC>,
                                               scale = [1.0, 1.0, 2.0, 2.0], nearest_mode = <FLOOR>, offsets = [0, 0, 0, 0], sizes = [1, 64, 2, 2]>>
 
-    %interpolate = VPU.NCE.DepthConvolution(%input, %weights, %weights_table) {
+    %interpolate = VPU.NCE.DepthConvolution(%input, %weights) {
         pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
         ppe = #VPU.PPEStub<>,
         rawFilterShape = [64, 1, 1, 1],

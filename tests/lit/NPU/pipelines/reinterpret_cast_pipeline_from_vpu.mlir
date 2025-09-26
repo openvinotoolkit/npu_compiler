@@ -47,11 +47,6 @@ module @InMainWithSlice {
         DataInfo "output" : tensor<256x512x3x3xf16>
     }
 
-    func.func private @dummy_call(%arg: tensor<256x512x3x3xf16, {order = #NHWC}>)
-            -> tensor<256x512x3x3xf16, {order = #NHWC}> {
-        return %arg : tensor<256x512x3x3xf16, {order = #NHWC}>
-    }
-
     func.func @main(%arg0: tensor<1x512x7x7xf16, {order = #NHWC}>, %arg1: tensor<51021312xi8>)
             -> tensor<256x512x3x3xf16, {order = #NHWC}> {
         %0 = VPU.Slice %arg1 [48662016] [2359296] : tensor<51021312xi8> to tensor<2359296xi8>
@@ -63,16 +58,9 @@ module @InMainWithSlice {
     // CHECK-SAME: ({{%.+}}: memref<1x512x7x7xf16, #NHWC, @DDR>, {{%.+}}: memref<51021312xi8, @DDR>, {{%.+}}: memref<256x512x3x3xf16, #NHWC, @DDR>)
     // CHECK-SAME: -> memref<256x512x3x3xf16, #NHWC, @DDR>
 
-    // Note: still i8 because there's a VPUIP.Copy after VPUIP.SubView
-    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <48662016> -> memref<{{.+}}xi8, @DDR>
+    // CHECK-DAG:   [[BLOB:%.+]] = VPURT.DeclareBuffer <NetworkInput> [1] <48662016> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
     // CHECK-DAG:   [[OUT:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
 
-    // CHECK-DAG:   [[BLOB_DDR:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<{{.+}}xi8, @DDR>
-    // CHECK-DAG:   [[BLOB_F16:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<{{.+}}x512x3x3xf16, #NHWC, @DDR>
-
     // CHECK:       VPUIP.NNDMA {{.*}} inputs([[BLOB]]
-    // CHECK-SAME:      outputs([[BLOB_DDR]]
-
-    // CHECK:       VPUIP.NNDMA {{.*}} inputs([[BLOB_F16]]
     // CHECK-SAME:      outputs([[OUT]]
 }

@@ -27,9 +27,8 @@
 
 using namespace vpux;
 
-template <class MainOpType>
-class LayerWithPostOpModel final :
-        public IE::LayerWithPostOpInterface::ExternalModel<LayerWithPostOpModel<MainOpType>, MainOpType> {
+template <typename ConcreteModel, typename MainOpType>
+class LayerWithClampOpModel : public IE::LayerWithPostOpInterface::ExternalModel<ConcreteModel, MainOpType> {
 public:
     bool isSupportedPostOp(mlir::Operation*, mlir::Operation*, const LogCb&) const {
         return true;
@@ -43,14 +42,28 @@ public:
     }
 };
 
+template <class MainOpType>
+class LayerWithPostOpUsingBiasAndStaticScaleModel final :
+        public LayerWithClampOpModel<LayerWithPostOpUsingBiasAndStaticScaleModel<MainOpType>, MainOpType> {
+public:
+    bool supportsFuseBiasScale(mlir::Operation*) const {
+        return true;
+    }
+};
+
+template <class MainOpType>
+class LayerWithPostOpModel final : public LayerWithClampOpModel<LayerWithPostOpModel<MainOpType>, MainOpType> {};
+
 class MLIR_PpeRegistry : public testing::Test {
 public:
     MLIR_PpeRegistry() {
         registry = createDialectRegistry();
         registry.addExtension(+[](mlir::MLIRContext* ctx, IE::IEDialect*) {
-            IE::ConvolutionOp::attachInterface<LayerWithPostOpModel<IE::ConvolutionOp>>(*ctx);
-            IE::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<IE::TransposedConvolutionOp>>(*ctx);
-            IE::GroupConvolutionOp::attachInterface<LayerWithPostOpModel<IE::GroupConvolutionOp>>(*ctx);
+            IE::ConvolutionOp::attachInterface<LayerWithPostOpUsingBiasAndStaticScaleModel<IE::ConvolutionOp>>(*ctx);
+            IE::TransposedConvolutionOp::attachInterface<
+                    LayerWithPostOpUsingBiasAndStaticScaleModel<IE::TransposedConvolutionOp>>(*ctx);
+            IE::GroupConvolutionOp::attachInterface<
+                    LayerWithPostOpUsingBiasAndStaticScaleModel<IE::GroupConvolutionOp>>(*ctx);
             IE::MaxPoolOp::attachInterface<LayerWithPostOpModel<IE::MaxPoolOp>>(*ctx);
             IE::AvgPoolOp::attachInterface<LayerWithPostOpModel<IE::AvgPoolOp>>(*ctx);
             IE::AddOp::attachInterface<LayerWithPostOpModel<IE::AddOp>>(*ctx);
@@ -305,10 +318,13 @@ protected:
         const auto padsEnd = getIntArrayAttr(&_ctx, SmallVector<int64_t>{1, 1});
         const auto padAttr = VPU::getPaddingAttr(&_ctx, PadInfo(padsBegin, padsEnd));
 
-        return builder.create<VPU::NCEDepthConvolutionOp>(_loc, outType, input, weights, weightsTable, strides, padAttr,
-                                                          oldPpeAttr, rawFilterShape,
-                                                          /*multiClusterStrategy=*/nullptr,
-                                                          /*outputPaddingAttr=*/nullptr,
-                                                          /*inputPaddingAttr=*/nullptr);
+        return builder.create<VPU::NCEDepthConvolutionOp>(
+                _loc, outType, input, weights, weightsTable, /*dataPointerTensor=*/nullptr,
+                /*sparsityPointerTensor=*/nullptr,
+                /*scaleTensor=*/nullptr, /*biasTensor=*/nullptr, /*zeroPointTensor=*/nullptr, strides, padAttr,
+                oldPpeAttr, rawFilterShape,
+                /*multiClusterStrategy=*/nullptr,
+                /*outputPaddingAttr=*/nullptr,
+                /*inputPaddingAttr=*/nullptr);
     }
 };

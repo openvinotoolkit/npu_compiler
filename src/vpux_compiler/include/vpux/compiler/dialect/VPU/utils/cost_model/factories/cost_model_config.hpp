@@ -6,6 +6,9 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_factory.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
+
+#include <mutex>
 
 namespace vpux::VPU {
 

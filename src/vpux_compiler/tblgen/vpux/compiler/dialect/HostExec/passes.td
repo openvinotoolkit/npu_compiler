@@ -102,4 +102,53 @@ def OptimizeMemRefCopies : PassBase<"optimize-memref-copies", "vpux::FunctionPas
     ];
 }
 
+//
+// ReplaceAllocsWithSingleAllocAndViews
+//
+
+def ReplaceAllocsWithSingleAllocAndViews : PassBase<"replace-allocs-with-single-alloc-and-views", "vpux::FunctionPass"> {
+    let summary = "Replace multiple allocs with a single alloc and views";
+
+    let description = [{
+        The pass replaces multiple `memref.alloc` operations within a function with a single allocation of a large buffer.
+        For each original allocation, a view into the large buffer is created to preserve semantics.
+        This optimization reduces memory overhead and can improve performance by minimizing the number of allocations.
+
+        Additionally, this approach enables further lowering, such as deferring the actual allocation
+        until it is needed (e.g., when the host function receives input data larger than in previous invocations).
+
+        In case of dynamic shapes, it is recommended to run this pass after
+        `mlir::memref::createResolveShapedTypeResultDimsPass`, as it allows to simplify dependencies among dynamic dimensions.
+    }];
+
+    let constructor = "vpux::HostExec::createReplaceAllocsWithSingleAllocAndViewsPass()";
+
+    let dependentDialects = [
+        "mlir::func::FuncDialect",
+        "mlir::memref::MemRefDialect",
+        "vpux::HostExec::HostExecDialect"
+    ];
+}
+
+//
+// SerializeNetworkMetadata
+//
+
+def SerializeNetworkMetadata : PassBase<"serialize-network-metadata", "vpux::ModulePass"> {
+    let summary = "Converts MLIR operations to LLVM UMD runtime API calls";
+
+    let description = [{
+        This pass construct network metadata and serialize it. Which is required
+        as "main" function is llvm function to coordinate inference execution of
+        subgraphs of a given model.
+    }];
+
+    let constructor = "vpux::HostExec::createSerializeNetworkMetadataPass()";
+
+    let dependentDialects = [
+        "vpux::HostExec::HostExecDialect",
+        "mlir::func::FuncDialect",
+    ];
+}
+
 #endif

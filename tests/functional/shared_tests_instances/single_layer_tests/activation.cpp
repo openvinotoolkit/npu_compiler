@@ -4,6 +4,7 @@
 //
 
 #include "single_op_tests/activation.hpp"
+#include <pretty_test_arguments.hpp>
 #include "vpu_ov2_layer_test.hpp"
 
 using namespace ov::test::utils;
@@ -22,13 +23,27 @@ class ActivationLayerTest_FP32 : public ActivationLayerTestCommon {
 
 class ActivationLayerTest_SW_FP16 : public ActivationLayerTestCommon {};
 class ActivationLayerTest_HW_FP16 : public ActivationLayerTestCommon {};
+class DynamicActivationLayerTest_SW_FP16 : public ActivationLayerTestCommon {};
+class DynamicActivationLayerTest_HW_FP16 : public ActivationLayerTestCommon {};
 
 class ActivationLayerTest_SW_FP32 : public ActivationLayerTest_FP32 {};
 class ActivationLayerTest_HW_FP32 : public ActivationLayerTest_FP32 {};
 
-class ShaveCodeGenActivationLayerTest_FP16_Profiling : public ActivationLayerTestCommon {};
-class ShaveCodeGenActivationLayerTest_FP16 : public ActivationLayerTestCommon {};
-class ShaveCodeGenActivationLayerTest_Integer : public ActivationLayerTestCommon {};
+class ShaveCodeGenActivationLayerTest_FP16_Profiling : public ActivationLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
+class ShaveCodeGenActivationLayerTest_FP16 : public ActivationLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
+class ShaveCodeGenActivationLayerTest_Integer : public ActivationLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 // 3720
 // SW
@@ -44,6 +59,12 @@ TEST_P(ActivationLayerTest_SW_FP32, NPU3720) {
     run(Platform::NPU3720);
 }
 
+TEST_P(DynamicActivationLayerTest_SW_FP16, NPU3720) {
+    abs_threshold = 0.0056;
+    setReferenceSoftwareMode();
+    run(Platform::NPU3720);
+}
+
 // HW
 TEST_P(ActivationLayerTest_HW_FP16, NPU3720) {
     abs_threshold = 0.0056;
@@ -52,6 +73,12 @@ TEST_P(ActivationLayerTest_HW_FP16, NPU3720) {
 }
 
 TEST_P(ActivationLayerTest_HW_FP32, NPU3720) {
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(DynamicActivationLayerTest_HW_FP16, NPU3720) {
+    abs_threshold = 0.0056;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
@@ -70,8 +97,20 @@ TEST_P(ActivationLayerTest_SW_FP32, NPU4000) {
     run(Platform::NPU4000);
 }
 
+TEST_P(DynamicActivationLayerTest_SW_FP16, NPU4000) {
+    abs_threshold = 0.0056;
+    setReferenceSoftwareMode();
+    run(Platform::NPU4000);
+}
+
 // HW
 TEST_P(ActivationLayerTest_HW_FP32, NPU4000) {
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(DynamicActivationLayerTest_HW_FP16, NPU4000) {
+    abs_threshold = 0.0056;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
@@ -79,24 +118,25 @@ TEST_P(ActivationLayerTest_HW_FP32, NPU4000) {
 // Enable test in CI on Linux for the moment
 TEST_P(ShaveCodeGenActivationLayerTest_FP16, NPU4000) {
     abs_threshold = 0.0056;
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
 
 TEST_P(ShaveCodeGenActivationLayerTest_FP16_Profiling, NPU4000) {
     abs_threshold = 0.0056;
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     enableProfiling();
     run(Platform::NPU4000);
 }
 
 TEST_P(ShaveCodeGenActivationLayerTest_Integer, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
+
 }  // namespace test
 }  // namespace ov
 
@@ -144,6 +184,10 @@ const std::map<ActivationTypes, std::vector<std::vector<float>>> activationTypes
         {Tan, {{1.0f}}},
 };
 
+const std::map<ActivationTypes, std::vector<std::vector<float>>> activationDynamicTypes = {
+        {Gelu, {{1.0f}}},
+};
+
 const std::map<ActivationTypes, std::vector<std::vector<float>>> preluTypes = {
         {PReLu, {{0.01f}}},
         {LeakyRelu, {{0.01f}}},
@@ -189,12 +233,19 @@ const std::map<ActivationTypes, std::vector<std::vector<float>>> shaveCodeGenAct
 
 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> basic = {{{{1, 50, 1, 1}}, {}}, {{{1, 128, 1, 1}}, {}}};
 
+std::vector<ov::test::InputShape> dynamicBasic = {generateTestShape(256_Dyn), generateTestShape(1, 64_Dyn),
+                                                  generateTestShape(1, 8_Dyn, 3072), generateTestShape(1, 50_Dyn, 1, 1),
+                                                  generateTestShape(1, 128_Dyn, 1, 1)};
+
 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> basicCos = {{{{1, 1, 50, 120}}, {}}, {{{1, 20, 50, 150}}, {}}};
 
 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> preluBasic = {
         {{{1, 50, 1, 1}}, {{50}}},
         {{{1, 128, 1, 1}}, {{128}}},
         {{{1, 32, 96, 96}}, {{32}}},
+};
+
+std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> preluTiling = {
         {{{1, 9, 80, 1280}}, {{9}}},
 };
 
@@ -204,77 +255,102 @@ std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> basic2DShape = {
 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>> basicTiling = {{{{1, 8, 80, 1280}}, {}},
                                                                         {{{1, 320, 1, 1280}}, {}}};
 
-auto static_shapes_param_transform =
-        [](const std::vector<std::pair<std::vector<ov::Shape>, ov::Shape>>& original_shapes) {
-            std::vector<std::pair<std::vector<ov::test::InputShape>, ov::Shape>> new_shapes;
-            for (const auto& shape_element : original_shapes) {
-                new_shapes.emplace_back(ov::test::static_shapes_to_test_representation(shape_element.first),
-                                        shape_element.second);
-            }
-            return new_shapes;
-        };
+auto staticShapesParamTransform = [](const std::vector<std::pair<std::vector<ov::Shape>, ov::Shape>>& originalShapes) {
+    std::vector<std::pair<std::vector<ov::test::InputShape>, ov::Shape>> newShapes;
+    for (const auto& shapeElement : originalShapes) {
+        newShapes.emplace_back(ov::test::static_shapes_to_test_representation(shapeElement.first), shapeElement.second);
+    }
+    return newShapes;
+};
+
+auto dynamicShapesParamTransform = [](const std::vector<ov::test::InputShape>& originalShapes) {
+    std::vector<std::pair<std::vector<ov::test::InputShape>, ov::Shape>> newShapes;
+    for (const auto& shape : originalShapes) {
+        newShapes.emplace_back(std::vector<ov::test::InputShape>{shape}, ov::Shape{});
+    }
+    return newShapes;
+};
 
 const auto basicCases =
         ::testing::Combine(::testing::ValuesIn(::combineParams(activationTypes)),  // Activation type and constant
                            ::testing::ValuesIn(netPrecisions),                     // Model type
-                           ::testing::ValuesIn(static_shapes_param_transform(
+                           ::testing::ValuesIn(staticShapesParamTransform(
                                    ov::test::utils::combineParams(basic))),  // Input shapes and input const shape
-                           ::testing::Values(DEVICE_NPU));                   // Target device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));    // Target device name
 
 const auto basicCosCases = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(shaveCodeGenActivationProfilingTypes)),  // Activation type and constant
         ::testing::ValuesIn(netPrecisions),                                          // Model type
-        ::testing::ValuesIn(static_shapes_param_transform(
+        ::testing::ValuesIn(staticShapesParamTransform(
                 ov::test::utils::combineParams(basicCos))),  // Input shapes and input const shape
-        ::testing::Values(DEVICE_NPU));                      // Target device name
+        ::testing::Values(test_utils::TARGET_DEVICE));       // Target device name
 
 const auto basicCasesSWFP32 = ::testing::Combine(
         ::testing::ValuesIn(ov::test::utils::combineParams(activationTypesSWFP32)), ::testing::Values(ov::element::f32),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basic))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basic))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicCasesHWFP32 = ::testing::Combine(
         ::testing::ValuesIn(ov::test::utils::combineParams(activationTypesHWFP32)), ::testing::Values(ov::element::f32),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basicTiling))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basicTiling))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
-const auto basicPReluCases = ::testing::Combine(
-        ::testing::ValuesIn(::combineParams(preluTypes)), ::testing::ValuesIn(netPrecisions),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(preluBasic))),
-        ::testing::Values(DEVICE_NPU));
+const auto basicPReluCases =
+        ::testing::Combine(::testing::ValuesIn(::combineParams(preluTypes)), ::testing::ValuesIn(netPrecisions),
+                           ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(preluBasic))),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto basicTilingPReluCases =
+        ::testing::Combine(::testing::ValuesIn(::combineParams(preluTypes)), ::testing::ValuesIn(netPrecisions),
+                           ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(preluTiling))),
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicCases2D = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(activationTypes2D)), ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basic2DShape))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basic2DShape))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicTilingCases = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(activationTypesTiling)), ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basicTiling))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basicTiling))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicShaveCodeGenCases = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(shaveCodeGenActivationTypes)), ::testing::ValuesIn(netPrecisions),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basic))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basic))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicShaveCodeGenIntCases = ::testing::Combine(
         ::testing::ValuesIn(::combineParams(shaveCodeGenIntActivationTypes)), ::testing::ValuesIn(integerNetPrecisions),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(basic))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(basic))),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto basicClampI32 = ::testing::Combine(
         ::testing::ValuesIn(
                 ::combineParams(std::map<ActivationTypes, std::vector<std::vector<float>>>{{Clamp, {{-1.0f, 1.0f}}}})),
         ::testing::ValuesIn(integerNetPrecisions),
-        ::testing::ValuesIn(static_shapes_param_transform(ov::test::utils::combineParams(
+        ::testing::ValuesIn(staticShapesParamTransform(ov::test::utils::combineParams(
                 std::map<std::vector<ov::Shape>, std::vector<ov::Shape>>({{{{1, 50, 1, 1}}, {}}})))),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto basicDynamicCasesSWFP16 = ::testing::Combine(
+        ::testing::ValuesIn(::combineParams(activationDynamicTypes)), ::testing::Values(ov::element::f16),
+        ::testing::ValuesIn(dynamicShapesParamTransform(dynamicBasic)), ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto basicDynamicCasesHWFP16 = ::testing::Combine(
+        ::testing::ValuesIn(ov::test::utils::combineParams(activationDynamicTypes)),
+        ::testing::Values(ov::element::f16), ::testing::ValuesIn(dynamicShapesParamTransform(dynamicBasic)),
+        ::testing::Values(test_utils::TARGET_DEVICE));
+
+// ------ NPU SW FP16 ------
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation, ActivationLayerTest_SW_FP16, basicCases,
                          ActivationLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation_PRelu, ActivationLayerTest_SW_FP16, basicPReluCases,
+                         ActivationLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_tiling_Activation_PRelu, ActivationLayerTest_SW_FP16, basicTilingPReluCases,
                          ActivationLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation_2D, ActivationLayerTest_SW_FP16, basicCases2D,
@@ -298,13 +374,24 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation_Test_ShaveCodeGen, ShaveCode
 INSTANTIATE_TEST_SUITE_P(smoke_tiling_Activation, ActivationLayerTest_HW_FP16, basicTilingCases,
                          ActivationLayerTest::getTestCaseName);
 
+// ------ NPU SW FP32 ------
+
 INSTANTIATE_TEST_SUITE_P(smoke_Activation, ActivationLayerTest_SW_FP32, basicCasesSWFP32,
                          ActivationLayerTest::getTestCaseName);
 
-INSTANTIATE_TEST_SUITE_P(smoke_Activation, ActivationLayerTest_HW_FP32, basicCasesHWFP32,
+// ------ NPU HW FP32 ------
+INSTANTIATE_TEST_SUITE_P(smoke_tiling_Activation, ActivationLayerTest_HW_FP32, basicCasesHWFP32,
                          ActivationLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_Clamp_I32, ActivationLayerTest_HW_FP32, basicClampI32,
+                         ActivationLayerTest::getTestCaseName);
+
+// ------ [DYNAMIC] NPU FP16 ------
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation_Dynamic, DynamicActivationLayerTest_SW_FP16,
+                         basicDynamicCasesSWFP16, ActivationLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_Activation_Dynamic, DynamicActivationLayerTest_HW_FP16, basicDynamicCasesHWFP16,
                          ActivationLayerTest::getTestCaseName);
 
 }  // namespace

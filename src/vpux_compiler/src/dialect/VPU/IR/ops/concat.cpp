@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include "vpux/compiler/dialect/core/types.hpp"
@@ -380,16 +380,18 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
     }
 
     // Infer output shape
-    const auto outShape = concat.getPerAxis() ? inferOutShapeWithAxis(concat, getDynamicShape, loc)
-                                              : inferOutShapeWithOffsets(concat, getDynamicShape, loc, ctx);
-    if (mlir::failed(outShape)) {
+    const auto wrappedOutShape = concat.getPerAxis() ? inferOutShapeWithAxis(concat, getDynamicShape, loc)
+                                                     : inferOutShapeWithOffsets(concat, getDynamicShape, loc, ctx);
+    if (mlir::failed(wrappedOutShape)) {
         return mlir::failure();
     }
+
+    const auto outShape = wrappedOutShape.value();
 
     // Infer output element type
 
     const auto outElemType = concat.getPerAxis() ? inferOutElemTypeWithAxis(concat, loc)
-                                                 : inferOutElemTypeWithOffsets(concat, outShape.value(), loc);
+                                                 : inferOutElemTypeWithOffsets(concat, outShape, loc);
     if (mlir::failed(outElemType)) {
         return mlir::failure();
     }
@@ -404,14 +406,12 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
 
     if (possibleDistribution != nullptr && VPU::isDistributedAttrWithExplicitShapesAndOffsets(possibleDistribution)) {
         const auto outputDistribution =
-                VPU::getConcatExplicitDistributedAttrForNewShape(possibleDistribution, Shape(outShape.value()), ctx);
-        const auto outputType =
-                distributedIn.changeShapeForExplicitDistribution(Shape(outShape.value()), outputDistribution);
+                VPU::getConcatExplicitDistributedAttrForNewShape(possibleDistribution, outShape, ctx);
+        const auto outputType = distributedIn.changeShapeForExplicitDistribution(outShape, outputDistribution);
         inferredTypes.emplace_back(outputType);
     } else {
-        if (outShape.value().isStatic()) {
-            const auto typeComponents =
-                    TypeComponents().setShape(Shape(outShape.value())).setElementType(outElemType.value());
+        if (outShape.isStatic()) {
+            const auto typeComponents = TypeComponents().setShape(outShape).setElementType(outElemType.value());
 
             const auto outputType = mlir::cast<vpux::NDTypeInterface>(inType).changeTypeComponents(typeComponents);
             inferredTypes.emplace_back(outputType);
@@ -424,7 +424,7 @@ mlir::LogicalResult vpux::VPU::ConcatOp::inferReturnTypes(mlir::MLIRContext* ctx
             }
 
             const auto typeComponents = TypeComponents()
-                                                .setShape(Shape(outShape.value()))
+                                                .setShape(outShape)
                                                 .setElementType(outElemType.value())
                                                 .setBounds(Bounds(outBounds.value().raw()));
             const auto outputType = mlir::cast<vpux::NDTypeInterface>(inType).changeTypeComponents(typeComponents);
@@ -998,7 +998,7 @@ bool VPU::ConcatOp::isOperationSplitOverHeightCompatible(const vpux::TileInfo& o
     // of 1x2x1x16 #NHWC. Then we can't assign SplitOverHeight to it because the input can't be tiled on H.
     if (auto concatOp = mlir::dyn_cast<VPU::ConcatOp>(getOperation())) {
         auto moduleOp = concatOp->getParentOfType<mlir::ModuleOp>();
-        auto tileOp = IE::getTileExecutor(moduleOp);
+        auto tileOp = config::getTileExecutor(moduleOp);
         const auto minimumOutputHeightForSOH = tileOp.getCount();
 
         for (auto concatInput : concatOp.getInputs()) {
@@ -1018,7 +1018,7 @@ bool VPU::ConcatOp::isOperationSplitOverWidthCompatible(ShapeRef outputShape, Sh
 
 bool VPU::ConcatOp::isOperationSplitOverKernelCompatible(ShapeRef outputShape, ShapeRef offset, ShapeRef axis) {
     auto moduleOp = getOperation()->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
 
     // Channel alignment is specific for NCE DPU operations and CMX CONCAT

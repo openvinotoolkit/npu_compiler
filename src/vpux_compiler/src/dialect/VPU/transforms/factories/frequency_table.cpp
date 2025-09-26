@@ -7,8 +7,6 @@
 #include "vpux/compiler/NPU37XX/dialect/VPU/utils/performance_metrics.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/utils/performance_metrics.hpp"
 
-#include "vpux/utils/core/error.hpp"
-
 using namespace vpux;
 
 VPU::FrequencyTableCb VPU::getFrequencyTable(config::ArchKind arch) {
@@ -16,8 +14,12 @@ VPU::FrequencyTableCb VPU::getFrequencyTable(config::ArchKind arch) {
     case config::ArchKind::NPU40XX: {
         return VPU::arch40xx::getFrequencyTable;
     }
-    default: {
+    case config::ArchKind::NPU37XX: {
         return VPU::arch37xx::getFrequencyTable;
+    }
+    default: {
+        Logger::global().warning("Use default NPU_4 frequency table for {0}", arch);
+        return VPU::arch40xx::getFrequencyTable;
     }
     }
 }

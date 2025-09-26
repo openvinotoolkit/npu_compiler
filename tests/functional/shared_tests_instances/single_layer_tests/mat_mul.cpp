@@ -137,37 +137,44 @@ std::map<std::string, std::string> additional_config = {};
 const auto fullyConnectedCaseSecondTrans = ::testing::Combine(
         ::testing::ValuesIn(static_shapes_to_test_representation(fullyConnectedShapeParamsSecondTrans)),
         ::testing::Values(transposeInputs[1]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+        ::testing::Values(additional_config));
 
-const auto fullyConnectedCaseNoTrans = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(fullyConnectedShapeParamsNoTrans)),
-        ::testing::Values(transposeInputs[0]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto fullyConnectedCaseNoTrans =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(fullyConnectedShapeParamsNoTrans)),
+                           ::testing::Values(transposeInputs[0]), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto matMulParamsPrecommit = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsPrecommit)),
-        ::testing::Values(transposeInputs[0]), ::testing::Values(ov::element::f16),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto matMulParamsPrecommit =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsPrecommit)),
+                           ::testing::Values(transposeInputs[0]), ::testing::Values(ov::element::f16),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto matMulParamsNoTrans = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsNoTrans)),
-        ::testing::Values(transposeInputs[0]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto matMulParamsNoTrans =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsNoTrans)),
+                           ::testing::Values(transposeInputs[0]), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto matMulParamsFirstTrans = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsFirstTrans)),
-        ::testing::Values(transposeInputs[2]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto matMulParamsFirstTrans =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsFirstTrans)),
+                           ::testing::Values(transposeInputs[2]), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto matMulParamsSecondTrans = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsSecondTrans)),
-        ::testing::Values(transposeInputs[1]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto matMulParamsSecondTrans =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsSecondTrans)),
+                           ::testing::Values(transposeInputs[1]), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto matMulParamsBothTrans = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsBothTrans)),
-        ::testing::Values(transposeInputs[3]), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto matMulParamsBothTrans =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParamsBothTrans)),
+                           ::testing::Values(transposeInputs[3]), ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(secondaryInputTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
 /* ============= NPU3720 ============= */
 
@@ -199,7 +206,7 @@ const std::vector<std::vector<ov::Shape>> shape1dBothTransClamp = {
 const auto matMul1dBothTransClampParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape1dBothTransClamp)),
                            ::testing::Values(transposeInputs.at(3)), ::testing::Values(ov::element::f32),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dBothTransClamp, MatMulLayerTest_HW_NPU3720_ppe_fp16_clamp,
@@ -233,7 +240,7 @@ const std::vector<std::vector<ov::Shape>> shapeRelatedParams = {{{49, 4, 49, 32}
 const auto matMulParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParams)),
                            ::testing::Values(std::make_pair(false, false)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_MatMulMagicConfig, MatMulLayerTest_HW_NPU4000, matMulParams,
@@ -244,7 +251,7 @@ const std::vector<std::vector<ov::Shape>> shapeRelatedParams1 = {{{2, 2, 49, 49}
 const auto matMulParams1 =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeRelatedParams1)),
                            ::testing::Values(std::make_pair(false, false)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(smoke_MatMulMagicConfig1, MatMulLayerTest_HW_NPU4000, matMulParams1,
@@ -259,7 +266,7 @@ const std::vector<std::vector<ov::Shape>> shape1dNoTrans = {
 const auto matMul1dNoTransParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape1dNoTrans)),
                            ::testing::Values(transposeInputs.at(0)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dNoTrans, MatMulLayerTest_HW_NPU3720, matMul1dNoTransParams,
@@ -276,7 +283,7 @@ const std::vector<std::vector<ov::Shape>> shape1dFirstTrans = {
 const auto matMul1dFirstTransParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape1dFirstTrans)),
                            ::testing::Values(transposeInputs.at(2)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dFirstTrans, MatMulLayerTest_HW_NPU3720, matMul1dFirstTransParams,
@@ -293,7 +300,7 @@ const std::vector<std::vector<ov::Shape>> shape1dSecondTrans = {
 const auto matMul1dSecondTransParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape1dSecondTrans)),
                            ::testing::Values(transposeInputs.at(1)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dSecondTrans, MatMulLayerTest_HW_NPU3720, matMul1dSecondTransParams,
@@ -311,7 +318,7 @@ const std::vector<std::vector<ov::Shape>> shapeWithBatch = {
 const auto matMulWithBatchParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapeWithBatch)),
                            ::testing::Values(transposeInputs.at(0)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMulWithBatch, MatMulLayerTest_HW_NPU3720, matMulWithBatchParams,
@@ -328,7 +335,7 @@ const std::vector<std::vector<ov::Shape>> shape1dBothTrans = {
 const auto matMul1dBothTransParams =
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape1dBothTrans)),
                            ::testing::Values(transposeInputs.at(3)), ::testing::Values(ov::element::f16),
-                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(DEVICE_NPU),
+                           ::testing::Values(InputLayerType::PARAMETER), ::testing::Values(test_utils::TARGET_DEVICE),
                            ::testing::Values(additional_config));
 
 INSTANTIATE_TEST_SUITE_P(MatMul1dBothTrans, MatMulLayerTest_HW_NPU3720, matMul1dBothTransParams,

@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/unroll_dma_analysis.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -77,11 +77,11 @@ vpux::NDTypeInterface changeShape(vpux::NDTypeInterface originType, ShapeRef out
     inShape[Dims4D::Act::C.ind()] = originType.getShape()[Dims4D::Act::C];
     const auto elemType = originType.getElementType();
     if (auto qType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
-        const auto newQType = tileScalesAndZP(qType, Shape(inShape), offset);
-        return originType.changeShapeElemType(Shape(inShape), newQType);
+        const auto newQType = tileScalesAndZP(qType, ShapeRef(inShape), offset);
+        return originType.changeShapeElemType(ShapeRef(inShape), newQType);
     }
 
-    return originType.changeShape(Shape(inShape));
+    return originType.changeShape(ShapeRef(inShape));
 }
 
 void ExpandDMARewriter::unrollSegmentedOrOverlapped(mlir::Location loc, VPUIP::ExpandDMAOp expandDmaOp,
@@ -416,7 +416,7 @@ void UnrollExpandDMAPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     mlir::RewritePatternSet patterns(&ctx);

@@ -4,19 +4,18 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/merge_vf_region_rewriter.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <llvm/ADT/SetOperations.h>
 #include <llvm/ADT/SmallSet.h>
 #include <mlir/IR/IRMapping.h>
+
+#include <deque>
 
 namespace vpux::VPU::VF::v1 {
 
@@ -193,7 +192,7 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
         OutputTiling tiles;
         auto* operation = operations.front();
         if (dim.has_value()) {
-            auto tiling = fillDividedTiles(operation, Shape(tilingDims), getShape(operation->getResult(0)));
+            auto tiling = fillDividedTiles(operation, ShapeRef(tilingDims), getShape(operation->getResult(0)));
             VPUX_THROW_WHEN(mlir::failed(tiling), "Incorrect tiling {0} for vf {1}", tilingDims, vfOp);
             tiles = tiling.value();
         }

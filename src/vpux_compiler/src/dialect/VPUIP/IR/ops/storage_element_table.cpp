@@ -136,7 +136,7 @@ mlir::LogicalResult FuseChildSubviewOps::matchAndRewrite(VPUIP::StorageElementTa
             const auto inputDataShape = Shape(parseIntArrayAttr<int64_t>(origOp.getDataShape()));
             auto inputTileShape = Shape(inputDataShape.size());
             auto inputTileOffset = inputTileShape;
-            auto newSeAttr = seAttr.extractTile(Shape(effectiveOutputOffsets), Shape(effectiveOutputSizes),
+            auto newSeAttr = seAttr.extractTile(ShapeRef(effectiveOutputOffsets), ShapeRef(effectiveOutputSizes),
                                                 inputDataShape, inputTileOffset, inputTileShape);
 
             auto dataShapeAttr = getIntArrayAttr(rewriter.getContext(), inputTileShape);

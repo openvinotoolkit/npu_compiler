@@ -43,10 +43,10 @@ mlir::LogicalResult vpux::IE::AddOp::inferReturnTypeComponents(
             return mlir::failure();
         }
         const auto outBounds =
-                inferOutputBounds(add.getInput1(), add.getInput2(), Shape(outShape), add.getAutoBroadcast());
+                inferOutputBounds(add.getInput1(), add.getInput2(), ShapeRef(outShape), add.getAutoBroadcast());
 
         const auto outDesc =
-                vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr, Bounds(outBounds));
+                vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr, BoundsRef(outBounds));
         inferredReturnShapes.emplace_back(outShape, in1Type.getElementType(), outDesc);
     }
 

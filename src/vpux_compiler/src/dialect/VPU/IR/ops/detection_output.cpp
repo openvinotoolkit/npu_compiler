@@ -51,7 +51,7 @@ mlir::LogicalResult vpux::VPU::DetectionOutputOp::inferReturnTypes(
     }
     outputShape.push_back(7);
 
-    const auto outType = boxLogitsType.changeShape(Shape(outputShape));
+    const auto outType = boxLogitsType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

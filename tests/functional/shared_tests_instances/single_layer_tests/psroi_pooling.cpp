@@ -84,7 +84,7 @@ const auto paramsAvg0 = testing::Combine(::testing::ValuesIn(inputShapeVector0),
                                          ::testing::Values(1),                     // spatialBinX
                                          ::testing::Values(1),                     // spatialBinY
                                          ::testing::Values("average"),             // mode
-                                         ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU));
+                                         ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsAvg1 = testing::Combine(::testing::ValuesIn(inputShapeVector1),   // input
                                          ::testing::ValuesIn(coordShapesVector1),  // coord
@@ -94,17 +94,18 @@ const auto paramsAvg1 = testing::Combine(::testing::ValuesIn(inputShapeVector1),
                                          ::testing::Values(1),                     // spatialBinX
                                          ::testing::Values(1),                     // spatialBinY
                                          ::testing::Values("average"),             // mode
-                                         ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU));
+                                         ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
-const auto paramsBilinear = testing::Combine(::testing::ValuesIn(inputShapeVector2),   // input
-                                             ::testing::ValuesIn(coordShapesVector2),  // coord
-                                             ::testing::Values(360),                   // outputDim
-                                             ::testing::Values(6),                     // groupSize
-                                             ::testing::Values(1.0f),                  // spatialScale
-                                             ::testing::Values(3),                     // spatialBinX
-                                             ::testing::Values(3),                     // spatialBinY
-                                             ::testing::Values("bilinear"),            // mode
-                                             ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU));
+const auto paramsBilinear =
+        testing::Combine(::testing::ValuesIn(inputShapeVector2),   // input
+                         ::testing::ValuesIn(coordShapesVector2),  // coord
+                         ::testing::Values(360),                   // outputDim
+                         ::testing::Values(6),                     // groupSize
+                         ::testing::Values(1.0f),                  // spatialScale
+                         ::testing::Values(3),                     // spatialBinX
+                         ::testing::Values(3),                     // spatialBinY
+                         ::testing::Values("bilinear"),            // mode
+                         ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_PSROIPoolingAverageLayoutTest0, PSROIPoolingLayerTestCommon, paramsAvg0,
                          PSROIPoolingLayerTestCommon::getTestCaseName);

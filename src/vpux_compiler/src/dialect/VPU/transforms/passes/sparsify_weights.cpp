@@ -3,12 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/sparsity_strategy.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -18,9 +20,11 @@
 #include "vpux/compiler/utils/sparsity.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/compiler/utils/types.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <llvm/Support/ThreadPool.h>
+#include <mlir/Support/LLVM.h>
+
+#include <mutex>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SPARSIFYWEIGHTS
@@ -89,11 +93,25 @@ int64_t getSizeInfo(mlir::Value input, mlir::Value output) {
     return inSize + outSize;
 }
 
+bool isCandidateForIDUAutopad(VPU::NCEOpInterface nceOp) {
+    auto nceConvOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(nceOp.getOperation());
+    if (nceConvOp == nullptr) {
+        return false;
+    }
+    if (!VPU::canConsumeIDUAutopad(nceConvOp)) {
+        return false;
+    }
+    auto parentOp = nceConvOp.getInput().getDefiningOp();
+    return mlir::isa_and_present<VPU::ExpandOp, VPU::NCEOpInterface>(parentOp);
+}
+
 void SparsifyWeightsPass::safeRunOnFunc() {
     using namespace VPU::NCESparsity;
 
     auto func = getOperation();
     auto& ctx = getContext();
+    auto moduleOp = func->getParentOfType<mlir::ModuleOp>();
+    const auto autoPaddingIDUEnabled = VPU::hasAutoPaddingIDU(moduleOp);
 
     // fragmentation prevention config
     int64_t numTiles = 0;
@@ -108,7 +126,7 @@ void SparsifyWeightsPass::safeRunOnFunc() {
     if (fragmentationPossible) {
         // update config for fragmentation
         auto module = getModuleOp(func);
-        auto tileOp = IE::getTileExecutor(module);
+        auto tileOp = config::getTileExecutor(module);
         numTiles = tileOp.getCount();
 
         // for cases with weight swizzling enabled the address is aligned to a value
@@ -237,6 +255,17 @@ void SparsifyWeightsPass::safeRunOnFunc() {
     const auto tryToSparsify = [&](VPU::SparseOpInterface sparsifiableOp, Const::DeclareOp weightsOp,
                                    const Const::Content& foldedContent) {
         auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(sparsifiableOp.getOperation());
+
+        // Operations that use IDU autopad can store the input channels without alignment. These operations have a small
+        // number of input channels (<16), in which case the benefit from weights sparsity would be marginal in terms of
+        // memory savings and there would be an additional cost in reading the sparse data. A larger benefit is expected
+        // when storing a smaller number of input channels via IDU autopad, so these operations should be skipped
+        if (autoPaddingIDUEnabled && isCandidateForIDUAutopad(nceOp)) {
+            innerLog.trace("Operation '{0}' at '{1}' is a candidate for IDU autopad. Skipping",
+                           sparsifiableOp->getName(), sparsifiableOp->getLoc());
+            return;
+        }
+
         const auto weights = nceOp.getWeightsOperand();
         auto weightsType = mlir::cast<vpux::NDTypeInterface>(weights.getType());
 
@@ -245,7 +274,8 @@ void SparsifyWeightsPass::safeRunOnFunc() {
         const auto hasFloatInput = mlir::isa<mlir::FloatType>(inputType.getElementType());
         const auto numNonSparseElemsPerOC = vpux::countNonSparseElementsPerOC(foldedContent, foldedElemType);
         if (!enablementStrategy->shouldSparsifyWeights(innerLog, weightsType, numNonSparseElemsPerOC, hasFloatInput)) {
-            innerLog.trace("Weights will not be sparsified", sparsifiableOp->getName(), sparsifiableOp->getLoc());
+            innerLog.trace("Weights for op '{0}' at '{1}' will not be sparsified", sparsifiableOp->getName(),
+                           sparsifiableOp->getLoc());
             return;
         }
         innerLog.trace("Sparsifying weights for op '{0}' at '{1}'", sparsifiableOp->getName(),

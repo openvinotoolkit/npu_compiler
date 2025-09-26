@@ -43,7 +43,7 @@ struct TaskInfo {
     bool isSubtask;  // DPU variant
     uint64_t start_time_ns;
     uint64_t duration_ns;
-    uint32_t total_cycles;
+    uint32_t active_cycles;
     uint32_t stall_cycles;
 
     CustomArgsVector customArgs;

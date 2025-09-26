@@ -11,9 +11,9 @@ namespace vpux {
 void assignDynamicTypeComponents(TypeComponents& typeComponents, VPU::BoundsRepresentation boundsRepresentation,
                                  ArrayRef<int64_t> shape, ArrayRef<int64_t> bounds) {
     if (boundsRepresentation == VPU::BoundsRepresentation::BOUNDS) {
-        typeComponents.setShape(Shape(shape)).setBounds(Bounds(bounds));
+        typeComponents.setShape(ShapeRef(shape)).setBounds(Bounds(bounds));
     } else {
-        const auto boundedShape = makeShape<BoundedShape>(Shape(shape), Bounds(bounds));
+        const auto boundedShape = makeShape<BoundedShape>(ShapeRef(shape), BoundsRef(bounds));
         typeComponents.setShapeWithRepresentation(shapeCast<DimsMaskedShape>(boundedShape));
     }
 }

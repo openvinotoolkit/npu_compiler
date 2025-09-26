@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/loop.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 
@@ -193,10 +194,8 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
 
     if (auto convert = mlir::dyn_cast<IE::ConvertOp>(definingOp)) {
         const auto convertInput = convert.getInput();
-        const auto convertInputElemType = mlir::cast<NDTypeInterface>(convertInput.getType()).getElementType();
-        if (mlir::isa<mlir::BlockArgument>(convertInput) &&
-            (convertInputElemType.isF16() || convertInputElemType.isF32())) {
-            out = value;
+        if (mlir::isa<mlir::BlockArgument>(convertInput)) {
+            out = convertInput;
             return mlir::success();
         }
     }
@@ -222,9 +221,8 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Mult
 }
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::SubtractOp& subtractOp) {
-    // Retrieve shift
-    if (mlir::failed(checkAndSet(shift, subtractOp.getInput2(), /*allowConstant=*/true)) &&
-        mlir::failed(checkAndSet(shift, subtractOp.getInput1(), /*allowConstant=*/false))) {
+    // Retrieve shift. Default shift to the second operand of Subtract to avoid confusion with weights
+    if (mlir::failed(checkAndSet(shift, subtractOp.getInput2(), /*allowConstant=*/true))) {
         log.trace("Match failed: Failed to retrieve shift from {0}", subtractOp->getName());
         return mlir::failure();
     }
@@ -307,7 +305,7 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
         return mlir::failure();
     }
 
-    const auto trueElemType = getTrueElemTypeOfWeights(declareOp);
+    const auto trueElemType = getTrueElemType(declareOp);
     if (trueElemType == castedElemType) {
         // WD structure must contain at least one CastElemType transformation (converting low-precision weights to
         // high-precision).
@@ -391,11 +389,34 @@ NDTypeInterface WeightsDequantizeStructureInfo::getInputType() const {
     return mlir::cast<NDTypeInterface>(inputValue.getType());
 }
 
-mlir::Type getTrueElemTypeOfWeights(Const::DeclareOp op) {
-    return mlir::cast<NDTypeInterface>(op.getContentAttr().getBaseContent().getType()).getElementType();
+mlir::Value getTrueInputValue(mlir::Operation* op, mlir::PatternRewriter& rewriter) {
+    if (auto declareOp = mlir::dyn_cast_or_null<Const::DeclareOp>(op)) {
+        auto contentAttr = declareOp.getContentAttr();
+        auto elemType = IE::getTrueElemType(declareOp);
+        auto newType = mlir::cast<vpux::NDTypeInterface>(declareOp.getOutput().getType()).changeElemType(elemType);
+        auto baseContentAttr = Const::ContentAttr::get(contentAttr.getBaseContent());
+        return rewriter.create<Const::DeclareOp>(appendLoc(op->getLoc(), "base_shift"), newType, baseContentAttr)
+                .getOutput();
+    } else if (auto convertOp = mlir::dyn_cast_or_null<IE::ConvertOp>(op)) {
+        // Historically, assume that convert op's input is weights. This assumption holds when
+        // WeightsDequantizeStructureInfo is constructed successfully.
+        return convertOp.getInput();
+    } else {
+        VPUX_THROW("Got unsupported op type: {0}", op->getName());
+    }
 }
-mlir::Type getTrueElemTypeOfWeights(IE::ConvertOp op) {
-    return mlir::cast<NDTypeInterface>(op.getInput().getType()).getElementType();
+
+mlir::Type getTrueElemType(mlir::Operation* op) {
+    if (auto declareOp = mlir::dyn_cast_or_null<Const::DeclareOp>(op)) {
+        return mlir::cast<NDTypeInterface>(declareOp.getContentAttr().getBaseContent().getType()).getElementType();
+    } else if (auto convertOp = mlir::dyn_cast_or_null<IE::ConvertOp>(op)) {
+        // Historically, assume that convert op's input is weights and their type is the
+        // real type. This assumption holds when WeightsDequantizeStructureInfo is
+        // constructed successfully.
+        return mlir::cast<NDTypeInterface>(convertOp.getInput().getType()).getElementType();
+    } else {
+        VPUX_THROW("Got unsupported op type: {0}", op->getName());
+    }
 }
 
 int64_t getQuantizationLevels(mlir::Type inputElemType) {
@@ -432,8 +453,8 @@ std::pair<mlir::Value, mlir::Value> WeightsDequantizeStructureInfo::getOutputQua
     const auto inType = getInputType();
     const auto inStorageType =
             mlir::RankedTensorType::get(SmallVector<int64_t>(inType.getRank(), 1), inType.getElementType());
-    const auto reverted = IE::revertScaleShift(builder.getContext(), getStaticScale(), getStaticShift(), low, high,
-                                               inStorageType, log);
+    const auto reverted = IE::revertScaleShift(builder.getContext(), getStaticScaleAttr(), getStaticShiftAttr(), low,
+                                               high, inStorageType, log);
     VPUX_THROW_WHEN(mlir::failed(reverted), "Failed to revert scale-shift");
     const auto& [outLow, outHigh] = reverted.value();
 
@@ -457,7 +478,37 @@ bool WeightsDequantizeStructureInfo::hasShift() const {
     return shift != nullptr;
 }
 
-Const::ContentAttr WeightsDequantizeStructureInfo::getStaticScale() const {
+bool WeightsDequantizeStructureInfo::isKVcachedPattern() const {
+    auto lastOp = getLastOp();
+    while (mlir::isa<IE::MultiplyOp, IE::SubtractOp, IE::ConvertOp, IE::AffineReshapeOp, IE::ReshapeOp>(lastOp)) {
+        if (!lastOp->getResult(0).hasOneUse()) {
+            return false;
+        }
+
+        lastOp = *lastOp->user_begin();
+    }
+
+    if (mlir::isa<IE::MatMulOp, IE::FullyConnectedOp>(lastOp)) {
+        const auto countNonTrivialDims = [](const auto& shape) {
+            return std::count_if(shape.begin(), shape.end(), [](const auto& d) {
+                return d != 1;
+            });
+        };
+        return countNonTrivialDims(getShape(lastOp->getOperand(0))) == 1;
+    }
+
+    if (mlir::isa<IE::ConvolutionOp>(lastOp)) {
+        return getShape(lastOp->getOperand(0))[Dim(0)] == 1;
+    }
+
+    return false;
+}
+
+mlir::Type WeightsDequantizeStructureInfo::getInputElemType() const {
+    return getInputType().getElementType();
+}
+
+Const::ContentAttr WeightsDequantizeStructureInfo::getStaticScaleAttr() const {
     if (scale == nullptr) {
         return {};
     }
@@ -465,12 +516,20 @@ Const::ContentAttr WeightsDequantizeStructureInfo::getStaticScale() const {
     return declareOp != nullptr ? declareOp.getContentAttr() : Const::ContentAttr{};
 }
 
-Const::ContentAttr WeightsDequantizeStructureInfo::getStaticShift() const {
+Const::ContentAttr WeightsDequantizeStructureInfo::getStaticShiftAttr() const {
     if (shift == nullptr) {
         return {};
     }
     auto declareOp = shift.getDefiningOp<Const::DeclareOp>();
     return declareOp != nullptr ? declareOp.getContentAttr() : Const::ContentAttr{};
+}
+
+mlir::Value WeightsDequantizeStructureInfo::getStaticScale() const {
+    return scale == nullptr || scale.getDefiningOp<Const::DeclareOp>() == nullptr ? nullptr : scale;
+}
+
+mlir::Value WeightsDequantizeStructureInfo::getStaticShift() const {
+    return shift == nullptr || shift.getDefiningOp<Const::DeclareOp>() == nullptr ? nullptr : shift;
 }
 
 mlir::Value WeightsDequantizeStructureInfo::getDynamicScale() const {

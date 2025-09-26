@@ -80,17 +80,19 @@ def Core_ReinterpretCastOp : Core_Op<"ReinterpretCast", [Pure, ViewLikeOpInterfa
 
         The operation imposes minimal requirements to guarantee the basic
         correctness of the transformation: dimensionality of the data must be
-        preserved, byte size of the data must be preserved.
+        preserved, byte size of the data must be preserved, with the exception
+        of the dynamic dimensions, which can be changed freely.
     }];
 
     let arguments = (ins
-        AnyTypeOf<[AnyStaticShapeTensor, AnyStaticShapeMemRef]>:$input
+        AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$input
     );
     let results = (outs
-        AnyTypeOf<[AnyStaticShapeTensor, AnyStaticShapeMemRef]>:$output
+        AnyTypeOf<[AnyRankedTensor, AnyMemRef]>:$output
     );
     let assemblyFormat = "`(` operands `)` attr-dict `:` type(operands) `->` type(results)";
     let hasVerifier = 1;
+    let hasFolder = 1;
 
     let extraClassDeclaration = [{
         mlir::Value getViewSource() { return getInput(); }

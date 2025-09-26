@@ -19,6 +19,8 @@ def getOption(args=sys.argv[1:]):
                         help="trims the .bin to the smallest contiguous section still in use after the network is cut", action="store_true")
     parser.add_argument(
         "--overwrite", help="overwrites any existing .bin file even if it has the expected size", action="store_true")
+    parser.add_argument("-o", "--outputpath",
+                        help="path to output model cut, when not set, deduced from input", required=False, default=None)
 
     return parser.parse_args(args)
 
@@ -141,13 +143,16 @@ def delLayers(tree, layerName):
         parent.remove(ll)
 
 
-def dumpModel(tree, origin_path, layername, trim_weights, always_overwrite_weights):
+def dumpModel(tree, origin_path, layername, trim_weights, always_overwrite_weights, output_path):
+    old_bin_path = origin_path.parent / (origin_path.stem + ".bin")
 
     # generate the new dump path
     new_file_name = origin_path.parent / (origin_path.stem + "-cut-" +
                                           layername.replace('/', '-') + origin_path.suffix)
-    old_bin_path = origin_path.parent / (origin_path.stem + ".bin")
-    new_bin_path = origin_path.parent / (new_file_name.stem + ".bin")
+    if output_path is not None:  # use output path when specified
+        new_file_name = output_path
+
+    new_bin_path = new_file_name.parent / (new_file_name.stem + ".bin")
 
     # keep the full original .bin file
     if not trim_weights:
@@ -248,5 +253,11 @@ if tree is None:
 # cut layers off
 delLayers(tree, options.layername)
 
+output_path = None
+if options.outputpath is not None:
+    output_path = Path(options.outputpath)
+    if output_path.suffix != ".xml":
+        raise Exception("Output path is not valid - supposed to be a .xml file location")
+
 # save to new file
-dumpModel(tree, origin_path, options.layername, options.trim_weights, options.overwrite)
+dumpModel(tree, origin_path, options.layername, options.trim_weights, options.overwrite, output_path)

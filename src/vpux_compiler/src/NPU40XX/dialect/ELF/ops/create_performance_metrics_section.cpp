@@ -5,7 +5,9 @@
 
 #include <vpux_elf/writer.hpp>
 #include "vpux/compiler/NPU40XX/dialect/VPU/utils/performance_metrics.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/factories/frequency_table.hpp"
 #include "vpux/compiler/dialect/VPU/utils/performance_metrics.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
 
 #include <npu_40xx_nnrt.hpp>
@@ -15,23 +17,23 @@ using namespace npu40xx;
 
 void vpux::ELF::PerformanceMetricsOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
     VpuPerformanceMetrics perf{};
+    auto operation = getOperation();
+    auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
 
-    auto freqTable = VPU::arch40xx::getFrequencyTable();
-    perf.freq_base = freqTable.base;
-    perf.freq_step = freqTable.step;
+    const auto arch = config::getArch(mainModule);
+    auto freqTable = VPU::getFrequencyTable(arch);
+    perf.freq_base = freqTable().base;
+    perf.freq_step = freqTable().step;
     perf.bw_base = VPU::getBWBase();
     perf.bw_step = VPU::getBWStep();
 
-    auto operation = getOperation();
-    auto mainModule = operation->getParentOfType<mlir::ModuleOp>();
     // Here we must get AF from NCE res (a TileResourceOp) as the AF attribute is attached to tile op
-    mainModule.walk([&](IE::TileResourceOp res) {
-        const auto execKind = VPU::getKindValue<VPU::ExecutorKind>(res);
-        if (VPU::ExecutorKind::NCE == execKind) {
-            perf.activity_factor = VPU::getActivityFactor(execKind, mainModule, res);
-            VPUX_THROW_WHEN(perf.activity_factor == VPU::INVALID_AF, "Invalid activity factor!");
-        }
-    });
+    auto tileResources = config::getTileExecutor(mainModule);
+    const auto execKind = VPU::getKindValue<VPU::ExecutorKind>(tileResources);
+    if (VPU::ExecutorKind::NCE == execKind) {
+        perf.activity_factor = VPU::getActivityFactor(execKind, mainModule, tileResources);
+        VPUX_THROW_WHEN(perf.activity_factor == VPU::INVALID_AF, "Invalid activity factor!");
+    }
 
     auto numEntries = VPU::getNumEntries();
     auto byBWScales = VPU::getBWScales();

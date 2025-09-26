@@ -7,6 +7,10 @@
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 
+namespace VPUNN {
+class VPUCostModel;
+}  // namespace VPUNN
+
 namespace vpux::VPUIP::arch37xx {
 
 int64_t computeSplitCost(const WorkloadSplit& split, const WorkloadCostParams& params, VPUNN::VPUCostModel& costModel,

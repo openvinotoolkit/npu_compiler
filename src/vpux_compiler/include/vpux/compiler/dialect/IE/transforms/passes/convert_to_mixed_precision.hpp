@@ -8,8 +8,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 
+#include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/IRMapping.h>
 
 namespace vpux {
@@ -179,8 +183,18 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
         return quantType.isSigned();
     };
 
+    const auto perChannelQuantType =
+            mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(quantFilterDequantizeType);
+    const auto perTensorQuantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantFilterDequantizeType);
+    const auto isSymmetricQuant = IE::isSymmetricQuantType(quantFilterDequantizeType);
+    auto moduleOp = getModuleOp(convOp.getOperation());
+    const auto isAsymmetricPerChannelSupported = vpux::VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorSupported = vpux::VPU::asymmetricPerTensorZeroPointSupported(moduleOp);
+
     // Only signed quant is supported for input + wt mixed precision
-    if (!isSignedQuantizedType(quantFilterDequantizeType) || !IE::isSymmetricQuantType(quantFilterDequantizeType)) {
+    if (!isSignedQuantizedType(quantFilterDequantizeType) ||
+        (perChannelQuantType && !isAsymmetricPerChannelSupported && !isSymmetricQuant) ||
+        (perTensorQuantType && !isAsymmetricPerTensorSupported && !isSymmetricQuant)) {
         return mlir::failure();
     }
 

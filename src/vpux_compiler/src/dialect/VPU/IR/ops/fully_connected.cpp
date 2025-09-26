@@ -33,7 +33,7 @@ mlir::LogicalResult vpux::VPU::FullyConnectedOp::inferReturnTypes(
     outShape.push_back(inShape[0]);
     outShape.push_back(weightsShape[0]);
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

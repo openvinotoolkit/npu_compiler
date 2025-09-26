@@ -6,9 +6,9 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/dma_fusion_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
@@ -44,7 +44,7 @@ void UnrollDistributedOpsPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOpExecutor = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOpExecutor = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOpExecutor.getCount();
 
     const VPUIP::arch37xx::ClusterSWRewriter swRewriter(&ctx, module, _log);

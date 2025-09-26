@@ -4,13 +4,15 @@
 //
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <vpu_layer_cost_model.h>
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_MOVEREFLECTPADTOCMX
@@ -346,7 +348,7 @@ void MoveReflectPadToCMXPass::safeRunOnFunc() {
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto arch = config::getArch(module);
-    auto numDMAPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    auto numDMAPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     auto vpunnCostModel = vpux::VPU::CostModelConfig::createLayerCostModel(arch);
     auto vpuDevice = vpux::VPU::getVPUDeviceType(arch);
 

@@ -24,7 +24,7 @@ mlir::LogicalResult vpux::VPU::EmbeddingSegmentsSumOp::inferReturnTypes(
 
     outShape[0] = checked_cast<int64_t>(embeddingSegmentsSum.getNumSegmentsValue());
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

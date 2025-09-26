@@ -71,35 +71,35 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_I8, Mixed
                          ::testing::Combine(conv2DParamsI8,
                                             ::testing::Values(ov::element::f16),              // netPrc
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),                   // targetDevice
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_I4, MixedPrecisionConvSubGraphTest_NPU3720,
                          ::testing::Combine(conv2DParamsI4,
                                             ::testing::Values(ov::element::f16),              // netPrc
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),                   // targetDevice
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTest_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_I8, MixedPrecisionConvSubGraphTest_NPU4000,
                          ::testing::Combine(conv2DParamsI8,
                                             ::testing::Values(ov::element::f16),              // netPrc
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),                   // targetDevice
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTest_NPU4000::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_I4, MixedPrecisionConvSubGraphTest_NPU4000,
                          ::testing::Combine(conv2DParamsI4,
                                             ::testing::Values(ov::element::f16),              // netPrc
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),                   // targetDevice
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTest_NPU4000::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_mixed_precision_Convolution2D_NF4, MixedPrecisionConvSubGraphTest_NPU4000,
                          ::testing::Combine(conv2DParamsNF4,
                                             ::testing::Values(ov::element::f16),              // netPrc
                                             ::testing::ValuesIn({ov::Shape{1, 16, 16, 16}}),  // inputShapes
-                                            ::testing::Values(DEVICE_NPU)),                   // targetDevice
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),    // targetDevice
                          MixedPrecisionConvSubGraphTest_NPU4000::getTestCaseName);
 
 }  // namespace

@@ -6,8 +6,16 @@
 #include "vpux/compiler/core/schedule_analysis_utils.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/utils/async_dialect_utils.hpp"
+#include "vpux/compiler/utils/dma.hpp"
 #include "vpux/utils/profiling/reports/ted.hpp"
 
+#include <llvm/Support/JSON.h>
+#include "llvm/Support/FileSystem.h"
+
+#include <cstddef>
+#include <fstream>
 #include <iomanip>
 
 using namespace vpux;
@@ -295,45 +303,87 @@ void vpux::printSpillingStatistics(Logger log, SpillStats& beforePrefetching, Sp
     log = log.unnest();
 }
 
-void vpux::createTracingJSON(mlir::func::FuncOp& netFunc, StringRef fileName) {
-    std::ofstream out_stream(fileName.str());
-    VPUX_THROW_UNLESS(out_stream.good(), "File to dump traces to is not created correctly");
+inline uint32_t arrayAttrToMask32(mlir::ArrayAttr arr) {
+    uint32_t mask = 0;
+    for (mlir::Attribute elem : arr) {
+        auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(elem);
+        assert(intAttr && "executor_mask element must be IntegerAttr");
+        uint64_t idx = intAttr.getInt();
+        assert(idx < 32 && "executor instance index >= 32 not supported");
+        mask |= uint32_t(1) << idx;
+    }
+    return mask;
+}
 
-    profiling::TraceEventDesc ted;
-    ted.pid = 0;
+void vpux::createTracingJSON(mlir::func::FuncOp& netFunc, MemLiveRangeInfo& liveRangeInfo,
+                             LinearScan<mlir::Value, LinearScanHandler>& scan, vpux::AddressType totalMemory,
+                             StringRef fileName) {
+    llvm::json::Array jBuffers;
+    llvm::json::Array jOps;
 
-    out_stream << std::setprecision(0) << "{\"traceEvents\":[" << std::endl;
-
-    // store all operation info in struct
+    // write operations to json
+    mlir::DenseMap<mlir::Value, int> allBuffers;
     for (auto execOp : netFunc.getOps<mlir::async::ExecuteOp>()) {
         const auto attr = execOp->getAttrOfType<mlir::IntegerAttr>("async-deps-index");
         const auto index = checked_cast<uint32_t>(attr.getValue().getZExtValue());
         auto indexString = std::to_string(index);
-        auto executor = VPUIP::VPUIPDialect::getExecutor(execOp).getLeafName().str();
+
         auto cycleBegin = getAsyncExecuteCycleBegin(execOp);
         auto cycleEnd = getAsyncExecuteCycleEnd(execOp);
 
-        ted.name = std::move(indexString);
-        ted.category = executor;
-        ted.tid = executorStrToId.at(executor);
-        ted.timestamp = cycleBegin;
-        ted.duration = cycleEnd - cycleBegin;
-        out_stream << ted;
+        llvm::json::Array inBuffers;
+        for (auto buf : liveRangeInfo.getInputBuffers(execOp)) {
+            if (allBuffers.count(buf) == 0) {
+                // new buffer
+                allBuffers[buf] = allBuffers.size();
+            }
+
+            inBuffers.push_back(allBuffers[buf]);
+        }
+
+        llvm::json::Array outBuffers;
+        for (auto buf : liveRangeInfo.getOutputBuffers(execOp)) {
+            if (allBuffers.count(buf) == 0) {
+                // new buffer
+                allBuffers[buf] = allBuffers.size();
+            }
+
+            outBuffers.push_back(allBuffers[buf]);
+        }
+
+        auto executor = VPUIP::VPUIPDialect::getExecutor(execOp).getLeafName().str();
+        if (auto dmaTask = vpux::getDmaTypeOp(execOp)) {
+            executor = executor + "_CH_" + std::to_string(getDMAQueueIdEncoding(dmaTask.getChannelType()));
+        }
+        uint32_t executorMask = 1;
+        if (vpux::VPUIP::VPUIPDialect::hasExecutorInstanceMask(execOp)) {
+            executorMask = arrayAttrToMask32(vpux::VPUIP::VPUIPDialect::getExecutorInstanceMask(execOp));
+        }
+
+        jOps.push_back(llvm::json::Object({{"op_id", std::move(indexString)},
+                                           {"cycle_begin", cycleBegin},
+                                           {"cycle_end", cycleEnd},
+                                           {"inputs", llvm::json::Value(llvm::json::Array(std::move(inBuffers)))},
+                                           {"outputs", llvm::json::Value(llvm::json::Array(std::move(outBuffers)))},
+                                           {"executor", std::move(executor)},
+                                           {"executor_mask", llvm::json::Value(static_cast<int64_t>(executorMask))}}));
     }
 
-    // add meta information
-    out_stream << std::string(R"({"name": "process_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 0
-               << R"(, "args": {"name" : "Inference"}},)" << std::endl;
-    out_stream << std::string(R"({"name": "thread_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 0
-               << R"(, "args": {"name" : "DMA_NN"}},)" << std::endl;
-    out_stream << std::string(R"({"name": "thread_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 1
-               << R"(, "args": {"name" : "DPU"}},)" << std::endl;
-    out_stream << std::string(R"({"name": "thread_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 2
-               << R"(, "args": {"name" : "NCE"}},)" << std::endl;
-    out_stream << std::string(R"({"name": "thread_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 4
-               << R"(, "args": {"name" : "SHAVE_ACT"}},)" << std::endl;
-    out_stream << std::string(R"({"name": "thread_name", "ph": "M", "pid": )") << 0 << R"(, "tid": )" << 5
-               << R"(, "args": {"name" : "SHAVE_NN"}},)" << std::endl;
-    out_stream << "]";
-    out_stream << "}" << std::endl;
+    // write buffers to json
+    for (const auto& b : allBuffers) {
+        const auto offset = checked_cast<uint64_t>(scan.handler().getAddress(b.first));
+        const auto size = checked_cast<uint64_t>(scan.handler().getSize(b.first));
+        jBuffers.push_back(llvm::json::Object{{"id", b.second}, {"lo", offset}, {"hi", offset + size}});
+    }
+
+    llvm::json::Object schedule{{"totalMemory", std::to_string(totalMemory)},
+                                {"buffers", std::move(jBuffers)},
+                                {"operations", std::move(jOps)}};
+
+    std::error_code EC;
+    llvm::raw_fd_ostream OS(fileName.str(), EC, llvm::sys::fs::OF_Text);
+    VPUX_THROW_UNLESS(!EC, "cannot open '{}' ({})", fileName.str(), EC.message());
+
+    // pretty-print
+    OS << llvm::formatv("{0:2}", llvm::json::Value(std::move(schedule)));
 }

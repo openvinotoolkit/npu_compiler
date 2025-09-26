@@ -134,3 +134,45 @@ func.func @OptimizeExpandSlicePatternPadBothSides(%input: tensor<1x16x1x1xf16>) 
    // CHECK-NOT:    VPU.Slice
    // CHECK:        return [[INPUT]] : tensor<1x16x1x1xf16>
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!InputDistributed = tensor<1x16x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+!OutputDistributed = tensor<1x12x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @SliceWithDynamicHWTensorType
+// CHECK-SAME:        ([[INPUT:%.+]]: tensor<1x16x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @SliceWithDynamicHWTensorType(%arg0: !InputDistributed)
+    -> !OutputDistributed {
+
+    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 12, -9223372036854775808, -9223372036854775808] : !InputDistributed to !OutputDistributed
+    return %0 : !OutputDistributed
+	
+    // CHECK:        [[SLICE:%.*]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 12, -9223372036854775808, -9223372036854775808] : tensor<1x16x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x12x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:        return [[SLICE]] : tensor<1x12x?x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+!InputDistributed = tensor<1x16x800x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+!OutputDistributed = tensor<1x12x400x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 400, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+// CHECK-LABEL: @SliceWithDynamicWTensorType
+// CHECK-SAME:        ([[INPUT:%.+]]: tensor<1x16x800x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}>)
+func.func @SliceWithDynamicWTensorType(%arg0: !InputDistributed)
+    -> !OutputDistributed {
+
+    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 12, 400, -9223372036854775808] : !InputDistributed to !OutputDistributed
+    return %0 : !OutputDistributed
+	
+    // CHECK:        [[SLICE:%.*]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 12, 400, -9223372036854775808] : tensor<1x16x800x?xf32, {bounds = #const.OpaqueI64Elements<[1, 16, 800, 1280]> : tensor<4xsi64>, order = #NCHW}> to tensor<1x12x400x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 400, 1280]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:        return [[SLICE]] : tensor<1x12x400x?xf32, {bounds = #const.OpaqueI64Elements<[1, 12, 400, 1280]> : tensor<4xsi64>, order = #NCHW}>
+
+}

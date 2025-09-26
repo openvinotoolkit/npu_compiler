@@ -6,6 +6,71 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
+// CHECK-LABEL: @FoldMultiplyNonSplat
+func.func @FoldMultiplyNonSplat() -> tensor<1x1x2x2xf32> {
+  %0 = const.Declare tensor<1x1x2x2xf32> = dense<[ [ [ [1.0, 2.0], [3.0, 4.0] ] ]]> : tensor<1x1x2x2xf32>
+  %1 = const.Declare tensor<1x1x2x2xf32> = dense<[ [ [ [5.0, 6.0], [7.0, 8.0] ] ]]> : tensor<1x1x2x2xf32>, [#const.Add<1.0>]
+  %2 = IE.Multiply(%0, %1)
+       { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+       tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
+  return %2 : tensor<1x1x2x2xf32>
+
+  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
+  // CHECK-LITERAL{LITERAL}:        dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+  // CHECK-LITERAL{LITERAL}:       [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
+
+  // CHECK-NEXT: return [[CST]]
+}
+
+// -----
+
+// CHECK-LABEL: @FoldMultiplyLhsSplat
+func.func @FoldMultiplyLhsSplat() -> tensor<1x1x2x2xf32> {
+  %0 = const.Declare tensor<1x1x2x2xf32> = dense<2.0> : tensor<1x1x2x2xf32>
+  %1 = const.Declare tensor<1x1x2x2xf32> = dense<[ [ [ [5.0, 6.0], [7.0, 8.0] ] ]]> : tensor<1x1x2x2xf32>, [#const.Add<1.0>]
+  %2 = IE.Multiply(%0, %1)
+       { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+       tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
+  return %2 : tensor<1x1x2x2xf32>
+
+  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
+  // CHECK-SAME{LITERAL}:     dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>, #const.Rescale<2.000000e+00 : f64>]
+
+  // CHECK-NEXT: return [[CST]]
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFoldMultiplyRhsSplat
+func.func @DoNotFoldMultiplyRhsSplat() -> tensor<1x1x2x2xf32> {
+  %0 = const.Declare tensor<1x1x2x2xf32> = dense<[ [ [ [5.0, 6.0], [7.0, 8.0] ] ]]> : tensor<1x1x2x2xf32>
+  %1 = const.Declare tensor<1x1x2x2xf32> = dense<2.0> : tensor<1x1x2x2xf32>
+  %2 = IE.Multiply(%0, %1)
+       { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+       tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
+  return %2 : tensor<1x1x2x2xf32>
+
+  // CHECK-DAG: IE.Multiply
+  
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotFoldMultiplySplat
+func.func @DoNotFoldMultiplySplat() -> tensor<1x1x2x2xf32> {
+  %0 = const.Declare tensor<1x1x2x2xf32> = dense<3.0> : tensor<1x1x2x2xf32>
+  %1 = const.Declare tensor<1x1x2x2xf32> = dense<2.0> : tensor<1x1x2x2xf32>
+
+  %2 = IE.Multiply(%0, %1)
+       { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+       tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
+  return %2 : tensor<1x1x2x2xf32>
+
+  // CHECK-DAG: IE.Multiply
+}
+
+// -----
+
 // CHECK-LABEL: @ConstFold
 func.func @ConstFold() -> tensor<1x8x4x4xf32> {
     %0 = const.Declare tensor<1x8x4x4xf32> = dense<5.0> : tensor<1x8x4x4xf32>

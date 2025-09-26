@@ -16,15 +16,15 @@
 
 // CHECK-LABEL: module @AddCycleCostForSWMultiCluster
 module @AddCycleCostForSWMultiCluster attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
-    IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-        IE.ExecutorResource 1 of @DPU
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @SHAVE_NN
-        IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.Resources 2 of @NCE at 1.300000e+03 MHz {
+        config.ExecutorResource 1 of @DPU
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @SHAVE_NN
+        config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
     }
-    IE.ExecutorResource 2 of @DMA_NN
-    IE.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
+    config.ExecutorResource 2 of @DMA_NN
+    config.MemoryResource 524288000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
     module @VPU.SW {
         func.func private @builtin_MVN(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>, i1, i1, f64) attributes {VPU.kernel_code = "mvn1.cpp", VPU.kernel_entry = "mvn1"}
         func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
@@ -75,13 +75,13 @@ module @AddCycleCostForSWMultiCluster attributes {config.compilationMode = #conf
 
 // CHECK-LABEL: module @AddCycleCostForSWSingleCluster
 module @AddCycleCostForSWSingleCluster {
-    IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
-        IE.ExecutorResource 2 of @SHAVE_ACT
-        IE.ExecutorResource 1 of @SHAVE_NN
-        IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 1 of @DPU
+    config.Resources 1 of @NCE at 1.300000e+03 MHz {
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @SHAVE_NN
+        config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 1 of @DPU
     }
-    IE.ExecutorResource 1 of @DMA_NN
+    config.ExecutorResource 1 of @DMA_NN
 
     VPURT.SW.Runtime entryPoint: @VPU.SW::@runtime stack_configuration: [4096, 4096, 4096, 4096]
 

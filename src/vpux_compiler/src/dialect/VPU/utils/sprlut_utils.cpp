@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
-#include "vpux/compiler/dialect/config/IR/ops.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
 
 using namespace vpux;
 

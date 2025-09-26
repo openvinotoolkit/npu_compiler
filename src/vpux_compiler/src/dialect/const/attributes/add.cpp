@@ -51,7 +51,7 @@ vpux::NDTypeInterface vpux::Const::AddAttr::inferOutputType(vpux::NDTypeInterfac
     return input;
 }
 
-bool vpux::Const::AddAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::AddAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

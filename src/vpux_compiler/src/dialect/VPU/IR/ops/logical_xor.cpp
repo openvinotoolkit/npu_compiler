@@ -28,7 +28,7 @@ mlir::LogicalResult vpux::VPU::LogicalXorOp::inferReturnTypes(mlir::MLIRContext*
                                                        logicalxor.getAutoBroadcast(), loc);
 
     if (mlir::succeeded(outShapeRes)) {
-        const auto outType = in1Type.changeShape(Shape(outShapeRes.value()));
+        const auto outType = in1Type.changeShape(ShapeRef(outShapeRes.value()));
         inferredReturnTypes.push_back(outType);
     }
 

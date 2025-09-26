@@ -36,19 +36,19 @@ ov::log::Level getTestsLogLevelFromEnvironmentOr(ov::log::Level instead) {
 }
 
 const std::vector<ov::AnyMap> configsDeviceProperties = {
-        {ov::device::properties(ov::test::utils::DEVICE_NPU, ov::num_streams(ov::streams::AUTO))},
+        {ov::device::properties(test_utils::TARGET_DEVICE, ov::num_streams(ov::streams::AUTO))},
         {ov::device::properties(
-                ov::AnyMap{{ov::test::utils::DEVICE_NPU, ov::AnyMap{ov::num_streams(ov::streams::AUTO)}}})}};
+                ov::AnyMap{{test_utils::TARGET_DEVICE, ov::AnyMap{ov::num_streams(ov::streams::AUTO)}}})}};
 
 INSTANTIATE_TEST_SUITE_P(BehaviorTests_OVGetConfigTest_nightly, OVGetConfigTest,
-                         ::testing::Values(ov::test::utils::DEVICE_NPU),
+                         ::testing::Values(test_utils::TARGET_DEVICE),
                          ov::test::utils::appendPlatformTypeTestName<OVGetConfigTest>);
 
 // IE Class load and check network with ov::device::properties
 // OVClassCompileModelAndCheckSecondaryPropertiesTest only works with property num_streams of type int32_t
 INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_BehaviorTests_OVClassLoadNetworkAndCheckWithSecondaryPropertiesTest,
                          OVClassCompileModelAndCheckSecondaryPropertiesTest,
-                         ::testing::Combine(::testing::Values(ov::test::utils::DEVICE_NPU, "AUTO:NPU", "MULTI:NPU"),
+                         ::testing::Combine(::testing::Values(test_utils::TARGET_DEVICE, "AUTO:NPU", "MULTI:NPU"),
                                             ::testing::ValuesIn(configsDeviceProperties)));
 
 };  // namespace

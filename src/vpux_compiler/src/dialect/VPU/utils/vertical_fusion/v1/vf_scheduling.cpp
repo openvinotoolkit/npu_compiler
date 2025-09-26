@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+
+#include <deque>
 
 namespace vpux::VPU::VF::v1 {
 VFScheduling::VFScheduling(Logger log, bool prefetching /*true*/): _log(log), _prefetching(prefetching) {

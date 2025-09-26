@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/factories/small_kernel_optimization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_padding_utils.hpp"
@@ -205,27 +206,67 @@ Byte vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC) {
 
 // OC can be used to represent a number of output channels that is different from the number of output channels in op
 // (e.g. when a new output type will be used)
-mlir::FailureOr<SmallVector<Byte>> vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC, mlir::Operation* op) {
-    if (!mlir::isa<VPU::NCEConvolutionOp>(op)) {
-        return mlir::failure();
-    }
-
-    auto convOp = mlir::cast<VPU::NCEConvolutionOp>(op);
-
-    bool isNewWeightTable = convOp.getWeightsTable() == nullptr;
-    if (!isNewWeightTable) {
+mlir::FailureOr<SmallVector<Byte>> vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC, mlir::Value weightsTable,
+                                                                                mlir::Value weightTableScale,
+                                                                                mlir::Value weightTableBias) {
+    if (weightsTable != nullptr) {
         return SmallVector<Byte>{getWeightsTableSize(OC)};
     }
 
     SmallVector<Byte> newWeightTables{};
-    if (convOp.getWeightTableScale()) {
+    if (weightTableScale != nullptr) {
         newWeightTables.push_back(OC * 4_Byte);
     }
-    if (convOp.getWeightTableBias()) {
+    if (weightTableBias != nullptr) {
         newWeightTables.push_back(OC * 4_Byte);
     }
 
     return newWeightTables;
+}
+
+template <typename NCEOp>
+mlir::LogicalResult getWeightTableBuffersBase(NCEOp nceOp, SmallVector<Byte>& buffers, int64_t OC) {
+    auto weightTables = vpux::VPU::NCEInvariant::getWeightsTableSize(
+            OC, nceOp.getWeightsTable(), nceOp.getWeightTableScale(), nceOp.getWeightTableBias());
+    if (mlir::failed(weightTables)) {
+        return mlir::failure();
+    }
+
+    auto weightTablesValue = weightTables.value();
+    buffers.append(weightTablesValue.begin(), weightTablesValue.end());
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::NCEInvariant::getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers,
+                                                                   int64_t OC) {
+    if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(op)) {
+        return getWeightTableBuffersBase(convOp, buffers, OC);
+    } else if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(op)) {
+        return getWeightTableBuffersBase(dwConvOp, buffers, OC);
+    }
+    return mlir::failure();
+}
+
+//
+// verifyWeightTables
+//
+
+template <typename NCEOp>
+static mlir::LogicalResult verifyWeightTablesBase(NCEOp op, Logger) {
+    if ((op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
+         op.getWeightTableBias() || op.getWeightZeroPoints())) {
+        return errorAt(op, "Only weightsTable can be populated for NCEOp");
+    }
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::NCEInvariant::verifyWeightTables(mlir::Operation* op, Logger log) {
+    if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(op)) {
+        return verifyWeightTablesBase(convOp, log);
+    } else if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(op)) {
+        return verifyWeightTablesBase(dwConvOp, log);
+    }
+    return mlir::failure();
 }
 
 //
@@ -326,21 +367,10 @@ bool vpux::VPU::NCEInvariant::doesWorkloadSupportSmallKernelOpt([[maybe_unused]]
                                                                 ArrayRef<int64_t> workloadOutSz, bool isFp16Input,
                                                                 [[maybe_unused]] const int64_t KY,
                                                                 [[maybe_unused]] const int64_t padLeft) {
-    // L1Opt can be enabled when kernelX = 3 and strideX = 1
-    if (KX != 3 || SX != 1) {
-        return false;
-    }
-
-    // Float16 input align to 16 generates performance regression.
-    return isFp16Input ? workloadOutSz[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT32
-                       : workloadOutSz[Dims4D::Act::C.ind()] % VPU_CHANNEL_SIZE_FOR_L1OPT16 == 0;
+    return VPU::doesWorkloadSupportSmallKernelOpt(arch, KX, SX, workloadOutSz, isFp16Input, KY, padLeft);
 }
 
 bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(const config::ArchKind arch, mlir::Operation* op) {
-    // TODO: E#96201, attach concrete implementation of NCEOpInterface depending on the type of device
-    if (arch == config::ArchKind::NPU37XX) {
-        return false;
-    }
     if (!mlir::isa<VPU::NCEDepthConvolutionOp>(op)) {
         return false;
     }
@@ -350,7 +380,6 @@ bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(const config::A
         return false;
     }
 
-    // L1Opt can be enabled when kernelX = 3 and strideX = 1
     const auto kernelSize = nceOp.getKernelSizeVal();
     const auto KX = kernelSize[Dims4D::Kernel::X.ind()];
     [[maybe_unused]] const auto KY = kernelSize[Dims4D::Kernel::Y.ind()];
@@ -358,24 +387,10 @@ bool vpux::VPU::NCEInvariant::isSmallKernelOptimizationSupported(const config::A
     const auto SX = kernelStride[Dims4D::Strides::X.ind()];
 
     // Get a set containing all the channels from the workloads of the given NCE operations
-    mlir::DenseSet<int64_t> workloadsChannels;
     const auto workloads = nceOp.getWorkloads().getOps<VPU::DPUWorkloadOp>();
-    const auto isFp16Input = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType()).getElementType().isF16();
-    auto is16Workload = false;
-    auto is64Workload = false;
-    const auto workloadChannelsMeetRequirement = llvm::all_of(workloads, [&](auto workload) {
-        const auto wlSizes = parseIntArrayAttr<int64_t>(workload.getOutSizes());
-        is16Workload |= wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT16;
-        is64Workload |= wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT64;
-        return isFp16Input ? wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT16 ||
-                                     wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT32
-                           : (wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT16 ||
-                              wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT32 ||
-                              wlSizes[Dims4D::Act::C.ind()] == VPU_CHANNEL_SIZE_FOR_L1OPT64) &&
-                                     !(is16Workload && is64Workload);
-    });
 
-    return KX == 3 && SX == 1 && workloadChannelsMeetRequirement;
+    return VPU::isSmallKernelOptimizationSupported(op, arch, KX, KY, SX,
+                                                   SmallVector<VPU::DPUWorkloadOp>(workloads.begin(), workloads.end()));
 }
 
 //
@@ -496,25 +511,30 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyPoolCMX(mlir::Location loc, m
     return mlir::success();
 }
 
+bool vpux::VPU::NCEInvariant::isParentOptimalForAlignment(mlir::Operation* parentOp) {
+    // To avoid regression caused by expand and slice,
+    // we only allow NCE + SoftMax pattern now
+    if (parentOp == nullptr) {
+        return false;
+    }
+    // Skip if the parent is a slice
+    if (auto sliceOp = mlir::dyn_cast<IE::SliceOp>(parentOp)) {
+        auto parentParentOp = sliceOp.getSource().getDefiningOp();
+        parentOp = parentParentOp;
+    }
+    if (isSupported(parentOp).failed()) {
+        return false;
+    }
+    return true;
+}
+
 bool vpux::VPU::NCEInvariant::isAlignmentBeneficial(mlir::Operation* op) {
     // Experiments shows that alignment can be beneficial for SW ops
     // #E164667: For SoftMax with axis on C and IC > 256, alignment bring significant SHAVE performance gain
     if (auto softMaxOp = mlir::dyn_cast<IE::SoftMaxOp>(op)) {
-        // To avoid regression caused by expand and slice,
-        // we only allow NCE + SoftMax pattern now
-        auto parentOp = softMaxOp.getInput().getDefiningOp();
-        if (parentOp == nullptr) {
+        if (!isParentOptimalForAlignment(softMaxOp.getInput().getDefiningOp())) {
             return false;
         }
-        // Skip if the parent is a slice
-        if (auto sliceOp = mlir::dyn_cast<IE::SliceOp>(parentOp)) {
-            auto parentParentOp = sliceOp.getSource().getDefiningOp();
-            parentOp = parentParentOp;
-        }
-        if (isSupported(parentOp).failed()) {
-            return false;
-        }
-
         auto inputType = mlir::cast<vpux::NDTypeInterface>(softMaxOp.getInput().getType());
         auto inputShape = inputType.getShape();
         const auto IC = inputShape[Dims4D::Act::C];
@@ -525,4 +545,10 @@ bool vpux::VPU::NCEInvariant::isAlignmentBeneficial(mlir::Operation* op) {
     }
 
     return false;
+}
+
+bool vpux::VPU::NCEInvariant::hasDimensionExceedingVPULimit(ShapeRef shape) {
+    return llvm::any_of(shape, [](auto dim) {
+        return dim > VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
+    });
 }

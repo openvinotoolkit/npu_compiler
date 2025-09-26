@@ -18,6 +18,8 @@
 
 #include <vpu/layer.h>
 #include <vpu/shave/layers.h>
+#include <vpu_cost_model.h>
+
 #include <bitset>
 #include <limits>
 
@@ -365,6 +367,20 @@ VPUNN::DPUWorkload vpux::getDPUWorkload(VPUIP::DPUTaskOp dpuTaskOp, config::Arch
         }
         vpunnDPUWorkload.sep_activators =
                 getSEPModeInfo(VPUIP::SEPInfo{vpux::Shape({1, 1, IH, IW}), std::move(dataShape)});
+    }
+
+    // The workloads that use the IDU / ODU autopad features must be explicitly marked for VPUNN to correctly calculate
+    // their cost.
+    // Note: Compressed Convolutions are an alternative way to avoid padding the input channels to 16, by only
+    // padding them to 4. For these workloads, VPUNN does not expect the IDU autopad to be marked as enabled
+    const auto usesIDUAutopad = vpunnDPUWorkload.inputs[0].z() < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT &&
+                                nceClusterOp.getInputChannelsCompressionAttr() == nullptr;
+    const auto usesODUAutopad = vpunnDPUWorkload.outputs[0].z() < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    if (usesIDUAutopad) {
+        vpunnDPUWorkload.input_autopad = true;
+    }
+    if (usesODUAutopad) {
+        vpunnDPUWorkload.output_autopad = true;
     }
 
     return vpunnDPUWorkload;

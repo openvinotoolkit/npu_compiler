@@ -7,10 +7,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/make_ops_with_distributed_tensor_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/overlap_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/IRMapping.h>

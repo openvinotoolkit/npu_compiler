@@ -81,7 +81,8 @@ mlir::LogicalResult FuseWithDepth2Space::matchAndRewrite(IE::QuantizeOp quantize
 void FuseQuantizedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns, Logger& log) const {
     auto ctx = patterns.getContext();
 
-    const auto checkAddInputTypes = [&](mlir::Type input1Type, mlir::Type input2Type) -> mlir::LogicalResult {
+    const auto checkAddInputTypes = [&](mlir::Type input1Type, mlir::Type input2Type,
+                                        VPU::EltwiseType eltwiseType) -> mlir::LogicalResult {
         auto dequantElemIn1Type = mlir::cast<mlir::quant::UniformQuantizedType>(input1Type);
         auto dequantElemIn2Type = mlir::cast<mlir::quant::UniformQuantizedType>(input2Type);
 
@@ -92,12 +93,18 @@ void FuseQuantizedOpsStrategy::addPatterns(mlir::RewritePatternSet& patterns, Lo
             return mlir::failure();
         }
 
+        if (!isSupportedEltwiseQuantization(dequantElemIn1Type, dequantElemIn2Type, /*allowDifferentScales=*/true,
+                                            /*allowDifferentZp=*/true, eltwiseType)) {
+            return mlir::failure();
+        }
+
         return mlir::success();
     };
 
     patterns.add<FuseWithConv>(ctx, checkPostOp, false, log);
     patterns.add<FuseWithGroupConv>(ctx, checkPostOp, true, log);
-    patterns.add<FuseWithEltwiseConverter<IE::AddOp>>(ctx, checkPostOp, checkAddInputTypes, false, log);
+    patterns.add<FuseWithEltwiseConverter<IE::AddOp>>(ctx, checkPostOp, checkAddInputTypes, VPU::EltwiseType::ADD,
+                                                      false, log);
     patterns.add<FuseWithSlice>(ctx, log);
     patterns.add<FuseWithMaxPool>(ctx, false, log);
     patterns.add<FuseWithTile>(ctx, log);

@@ -355,4 +355,15 @@ struct DenseMapInfo<vpux::VPU::ConstArg> {
     static unsigned getHashValue(const vpux::VPU::ConstArg& x);
     static bool isEqual(const vpux::VPU::ConstArg& x, const vpux::VPU::ConstArg& y);
 };
+
+template <>
+struct format_provider<vpux::VPU::ConstArg> {
+    static void format(const vpux::VPU::ConstArg& arg, llvm::raw_ostream& stream, StringRef style) {
+        stream << "WsConstArg<";
+        llvm::support::detail::build_format_adapter(arg.content).format(stream, style);
+        stream << ", ";
+        llvm::support::detail::build_format_adapter(arg.transformations).format(stream, style);
+        stream << ">";
+    }
+};
 }  // namespace llvm

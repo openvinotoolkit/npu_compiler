@@ -10,9 +10,11 @@
 
 // CHECK-LABEL: @DMAGraph
 module @DMAGraph {
-  builtin.module @ReservedMemory {
-    module @DmaProfilingReservedMemory {
-      IE.MemoryResource 4096 bytes of @DDR offset 0
+  config.Resources 1 of @global {
+    builtin.module @ReservedMemory {
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 4096 bytes of @DDR offset 0
+      }
     }
   }
 
@@ -103,9 +105,11 @@ module @DMAGraph {
 
 // CHECK-LABEL: @DMAComplexGraph
 module @DMAComplexGraph {
-  builtin.module @ReservedMemory {
-    module @DmaProfilingReservedMemory {
-      IE.MemoryResource 4096 bytes of @DDR offset 0
+  config.Resources 1 of @global {
+    builtin.module @ReservedMemory {
+      module @DmaProfilingReservedMemory {
+        config.MemoryResource 4096 bytes of @DDR offset 0
+      }
     }
   }
 

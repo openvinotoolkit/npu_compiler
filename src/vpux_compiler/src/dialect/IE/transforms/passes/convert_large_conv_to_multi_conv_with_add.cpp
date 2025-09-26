@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -96,7 +96,7 @@ mlir::LogicalResult ConvertLargeConvToMultiConvWithAddPass::SplitConvToMultiConv
     const auto kernelHeight = filterShape[Dims4D::Filter::KY];
 
     auto module = origOp.getOperation()->getParentOfType<mlir::ModuleOp>();
-    const auto numClusters = IE::getTileExecutor(module).getCount();
+    const auto numClusters = config::getTileExecutor(module).getCount();
     const auto availableCMXSizePerCluster = vpux::VPU::getTotalCMXSize(origOp).count();
     const auto totalAvailableCMXSize = availableCMXSizePerCluster * numClusters;
 

@@ -105,12 +105,12 @@ const std::vector<ov::element::Type> gridTypes = {
 const auto params = testing::Combine(::testing::ValuesIn(dataShapes), ::testing::ValuesIn(gridShapes),
                                      ::testing::ValuesIn(alignCorners), ::testing::ValuesIn(modes),
                                      ::testing::ValuesIn(paddingModes), ::testing::ValuesIn(dataTypes),
-                                     ::testing::ValuesIn(gridTypes), ::testing::Values(DEVICE_NPU));
+                                     ::testing::ValuesIn(gridTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
-const auto paramsTiling = testing::Combine(::testing::ValuesIn(dataShapesTiling), ::testing::ValuesIn(gridShapesTiling),
-                                           ::testing::ValuesIn(alignCorners), ::testing::ValuesIn(modes),
-                                           ::testing::ValuesIn(paddingModes), ::testing::ValuesIn(dataTypes),
-                                           ::testing::ValuesIn(gridTypes), ::testing::Values(DEVICE_NPU));
+const auto paramsTiling = testing::Combine(
+        ::testing::ValuesIn(dataShapesTiling), ::testing::ValuesIn(gridShapesTiling), ::testing::ValuesIn(alignCorners),
+        ::testing::ValuesIn(modes), ::testing::ValuesIn(paddingModes), ::testing::ValuesIn(dataTypes),
+        ::testing::ValuesIn(gridTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GridSample, GridSampleLayerTestCommon, params,
                          GridSampleLayerTest::getTestCaseName);

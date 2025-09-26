@@ -136,6 +136,12 @@ bool isPureViewOp(mlir::Operation* op);
 
 bool supportSwOpLoweringAsDMA(mlir::Operation* op);
 
+//
+// TilingInfoOpInterface for SW
+//
+
+void registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& registry);
+
 }  // namespace VPU
 }  // namespace vpux
 

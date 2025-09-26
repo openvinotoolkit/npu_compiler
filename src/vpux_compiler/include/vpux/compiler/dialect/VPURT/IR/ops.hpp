@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/types.hpp"
+#include "vpux/compiler/dialect/core/IR/properties.hpp"
 #include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 
 #include <mlir/Interfaces/InferTypeOpInterface.h>

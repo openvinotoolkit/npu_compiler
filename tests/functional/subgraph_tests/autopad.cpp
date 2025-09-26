@@ -77,7 +77,7 @@ struct Params {
 class AutoPaddingTest : public VpuOv2LayerTest, public testing::WithParamInterface<Params> {
     void configure_model() override {
         configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-auto-padding-odu=true enable-is-reduce-supported=true";
+                "enable-auto-padding-idu=true enable-auto-padding-odu=true enable-is-reduce-supported=true";
     }
 
     void SetUp() override {
@@ -213,6 +213,12 @@ public:
     };
 };
 
+INSTANTIATE_TEST_SUITE_P(IDU, AutoPaddingTest,
+                         testing::ValuesIn({
+                                 Params{ov::Shape{1, 3, 16, 16}, OpType::SOFTMAX, OpType::CONV, /*quantized=*/false},
+                         }),
+                         AutoPaddingTest::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(
         ODU, AutoPaddingTest,
         testing::ValuesIn({
@@ -225,5 +231,11 @@ INSTANTIATE_TEST_SUITE_P(
                 Params{ov::Shape{1, 3, 16, 16}, OpType::REDUCE_MEAN, OpType::SOFTMAX, /*quantized=*/false},
         }),
         AutoPaddingTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(IDU_ODU, AutoPaddingTest,
+                         testing::ValuesIn({
+                                 Params{ov::Shape{1, 3, 16, 16}, OpType::CONV, OpType::CONV, /*quantized=*/false},
+                         }),
+                         AutoPaddingTest::getTestCaseName);
 
 }  // namespace ov::test

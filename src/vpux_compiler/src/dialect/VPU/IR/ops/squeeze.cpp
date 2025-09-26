@@ -111,7 +111,7 @@ mlir::LogicalResult vpux::VPU::SqueezeOp::inferReturnTypes(mlir::MLIRContext* ct
 
     const auto typeComponents =
             TypeComponents()
-                    .setShape(Shape(outShape))
+                    .setShape(ShapeRef(outShape))
                     .setDimsOrder(vpux::VPU::inferSqueezeOutputLayout(inOrder.toPermutation(), axes.value(), inShape));
 
     auto outType = inType.changeTypeComponents(typeComponents);

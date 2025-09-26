@@ -71,7 +71,7 @@ vpux::NDTypeInterface vpux::Const::LayoutCastAttr::inferOutputType(vpux::NDTypeI
     return input.changeDimsOrder(order);
 }
 
-bool vpux::Const::LayoutCastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::LayoutCastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

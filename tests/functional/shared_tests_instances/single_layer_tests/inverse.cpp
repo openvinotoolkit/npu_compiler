@@ -37,7 +37,7 @@ const auto modelTypes = testing::Values(ov::element::f32, ov::element::f16);
 const auto adjoint = testing::Values(false, true);
 const auto seed = testing::Values(0, 1);
 
-const auto params = ::testing::Combine(shapes, modelTypes, adjoint, seed, testing::Values(DEVICE_NPU));
+const auto params = ::testing::Combine(shapes, modelTypes, adjoint, seed, testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_InverseStatic, InverseLayerTestCommon, params, InverseLayerTestCommon::getTestCaseName);
 

@@ -5,18 +5,21 @@
 
 #include "common/utils.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include <mlir/IR/MLIRContext.h>
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
+
 #include <vpu/shave/SHVSoftmax.h>
+#include <vpu_cost_model.h>
+#include <vpu_layer_cost_model.h>
 
 #include <gtest/gtest.h>
 
@@ -31,7 +34,7 @@ VPU::StrategyCost getSWVPUNNCost(std::shared_ptr<VPUNN::SWOperation> vpunnLayer,
     const auto archKind = config::getArch(module);
     const auto vpunnCostFunction = VPU::CostModelConfig::createLayerCostModel(archKind);
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
 
     auto shaveActExec = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
@@ -47,7 +50,7 @@ VPUNN::CyclesInterfaceType getHWVPUNNCost(VPUNN::DPULayer& vpunnLayer, mlir::Mod
     const auto archKind = config::getArch(module);
     const auto vpunnCostFunction = VPU::CostModelConfig::createLayerCostModel(archKind);
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
 
     auto shaveActExec = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT);
@@ -61,7 +64,7 @@ VPUNN::CyclesInterfaceType getHWVPUNNCost(VPUNN::DPULayer& vpunnLayer, mlir::Mod
 VPUNN::CyclesInterfaceType getSimpleCost(mlir::Operation* op, mlir::ModuleOp module,
                                          VPU::MultiClusterStrategy strategy) {
     auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
 
     return outputType.getTotalAllocSize().count() /
            (strategy == VPU::MultiClusterStrategy::Clustering ? 1 : tileOp.getCount());
@@ -76,7 +79,7 @@ VPUNN::CyclesInterfaceType getWeightsDMACost(VPU::NCEOpInterface nceOp, mlir::Mo
     const auto archKind = config::getArch(module);
     const auto vpunnCostModel = VPU::CostModelConfig::createCostModel(archKind);
     const auto vpunnDevice = VPU::getVPUDeviceType(archKind);
-    const auto numDMAPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    const auto numDMAPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     return checked_cast<VPUNN::CyclesInterfaceType>(getDMACost(weightsType, vpunnDevice, vpunnCostModel, numDMAPorts));
 }
 
@@ -115,7 +118,7 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DPU_LayerCost) {
 
     VPU::LayerVPUNNCost layerCost(func);
 
-    auto tileOp = IE::getTileExecutor(module.get());
+    auto tileOp = config::getTileExecutor(module.get());
     auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
 
     func->walk([&](VPU::NCEConvolutionOp convOp) {
@@ -276,7 +279,7 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, DMA_Cost) {
 
     auto vpuDevice = VPU::getVPUDeviceType(archKind);
     const auto vpunnCostFunction = VPU::CostModelConfig::createLayerCostModel(archKind);
-    const auto dmaPorts = IE::getAvailableExecutor(module.get(), VPU::ExecutorKind::DMA_NN).getCount();
+    const auto dmaPorts = config::getAvailableExecutor(module.get(), VPU::ExecutorKind::DMA_NN).getCount();
 
     func->walk([&](VPU::NCEConvolutionOp convOp) {
         auto spillWriteCostPerTile = layerCost.getSpillingWriteCostsForAllTiles(convOp.getOperation(),

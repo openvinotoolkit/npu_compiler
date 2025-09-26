@@ -28,10 +28,10 @@ module @OneDMAWithoutAttributes {
         VPUASM.DeclareBuffer @DeclareBuffer10 !VPUASM.Buffer< "CMX_NN"[4] <0> : memref<1x1024xi64, [@CMX_NN, 4]> :  swizzling(0)>
       }
       ELF.CreateSection @text.nndma0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-      VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@builtin.tasks.DMA0::@DeclareTaskBuffer_DMA_0) input(@DeclareBuffer0) outputs([@DeclareBuffer1]) waits([]) updates([]) start_after(1) clean_after(2) dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>) indices( @builtin.tasks.DMA0::@DeclareBuffer10)
+      VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@builtin.tasks.DMA0::@DeclareTaskBuffer_DMA_0) input(@DeclareBuffer0) outputs([@DeclareBuffer1]) waits([]) updates([]) start_after(1) clean_after(2) dma_descriptor(#VPUIP.DMADescriptorAttr<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>) indices( @builtin.tasks.DMA0::@DeclareBuffer10) {addressing_mode = 0 : i64}
       // CHECK-NOT:   VPUASM.NNDMA
       // CHECK:  NPUReg40XX.NNDMA
-      // CHECK:  UINT dma_cfg_fields_src_list_cfg = 2
+      // CHECK:  UINT dma_cfg_fields_src_list_cfg = 1
       // CHECK:  UINT dma_width_src = 0xC00
       // CHECK:  UINT dma_width_dst = 0x400
       // CHECK:  UINT dma_src = 0

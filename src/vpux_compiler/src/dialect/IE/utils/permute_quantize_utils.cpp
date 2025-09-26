@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 
 using namespace vpux;
 
@@ -87,14 +88,14 @@ bool IE::isLegalReorderLikeToPermuteQuantize(vpux::NDTypeInterface inType, vpux:
         return false;
     }
 
-    const auto inShape = inType.getShape();
+    const auto inShape = getBoundedShape(inType);
     const auto inAlignment = VPU::NCEInvariant::getAlignment(inElemType);
     if (!IE::isODUPermuteEffectiveForShape(inShape, inAlignment)) {
         log.trace("ODU permute is not effective for input shape {0}", inShape);
         return false;
     }
 
-    const auto outShape = outType.getShape();
+    const auto outShape = getBoundedShape(outType);
     const auto outAlignment = VPU::NCEInvariant::getAlignment(outElemType);
     if (!IE::isODUPermuteEffectiveForShape(outShape, outAlignment)) {
         log.trace("ODU permute is not effective for output shape {0}", outShape);

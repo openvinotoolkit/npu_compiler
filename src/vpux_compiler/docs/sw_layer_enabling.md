@@ -135,7 +135,7 @@ const auto basicCases =
                            ::testing::ValuesIn(netPrecisions),                     // Model type
                            ::testing::ValuesIn(static_shapes_param_transform(
                                    ov::test::utils::combineParams(basic))),  // Input shapes and input const shape
-                           ::testing::Values(DEVICE_NPU));                   // Target device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));    // Target device name
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Activation, ActivationLayerTest_SW_FP16, basicCases,
                          ActivationLayerTest::getTestCaseName);

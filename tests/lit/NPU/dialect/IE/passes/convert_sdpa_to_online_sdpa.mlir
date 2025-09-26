@@ -12,7 +12,7 @@
 // CHECK-SAME: [[VALUE:%[^, ]+]]: tensor<8x512x64xf16>,
 // CHECK-SAME: [[ATTENTION_MASK:%[^, ]+]]: tensor<8x512x512xf16>
 func.func @SdpaWithAttentionMaskNoScale(%arg0: tensor<8x512x64xf16>, %arg1: tensor<8x512x64xf16>, %arg2: tensor<8x512x64xf16>, %arg3: tensor<8x512x512xf16>) -> tensor<8x512x64xf16> {
-    %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x512xf16> -> tensor<8x512x64xf16>
+    %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x64xf16>, tensor<8x512x512xf16> -> tensor<8x512x64xf16>
     return %0 : tensor<8x512x64xf16>
 
     // CHECK:       [[ONLINE_SDPA:%.+]] = IE.OnlineSDPA([[QUERY]], [[KEY]], [[VALUE]], [[ATTENTION_MASK]])

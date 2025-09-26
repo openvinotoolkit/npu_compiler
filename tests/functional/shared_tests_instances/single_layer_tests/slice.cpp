@@ -40,7 +40,7 @@ const std::vector<ov::element::Type> modelTypes = {ov::element::f16, ov::element
 
 const auto sliceParams = testing::Combine(testing::ValuesIn(staticParams),  // params
                                           testing::ValuesIn(modelTypes),    // Model type
-                                          testing::Values(ov::test::utils::DEVICE_NPU));
+                                          testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Slice, SliceLayerTestCommon, sliceParams, SliceLayerTestCommon::getTestCaseName);
 

@@ -196,15 +196,15 @@ module @DynamicReshape attributes {config.arch = #config.arch_kind<NPU37XX>, con
     config.Option @VPU.BarrierMaxVariantCount : 256
     config.Option @VPU.MaxKernelSize : 11
   }
-  IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @SHAVE_NN
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @SHAVE_NN
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
 
   // CHECK-LABEL: main
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -283,18 +283,18 @@ module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationM
     config.Option @VPU.BarrierMaxVariantCount : 128
     config.Option @VPU.MaxKernelSize : 11
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   module @VPU.SW {
     func.func private @builtin_LSTMSequence(memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "lstm_sequence.cpp", VPU.kernel_entry = "lstm_sequence"}
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
-  IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 4 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
   func.func @TileDynamicLSTMSequence(%arg0: !VPUIP.BoundedBuffer<data=memref<1x1x35x512xf16>, dynamic_shape=memref<4xsi32>>, %arg1: memref<1x1x1x128xf16>, %arg2: memref<1x1x1x128xf16>, %arg3: memref<1x4x128x128xf16, #NWHC>, %arg4: memref<1x1x1x2xsi32>) -> (!VPUIP.BoundedBuffer<data=memref<1x1x35x128xf16>, dynamic_shape=memref<4xsi32>>, memref<1x1x1x128xf16>, memref<1x1x1x128xf16>) {
     %alloc = memref.alloc() : memref<1x1x35x512xf16>

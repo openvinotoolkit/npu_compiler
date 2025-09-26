@@ -98,7 +98,8 @@ private:
     void unrollSegmentedOrOverlapped(mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder,
                                      bool isDataOverlapped, SmallVector<Byte> inputBufferOffsets) const;
     void unrollDuplicated(mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder) const;
-    void unrollZeroOffsetWeightTableDMA(mlir::Location loc, VPURT::TaskOp vpurtTask, mlir::OpBuilder& builder) const;
+    void unrollAcrossClusterReusableWeightTableDMA(mlir::Location loc, VPURT::TaskOp vpurtTask,
+                                                   mlir::OpBuilder& builder) const;
 
 private:
     Logger _log;

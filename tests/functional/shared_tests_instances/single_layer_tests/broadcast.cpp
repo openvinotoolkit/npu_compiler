@@ -43,7 +43,7 @@ const auto numpyBroadcastParams1 =
                            ::testing::Values(ov::op::BroadcastType::NUMPY),  // broadcast mode
                            ::testing::Values(static_shapes_to_test_representation(inShapesNumpy[0])),  // Input shape
                            ::testing::ValuesIn(inputPrecision),                                        // Model type
-                           ::testing::Values(DEVICE_NPU));                                             // Device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));                              // Device name
 
 const auto numpyBroadcastParams2 =
         ::testing::Combine(::testing::Values(targetShapesNumpy[1]),                                    // target shape
@@ -51,7 +51,7 @@ const auto numpyBroadcastParams2 =
                            ::testing::Values(ov::op::BroadcastType::NUMPY),                            // broadcast mode
                            ::testing::Values(static_shapes_to_test_representation(inShapesNumpy[1])),  // Input shape
                            ::testing::ValuesIn(inputPrecision),                                        // Model type
-                           ::testing::Values(DEVICE_NPU));                                             // Device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));                              // Device name
 
 // BIDIRECTIONAL MODE
 
@@ -63,19 +63,19 @@ const auto bidirectionalBroadcastParams1 = ::testing::Combine(
         ::testing::Values(targetShapesBidi[0]), ::testing::Values(ov::AxisSet{}),  // not used in bidirectional mode
         ::testing::Values(ov::op::BroadcastType::BIDIRECTIONAL),
         ::testing::Values(static_shapes_to_test_representation(inShapesBidi[0])), ::testing::ValuesIn(inputPrecision),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto bidirectionalBroadcastParams2 =
         ::testing::Combine(::testing::Values(targetShapesBidi[1]), ::testing::Values(ov::AxisSet{}),
                            ::testing::Values(ov::op::BroadcastType::BIDIRECTIONAL),
                            ::testing::Values(static_shapes_to_test_representation(inShapesBidi[1])),
-                           ::testing::ValuesIn(inputPrecision), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(inputPrecision), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto bidirectionalBroadcastParams3 =
         ::testing::Combine(::testing::Values(targetShapesBidi[2]), ::testing::Values(ov::AxisSet{}),
                            ::testing::Values(ov::op::BroadcastType::BIDIRECTIONAL),
                            ::testing::Values(static_shapes_to_test_representation(inShapesBidi[2])),
-                           ::testing::ValuesIn(inputPrecision), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(inputPrecision), ::testing::Values(test_utils::TARGET_DEVICE));
 
 // EXPLICIT MODE
 
@@ -89,13 +89,13 @@ const auto explicitBroadcastParams1 =
         ::testing::Combine(::testing::Values(targetShapesExplicit[0]), ::testing::Values(axes[0]),
                            ::testing::Values(ov::op::BroadcastType::EXPLICIT),
                            ::testing::Values(static_shapes_to_test_representation(inShapesExplicit[0])),
-                           ::testing::ValuesIn(inputPrecision), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(inputPrecision), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto explicitBroadcastParams2 =
         ::testing::Combine(::testing::Values(targetShapesExplicit[1]), ::testing::Values(axes[1]),
                            ::testing::Values(ov::op::BroadcastType::EXPLICIT),
                            ::testing::Values(static_shapes_to_test_representation(inShapesExplicit[1])),
-                           ::testing::ValuesIn(inputPrecision), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(inputPrecision), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_NumpyBroadcastCheck1, BroadcastLayerTestCommon, numpyBroadcastParams1,
                          BroadcastLayerTestCommon::getTestCaseName);

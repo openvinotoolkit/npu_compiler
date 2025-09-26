@@ -36,7 +36,7 @@ namespace {
 
 // To explicitly control the patterns exec order to assure dependency
 // benefitLevels[0] is highest benefit level and represent the relative pattern is the first one to run
-const uint32_t levelCount = 3;
+const uint32_t levelCount = 4;
 SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
 
 SmallVector<mlir::Value> sliceFilter(const mlir::Value filterToSplit, const int64_t numXSlices,
@@ -279,7 +279,7 @@ bool GeneralPoolingBaseRewriter<ConcreteOp>::isLegalGeneralPoolingOp(ConcreteOp 
     const auto kernelSize = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
     const auto strides = parseIntArrayAttr<int64_t>(origOp.getStrides());
     const auto maxKernelSize = VPU::getMaxKernelSize(origOp);
-    if (vpux::IE::hasSupportedKernels(Shape(kernelSize), maxKernelSize)) {
+    if (vpux::IE::hasSupportedKernels(ShapeRef(kernelSize), maxKernelSize)) {
         _log.trace("Kernel size of general Pooling Op is legal");
         return true;
     }
@@ -353,7 +353,7 @@ mlir::Value GeneralPoolingBaseRewriter<ConcreteOp>::createFirstSplitOp(ConcreteO
 
     const auto firstOpStrideAttr =
             getIntArrayAttr(ctx, getStrides(getShape(origOp.getInput()), kernelsInfo.firstKernel,
-                                            Shape(firstOpPadBeginAttr), Shape(firstOpPadEndAttr)));
+                                            ShapeRef(firstOpPadBeginAttr), ShapeRef(firstOpPadEndAttr)));
 
     const auto firstOp =
             mappingNewOp(origOp, origOp.getInput(), firstOpKernelAttr, origOp.getPadsBegin(),
@@ -411,7 +411,7 @@ mlir::LogicalResult GeneralPoolingBaseRewriter<ConcreteOp>::matchAndRewrite(Conc
     const auto origKernel = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
     const auto maxKernelSize = VPU::getMaxKernelSize(origOp);
 
-    const auto kernelsInfo = IE::calculateKernelsInfo(Shape(origKernel), maxKernelSize, _log.nest(2));
+    const auto kernelsInfo = IE::calculateKernelsInfo(ShapeRef(origKernel), maxKernelSize, _log.nest(2));
     if (!kernelsInfo.has_value()) {
         _log.trace("[{0}] Cannot spilt large kernel of '{1}' layer at '{2}'", this->getDebugName(),
                    origOp.getOperationName(), origOp->getLoc());
@@ -642,7 +642,7 @@ bool OverlappedMaxPoolRewriter::isLegalOverlappedMaxPool(IE::MaxPoolOp origOp, i
     }
 
     const auto kernelSize = parseIntArrayAttr<int64_t>(origOp.getKernelSize());
-    if (vpux::IE::hasSupportedKernels(Shape(kernelSize), maxKernelSize)) {
+    if (vpux::IE::hasSupportedKernels(ShapeRef(kernelSize), maxKernelSize)) {
         _log.trace("Kernel size of Overlapped MaxPool Op is legal");
         return true;
     }
@@ -727,6 +727,264 @@ mlir::LogicalResult OverlappedMaxPoolRewriter::matchAndRewrite(IE::MaxPoolOp ori
             origOp.getInputPaddingAttr());
     extendOpLoc(secondOp, "second_split");
 
+    return mlir::success();
+}
+
+//
+// PadLargeKernelRewriter
+//
+
+/* For 1D convolution NCE ops where the kernel size exceeds maxKernelSize, this rewriter applies a GCD-based
+stride factorization algorithm to optimize large kernel handling through strategic padding and restructuring.
+
+Algorithm Overview:
+The core idea is to factorize the original stride S into S = newStride × gcdFactor, where newStride ≤ MAX_STRIDE (8).
+Then padding both input and kernel to be multiples of gcdFactor, enabling parallel processing.
+
+Mathematical Foundation:
+1. Stride Factorization: S = S₁ × S₂, where S₁ ≤ 8 and S₂ = S/S₁
+2. Padding Strategy:
+   - paddedInputSize = ⌈inputSize / gcdFactor⌉ × gcdFactor
+   - paddedKernelSize = ⌈kernelSize / gcdFactor⌉ × gcdFactor
+3. Parallel Processing: After padding, the convolution can process gcdFactor parallel slices
+
+Example Transformation:
+Original: Input[1,1,1,49964], Filter[1025,1,1,2048], Stride[1,242]
+Step 1: Factorize stride 242 = 1 × 242 (newStride=1, gcdFactor=242)
+Step 2: Pad input: 49964 → 50006 (⌈49964/242⌉×242 = 207×242)
+Step 3: Pad kernel: 2048 → 2178 (⌈2048/242⌉×242 = 9×242)
+
+Transformation Flow:
+                    Original Convolution
+                 Input[1,1,1,I]  Filter[OC,1,1,K]
+                      |              |
+                   Pad to            Pad to
+              ⌈I/GCD⌉×GCD      ⌈K/GCD⌉×GCD
+                      |              |
+                Input_padded    Filter_padded
+                      \              /
+                    Convolution (optimized)
+                          |
+                    Output (GCD parallel slices)
+                          |
+                    Slice to original size
+                          |
+                    Final Output
+*/
+
+class PadLargeKernelRewriter final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
+public:
+    PadLargeKernelRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx, benefit), _log(log) {
+        setDebugName("PadLargeKernelRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+    bool isLegalOpToConvert(IE::ConvolutionOp origOp, int64_t& paddedInputSize, int64_t& paddedKernelSize,
+                            int64_t& outputSize) const;
+
+private:
+    Logger _log;
+};
+
+bool PadLargeKernelRewriter::isLegalOpToConvert(IE::ConvolutionOp origOp, int64_t& paddedInputSize,
+                                                int64_t& paddedKernelSize, int64_t& outputSize) const {
+    const auto inputShape = getShape(origOp.getInput());
+    const auto filterShape = getShape(origOp.getFilter());
+    const auto strideSize = parseIntArrayAttr<int64_t>(origOp.getStrides());
+
+    _log.trace("Input shape: {0}, Filter shape: {1}, Strides: {2}", inputShape, filterShape, strideSize);
+
+    // Basic validation - ensure we have 4D tensors
+    if (inputShape.size() != 4 || filterShape.size() != 4 || strideSize.size() != 2) {
+        _log.trace("Invalid tensor dimensions");
+        return false;
+    }
+
+    // Check if this is a 1D convolution (either H-dimensional or W-dimensional)
+    bool isWDimensional = (inputShape[Dims4D::Act::H] == 1 && filterShape[Dims4D::Filter::KY] == 1);
+    bool isHDimensional = (inputShape[Dims4D::Act::W] == 1 && filterShape[Dims4D::Filter::KX] == 1);
+
+    if (!isWDimensional && !isHDimensional) {
+        _log.trace("Not a 1D convolution, skipping");
+        return false;
+    }
+
+    int64_t inputSize, kernelSize, stride;
+    if (isWDimensional) {
+        inputSize = inputShape[Dims4D::Act::W];
+        kernelSize = filterShape[Dims4D::Filter::KX];
+        stride = strideSize[Dims4D::Strides::X.ind()];
+        _log.trace("W-dimensional 1D conv: input={0}, kernel={1}, stride={2}", inputSize, kernelSize, stride);
+    } else {
+        inputSize = inputShape[Dims4D::Act::H];
+        kernelSize = filterShape[Dims4D::Filter::KY];
+        stride = strideSize[Dims4D::Strides::Y.ind()];
+        _log.trace("H-dimensional 1D conv: input={0}, kernel={1}, stride={2}", inputSize, kernelSize, stride);
+    }
+
+    const auto maxKernelSize = VPU::getMaxKernelSize(origOp);
+
+    if (kernelSize <= maxKernelSize) {
+        _log.trace("Kernel size {0} <= max {1}, no padding needed", kernelSize, maxKernelSize);
+        return false;
+    }
+
+    // Apply stride factorization algorithm
+    auto findOptimalStrideFactorization = [](int64_t stride) -> std::pair<int64_t, int64_t> {
+        // Special case: stride = 1 is always factorizable as 1 × 1
+        if (stride == 1) {
+            return {1, 1};
+        }
+
+        // Find the smallest factor that is <= MAX_STRIDE
+        for (int64_t factor1 = 1; factor1 <= VPU::NCEInvariant::MAX_STRIDE; ++factor1) {
+            if (factor1 <= stride && stride % factor1 == 0) {
+                int64_t factor2 = stride / factor1;
+                return {factor1, factor2};
+            }
+        }
+        return {0, 0};
+    };
+
+    auto [newStride, gcdFactor] = findOptimalStrideFactorization(stride);
+
+    if (newStride == 0 || gcdFactor == 0) {
+        _log.trace("No valid stride factorization found");
+        return false;
+    }
+
+    // Calculate padded sizes based on GCD
+    paddedInputSize = ((inputSize + gcdFactor - 1) / gcdFactor) * gcdFactor;
+    paddedKernelSize = ((kernelSize + gcdFactor - 1) / gcdFactor) * gcdFactor;
+
+    // Check if padded kernel size is within limits after division by GCD
+    int64_t kernelSliceSize = paddedKernelSize / gcdFactor;
+    if (kernelSliceSize > maxKernelSize) {
+        _log.trace("Kernel slice size {0} > max {1} after GCD division", kernelSliceSize, maxKernelSize);
+        return false;
+    }
+
+    // IMPORTANT: Check if this convolution was already processed
+    // If the current kernel size divided by GCD is already <= maxKernelSize,
+    // it means this convolution was likely already processed by our algorithm
+    int64_t currentKernelSliceSize = kernelSize / gcdFactor;
+    if (currentKernelSliceSize <= maxKernelSize && kernelSize % gcdFactor == 0) {
+        _log.trace("Kernel already appears to be processed (sliceSize={0} <= max={1})", currentKernelSliceSize,
+                   maxKernelSize);
+        return false;
+    }
+
+    // Calculate correct output size:
+    // After GCD division, we have inputSliceSize blocks of size kernelSliceSize
+    // Each block processes inputSliceSize elements with stride newStride
+    int64_t inputSliceSize = paddedInputSize / gcdFactor;
+    int64_t outputSliceSize = (inputSliceSize - kernelSliceSize) / newStride + 1;
+    outputSize = outputSliceSize * gcdFactor;
+
+    return true;
+}
+
+mlir::LogicalResult PadLargeKernelRewriter::matchAndRewrite(IE::ConvolutionOp origOp,
+                                                            mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got Convolution layer at '{1}'", getDebugName(), origOp->getLoc());
+
+    int64_t paddedInputSize = 0, paddedKernelSize = 0, outputSize = 0;
+    if (!isLegalOpToConvert(origOp, paddedInputSize, paddedKernelSize, outputSize)) {
+        return mlir::failure();
+    }
+
+    const auto inputShape = getShape(origOp.getInput());
+    const auto filterShape = getShape(origOp.getFilter());
+    const auto outputShape = getShape(origOp.getOutput());
+
+    // Determine if this is H-dimensional or W-dimensional 1D convolution
+    bool isWDimensional = (inputShape[Dims4D::Act::H] == 1 && filterShape[Dims4D::Filter::KY] == 1);
+
+    int64_t currentInputSize, currentKernelSize;
+    int64_t inputDimIndex, kernelDimIndex;
+
+    if (isWDimensional) {
+        currentInputSize = inputShape[Dims4D::Act::W];
+        currentKernelSize = filterShape[Dims4D::Filter::KX];
+        inputDimIndex = Dims4D::Act::W.ind();
+        kernelDimIndex = Dims4D::Filter::KX.ind();
+    } else {
+        // H-dimensional convolution
+        currentInputSize = inputShape[Dims4D::Act::H];
+        currentKernelSize = filterShape[Dims4D::Filter::KY];
+        inputDimIndex = Dims4D::Act::H.ind();
+        kernelDimIndex = Dims4D::Filter::KY.ind();
+    }
+
+    const auto inputPadAmount = paddedInputSize - currentInputSize;
+    const auto kernelPadAmount = paddedKernelSize - currentKernelSize;
+
+    _log.trace("[{0}] Padding input by {1} and kernel by {2}", getDebugName(), inputPadAmount, kernelPadAmount);
+
+    auto createPaddingConstant = [&](mlir::PatternRewriter& rewriter, mlir::Location loc,
+                                     ArrayRef<int64_t> paddingShape, mlir::Type elementType) -> mlir::Value {
+        auto paddingConstType = mlir::RankedTensorType::get(paddingShape, elementType);
+        auto paddingConstAttr = Const::ContentAttr::get(
+                mlir::DenseElementsAttr::get(paddingConstType, mlir::FloatAttr::get(elementType, 0.0)));
+        return rewriter.create<Const::DeclareOp>(loc, paddingConstType, paddingConstAttr).getOutput();
+    };
+
+    // Step 1: Pad input if needed
+    mlir::Value paddedInput = origOp.getInput();
+    if (inputPadAmount > 0) {
+        SmallVector<int64_t> paddingShapeVec = to_small_vector(inputShape.raw());
+        paddingShapeVec[inputDimIndex] = inputPadAmount;
+
+        auto inputElementType = mlir::cast<mlir::RankedTensorType>(origOp.getInput().getType()).getElementType();
+        auto paddingConst = createPaddingConstant(rewriter, origOp->getLoc(), paddingShapeVec, inputElementType);
+
+        // Concatenate input with padding
+        paddedInput = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "_pad_input_for_large_kernel"),
+                                                    mlir::ValueRange{origOp.getInput(), paddingConst},
+                                                    getIntAttr(rewriter.getContext(), inputDimIndex))
+                              .getOutput();
+    }
+
+    // Step 2: Pad kernel if needed
+    mlir::Value paddedFilter = origOp.getFilter();
+    if (kernelPadAmount > 0) {
+        SmallVector<int64_t> filterPaddingShapeVec = to_small_vector(filterShape.raw());
+        filterPaddingShapeVec[kernelDimIndex] = kernelPadAmount;
+
+        auto filterElementType = mlir::cast<mlir::RankedTensorType>(origOp.getFilter().getType()).getElementType();
+        auto filterPaddingConst =
+                createPaddingConstant(rewriter, origOp->getLoc(), filterPaddingShapeVec, filterElementType);
+
+        // Concatenate filter with padding
+        paddedFilter = rewriter.create<IE::ConcatOp>(appendLoc(origOp->getLoc(), "_pad_filter_for_large_kernel"),
+                                                     mlir::ValueRange{origOp.getFilter(), filterPaddingConst},
+                                                     getIntAttr(rewriter.getContext(), kernelDimIndex))
+                               .getOutput();
+    }
+
+    // Step 3: Create new convolution with padded inputs
+    auto newConvOp = rewriter.create<IE::ConvolutionOp>(
+            appendLoc(origOp->getLoc(), "_padded_conv_for_large_kernel"), paddedInput, paddedFilter, origOp.getBias(),
+            origOp.getStridesAttr(), origOp.getPadsBeginAttr(), origOp.getPadsEndAttr(), origOp.getDilationsAttr(),
+            origOp.getPostOpAttr(), origOp.getClampAttr(), origOp.getStaticScaleAttr(), origOp.getOutputPaddingAttr(),
+            origOp.getInputPaddingAttr());
+
+    // Step 4: Slice output to match original output size if needed
+    mlir::Value finalOutput = newConvOp.getOutput();
+    int64_t currentOutputSize = isWDimensional ? outputShape[Dims4D::Act::W] : outputShape[Dims4D::Act::H];
+    if (outputSize != currentOutputSize) {
+        finalOutput =
+                rewriter.create<IE::SliceOp>(appendLoc(origOp->getLoc(), "_slice_output_for_large_kernel"),
+                                             newConvOp.getOutput(),
+                                             getIntArrayAttr(rewriter.getContext(), SmallVector<int64_t>{0, 0, 0, 0}),
+                                             getIntArrayAttr(rewriter.getContext(), outputShape.raw()))
+                        .getOutput();
+    }
+
+    rewriter.replaceOp(origOp, finalOutput);
+    _log.trace("[{0}] Successfully replaced conv with padded version", getDebugName());
     return mlir::success();
 }
 
@@ -1465,10 +1723,11 @@ void HandleLargeKernelsPass::safeRunOnFunc() {
     auto func = getOperation();
 
     mlir::RewritePatternSet convPatterns(&ctx);
-    convPatterns.add<SliceLargePrimeKernelRewriter>(&ctx, benefitLevels[0], _log);
-    convPatterns.add<ReshapeLargeConvRewriter>(&ctx, benefitLevels[1], _log);
-    convPatterns.add<ReshapeLargeConvWithGCDRewriter>(&ctx, benefitLevels[2], _log);
-    convPatterns.add<SliceLargeConvRewriter>(&ctx, benefitLevels[2], _log);
+    convPatterns.add<PadLargeKernelRewriter>(&ctx, benefitLevels[0], _log);
+    convPatterns.add<SliceLargePrimeKernelRewriter>(&ctx, benefitLevels[1], _log);
+    convPatterns.add<ReshapeLargeConvRewriter>(&ctx, benefitLevels[2], _log);
+    convPatterns.add<ReshapeLargeConvWithGCDRewriter>(&ctx, benefitLevels[3], _log);
+    convPatterns.add<SliceLargeConvRewriter>(&ctx, benefitLevels[3], _log);
 
     if (mlir::failed(
                 mlir::applyPatternsAndFoldGreedily(func, std::move(convPatterns), getDefaultGreedyRewriteConfig()))) {

@@ -26,7 +26,7 @@ vpux::NDTypeInterface vpux::Const::DequantizeAttr::inferOutputType(vpux::NDTypeI
     return input.changeElemType(qElemType.getExpressedType());
 }
 
-bool vpux::Const::DequantizeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface input) {
+bool vpux::Const::DequantizeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface input) const {
     // Splat value cannot be used to store weights for per-axis quantization.
     // Applying different scales to the same splat input value yields non-splat results.
     if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(input.getElementType())) {

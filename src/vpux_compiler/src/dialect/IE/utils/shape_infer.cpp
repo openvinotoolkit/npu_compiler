@@ -374,7 +374,7 @@ mlir::FailureOr<Shape> vpux::IE::getShapeCastExpandedShapeWithMinimalDimChange(m
 
 SmallVector<int64_t> vpux::IE::dispatchBounds(const mlir::Value operand) {
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(operand.getType())) {
-        return boundedType.getBounds().raw();
+        return to_small_vector(boundedType.getBounds());
     }
 
     return to_small_vector(getShape(operand));

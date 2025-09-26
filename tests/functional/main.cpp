@@ -47,7 +47,27 @@ int main(int argc, char** argv, char** envp) {
         oss << *env << "; ";
     }
 
+    std::string targetDevice(""), option;
+    for (int i = 1; i < argc; i++) {
+        option = argv[i];
+        if (option == "-d") {
+            if (i + 1 == argc) {
+                break;
+            }
+            targetDevice = argv[i + 1];
+            break;
+        }
+    }
+
+    if (targetDevice != "NPU") {
+        targetDevice = "NPU";
+        std::cout << "\nTarget device was not set or it is not recognized. Using NPU by default.\n";
+    }
+    test_utils::TARGET_DEVICE = targetDevice.c_str();
+
+    // GTest removes recognized arguments
     ::testing::InitGoogleTest(&argc, argv);
+
     ::testing::AddGlobalTestEnvironment(new LayerTestsUtils::VpuTestReportEnvironment());
 
     const bool dryRun = ::testing::GTEST_FLAG(list_tests) || ::testing::internal::g_help_flag;

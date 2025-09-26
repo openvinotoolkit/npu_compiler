@@ -19,19 +19,18 @@ module @ConvInputWorkloadsHeight  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x31x31xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %0 =  VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
+    %0 =  VPU.NCE.Convolution(%arg0, %arg1) {
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             rawFilterShape = [48, 16, 3, 3],
             strides = [2, 2]
-        } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+        } : !Input_CMX, !Weights_CMX -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 31] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16>
             VPU.DPU.Workload outOffsets [0, 0, 16, 0] outSizes [1, 48, 15, 31] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16>
         }
@@ -73,19 +72,18 @@ module @ConvInputWorkloadsOC  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x31x31xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.Convolution(%arg0, %arg1, %arg2) {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
+    %0 = VPU.NCE.Convolution(%arg0, %arg1) {
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             rawFilterShape = [48, 16, 3, 3],
             strides = [2, 2]
-        } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+        } : !Input_CMX, !Weights_CMX -> !Output_CMX {
             VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 24, 31, 31] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16>
             VPU.DPU.Workload outOffsets [0, 24, 0, 0] outSizes [1, 24, 31, 31] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16>
     }
@@ -118,7 +116,6 @@ module @ConvInputWorkloadsOC  {
 !Input_CMX = tensor<1x32x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
 !Output_CMX = tensor<1x32x31x31xf16, {mem_space = @CMX_NN, order = #NHWC}>
 !Weights_CMX = tensor<32x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!WeightsTable_CMX = tensor<32x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
 // CHECK-LABEL: @DWConvInputWorkloadsHeight
 module @DWConvInputWorkloadsHeight  {
@@ -126,14 +123,13 @@ module @DWConvInputWorkloadsHeight  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x32x62x62xf16>
     DataInfo "weights" : tensor<32x16x1x1xf16>
-    DataInfo "weightsTable" : tensor<32x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x32x31x31xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) {
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             rawFilterShape = [32, 1, 3, 3],
@@ -172,7 +168,6 @@ module @DWConvInputWorkloadsHeight  {
 !Input_CMX = tensor<1x48x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
 !Output_CMX = tensor<1x48x31x31xf16, {mem_space = @CMX_NN, order = #NHWC}>
 !Weights_CMX = tensor<48x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!WeightsTable_CMX = tensor<48x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
 // CHECK-LABEL: @DWConvInputWorkloadsOC
 module @DWConvInputWorkloadsOC  {
@@ -180,14 +175,13 @@ module @DWConvInputWorkloadsOC  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x48x62x62xf16>
     DataInfo "weights" : tensor<48x16x1x1xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x31x31xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
-    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1, %arg2) {
+  func.func @main(%arg0: !Input_CMX, %arg1: !Weights_CMX) -> !Output_CMX {
+    %0 = VPU.NCE.DepthConvolution(%arg0, %arg1) {
             ppe = #VPU.PPEStub<>,
             pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
             rawFilterShape = [48, 1, 3, 3],
@@ -258,21 +252,20 @@ module @ConvInputWorkloadsSOHExtraLines  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+          } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 11, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 21, 0] outSizes [1, 48, 11, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -402,15 +395,15 @@ module @ConvInputWorkloadsSOHExtraLines  {
 
 // CHECK-LABEL: @SparseConvInputWorkloadsSOHExtraLines
 module @SparseConvInputWorkloadsSOHExtraLines  {
-  func.func @main(%arg0: !InputData_CMX, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX, %arg3: !InputSM_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !InputData_CMX, %arg1: !Weights_CMX, %arg3: !InputSM_CMX) -> !Output_CMX {
     %input_sparse = VPU.GroupSparseTensor(%arg0, %arg3) -> !Input_CMX
 
-    %output_cmx = VPU.NCE.Convolution(%input_sparse, %arg1, %arg2) {
+    %output_cmx = VPU.NCE.Convolution(%input_sparse, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+          } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 11,  62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 11, 0] outSizes [1, 48, 10, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 21, 0] outSizes [1, 48, 11, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -507,21 +500,20 @@ module @ConvInputWorkloadsSOK  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<64x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<64x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x64x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [64, 16, 3, 3],
               strides = [1, 1]
-          } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+          } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 16, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 32, 0, 0] outSizes [1, 16, 62, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -606,21 +598,20 @@ module @ConvInputWorkloadsSOHNoExtraLines  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x16x62x62xf16>
     DataInfo "weights" : tensor<48x16x3x3xf16>
-    DataInfo "weightsTable" : tensor<48x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x48x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx =  VPU.NCE.Convolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [48, 16, 3, 3],
               strides = [1, 1]
-          } : !Input_CMX, !Weights_CMX, !WeightsTable_CMX -> !Output_CMX {
+          } : !Input_CMX, !Weights_CMX -> !Output_CMX {
               VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 48, 16, 62] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 16, 0] outSizes [1, 48, 15, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 0 : i64}
               VPU.DPU.Workload outOffsets [0, 0, 31, 0] outSizes [1, 48, 16, 62] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_4x16> attributes {cluster_id = 1 : i64}
@@ -689,7 +680,6 @@ module @ConvInputWorkloadsSOHNoExtraLines  {
 }>
 
 !Weights_CMX = tensor<80x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!WeightsTable_CMX = tensor<80x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
 !Input_DDR = tensor<1x80x62x62xf16, {order = #NHWC}>
 !InputStub_CMX = tensor<1x80x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
@@ -701,16 +691,15 @@ module @DWInputWorkloadsSOKSEGSEG  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x80x62x62xf16>
     DataInfo "weights" : tensor<80x16x1x1xf16>
-    DataInfo "weightsTable" : tensor<80x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x80x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],
@@ -784,7 +773,6 @@ module @DWInputWorkloadsSOKSEGSEG  {
 }>
 
 !Weights_CMX = tensor<80x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!WeightsTable_CMX = tensor<80x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
 !Input_DDR = tensor<1x80x62x62xf16, {order = #NHWC}>
 !InputStub_CMX = tensor<1x80x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
@@ -796,16 +784,15 @@ module @DWInputWorkloadsSOKSEGDUP  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x80x62x62xf16>
     DataInfo "weights" : tensor<80x16x1x1xf16>
-    DataInfo "weightsTable" : tensor<80x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x80x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],
@@ -879,7 +866,6 @@ module @DWInputWorkloadsSOKSEGDUP  {
 }>
 
 !Weights_CMX = tensor<80x16x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
-!WeightsTable_CMX = tensor<80x1x1x4xsi32, {mem_space = @CMX_NN, order = #NHWC}>
 
 !Input_DDR = tensor<1x80x62x62xf16, {order = #NHWC}>
 !InputStub_CMX = tensor<1x80x62x62xf16, {mem_space = @CMX_NN, order = #NHWC}>
@@ -891,16 +877,15 @@ module @DWInputWorkloadsSOKDUPSEG  {
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x80x62x62xf16>
     DataInfo "weights" : tensor<80x16x1x1xf16>
-    DataInfo "weightsTable" : tensor<80x1x1x4xsi32>
   } outputsInfo :  {
     DataInfo "output" : tensor<1x80x62x62xf16>
   } profilingOutputsInfo :  {
   }
 
-  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX, %arg2: !WeightsTable_CMX) -> !Output_CMX {
+  func.func @main(%arg0: !Input_DDR, %arg1: !Weights_CMX) -> !Output_CMX {
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !Input_CMX
 
-    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1, %arg2) {
+    %output_cmx =  VPU.NCE.DepthConvolution(%input_cmx, %arg1) {
               ppe = #VPU.PPEStub<>,
               pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
               rawFilterShape = [80, 1, 3, 3],

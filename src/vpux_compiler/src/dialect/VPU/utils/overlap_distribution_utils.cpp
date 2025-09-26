@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/overlap_distribution_utils.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
@@ -303,7 +304,7 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(ArrayRe
 std::pair<Shape, Shape> getActualDataMemOffsetsAndShapes(VPU::SparseTensorType sparseNceOpInputType,
                                                          ShapeRef effectiveMemOffsets, ShapeRef effectiveMemShape) {
     auto dataType = mlir::dyn_cast_or_null<NDTypeInterface>(sparseNceOpInputType.getData());
-    const auto dataShape = dataType.getShape();
+    const auto dataShape = getBoundedShape(dataType);
 
     auto memOffsets = Shape(dataShape.size());
     auto memShapes = Shape(dataShape.size());
@@ -328,7 +329,7 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
             VPU::DistributionInfo(distributionMode, numTiles, neutralKernel, neutralStrides, neutralPads, numClusters,
                                   {}, uniformDistributedSegments, {}, {}, {}, {}, {});
 
-    const auto shape = tensorType.getShape();
+    const auto shape = getBoundedShape(tensorType);
     const auto computeShapes = getPerClusterComputeShapes(shape, neutralDistribution);
     const auto computeOffsets = getPerClusterComputeShapeOffsets(shape, neutralDistribution);
     auto memoryShapes = computeShapes;
@@ -378,7 +379,6 @@ OverlapDistributionParams vpux::VPU::getOverlappedDistributionParameters(
                                                    numClusters, {}, uniformDistributedSegments, {}, {}, {}, {}, {});
 
         auto tensorShape = shape.toValues();
-
         const auto sparseNceOpInputType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(nceOp->getOperand(0).getType());
         const bool currentNceOpHasSETable =
                 sparseNceOpInputType != nullptr && sparseNceOpInputType.getSeAttr() != nullptr;

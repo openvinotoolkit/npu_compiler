@@ -3,11 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/mc_strategy_getter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
@@ -17,7 +16,6 @@
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/operation_strategies.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_opt_alg.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_state_provider.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
@@ -230,7 +228,7 @@ void StrategyManagerImplPass::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto siblingsAnalysis = getAnalysis<SiblingOpsAnalysis>();
     _costModel = std::make_shared<LayerVPUNNCost>(func);
-    _numTiles = IE::getTileExecutor(module).getCount();
+    _numTiles = config::getTileExecutor(module).getCount();
     _archStrategies = getAvailiableStrategies(config::getArch(module));
 
     // calculate cost for all possible strategies

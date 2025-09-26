@@ -56,7 +56,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_EmbeddingBagOffsetsSum, EmbeddingBagOffsetsSumLay
                          ::testing::Combine(EmbeddingBagOffsetsSumParams1,
                                             ::testing::ValuesIn(static_shapes_to_test_representation(emb_table_shape)),
                                             ::testing::ValuesIn(netPrecisions), ::testing::ValuesIn(indPrecisions),
-                                            ::testing::Values(DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          EmbeddingBagOffsetsSumLayerTestCommon::getTestCaseName);
 
 }  // namespace

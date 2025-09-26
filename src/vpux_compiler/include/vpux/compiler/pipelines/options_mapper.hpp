@@ -25,11 +25,13 @@ std::optional<bool> getWlmRollback(const intel_npu::Config& config);
 Byte getAvailableCmx(const intel_npu::Config& config);
 std::optional<bool> getWlmEnabled(const intel_npu::Config& config);
 std::optional<bool> getQDQOptimization(const intel_npu::Config& config);
+std::optional<bool> getQDQOptimizationAggressive(const intel_npu::Config& config);
 std::optional<bool> getEnableVerifiers(const intel_npu::Config& config);
 std::optional<bool> getEnableMemoryUsageCollector(const intel_npu::Config& config);
 std::optional<bool> getEnableFunctionStatisticsInstrumentation(const intel_npu::Config& config);
 std::optional<DummyOpMode> getDummyOpReplacement(const intel_npu::Config& config);
 std::optional<bool> getCompilerDynamicQuantization(const intel_npu::Config& config);
+std::optional<bool> getPerfCount(const intel_npu::Config& config);
 
 #ifdef BACKGROUND_FOLDING_ENABLED
 struct ConstantFoldingConfig {

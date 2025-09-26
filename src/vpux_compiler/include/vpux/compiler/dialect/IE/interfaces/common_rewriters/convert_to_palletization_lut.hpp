@@ -14,7 +14,8 @@ namespace vpux {
 namespace IE {
 
 // Returns false when type conversion is required;
-bool isLegalTensorElemForPalletization(mlir::Type elementType, const bool convertOnlyAsymmetric);
+bool isLegalTensorElemForPalletization(mlir::Type elementType, const bool convertOnlyAsymmetric,
+                                       const bool allowPerChannelZp);
 
 //
 // ConvolutionLUTRewriter

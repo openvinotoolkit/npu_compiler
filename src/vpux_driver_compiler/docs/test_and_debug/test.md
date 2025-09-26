@@ -46,7 +46,7 @@ General command:
 
 ## vpuxCompilerL0Test
 
-`vpuxCompilerL0Test` is the test suite of the Driver Compiler. Its test range is defined in the [vpux_driver_compiler/test/functional/scripts](../../test/functional/scripts).
+`vpuxCompilerL0Test` is the test suite of the Driver Compiler. Its test range is defined in [test_smoke.json](../../test/functional/scripts/test_smoke.json) and [test.json](../../test/functional/scripts/test.json).
 
 ### Setup
 
@@ -71,11 +71,8 @@ The [configuration JSON](../../test/functional/scripts) files contain:
 - `device`: Platform on which it will run.
 - `enabled`: Whether this model will be executed.
 - `network`: Name of the model to run (the simple_function model is defined [here](../../test/functional/vcl_tests_common.cpp#L126)).
-- `info`: Model configuration (optional), format: `"--inputs_precisions=\"result.1:fp16\" --inputs_layouts=\"result.1:NCHW\" --outputs_precisions=\"473:fp16\" --outputs_layouts=\"473:NC\" --config NPU_COMPILATION_MODE=\"DefaultHW\""`.
-  - `--inputs_precisions` and `--outputs_precisions` consist of the names of the inputs and outputs along with the precision to be used. 
-  - `--inputs_layouts` and `--outputs_layouts` consist of the names of the inputs and outputs along with the desired layout modifications.
-  - `--config` is what config you want to use.
 - `path`: Relative path to the current model using the POR model or a custom model.
+- `info`: Model configuration, blank by default as buildFlags are no longer mandatory for all models.
 </details>
 
 ### Running Tests

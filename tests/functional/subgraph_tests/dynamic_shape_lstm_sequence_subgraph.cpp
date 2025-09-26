@@ -472,6 +472,12 @@ TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU4000_HW_TestKindSubgraph) {
     run(Platform::NPU4000);
 }
 
+TEST_P(LSTMSubgraphNPUTest2LSTMSeq_extended, NPU4000_HW_TestKindSubgraph_1Tile) {
+    setDefaultHardwareMode();
+    configuration["NPU_TILES"] = "1";
+    run(Platform::NPU4000);
+}
+
 const std::vector<ov::element::Type> inputType = {ov::element::f32};
 const std::vector<ov::op::RecurrentSequenceDirection> direction = {ov::op::RecurrentSequenceDirection::FORWARD,
                                                                    ov::op::RecurrentSequenceDirection::REVERSE,

@@ -152,19 +152,19 @@ const std::vector<ov::Shape> inputShape4 = {{1, 1}, {5, 5}};
 
 const auto paramsConfig1 = testing::Combine(testing::Values(param1), testing::Values(ov::element::f16),
                                             testing::Values(static_shapes_to_test_representation(inputShape1)),
-                                            testing::Values(DEVICE_NPU));
+                                            testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsConfig2 = testing::Combine(testing::Values(param2), testing::Values(ov::element::f16),
                                             testing::Values(static_shapes_to_test_representation(inputShape2)),
-                                            testing::Values(DEVICE_NPU));
+                                            testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsConfig3 = testing::Combine(testing::Values(param3), testing::Values(ov::element::f16),
                                             testing::Values(static_shapes_to_test_representation(inputShape3)),
-                                            testing::Values(DEVICE_NPU));
+                                            testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsPrecommit = testing::Combine(testing::Values(param4), testing::Values(ov::element::f16),
                                               testing::Values(static_shapes_to_test_representation(inputShape4)),
-                                              testing::Values(DEVICE_NPU));
+                                              testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_PriorBox_1, PriorBoxLayerTestCommon, paramsConfig1,
                          PriorBoxLayerTestCommon::getTestCaseName);

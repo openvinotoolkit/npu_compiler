@@ -32,15 +32,31 @@ void buildBarrierLegalizationPipeline(
 // Passes
 //
 
+std::unique_ptr<mlir::Pass> createCheckWlmPageSplitConstraintsPass(
+        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V2_PAGES,
+        Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOptimizeBarriersSlotsUsagePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWlmInsertDummyBarriersInPagesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWlmLegalizePagesForBarrierDmasPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWlmLegalizeSplitGraphToPagesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createWlmSplitGraphToPagesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOrderBarriersForWlmPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFindWlmEnqueueBarrierPass(
+        WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,
+        bool disableDmaSwFifo = false, Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createOptimizeSyncTasksPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createInsertSyncTasksPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAddFinalBarrierPass(
+        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitControlGraphPass(
         const int controlGraphSplitBlockSize = CONTROL_GRAPH_SPLIT_BLOCK_SIZE, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSimplifySchedulePass(
         const bool reduceParallelControlFlowsFlag = true,
         std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSplitExceedingVariantCountBarriersPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSplitExceedingBarrierSlotCountPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSatisfyOneWaitBarrierPerTaskPass(
         std::optional<int> virtualBarrierThresholdForWlm = std::nullopt, const bool unevenVariantSplitFlag = false,
-        Logger log = Logger::global());
+        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createReduceExceedingActiveCountBarriersPass(
         std::optional<int> virtualBarrierThresholdForWlm = std::nullopt,
         std::optional<WorkloadManagementMode> workloadManagementMode = WorkloadManagementMode::PWLM_V0_LCA,

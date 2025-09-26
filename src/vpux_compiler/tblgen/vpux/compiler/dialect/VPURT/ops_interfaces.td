@@ -51,6 +51,14 @@ def VPURT_BarrierOpInterface : OpInterface<"BarrierOpInterface"> {
             [{
                 return $_op.getWlmPage();
             }]
+        >,
+        InterfaceMethod<
+            "Get the barrier index",
+            "std::optional<int64_t>", "getBarrierIndex", (ins)
+        >,
+        InterfaceMethod<
+            "Set the barrier index",
+            "void", "setBarrierIndex", (ins "std::optional<int64_t>":$value)
         >
     ];
 }

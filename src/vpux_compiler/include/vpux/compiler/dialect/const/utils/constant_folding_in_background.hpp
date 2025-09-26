@@ -15,6 +15,8 @@
 #include <llvm/Support/ThreadPool.h>
 #include <mlir/IR/MLIRContext.h>
 
+#include <mutex>
+
 namespace vpux {
 namespace Const {
 

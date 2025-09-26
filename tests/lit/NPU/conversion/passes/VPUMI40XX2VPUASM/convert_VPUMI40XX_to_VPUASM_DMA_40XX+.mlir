@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_0d_to_0d inputsInfo : {
     DataInfo "input" : tensor<f16>
   } outputsInfo : {
@@ -31,6 +31,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 0 : i32, len = 2 : i32, srcWidth = 2 : i32, srcStride = 2 : i32, srcPlaneStride = 0 : i32, dstWidth = 2 : i32, dstStride = 2 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -40,8 +41,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_1d_to_1d inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -64,6 +65,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 0 : i32, len = 801360 : i32, srcWidth = 801360 : i32, srcStride = 801360 : i32, srcPlaneStride = 0 : i32, dstWidth = 801360 : i32, dstStride = 801360 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -73,8 +75,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_1d_to_3d inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -97,6 +99,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 8904 : i32, srcStride = 8904 : i32, srcPlaneStride = 8904 : i32, dstWidth = 168 : i32, dstStride = 360 : i32, dstPlaneStride = 115200 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -106,8 +109,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_2d_to_3d inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -130,6 +133,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 192 : i32, srcPlaneStride = 10176 : i32, dstWidth = 168 : i32, dstStride = 360 : i32, dstPlaneStride = 115200 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -139,8 +143,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_2d_to_3d_with_single_shape inputsInfo : {
     DataInfo "input" : tensor<1x3x1x232xf16>
   } outputsInfo : {
@@ -163,6 +167,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 3 : i32, len = 464 : i32, srcWidth = 464 : i32, srcStride = 464 : i32, srcPlaneStride = 103936 : i32, dstWidth = 464 : i32, dstStride = 480 : i32, dstPlaneStride = 111360 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -172,8 +177,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_3d_to_2d inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -196,6 +201,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 360 : i32, srcPlaneStride = 115200 : i32, dstWidth = 168 : i32, dstStride = 192 : i32, dstPlaneStride = 10176 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -205,8 +211,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_3d_to_2d_with_single_shape inputsInfo : {
     DataInfo "input" : tensor<1x3x1x232xf16>
   } outputsInfo : {
@@ -229,6 +235,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 3 : i32, len = 464 : i32, srcWidth = 464 : i32, srcStride = 480 : i32, srcPlaneStride = 111360 : i32, dstWidth = 464 : i32, dstStride = 464 : i32, dstPlaneStride = 103936 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -238,8 +245,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_3d_to_1d inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -262,6 +269,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 360 : i32, srcPlaneStride = 115200 : i32, dstWidth = 8904 : i32, dstStride = 8904 : i32, dstPlaneStride = 8904 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -273,8 +281,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 !qElemType = !quant.uniform<u8:f16, 0.038143169178682212:128>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_2d_to_3d_input_stride_on_the_highest_dim inputsInfo : {
     DataInfo "input" : tensor<1x512x23x20xf16>
   } outputsInfo : {
@@ -298,6 +306,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 23 : i32, len = 10240 : i32, srcWidth = 10240 : i32, srcStride = 10240 : i32, srcPlaneStride = 10240 : i32, dstWidth = 512 : i32, dstStride = 1024 : i32, dstPlaneStride = 61440 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -309,8 +318,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 !qElemType = !quant.uniform<u8:f16, 0.038143169178682212:128>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_3d_to_2d_output_stride_on_the_highest_dim inputsInfo : {
     DataInfo "input" : tensor<1x512x23x20xf16>
   } outputsInfo : {
@@ -334,6 +343,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 23 : i32, len = 10240 : i32, srcWidth = 512 : i32, srcStride = 1024 : i32, srcPlaneStride = 61440 : i32, dstWidth = 10240 : i32, dstStride = 10240 : i32, dstPlaneStride = 10240 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -345,8 +355,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @nndma_nf4 inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53x!quantileFloatType, {order = #NHWC}>
   } outputsInfo : {
@@ -369,6 +379,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   descriptor(<numPlanes = 0 : i32, len = 200340 : i32, srcWidth = 200340 : i32, srcStride = 200340 : i32, srcPlaneStride = 0 : i32, dstWidth = 200340 : i32, dstStride = 200340 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -378,8 +389,8 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @dma_writing_to_register inputsInfo : {
     DataInfo "input" : tensor<1x84x90x53xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -401,6 +412,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
         outputs(%reg_out : memref<1024xui8, @Register>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 
@@ -411,4 +423,38 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
 
   // CHECK: ELF.CreateLogicalSection @program.metadata.cmx aligned(64) secType(VPU_SHT_CMX_METADATA) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
   // CHECK:   VPUASM.DeclareTaskBuffer @DeclareTaskBuffer_DMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) <DMA>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+module attributes {config.arch = #config.arch_kind<NPU40XX>} {
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
+  net.NetworkInfo entryPoint : @nndma_f32tof16 inputsInfo : {
+    DataInfo "input" : tensor<1x3x4x5xf32>
+  } outputsInfo : {
+    DataInfo "output" : tensor<1x3x4x5xf16>
+  }
+  VPUASM.IOBindings inputDeclarations : {
+    VPUASM.DeclareBuffer @input_buffDecl !VPUASM.Buffer< "NetworkInput"[0] <0> : memref<1x3x4x5xf32, {order = #NCHW}, @DDR> :  swizzling(0)>
+  } outputDeclarations : {
+    VPUASM.DeclareBuffer @output_buffDecl !VPUASM.Buffer< "NetworkOutput"[0] <0> : memref<1x3x4x5xf16, {order = #NCHW, strides = [288, 96, 16, 1]}, @DDR> :  swizzling(0)>
+  } profilingBuffDeclarations : {
+  }
+  func.func private @nndma_f32tof16() {
+    %0 = VPUMI40XX.DeclareTaskBuffer <DMA> -> !VPURegMapped.Index<0:0:0>
+    %1 = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x3x4x5xf32, @DDR>
+    %2 = VPURT.DeclareBuffer <NetworkOutput> [0] <0> {swizzlingKey = 0 : i64} -> memref<1x3x4x5xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [288, 96, 16, 1]}, @DDR>
+    %3 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%0 : !VPURegMapped.Index<0:0:0>)
+        inputs(%1 : memref<1x3x4x5xf32, @DDR>)
+        outputs(%2 : memref<1x3x4x5xf16, {order = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, strides = [288, 96, 16, 1]}, @DDR>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
+
+    // CHECK:   descriptor(<numPlanes = 3 : i32, len = 80 : i32, srcWidth = 80 : i32, srcStride = 80 : i32, srcPlaneStride = 80 : i32, dstWidth = 10 : i32, dstStride = 32 : i32, dstPlaneStride = 192 : i32>)
+
+    ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
+    VPUMI40XX.OpRanges
+  }
 }

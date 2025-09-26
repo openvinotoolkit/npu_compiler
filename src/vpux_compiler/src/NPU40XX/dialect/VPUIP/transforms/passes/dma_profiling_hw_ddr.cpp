@@ -5,11 +5,11 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/core/profiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/dma.hpp"
@@ -230,7 +230,7 @@ void DMATaskProfilingHwDdrPass::setupProfiling(mlir::MLIRContext* ctx, mlir::Mod
     _log.trace("Reserved {0} bytes of profiling output buffer", outputDdrSize);
 
     // get a buffer pointing to DMA profiling reserved memory in DDR
-    auto dmaProfMem = IE::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::DDR);
+    auto dmaProfMem = config::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::DDR);
     VPUX_THROW_WHEN(dmaProfMem == nullptr, "Missing DMA HWP base DDR buffer");
     auto dmaProfMemOffset = dmaProfMem.getOffset();
     VPUX_THROW_WHEN(dmaProfMemOffset == std::nullopt, "No address allocated.");

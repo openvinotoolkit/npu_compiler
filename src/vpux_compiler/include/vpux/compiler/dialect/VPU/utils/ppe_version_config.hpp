@@ -7,6 +7,8 @@
 
 #include "vpux/compiler/dialect/VPU/interfaces/ppe_factory.hpp"
 
+#include <mutex>
+
 namespace vpux::VPU {
 /* @brief
  * Static class for encapsulating PPE-related objects.

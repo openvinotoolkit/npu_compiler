@@ -164,7 +164,7 @@ TEST_P(GetActivationOverlapTests, GetParams) {
     for (auto op : expectedSiblings) {
         if (!inputTileShape.empty()) {
             inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType())
-                                .extractDenseTile(Shape{0, 0, 0, 0}, Shape(inputTileShape));
+                                .extractDenseTile(ShapeRef{0, 0, 0, 0}, ShapeRef(inputTileShape));
         }
 
         auto actualOverlappedParams = VPU::getActivationOverlappedParams(
@@ -218,7 +218,7 @@ TEST_P(GetOutputOverlapTests, GetParams) {
     for (auto op : producersConsumers.producers) {
         if (!outputTileShape.empty()) {
             outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType())
-                                 .extractDenseTile(Shape{0, 0, 0, 0}, Shape(outputTileShape));
+                                 .extractDenseTile(ShapeRef{0, 0, 0, 0}, ShapeRef(outputTileShape));
         }
 
         auto producerOverlappedParams =
@@ -254,7 +254,7 @@ TEST_P(GetOutputOverlapTests, GetParams) {
 llvm::StringLiteral twoConvConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -300,7 +300,7 @@ llvm::StringLiteral twoConvConsumers = R"(
 llvm::StringLiteral nceInterpAndConvConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x56x54xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -366,7 +366,7 @@ llvm::StringLiteral nceInterpAndConvConsumers = R"(
 llvm::StringLiteral threeClusteredConsumers = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -414,7 +414,7 @@ llvm::StringLiteral threeClusteredConsumers = R"(
 llvm::StringLiteral oneConsumerNotClustered = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x144x28x27xf16, {order = #NHWC}>)
           -> (tensor<1x144x28x27xf16, {order = #NHWC}>, tensor<1x144x28x27xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<144x144x3x3xf16, {order = #NHWC}>
@@ -509,7 +509,7 @@ llvm::StringLiteral quantizeCastDirectConsumer = R"(
     !qElemType2 = !quant.uniform<u8:f16, 0.013744638480392158:128>
     !qElemType3 = !quant.uniform<u8:f16, 0.047862344452225551:128>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 2 of @NCE at 6.000000e+02 MHz
+        config.Resources 2 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x32x28x27x!qElemType, {order = #NHWC}>)
           -> (tensor<1x32x14x14x!qElemType2, {order = #NHWC}>, tensor<1x32x28x27x!qElemType3, {order = #NHWC}>) {
             %weights0 = const.Declare tensor<32x32x1x1x!qElemType1, {order = #NHWC}>
@@ -564,7 +564,7 @@ llvm::StringLiteral multipleConsumersOfQuantizeCast = R"(
     !qElemType2 = !quant.uniform<u8:f16, 0.013744638480392158:128>
     !qElemType3 = !quant.uniform<u8:f16, 0.047862344452225551:128>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 2 of @NCE at 6.000000e+02 MHz
+        config.Resources 2 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x32x28x27x!qElemType, {order = #NHWC}>)
           -> (tensor<1x32x14x14x!qElemType2, {order = #NHWC}>, tensor<1x32x28x27x!qElemType3, {order = #NHWC}>, tensor<1x32x28x27x!qElemType3, {order = #NHWC}>) {
             %weights0 = const.Declare tensor<32x32x1x1x!qElemType1, {order = #NHWC}>
@@ -668,7 +668,7 @@ INSTANTIATE_TEST_SUITE_P(QuantizeCastDirectConsumersTiled, GetOutputOverlapTests
 llvm::StringLiteral eltwiseResidualBlock = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
@@ -720,7 +720,7 @@ llvm::StringLiteral eltwiseResidualBlock = R"(
 llvm::StringLiteral eltwiseWithParentsInDiffSubgraphs = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
@@ -809,7 +809,7 @@ INSTANTIATE_TEST_SUITE_P(EltwiseConsumersTiled, GetOutputOverlapTests, testing::
 llvm::StringLiteral eltwiseInPlaceSubgraph = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
@@ -875,7 +875,7 @@ llvm::StringLiteral eltwiseInPlaceSubgraph = R"(
 llvm::StringLiteral eltwiseInPlaceWithParentsInDiffSubgraphs = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+        config.Resources 4 of @NCE at 6.000000e+02 MHz
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
             %w0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
@@ -985,8 +985,8 @@ INSTANTIATE_TEST_SUITE_P(InPlaceEltwiseConsumersTiled, GetOutputOverlapTests,
 llvm::StringLiteral concatSubgraph = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz {
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.Resources 4 of @NCE at 6.000000e+02 MHz {
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
         }
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
@@ -1049,8 +1049,8 @@ llvm::StringLiteral concatSubgraph = R"(
 llvm::StringLiteral notSOHCompatibleConcatSubgraph = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz {
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.Resources 4 of @NCE at 6.000000e+02 MHz {
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
         }
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x4x4xf16, {order = #NHWC}>, tensor<1x16x16x8xf16, {order = #NHWC}>) {
@@ -1121,8 +1121,8 @@ llvm::StringLiteral notSOHCompatibleConcatSubgraph = R"(
 llvm::StringLiteral concatWithParentsInDiffSubgraphs = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz {
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.Resources 4 of @NCE at 6.000000e+02 MHz {
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
         }
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>) {
@@ -1244,8 +1244,8 @@ INSTANTIATE_TEST_SUITE_P(ConcatConsumersTiled, GetOutputOverlapTests,
 llvm::StringLiteral mixedSubgraph0 = R"(
     #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz {
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.Resources 4 of @NCE at 6.000000e+02 MHz {
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
         }
         func.func @main(%arg0: tensor<1x16x8x8xf16, {order = #NHWC}>, %arg1: tensor<1x32x8x8xf16, {order = #NHWC}>)
           -> (tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x16x8x8xf16, {order = #NHWC}>, tensor<1x32x8x8xf16, {order = #NHWC}>) {
@@ -1331,8 +1331,8 @@ llvm::StringLiteral mixedSubgraph1 = R"(
     !qElemType2 = !quant.uniform<u8:f16, 0.013744638480392158:128>
     !qElemType3 = !quant.uniform<u8:f16, 0.047862344452225551:128>
     module @test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-        IE.TileResource 4 of @NCE at 6.000000e+02 MHz {
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.Resources 4 of @NCE at 6.000000e+02 MHz {
+            config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
         }
         func.func @main(%arg0: tensor<1x16x8x8x!qElemType, {order = #NHWC}>, %arg1: tensor<1x16x8x8x!qElemType, {order = #NHWC}>)
           -> (tensor<1x16x8x8x!qElemType3, {order = #NHWC}>, tensor<1x16x8x8x!qElemType2, {order = #NHWC}>, tensor<1x16x8x8x!qElemType3, {order = #NHWC}>) {

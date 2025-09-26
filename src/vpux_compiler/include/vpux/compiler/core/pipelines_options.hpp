@@ -259,6 +259,10 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
             *this, "disable-pass-on-entry-function",
             llvm::cl::desc("Disable certain passes for entry function operations for HostCompile pipeline"),
             llvm::cl::init(false)};
+
+    BoolOption enableShaveCodeGen{*this, "enable-shave-code-gen",
+                                  llvm::cl::desc("Enable Shave Code Generation - JIT kernels compilation"),
+                                  llvm::cl::init(false)};
 };
 
 //
@@ -397,8 +401,6 @@ struct BackendCompilationOptionsBase : mlir::PassPipelineOptions<T> {
                              "experiments."),
             ::llvm::cl::init(WorkloadManagementMode::PWLM_V0_LCA),
             ::llvm::cl::values(
-                    clEnumValN(WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES",
-                               "Full WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES",
                                "Partial WLM with split into pages"),
                     clEnumValN(WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO",

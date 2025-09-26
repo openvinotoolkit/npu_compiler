@@ -8,9 +8,9 @@
 // REQUIRES: arch-NPU37XX
 
 module @mainModule attributes { config.arch = #config.arch_kind<NPU37XX> } {
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
 }
 

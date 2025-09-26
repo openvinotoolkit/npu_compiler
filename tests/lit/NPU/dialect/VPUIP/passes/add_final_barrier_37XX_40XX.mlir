@@ -32,7 +32,7 @@ func.func @AddFinalBarrier() -> !Output_DDR {
 
     // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:       [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
 
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         VPUIP.NNDMA
@@ -56,7 +56,7 @@ func.func @AddFinalBarrierWithoutOtherBarrier() -> !DDRType {
     }
     return %1 : !DDRType
 
-    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK:       VPURT.Task updates([[FINAL_BARRIER]] : !VPURT.Barrier)
     // CHECK:         VPUIP.NNDMA
 }
@@ -89,7 +89,7 @@ func.func @AssignFinalBarrierInsteadOfCreatingOne() -> !Output_DDR {
 
     // CHECK:       [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK:       [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK:       [[FINAL_BARRIER:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
 
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         VPUIP.NNDMA

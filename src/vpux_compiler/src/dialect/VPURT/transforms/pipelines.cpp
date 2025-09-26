@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
@@ -22,11 +21,17 @@ void vpux::VPURT::buildBarrierLegalizationPipeline(mlir::OpPassManager& pm,
                                                    std::optional<int> virtualBarrierThresholdForWlm,
                                                    std::optional<WorkloadManagementMode> workloadManagementMode,
                                                    const bool unevenVariantSplitFlag, Logger log) {
-    pm.addPass(VPURT::createSplitExceedingVariantCountBarriersPass(log));
-    pm.addPass(
-            VPURT::createSatisfyOneWaitBarrierPerTaskPass(virtualBarrierThresholdForWlm, unevenVariantSplitFlag, log));
-    pm.addPass(VPURT::createReduceExceedingActiveCountBarriersPass(
-            virtualBarrierThresholdForWlm, workloadManagementMode, unevenVariantSplitFlag, log));
+    if (!workloadManagementMode.has_value() ||
+        workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        pm.addPass(VPURT::createSplitExceedingBarrierSlotCountPass(log));
+    }
+    pm.addPass(VPURT::createSatisfyOneWaitBarrierPerTaskPass(virtualBarrierThresholdForWlm, unevenVariantSplitFlag,
+                                                             workloadManagementMode, log));
+    if (!workloadManagementMode.has_value() ||
+        workloadManagementMode.value() <= WorkloadManagementMode::PWLM_V2_PAGES) {
+        pm.addPass(VPURT::createReduceExceedingActiveCountBarriersPass(
+                virtualBarrierThresholdForWlm, workloadManagementMode, unevenVariantSplitFlag, log));
+    }
 }
 
 //

@@ -46,12 +46,12 @@ std::vector<ov::element::Type> netPrecisions = {ov::element::f16, ov::element::u
 const auto concatParams = ::testing::Combine(
         ::testing::ValuesIn(axes),
         ::testing::Values(ov::test::static_shapes_to_test_representation({{1, 16, 10, 10}, {1, 16, 10, 10}})),
-        ::testing::Values(ov::element::u8), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(ov::element::u8), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto concatCopyParams = ::testing::Combine(
         ::testing::Values(3),
         ::testing::Values(ov::test::static_shapes_to_test_representation({{1, 2, 3, 3}, {1, 2, 3, 3}})),
-        ::testing::ValuesIn({ov::element::u4, ov::element::i4}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::element::u4, ov::element::i4}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Concat, ConcatLayerTestCommon, concatParams,
                          ConcatLayerTestCommon::getTestCaseName);

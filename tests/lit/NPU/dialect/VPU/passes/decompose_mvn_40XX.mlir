@@ -63,3 +63,30 @@ func.func @DecomposeMVNAcrossChannelTrueNCHW(%arg0: tensor<1x5x1x115971xf16>) ->
     // CHECK:        [[SHAPECAST_2:%.+]] = VPU.ShapeCast {shape = [1, 5, 1, 115971]} inputs([[MVN1NORMALIZE]] : tensor<1x1x579855x1xf16>) -> tensor<1x5x1x115971xf16>
     // CHECK:        return [[SHAPECAST_2]] : tensor<1x5x1x115971xf16>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: func.func @DecomposeMvnHighNorm
+// CHECK-SAME:        [[INPUT:%.+]]: tensor<1x32x8x262144xf16, {order = #NHWC}>
+func.func @DecomposeMvnHighNorm(%arg0: tensor<1x32x8x262144xf16, {order = #NHWC}>) -> (tensor<1x32x8x262144xf16, {order = #NHWC}>) {
+      %0 = VPU.MVN(%arg0) {across_channels = false, eps = 6.0892105102539063E-4 : f64, high_precision_normalize = true, normalize_variance = true}
+           : tensor<1x32x8x262144xf16, {order = #NHWC}> -> tensor<1x32x8x262144xf16, {order = #NHWC}>
+      return %0 : tensor<1x32x8x262144xf16, {order = #NHWC}>
+
+    // CHECK:        [[SHAPECAST_1:%.+]] = VPU.ShapeCast {shape = [1, 32, 2097152, 1]} inputs([[INPUT]] : tensor<1x32x8x262144xf16, {order = #NHWC}>) -> tensor<1x32x2097152x1xf16, {order = #NHWC}>
+    // CHECK:        [[MVN1SUM:%.+]] = VPU.MVN1SumOp([[SHAPECAST_1]]) {across_channels = false, normalize_variance = true, output_height = 6 : i64}
+    // CHECK-SAME:                     : tensor<1x32x2097152x1xf16, {order = #NHWC}> -> tensor<1x32x6x2xf32, {order = #NHWC}>
+
+    // CHECK:        [[MVN1MEANVAR:%.+]] = VPU.MVN1MeanVar([[MVN1SUM]]) {across_channels = false, eps = 6.0892105102539063E-4 : f64, normalize_variance = true, orig_shape = [1, 32, 8, 262144], output_type = f16}
+    // CHECK-SAME:                         : tensor<1x32x6x2xf32, {order = #NHWC}> -> tensor<1x32x1x2xf16, {order = #NHWC}>
+
+    // CHECK:        [[MVN1NORMALIZE:%.+]] = VPU.MVN1Normalize([[SHAPECAST_1]], [[MVN1MEANVAR]]) {
+    // CHECK-SAME:                             across_channels = false,
+    // CHECK-SAME:                             high_precision_normalize = true,
+    // CHECK-SAME:                             normalize_variance = true}
+    // CHECK-SAME:       : tensor<1x32x2097152x1xf16, {order = #NHWC}>, tensor<1x32x1x2xf16, {order = #NHWC}> -> tensor<1x32x2097152x1xf16, {order = #NHWC}>
+
+    // CHECK:        [[SHAPECAST_2:%.+]] = VPU.ShapeCast {shape = [1, 32, 8, 262144]} inputs([[MVN1NORMALIZE]] : tensor<1x32x2097152x1xf16, {order = #NHWC}>) -> tensor<1x32x8x262144xf16, {order = #NHWC}>
+    // CHECK:        return [[SHAPECAST_2]] : tensor<1x32x8x262144xf16, {order = #NHWC}>
+}

@@ -54,7 +54,7 @@ void LoadExternalKernelResources::safeRunOnFunc() {
     }
 
     auto& shaveBinResources = ShaveBinaryResources::getInstance();
-    auto archEncoding = shaveBinResources.getSwKernelArchString((config::getArch(func)));
+    auto arch = config::getArch(func);
 
     // Keep track of loaded kernel resources in order to avoid multiple retrivals
     std::set<std::string> loadedKernels;
@@ -90,7 +90,7 @@ void LoadExternalKernelResources::safeRunOnFunc() {
         }
 
         kernelElfBinary.insert(kernelElfBinary.end(), buffer.begin(), buffer.end());
-        shaveBinResources.addCompiledElf(kernelUniqueId, kernelElfBinary, archEncoding);
+        shaveBinResources.addCompiledElf(kernelUniqueId, kernelElfBinary, arch);
         loadedKernels.insert(std::move(kernelUniqueId));
     }
 }

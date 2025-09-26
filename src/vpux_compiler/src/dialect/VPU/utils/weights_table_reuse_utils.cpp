@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/weights_table_reuse_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
-#include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/utils/VPU/function_outlining_splitter.hpp"
 #include "vpux/compiler/utils/options.hpp"
 

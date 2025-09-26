@@ -13,6 +13,26 @@ include "mlir/Pass/PassBase.td"
 //=================================================================================
 
 //
+// ConvertIEToVPUNCE
+//
+
+def ConvertIEToVPUNCE : PassBase<"convert-IE-to-VPU-NCE", "vpux::FunctionPass"> {
+    let summary = "Convert supported IE layers to VPU NCE operations";
+
+    let description = [{
+        The pass converts VPUNCE-friendly operations (such as Conv, Pool, Eltwise)
+
+        It doesn't change the memory spaces or add any new operations such as Copy
+    }];
+
+    let constructor = "vpux::createConvertIEToVPUNCEPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // ConvertIEToVPUM2I
 //
 

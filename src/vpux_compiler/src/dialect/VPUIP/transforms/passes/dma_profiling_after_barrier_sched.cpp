@@ -4,13 +4,13 @@
 //
 
 #include "vpux/compiler/core/profiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/factories/profiling_info.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/dma.hpp"
@@ -141,13 +141,13 @@ void DMATaskProfilingAfterBarrierSchedPass::safeRunOnModule() {
     net::NetworkInfoOp::getFromModule(module, netInfo, func);
     mlir::OpBuilder builder(&func.getBody().front().front());
 
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
     VPUX_THROW_UNLESS(dmaPortCount > 0, "DMA port count should be > 0; it is: {0}", dmaPortCount);
 
     int64_t dmaProfReservedMemSize = 0;
     int64_t dmaProfMemOffset = 0;
-    if (auto dmaProfMem = IE::getDmaProfilingReservedMemory(module, VPU::MemoryKind::CMX_NN)) {
+    if (auto dmaProfMem = config::getDmaProfilingReservedMemory(module, VPU::MemoryKind::CMX_NN)) {
         dmaProfReservedMemSize = dmaProfMem.getByteSize();
         VPUX_THROW_UNLESS(dmaProfMem.getOffset().has_value(), "No offset setting provided");
         dmaProfMemOffset = dmaProfMem.getOffset().value();

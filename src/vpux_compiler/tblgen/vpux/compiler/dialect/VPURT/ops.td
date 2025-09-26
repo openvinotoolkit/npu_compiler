@@ -20,6 +20,7 @@ include "mlir/Interfaces/SideEffectInterfaces.td"
 include "mlir/Interfaces/InferTypeOpInterface.td"
 include "mlir/IR/RegionKindInterface.td"
 include "mlir/IR/OpAsmInterface.td"
+include "mlir/IR/Properties.td"
 
 //
 // Base classes
@@ -136,7 +137,8 @@ def VPURT_DeclareVirtualBarrierOp :
     let arguments = (ins
         UnitAttr:$isFinalBarrier,
         UnitAttr:$isStartBarrier,
-        OptionalAttr<IntAttr>:$wlmPage
+        OptionalAttr<IntAttr>:$wlmPage,
+        Property<"std::optional<int64_t>">:$barrierIndex
     );
 
     let summary = "VPURT virtual Barrier declaration";
@@ -146,7 +148,7 @@ def VPURT_DeclareVirtualBarrierOp :
     );
 
     let assemblyFormat = [{
-        attr-dict `->` type(results)
+        attr-dict prop-dict `->` type(results)
     }];
 
     let builders = [
@@ -160,6 +162,14 @@ def VPURT_DeclareVirtualBarrierOp :
             build($_builder, $_state, ((isFinalBarrier) ? $_builder.getUnitAttr() : nullptr), nullptr, nullptr);
         }]>
     ];
+
+    let extraClassDeclaration = [{
+        static void printProperties(mlir::MLIRContext* ctx, mlir::OpAsmPrinter& printer,
+                                    const Properties& properties,
+                                    mlir::ArrayRef<llvm::StringRef> elidedProps);
+        static mlir::ParseResult parseProperties(mlir::OpAsmParser &parser,
+                                                 mlir::OperationState &result);
+    }];
 }
 
 //
@@ -181,7 +191,8 @@ def VPURT_ConfigureBarrierOp :
         IntAttr:$id,
         UnitAttr:$isFinalBarrier,
         UnitAttr:$isStartBarrier,
-        OptionalAttr<IntAttr>:$wlmPage
+        OptionalAttr<IntAttr>:$wlmPage,
+        Property<"std::optional<int64_t>">:$barrierIndex
     );
 
     let results = (outs
@@ -197,10 +208,16 @@ def VPURT_ConfigureBarrierOp :
             os << "id: " << getId();
             return true;
         }
+
+        static void printProperties(mlir::MLIRContext* ctx, mlir::OpAsmPrinter& printer,
+                                    const Properties& properties,
+                                    mlir::ArrayRef<llvm::StringRef> elidedProps);
+        static mlir::ParseResult parseProperties(mlir::OpAsmParser &parser,
+                                                 mlir::OperationState &result);
     }];
 
     let assemblyFormat = [{
-        `<` $id `>` attr-dict `->` type(results)
+        `<` $id `>` attr-dict prop-dict `->` type(results)
     }];
 
     let builders = [
@@ -239,7 +256,8 @@ def VPURT_TaskOp :
         Variadic<VPURT_Barrier>:$updateBarriers,
         Optional<VPURT_Barrier>:$enqueueBarrier,
         DefaultValuedAttr<BoolAttr, "false">:$isTrailingSWLayer,
-        OptionalAttr<IntAttr>:$wlmPage
+        OptionalAttr<IntAttr>:$wlmPage,
+        Property<"std::optional<int64_t>">:$taskIndex
     );
 
     let regions = (region
@@ -268,6 +286,12 @@ def VPURT_TaskOp :
 
         template <typename T>
         T getInnerTaskOpOfType();
+
+        static void printProperties(mlir::MLIRContext* ctx, mlir::OpAsmPrinter& printer,
+                                    const Properties& properties,
+                                    mlir::ArrayRef<llvm::StringRef> elidedProps);
+        static mlir::ParseResult parseProperties(mlir::OpAsmParser &parser,
+                                                 mlir::OperationState &result);
     }];
 
     let assemblyFormat = [{
@@ -277,6 +301,7 @@ def VPURT_TaskOp :
         (`enqueueTarget` `(` $enqueueBarrier^ `:` type($enqueueBarrier) `)`)?
         (`wlmPage` `(` $wlmPage^ `)`)?
         attr-dict-with-keyword
+        prop-dict
         $body
     }];
 

@@ -7,7 +7,7 @@
 // REQUIRES: arch-NPU40XX
 
 module @CallChain {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @cmx_declare_buffer
     func.func private @cmx_declare_buffer(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
@@ -100,7 +100,7 @@ module @DoNotReorderCMX {
     // The transformation by reordering CMX numbers is performing on a function call
     // which has both "debatched = [<partitioning>]" and "reordering = 1" attributes.
     // As no "reordering" attribute is injected, no any reordering is expected
-    IE.TileResource 2 of @NCE at 1.700000e+03 MHz
+    config.Resources 2 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @cmx_declare_buffer
     func.func private @cmx_declare_buffer(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
@@ -191,7 +191,7 @@ func.func @cmx_declare_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @HaloCMXPartitioningForReorderingTest {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @cmx_iti_buffer
     func.func private @cmx_iti_buffer(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
@@ -469,7 +469,7 @@ func.func @cmx_iti_buffer_main(%arg0: tensor<2x3x64x64xf16>, %arg1: tensor<2x3x6
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @DDROffsetFromModuleForReorderingTest {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
 
     //CHECK-NOT: func.func private @ddr_decl_buffer
     func.func private @ddr_decl_buffer(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {

@@ -6,9 +6,11 @@
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/IE/transposed_convolution_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/range.hpp"
@@ -49,7 +51,25 @@ bool ShapeInfo::isDynamic() const {
 
 ShapeInfo ShapeInfo::fromNDType(NDTypeInterface type) {
     // NB: empty bounds means that the shape is static
-    auto boundVals = [&type] {
+    auto boundVals = [&type]() -> SmallVector<int64_t> {
+        if (const auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(type)) {
+            auto boundedData = mlir::dyn_cast<Core::BoundedTensorType>(sparseType.getData());
+            if (boundedData == nullptr) {
+                return SmallVector<int64_t>{};
+            }
+
+            auto bounds = to_small_vector(boundedData.getBounds());
+            if (sparseType.getStorageElementTable() == nullptr) {
+                return bounds;
+            }
+
+            auto setShape = mlir::cast<NDTypeInterface>(sparseType.getStorageElementTable()).getShape();
+            bounds[Dims4D::Act::H.ind()] = setShape[Dims4D::Act::H];
+            bounds[Dims4D::Act::W.ind()] = setShape[Dims4D::Act::W];
+
+            return bounds;
+        }
+
         if (const auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(type)) {
             const auto bounds = boundedType.getBounds();
             return to_small_vector(bounds);
@@ -178,6 +198,21 @@ ShapeInfo vpux::inferAvgPoolOutputShape(const ShapeInfo& inDataShapeInfo, ArrayR
                                           ov::Strides(windowStrides.begin(), windowStrides.end()), padsBegin, padsEnd,
                                           ov::Shape(windowShape.begin(), windowShape.end()), false,
                                           static_cast<ov::op::RoundingType>(roundingType), ov::op::PadType::EXPLICIT);
+    return createShapeInfoFromPartialShape(ovOp.get_output_partial_shape(0));
+}
+
+ShapeInfo vpux::inferAvgPool16OutputShape(const ShapeInfo& inDataShapeInfo, ArrayRef<int64_t> windowStrides,
+                                          ArrayRef<int64_t> windowDilations, ArrayRef<int64_t> dataPaddingBelow,
+                                          ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowShape,
+                                          IE::RoundingType roundingType) {
+    const auto padsBegin = ov::Shape(dataPaddingBelow.begin(), dataPaddingBelow.end());
+    const auto padsEnd = ov::Shape(dataPaddingAbove.begin(), dataPaddingAbove.end());
+    const auto inDataShape = createPartialShapeFromShapeInfo(inDataShapeInfo);
+    const auto ovOp = ov::op::v16::AvgPool(std::make_shared<ov::op::v0::Parameter>(ov::element::i32, inDataShape),
+                                           ov::Strides(windowStrides.begin(), windowStrides.end()),
+                                           ov::Strides(windowDilations.begin(), windowDilations.end()), padsBegin,
+                                           padsEnd, ov::Shape(windowShape.begin(), windowShape.end()), false,
+                                           static_cast<ov::op::RoundingType>(roundingType), ov::op::PadType::EXPLICIT);
     return createShapeInfoFromPartialShape(ovOp.get_output_partial_shape(0));
 }
 
@@ -341,9 +376,31 @@ ShapeInfo vpux::inferMatMulOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const 
     return createShapeInfoFromPartialShape(op.get_output_partial_shape(0));
 }
 
-ShapeInfo vpux::inferConvoutionOutputShapeInfo(const ShapeInfo& inShapeInfo, const ShapeInfo& filterShapeInfo,
-                                               ArrayRef<int64_t> windowStrides, ArrayRef<int64_t> dataPaddingBelow,
-                                               ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations) {
+ShapeInfo vpux::inferPermuteQuantizeOutputShapeInfo(mlir::Value input, DimsOrder inOrder, vpux::NDTypeInterface newType,
+                                                    DimsOrder outOrder, mlir::AffineMap memPerm) {
+    const auto inMemShape = inOrder.toMemoryOrder(newType.getShape());
+    const auto outMemShape = applyPerm(inMemShape, memPerm);
+    const auto outShape = outOrder.toLogicalOrder(outMemShape);
+
+    SmallVector<int64_t> bounds{};
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(input.getType())) {
+        auto newBoundsRaw = mlir::dyn_cast<Core::BoundedTensorType>(newType).getBounds().raw();
+        auto newShape = newType.getShape();
+
+        SmallVector<int64_t> transformedBounds(newBoundsRaw.size());
+        std::transform(newBoundsRaw.begin(), newBoundsRaw.end(), newShape.raw().begin(), transformedBounds.begin(),
+                       [](int64_t bound, int64_t shape) {
+                           return shape == mlir::ShapedType::kDynamic ? bound : shape;
+                       });
+        bounds = std::move(transformedBounds);
+    }
+
+    return {std::move(outShape.raw()), std::move(bounds)};
+}
+
+ShapeInfo vpux::inferConvolutionOutputShapeInfo(const ShapeInfo& inShapeInfo, const ShapeInfo& filterShapeInfo,
+                                                ArrayRef<int64_t> windowStrides, ArrayRef<int64_t> dataPaddingBelow,
+                                                ArrayRef<int64_t> dataPaddingAbove, ArrayRef<int64_t> windowDilations) {
     const auto inPartialShape = createPartialShapeFromShapeInfo(inShapeInfo);
     const auto filterPartialShape = createPartialShapeFromShapeInfo(filterShapeInfo);
 

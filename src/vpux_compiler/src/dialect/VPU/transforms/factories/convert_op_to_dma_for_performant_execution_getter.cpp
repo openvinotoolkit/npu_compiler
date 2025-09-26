@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/transforms/factories/convert_op_to_dma_for_performant_execution_getter.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/convert_ops_to_dma_for_performant_execution_strategy.hpp"
-#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 

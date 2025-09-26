@@ -7,49 +7,12 @@
 #include "vpux/compiler/conversion.hpp"
 
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
-#include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/passes.hpp"
-#include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-
-#include "vpux/compiler/NPU37XX/pipeline_options.hpp"
 
 #include <mlir/Transforms/Passes.h>
 
 using namespace vpux;
-
-//
-// LowerIE2VPU
-//
-
-void vpux::arch37xx::buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log) {
-    const auto grc = getDefaultGreedyRewriteConfig();
-    pm.addPass(createConvertDynamicQuantToVPUNCEPass(log));
-
-    pm.addPass(vpux::arch37xx::createConvertIEToVPUNCEPass(log));
-    pm.addPass(createConvertLayers2VPUPass(log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-}
-
-//
-// LowerVPU2VPUIPSWKernel
-//
-
-void vpux::arch37xx::buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBufferization,
-                                                 bool useMemrefForHostFunctionBufferization, Logger log) {
-    const auto grc = getDefaultGreedyRewriteConfig();
-
-    pm.addPass(createAdjustDynamicOpsBeforeBufferizationPass());
-    pm.addPass(VPU::createLegalizeDynamicShapeConcatForSWLayersPass(log));
-    if (enableInPlaceBufferization) {
-        pm.addPass(createInPlaceBufferizationAnalyzePass());
-    }
-    pm.addPass(createOneShotBufferizeVPU2VPUIPPass());
-    pm.addPass(VPUIP::createUngroupBoundedBuffersAsFuncArgsPass(log));
-    pm.addPass(createAddBuffersForNetResults(useMemrefForHostFunctionBufferization, log));
-    pm.addPass(mlir::createCanonicalizerPass(grc));
-}
 
 //
 // LowerVPUIP2VPUMI37XXAndELF
@@ -76,24 +39,11 @@ void vpux::arch37xx::buildLowerIE2VPUPipelineReferenceSW(mlir::OpPassManager& pm
 //
 
 void vpux::arch37xx::registerConversionPipeline() {
-    mlir::PassPipelineRegistration<>("lower-IE-to-VPU", "Performs full lowering from the IE Dialect to VPU Dialect",
-                                     [](mlir::OpPassManager& pm) {
-                                         vpux::arch37xx::buildLowerIE2VPUPipeline(pm);
-                                     });
-
     mlir::PassPipelineRegistration<>("lower-IE-to-VPU-referense-sw",
                                      "Performs full lowering from the IE Dialect to VPU Dialect",
                                      [](mlir::OpPassManager& pm) {
                                          vpux::arch37xx::buildLowerIE2VPUPipelineReferenceSW(pm);
                                      });
-    mlir::PassPipelineRegistration<vpux::DefaultHWOptions37XX>(
-            "lower-VPU-to-VPUIP",
-            "Performs full lowering from the VPU Dialect to VPUIP Dialect, SW operations are converted to SWKernelOp",
-            [](mlir::OpPassManager& pm, const vpux::DefaultHWOptions37XX& options) {
-                vpux::arch37xx::buildLowerVPU2VPUIPPipeline(pm, options.enableInPlaceBufferization,
-                                                            options.useMemrefForHostFunctionBufferization);
-            });
-
     mlir::PassPipelineRegistration<>("lower-VPUIP-to-ELF",
                                      "Performs full lowering from the VPUIP Dialect to the VPUMI37XX and ELF Dialects",
                                      [](mlir::OpPassManager& pm) {

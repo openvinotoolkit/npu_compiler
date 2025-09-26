@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 #include "vpux/compiler/core/profiling.hpp"
@@ -45,7 +45,7 @@ void DMATaskProfilingReserveMemPass::safeRunOnModule() {
     VPUX_THROW_UNLESS(enableDMAProfiling.hasValue(), "No option");
     auto dmaProfilingMode = getDMAProfilingMode(arch, enableDMAProfiling);
 
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
     VPUX_THROW_UNLESS(dmaPortCount > 0, "No DMA ports");
     VPUX_THROW_UNLESS((VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE % dmaPortCount) == 0,
@@ -55,7 +55,7 @@ void DMATaskProfilingReserveMemPass::safeRunOnModule() {
     if (arch == config::ArchKind::NPU37XX || arch == config::ArchKind::NPU40XX) {
         auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::CMX_NN));
         _log.trace("DMA profiling reserved CMX memory - size: '{0}'", VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE);
-        IE::setDmaProfilingReservedMemory(module, memSpaceAttr, VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE);
+        config::setDmaProfilingReservedMemory(module, memSpaceAttr, VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE);
     }
 
     // Chunk of DDR is reserved if profiling is enabled
@@ -63,8 +63,8 @@ void DMATaskProfilingReserveMemPass::safeRunOnModule() {
         _log.trace("DMA HW profiling reserved DDR memory - size: '{0}'",
                    VPUIP::HW_DMA_PROFILING_ID_LIMIT * VPUIP::HW_DMA_PROFILING_SIZE_BYTES_40XX);
         auto memSpaceAttr = mlir::SymbolRefAttr::get(ctx, stringifyEnum(VPU::MemoryKind::DDR));
-        IE::setDmaProfilingReservedMemory(module, memSpaceAttr,
-                                          VPUIP::HW_DMA_PROFILING_ID_LIMIT * VPUIP::HW_DMA_PROFILING_SIZE_BYTES_40XX);
+        config::setDmaProfilingReservedMemory(
+                module, memSpaceAttr, VPUIP::HW_DMA_PROFILING_ID_LIMIT * VPUIP::HW_DMA_PROFILING_SIZE_BYTES_40XX);
     }
 }
 

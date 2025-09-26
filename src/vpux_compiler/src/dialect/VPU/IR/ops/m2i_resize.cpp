@@ -83,7 +83,7 @@ mlir::LogicalResult vpux::VPU::M2IResizeOp::inferReturnTypes(mlir::MLIRContext* 
         outShape[outAxes[i]] = outSize[i];
     }
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

@@ -77,7 +77,7 @@ vpux::NDTypeInterface vpux::Const::BroadcastAttr::inferOutputType(vpux::NDTypeIn
     return input.pad(padBefore, padAfter);
 }
 
-bool vpux::Const::BroadcastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::BroadcastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

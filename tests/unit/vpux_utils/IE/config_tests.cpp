@@ -79,7 +79,7 @@ TEST_F(MLIR_ConfigTests, GetSupported) {
 
 TEST_F(MLIR_ConfigTests, UpdateAndValidate) {
     EXPECT_NO_THROW(conf.update({{"PUBLIC_OPT", "YES"}}));
-    EXPECT_ANY_THROW(conf.update({{"PUBLIC_OPT", "1"}}));
+    EXPECT_ANY_THROW(conf.update({{"PUBLIC_OPT", "2"}}));
 
     EXPECT_NO_THROW(conf.update({{"PRIVATE_OPT", "15"}}));
     EXPECT_ANY_THROW(conf.update({{"PRIVATE_OPT", "aaa"}}));
@@ -126,7 +126,7 @@ TEST_F(MLIR_ConfigTests, Deprecated) {
     EXPECT_TRUE(conf.has<SimpleOption>());
     EXPECT_FALSE(conf.get<SimpleOption>());
 
-    EXPECT_ANY_THROW(conf.update({{"DEPRECATED_OPT", "1"}}));
+    EXPECT_ANY_THROW(conf.update({{"DEPRECATED_OPT", "2"}}));
 }
 
 TEST_F(MLIR_ConfigTests, Unsupported) {

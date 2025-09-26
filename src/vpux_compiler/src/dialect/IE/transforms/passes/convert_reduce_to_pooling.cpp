@@ -95,7 +95,7 @@ void constructAvgOpParams(ArrayRef<int64_t> inputShape, ArrayRef<int64_t> output
         const int64_t spatialSizeProd = inputShape[Dims4D::Act::H.ind()] * inputShape[Dims4D::Act::W.ind()];
         const int64_t newC = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
         const auto origC = inputShape[Dims4D::Act::C.ind()];
-        shapeBegin.assign({1, newC, origC, spatialSizeProd / newC});
+        shapeBegin.assign({1, inputShape[Dims4D::Act::N.ind()] * newC, origC, spatialSizeProd / newC});
         kernel.assign({origC, 1});
     } else if (!isSpatialDimsReduction(axes) || inputShape.size() != 4) {
         // In case if reduction applies not to spatial dimensions
@@ -254,6 +254,20 @@ mlir::LogicalResult generalReduceRewrite(
     auto* newOp = makeOperations(origOp->getLoc(), input,
                                  {kernelAttr, stridesAttr, padBeginAttr, padEndAttr, roundingAttr, excludePadsAttr});
     input = newOp->getResult(0);
+
+    // when N>1, we create reshape_in_2 based on fused NC after transpose_in, so we need to split NC first before
+    // transpose_out/reshape_out
+    const auto origReduceInShape = to_small_vector(getShape(origOp->getOperand(0)));
+    const int64_t origInN = (origReduceInShape.size() == 4) ? origReduceInShape[Dims4D::Act::N.ind()] : 1;
+    const auto newPoolOutShape = to_small_vector(getShape(input));
+    if (shapeEnd != newPoolOutShape && origInN != 1) {
+        const auto newOutN = newPoolOutShape[Dims4D::Act::N.ind()] * origInN;
+        const auto newOutC = newPoolOutShape[Dims4D::Act::C.ind()] / origInN;
+        const auto newOutH = newPoolOutShape[Dims4D::Act::H.ind()];
+        const auto newOutW = newPoolOutShape[Dims4D::Act::W.ind()];
+        const auto splitNCShape = getIntArrayAttr(ctx, SmallVector<int64_t>({newOutN, newOutC, newOutH, newOutW}));
+        input = rewriter.create<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_out_2"), input, nullptr, false, splitNCShape);
+    }
 
     if (avoidExpandCase) {
         DimArr perm{Dims4D::Act::N, Dims4D::Act::H, Dims4D::Act::W, Dims4D::Act::C};

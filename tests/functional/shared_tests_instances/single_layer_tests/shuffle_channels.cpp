@@ -36,7 +36,7 @@ const std::vector<ov::test::shuffleChannelsSpecificParams> shuffleParameters = {
 
 const auto params0 = testing::Combine(testing::ValuesIn(shuffleParameters), testing::ValuesIn(modelTypes),
                                       testing::ValuesIn(ov::test::static_shapes_to_test_representation(inputShapes)),
-                                      testing::Values(ov::test::utils::DEVICE_NPU));
+                                      testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ShuffleChannels, ShuffleChannelsLayerTestCommon, params0,
                          ShuffleChannelsLayerTestCommon::getTestCaseName);
@@ -56,12 +56,12 @@ const std::vector<std::tuple<int, int>> shParams = {
 
 const auto params1 = testing::Combine(testing::ValuesIn(shParams), testing::Values(ov::element::f16),
                                       testing::ValuesIn(ov::test::static_shapes_to_test_representation(inShapes)),
-                                      testing::Values(ov::test::utils::DEVICE_NPU));
+                                      testing::Values(test_utils::TARGET_DEVICE));
 
 const auto precommit_params = testing::Combine(testing::ValuesIn(shParams), testing::Values(ov::element::f16),
                                                testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                                        std::vector<std::vector<ov::Shape>>({{{1, 4, 3, 2}}}))),
-                                               testing::Values(ov::test::utils::DEVICE_NPU));
+                                               testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(conform_ShuffleChannels, ShuffleChannelsLayerTestCommon, params1,
                          ShuffleChannelsLayerTestCommon::getTestCaseName);

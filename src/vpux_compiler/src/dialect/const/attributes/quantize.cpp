@@ -8,9 +8,11 @@
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/stable_hash.hpp"
 #include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
 #include <mlir/IR/DialectImplementation.h>
+#include <climits>
 
 using namespace vpux;
 
@@ -20,8 +22,8 @@ using namespace vpux;
 
 mlir::LogicalResult vpux::Const::QuantizeAttr::verify(FuncRef<mlir::InFlightDiagnostic()>,
                                                       mlir::quant::QuantizedType qType) {
-    VPUX_THROW_WHEN(!mlir::isa<mlir::IntegerType>(qType.getStorageType()) || qType.getStorageTypeIntegralWidth() < 8,
-                    "Const.Quantize supports only integer byte+ storage type");
+    VPUX_THROW_WHEN(!mlir::isa<mlir::IntegerType>(qType.getStorageType()),
+                    "Const.Quantize supports only integer storage type");
     return mlir::success(qType != nullptr);
 }
 
@@ -66,22 +68,19 @@ vpux::NDTypeInterface vpux::Const::QuantizeAttr::inferOutputType(vpux::NDTypeInt
     return input.changeElemType(quantType);
 }
 
-bool vpux::Const::QuantizeAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::QuantizeAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     // Splat depends on output type, for example quantize of splat cst to per-axis type no longer splat
     // But it's static method, so no access to output type. Assuming output is always not splat
     return false;
 }
 
 namespace {
-Const::Content allocateTempBuffer(mlir::quant::QuantizedType qElemType, vpux::NDTypeInterface outputType,
-                                  const bool isSplat) {
-    // Splat value cannot be used to store weights for per-axis quantization.
-    // Applying different scales to the same splat input value yields non-splat results.
-    const auto storageType = qElemType.getStorageType();
-    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(qElemType)) {
-        return Const::Content::allocTempBuffer(outputType, storageType, false);
-    }
-
+template <class StorageType>
+Const::Content allocateTempBuffer(mlir::MLIRContext* ctx, vpux::NDTypeInterface outputType, const bool isSplat) {
+    constexpr bool isSigned = std::is_signed<StorageType>::value;
+    size_t bitWidth = sizeof(StorageType) * CHAR_BIT;
+    const auto storageType =
+            mlir::IntegerType::get(ctx, bitWidth, isSigned ? mlir::IntegerType::Signed : mlir::IntegerType::Unsigned);
     return Const::Content::allocTempBuffer(outputType, storageType, isSplat);
 }
 
@@ -107,8 +106,11 @@ QuantizeFn createQuantizeFn(double scale, int64_t zeroPoint, mlir::quant::Quanti
 template <class StorageType>
 Const::Content transformImpl(mlir::quant::QuantizedType qElemType, mlir::Type outType, mlir::MLIRContext* ctx,
                              vpux::Const::Content& input) {
-    auto output = allocateTempBuffer(qElemType, outType, input.isSplat());
-    auto qVals = output.getTempBuf<StorageType>();
+    // Splat value cannot be used to store weights for per-axis quantization.
+    // Applying different scales to the same splat input value yields non-splat results.
+    bool isSplat = input.isSplat() && !mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(qElemType);
+    auto output = allocateTempBuffer<StorageType>(ctx, outType, isSplat);
+    auto qVals = output.template getTempBuf<StorageType>();
 
     if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(qElemType)) {
         const auto scale = uniformType.getScale();
@@ -192,7 +194,16 @@ Const::Content vpux::Const::QuantizeAttr::transform(vpux::Const::Content& input)
     const auto storageType = qElemType.getStorageType();
     mlir::Type outType = inferOutputType(input.getType());
     auto ctx = getContext();
-    if (storageType == getSInt8Type(ctx)) {
+
+    // Note: sub-byte values (e.g. i4) are "unpacked" into 8-bits
+    if (vpux::isSubByteType(storageType)) {
+        if (storageType.isUnsignedInteger()) {
+            return transformImpl<uint8_t>(qElemType, outType, ctx, input);
+        } else if (storageType.isSignedInteger()) {
+            return transformImpl<int8_t>(qElemType, outType, ctx, input);
+        }
+        VPUX_THROW("Unexpected storage type");
+    } else if (storageType == getSInt8Type(ctx)) {
         return transformImpl<int8_t>(qElemType, outType, ctx, input);
     } else if (storageType == getUInt8Type(ctx)) {
         return transformImpl<uint8_t>(qElemType, outType, ctx, input);
@@ -208,10 +219,8 @@ Const::Content vpux::Const::QuantizeAttr::transform(vpux::Const::Content& input)
         return transformImpl<int64_t>(qElemType, outType, ctx, input);
     } else if (storageType == getUInt64Type(ctx)) {
         return transformImpl<uint64_t>(qElemType, outType, ctx, input);
-    } else {
-        // #E128147: add subbyte type support
-        VPUX_THROW("Unsupported {0} storage type", storageType);
     }
+    VPUX_THROW("Unsupported {0} storage type", storageType);
 }
 
 //

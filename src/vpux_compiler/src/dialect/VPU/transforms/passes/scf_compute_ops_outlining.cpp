@@ -6,12 +6,13 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/abstract_tree.hpp"
 #include "vpux/compiler/utils/logging.hpp"
+#include "vpux/compiler/utils/outlining_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -157,7 +158,18 @@ std::pair<llvm::SetVector<mlir::Value>, llvm::SetVector<mlir::Operation*>> ScfBl
             }
 
             if (!llvm::is_contained(computeBlock, parentOp)) {
-                if (mlir::isa<Const::DeclareOp>(parentOp)) {
+                if (VPU::isConstOperandOp(parentOp)) {
+                    if (mlir::isa<VPU::GroupedViewLikeOpInterface>(parentOp)) {
+                        for (auto op : parentOp->getOperands()) {
+                            if (mlir::isa<mlir::BlockArgument>(op)) {
+                                if (!llvm::is_contained(blockInputs, op)) {
+                                    blockInputs.insert(op);
+                                }
+                            } else {
+                                constantOps.insert(op.getDefiningOp());
+                            }
+                        }
+                    }
                     constantOps.insert(parentOp);
                 } else {
                     blockInputs.insert(operand);
@@ -285,7 +297,9 @@ llvm::SmallVector<llvm::SmallVector<mlir::Operation*>> getComputeOps(mlir::Opera
         for (auto& block : reg.getBlocks()) {
             for (auto& innerOp : block) {
                 if (mlir::isa<vpux::VPU::VPUDialect>(innerOp.getDialect())) {
-                    currentGroup.push_back(&innerOp);
+                    if (!VPU::isConstOperandOp(&innerOp)) {
+                        currentGroup.push_back(&innerOp);
+                    }
                 } else {
                     // Any non-VPU dialect operation will result in a new block of operations to ouline
                     appendToComputeBlocks();
@@ -387,7 +401,7 @@ void ScfComputeOpsOutliningPass::safeRunOnModule() {
     // Const Declare operations are copied into each compute block where the operations are used
     // If there are no users of Const Declare Ops in main function, delete them from IR
     mainFuncOp.walk([&](mlir::Operation* op) {
-        if (mlir::isa<Const::DeclareOp>(op) && op->getUsers().empty()) {
+        if (VPU::isConstOperandOp(op) && op->getUsers().empty()) {
             op->erase();
         }
     });

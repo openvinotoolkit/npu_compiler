@@ -3,19 +3,24 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <mlir/Support/LogicalResult.h>
-
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/inference_execution_simulator.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/dma.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/logger/logger.hpp"
+
+#include <mlir/Support/LogicalResult.h>
+
+#include <vpu_cost_model.h>
 
 namespace vpux::VPUIP::arch40xx {
 #define GEN_PASS_DECL_DETECTDMASPLITCANDIDATE
@@ -265,7 +270,7 @@ void DetectDMASplitCandidate::safeRunOnFunc() {
     auto costModel = VPU::CostModelAnalysis::getOrCreateCostModel(maybeCostModelAnalysis, arch, _log);
     CycleCostInfo cycleCostInfo(costModel, func);
 
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
     if (dmaPortCount != 2) {
         return;

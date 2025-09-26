@@ -28,17 +28,25 @@ void ConvertQuantizeOpsToNceOpsStrategy::prepareAvgPool(mlir::ConversionTarget& 
 
     toAvgPoolTarget.addDynamicallyLegalOp<IE::QuantizeOp>([&](IE::QuantizeOp quantizeOp) {
         auto inType = mlir::cast<vpux::NDTypeInterface>(quantizeOp.getInput().getType());
-        auto inRank = inType.getRank();
+        auto outType = mlir::cast<vpux::NDTypeInterface>(quantizeOp.getOutput().getType());
+        auto rank = outType.getRank();
+        if (!is8BitStorageType(outType)) {
+            return true;
+        }
 
-        return isLegalQuantizeOp(quantizeOp, _canUseCMajor) || inRank != 4 ||
+        return isQuantizedPerAxis(quantizeOp.getOutput()) || isLegalQuantizeOp(quantizeOp, _canUseCMajor) ||
+               rank != 4 ||
                (inType.getTotalAllocSize() <= vpux::VPU::getTotalCMXSize(quantizeOp) &&
                 !vpux::isFloat8Quantized(quantizeOp.getDstElemType()));
     });
     toAvgPoolTarget.addDynamicallyLegalOp<IE::DequantizeOp>([&](IE::DequantizeOp dequantizeOp) {
         auto inType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType());
-        auto inRank = inType.getRank();
+        auto rank = inType.getRank();
+        if (!is8BitStorageType(inType)) {
+            return true;
+        }
 
-        return isLegalDequantizeOp(dequantizeOp) || inRank != 4 ||
+        return isQuantizedPerAxis(dequantizeOp.getInput()) || rank != 4 ||
                (inType.getTotalAllocSize() <= vpux::VPU::getTotalCMXSize(dequantizeOp) &&
                 !vpux::isFloat8Quantized(inType.getElementType())) ||
                hasConstProducer(dequantizeOp);
@@ -53,10 +61,19 @@ void ConvertQuantizeOpsToNceOpsStrategy::prepareEltwise(mlir::ConversionTarget& 
                                                         mlir::RewritePatternSet& toEltwisePatterns,
                                                         mlir::MLIRContext& ctx, Logger& log) const {
     toEltwiseTarget.addDynamicallyLegalOp<IE::QuantizeOp>([&](IE::QuantizeOp quantizeOp) {
-        return IE::isLegalQuantizeOp(quantizeOp, _canUseCMajor);
+        auto outType = mlir::cast<vpux::NDTypeInterface>(quantizeOp.getOutput().getType());
+        if (!is8BitStorageType(outType)) {
+            return true;
+        }
+        return isQuantizedPerAxis(quantizeOp.getOutput()) || IE::isLegalQuantizeOp(quantizeOp, _canUseCMajor);
     });
     toEltwiseTarget.addDynamicallyLegalOp<IE::DequantizeOp>([&](IE::DequantizeOp dequantizeOp) {
-        return IE::isLegalDequantizeOp(dequantizeOp) || hasConstProducer(dequantizeOp);
+        auto inType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType());
+        if (!is8BitStorageType(inType)) {
+            return true;
+        }
+        // Don't support per axis quant of any kind
+        return isQuantizedPerAxis(dequantizeOp.getInput()) || hasConstProducer(dequantizeOp);
     });
     toEltwiseTarget.addLegalOp<IE::AddOp>();
     toEltwiseTarget.addLegalOp<IE::QuantizeCastOp>();
@@ -69,19 +86,37 @@ void ConvertQuantizeOpsToNceOpsStrategy::prepareQuantToConv(mlir::ConversionTarg
                                                             mlir::RewritePatternSet& quantToConvPatterns,
                                                             mlir::MLIRContext& ctx, Logger& log) const {
     quantToConvTarget.addDynamicallyLegalOp<IE::QuantizeOp>([&](IE::QuantizeOp quantizeOp) {
+        auto outType = mlir::cast<vpux::NDTypeInterface>(quantizeOp.getOutput().getType());
+        if (!is8BitStorageType(outType)) {
+            return true;
+        }
         const auto isPerChannelQuantized = isPerChannelQuantizedType(quantizeOp.getOutput());
-        auto outputLayerUsers = quantizeOp.getOutput().getUsers();
-        auto anyUserIsConv = !outputLayerUsers.empty() && ::llvm::any_of(outputLayerUsers, [](auto user) {
-            return mlir::isa<IE::ConvolutionOp>(user);
-        });
-
-        return (anyUserIsConv && _canUseCMajor) || !isPerChannelQuantized;
+        // Explicitly support only for per channel axis quantization, other cases will either run as
+        // AvgPool/Eltwise or will remain as Quant/Dequant
+        if (isQuantizedPerAxis(quantizeOp.getOutput()) && !isPerChannelQuantized) {
+            return true;
+        }
+        auto rank = outType.getRank();
+        return IE::isLegalQuantizeOp(quantizeOp, _canUseCMajor) || rank != 4;
     });
 
     quantToConvTarget.addDynamicallyLegalOp<IE::DequantizeOp>([&](IE::DequantizeOp dequantizeOp) {
+        auto inType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getInput().getType());
+        if (!is8BitStorageType(inType)) {
+            return true;
+        }
+
+        // Explicitly support only for per channel axis quantization, other cases will either run as
+        // AvgPool/Eltwise or will remain as Quant/Dequant
         const auto isPerChannelQuantized = isPerChannelQuantizedType(dequantizeOp.getInput());
-        auto outElemmentType = mlir::cast<vpux::NDTypeInterface>(dequantizeOp.getOutput().getType()).getElementType();
-        return !isPerChannelQuantized || !outElemmentType.isF16() || hasConstProducer(dequantizeOp);
+        if (isQuantizedPerAxis(dequantizeOp.getInput()) && !isPerChannelQuantized) {
+            return true;
+        }
+        auto rank = inType.getRank();
+        if (hasConstProducer(dequantizeOp) || rank != 4) {
+            return true;
+        }
+        return false;
     });
 
     quantToConvTarget.addLegalOp<Const::DeclareOp>();

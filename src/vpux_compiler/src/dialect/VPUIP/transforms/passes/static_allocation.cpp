@@ -11,11 +11,11 @@
 #include "vpux/compiler/core/linear_scan_handler.hpp"
 #include "vpux/compiler/core/mem_live_range_info.hpp"
 #include "vpux/compiler/core/reserved_memory_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/linear_scan.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
@@ -158,7 +158,7 @@ LinearScanHandler StaticAllocationPass::runLinearScan(mlir::func::FuncOp funcOp)
         // Check for reserved memory which memory scheduler should take into account
         // so that they not overlap with other buffers. Those reserved resource might be related
         // to handling of additional special features (e.g. DMA HW profiling)
-        reservedMem = IE::getReservedMemOffsetAndSizeVec(module, _memKindAttr);
+        reservedMem = config::getReservedMemOffsetAndSizeVec(module, _memKindAttr);
     }
 
     LinearScanHandler scanHandler;

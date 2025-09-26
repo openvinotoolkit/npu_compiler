@@ -74,8 +74,6 @@ StringLiteral vpux::stringifyEnum(WorkloadManagementMode val) {
         return "PWLM_V1_BARRIER_FIFO";
     case WorkloadManagementMode::PWLM_V2_PAGES:
         return "PWLM_V2_PAGES";
-    case WorkloadManagementMode::FWLM_V1_PAGES:
-        return "FWLM_V1_PAGES";
     default:
         return "UNKNOWN";
     }

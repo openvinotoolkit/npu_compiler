@@ -27,8 +27,8 @@ mlir::LogicalResult vpux::IE::MinimumOp::inferReturnTypeComponents(
     auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type), ShapeInfo::fromNDType(in2Type),
                                                     minimum.getAutoBroadcast(), loc);
 
-    const auto outDesc =
-            vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr, Bounds(outShapeInfo.bounds));
+    const auto outDesc = vpux::getTensorAttr(ctx, inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
+                                             BoundsRef(outShapeInfo.bounds));
     inferredReturnShapes.emplace_back(outShapeInfo.shape, in1Type.getElementType(), outDesc);
 
     return mlir::success();

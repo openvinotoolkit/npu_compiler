@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -59,11 +61,7 @@ bool vpux::VPU::ConvertOp::areCastCompatible(mlir::TypeRange inputs, mlir::TypeR
 bool vpux::VPU::ConvertOp::checkStrategyCompatibility(vpux::VPU::MultiClusterStrategy strategy, size_t) {
     bool isStrategyCompatible = false;
     constexpr int64_t MIN_DIM_SIZE_FOR_TILING = 4;
-    auto inputShape = getShape(getInput());
-
-    if (inputShape.isDynamic()) {
-        return false;
-    }
+    auto inputShape = getBoundedShape(getInput());
 
     switch (strategy) {
     case VPU::MultiClusterStrategy::Clustering:
@@ -90,6 +88,12 @@ vpux::VPU::DistributionInfo vpux::VPU::ConvertOp::getExplicitDistributionInfoAtt
     return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
                                               numTiles, numClusters, alignment, uniformDistributedSegments,
                                               overlapParams);
+}
+
+mlir::LogicalResult vpux::VPU::ConvertOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                            mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }
 
 //

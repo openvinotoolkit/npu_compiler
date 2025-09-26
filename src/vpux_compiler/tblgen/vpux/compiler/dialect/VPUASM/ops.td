@@ -593,7 +593,8 @@ def VPUASM_NNDMAOp :
         OptionalAttr<VPUIP_DMADescriptorAttr>:$dma_descriptor,
         OptionalAttr<IntAttr>:$dma_hwp_id,
         OptionalAttr<I64ArrayAttr>:$tile_indexes,
-        OptionalAttr<SymbolRefAttr>:$indices
+        OptionalAttr<SymbolRefAttr>:$indices,
+        OptionalAttr<VPUIP_GatherAddressingMode>:$addressing_mode
     );
 
     let builders = [
@@ -764,6 +765,8 @@ def VPUASM_DeclareKernelEntryOp :
 
 }
 
+
+
 //
 // KernelParamsOp
 //
@@ -786,10 +789,24 @@ def VPUASM_KernelParamsOp :
         SymbolRefArrayAttr:$dynamicInputShapes,
         SymbolRefArrayAttr:$dynamicOutputShapes,
         StrAttr:$kernel_type,
-        ElementsAttr:$kernel_params,
+        KernelParamsProp:$kernel_params,
         UnitAttr:$is_output_broadcasted,
         UnitAttr:$isJitCompiled
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "mlir::StringAttr":$sym_name,
+            "mlir::ArrayAttr":$inputs,
+            "mlir::ArrayAttr":$outputs,
+            "mlir::ArrayAttr":$dynamicInputShapes,
+            "mlir::ArrayAttr":$dynamicOutputShapes,
+            "mlir::StringAttr":$kernel_type,
+            "vpux::VPUASM::KernelParamsProperty&&":$kernel_params,
+            "mlir::UnitAttr":$is_output_broadcasted,
+            "mlir::UnitAttr":$isJitCompiled
+        )>
+    ];
 
     let extraClassDeclaration = [{
         size_t getParamsStructSize();
@@ -802,9 +819,8 @@ def VPUASM_KernelParamsOp :
         `dynamicInputShapes` `(` $dynamicInputShapes `)`
         `dynamicOutputShapes` `(` $dynamicOutputShapes `)`
         `kernel_type` `(` $kernel_type `)`
-        `kernel_params` `(` $kernel_params `)`
         attr-dict
-
+        prop-dict
     }];
 }
 
@@ -1044,6 +1060,7 @@ def VPUASM_DPUInvariantOp :
         UnitAttr:$is_permute_quantize,
         UnitAttr:$is_small_kernel_optimized,
         OptionalAttr<VPUIP_DynamicScaleConfigAttr>:$dynamic_scale_config,
+        OptionalAttr<VPUIP_LocalRegionAttr>:$local_region,
 
         UI64Attr:$start_after,
         UI64Attr:$clean_after,

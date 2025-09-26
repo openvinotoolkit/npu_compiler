@@ -54,12 +54,12 @@ mlir::LogicalResult vpux::VPU::ReverseSequenceOp::inferReturnTypes(
     }
 
     const auto elementType = dataType.getElementType();
-    if (!(elementType.isF16() || elementType.isF32() || elementType.isUnsignedInteger(8))) {
-        return errorAt(loc, "Reverse Sequence only support FP16, FP32, U8 data type");
+    if (!(elementType.isF16() || elementType.isF32() || elementType.isInteger(8))) {
+        return errorAt(loc, "Reverse Sequence only support FP16, FP32, INT8 (I8/U8/SI8) data type");
     }
 
     auto outType = dataType.changeElemType(elementType);
-    outType = outType.changeShape(Shape(dataShape));
+    outType = outType.changeShape(ShapeRef(dataShape));
 
     inferredReturnTypes.push_back(outType);
 

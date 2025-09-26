@@ -12,7 +12,6 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_constraint_utils.hpp"
@@ -20,7 +19,6 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/dilated_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -48,14 +46,17 @@ TilingMode getTilingSupportedMode(VPU::TilingBuilderOpInterface origOp, bool ena
     // Prefetching for HW layers
     if (mlir::isa<VPU::NCEOpInterface>(op)) {
         auto tilingInfo = mlir::cast<VPU::TilingInfoOpInterface>(op);
-        const auto resShape = getShape(op->getResult(0));
+        const auto resShape = getBoundedShape(op->getResult(0));
         const Shape neutralTile(resShape.size(), 1);
         auto fillTiles = fillDividedTiles(op, neutralTile, resShape);
         const auto isSupportIsolated =
                 tilingInfo.isSupportedTiling(fillTiles.value(), TilingMode::ISOLATED, log.nest());
         const auto isPrefetchable = VPU::prefetchTilingConditionSatisfied(op, log.nest());
-        auto tilingMode = isSupportIsolated && isPrefetchable ? TilingMode::PREFETCHING : TilingMode::PIPELINING;
-        return tilingMode;
+        if (isSupportIsolated && isPrefetchable) {
+            return TilingMode::PREFETCHING;
+        } else if (tilingInfo.isPipeliningTilingSupported()) {
+            return TilingMode::PIPELINING;
+        }
     }
 
     return TilingMode::ISOLATED;
@@ -115,6 +116,12 @@ mlir::LogicalResult checkAndAlignActInputTiling(vpux::VPU::NCEOpInterface nceOp,
     // autopad feature is enabled. For this reason, ensure the input tile still satisfies the alignment requirements of
     // the operation
     if (auto alignedOp = mlir::dyn_cast<IE::AlignedChannelsOpInterface>(nceOp.getOperation())) {
+        // NCEPermute represents a special case where the input and output data are reinterpreted, so that a spatial
+        // dimension is treated as the inner-most dimension. As such, aligning the input channels is not necessary
+        if (mlir::isa<VPU::NCEPermuteOp>(nceOp.getOperation())) {
+            return mlir::success();
+        }
+
         const auto channelAlignment = alignedOp.getInputChannelAlignment();
         const auto inChannelsTile = inputTiling.tiles[0].shape[Dims4D::Act::C];
         if (inChannelsTile % channelAlignment != 0) {
@@ -310,6 +317,9 @@ bool prefetchTilingConditionSatisfied(mlir::Operation* op, Logger log) {
     if (!opTilingInter || !parentTilingInter) {
         return false;
     }
+    if (!opTilingInter.isPrefetchingTilingSupported()) {
+        return false;
+    }
     auto opTilingBuilder = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(op);
     if (!opTilingBuilder) {
         return false;
@@ -327,7 +337,7 @@ bool prefetchTilingConditionSatisfied(mlir::Operation* op, Logger log) {
     }
 
     // Check if tile pattern is supported
-    const auto resShape = getShape(op->getResult(0));
+    const auto resShape = getBoundedShape(op->getResult(0));
     const Shape neutralTile(resShape.size(), 1);
     auto fillTiles = fillDividedTiles(op, neutralTile, resShape);
     if (mlir::failed(fillTiles)) {
@@ -445,9 +455,8 @@ std::optional<std::pair<TilingMode, bool>> getTilingMode(mlir::Operation* op, bo
         return std::nullopt;
     }
 
-    if (IE::hasDynamicTensors(op)) {
-        log.warning("Tiling is not applied to the operation '{0}' at '{1}' because it has at least one operand or "
-                    "result with a dynamic shape",
+    if (!isTilingSupported(op)) {
+        log.warning("Tiling is not applied to the operation '{0}' at '{1}' because of compiler limitations",
                     op->getName(), op->getLoc());
         // Track number: E-147023
         return std::nullopt;
@@ -470,8 +479,7 @@ std::optional<std::pair<TilingMode, bool>> getTilingMode(mlir::Operation* op, bo
     auto isolatedTilingSupported = iface.isSupportedTiling({std::move(outputTile)}, TilingMode::ISOLATED, log.nest());
 
     if (!isolatedTilingSupported) {
-        if (enablePrefetchTiling &&
-            (mlir::isa<VPU::NCEOpInterface, VPU::MVN1NormalizeOp, VPU::RoPEOp, VPU::CumSumOp>(op))) {
+        if (enablePrefetchTiling && iface.isPipeliningTilingSupported()) {
             return std::make_pair(TilingMode::PIPELINING, false);
         }
         return std::make_pair(TilingMode::ISOLATED, false);
@@ -798,6 +806,15 @@ VPU::EnableShaveDDRAccessOptimization getShaveDDRAccessOptimizationMode(StringRe
     }
 
     VPUX_THROW("Unknown value for the shave DDR access optimization mode: {0}", strMode);
+}
+
+bool isMultiClusterTilingSupported(mlir::Operation* op) {
+    return !IE::hasDynamicTensors(op) || mlir::isa<VPU::LSTMSequenceOp>(op) ||
+           config::getCompilationMode(op) == config::CompilationMode::HostCompile;
+}
+
+bool isTilingSupported(mlir::Operation* op) {
+    return !IE::hasDynamicTensors(op) || config::getCompilationMode(op) == config::CompilationMode::HostCompile;
 }
 
 }  // namespace VPU

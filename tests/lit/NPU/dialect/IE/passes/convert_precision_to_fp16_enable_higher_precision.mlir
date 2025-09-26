@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-precision-to-fp16="compute-layers-with-higher-precision=SoftMax,ReLU,Subtract,RandomUniform" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-precision-to-fp16="compute-layers-with-higher-precision=SoftMax,ReLU,internal_MvnNormalize,Subtract,RandomUniform" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK-LABEL: @NotConvertSoftMaxToFP16
@@ -125,4 +125,30 @@ func.func @NotConvertRandomUniformToFP16() -> tensor<1x4x64x64xf32> {
     // CHECK:       [[CONVERT:%.+]] = IE.Convert([[RANDOMUNIFORM]]) {dstElemType = f16} : tensor<1x4x64x64xf32> -> tensor<1x4x64x64xf16>
 
     // CHECK:       return [[CONVERT]]
+}
+
+// -----
+
+// CHECK-LABEL: @Mvn1HighNormalization
+module @Mvn1HighNormalization {
+
+net.NetworkInfo
+    entryPoint : @main
+    inputsInfo  : { DataInfo "in"  : tensor<1x32x8x256xf32> }
+    outputsInfo : { DataInfo "out" : tensor<1x32x8x256xf32> }
+
+// CHECK: func.func @main([[INPUT:%.+]]: tensor<1x32x8x256xf16>) -> tensor<1x32x8x256xf16> {
+func.func @main(%arg0: tensor<1x32x8x256xf32>) -> tensor<1x32x8x256xf32> {
+    %out = IE.MVN(%arg0) {across_channels = false, eps = 9.9999999747524271E-7 : f64, normalize_variance = true} : tensor<1x32x8x256xf32> -> tensor<1x32x8x256xf32>
+    return %out : tensor<1x32x8x256xf32>
+
+    // CHECK:       [[MVN:%.+]] = IE.MVN([[INPUT]]) {
+    // CHECK-SAME:                      across_channels = false,
+    // CHECK-SAME:                      eps = 9.9999999747524271E-7 : f64,
+    // CHECK-SAME:                      high_precision_normalize = true,
+    // CHECK-SAME:                      normalize_variance = true
+    // CHECK-SAME:                } : tensor<1x32x8x256xf16> -> tensor<1x32x8x256xf16>
+    // CHECK:        return [[MVN]] : tensor<1x32x8x256xf16>
+}
+
 }

@@ -50,32 +50,32 @@ const std::vector<std::vector<int64_t>> axes = {
 const auto testRollParams0 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[0])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[0]), ::testing::Values(axes[0]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testRollParams1 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[1])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[1]), ::testing::Values(axes[1]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testRollParams2 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[2])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[2]), ::testing::Values(axes[2]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testRollParams3 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[3])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[3]), ::testing::Values(axes[3]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testRollParams4 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[4])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[4]), ::testing::Values(axes[4]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto testRollParams5 =
         ::testing::Combine(::testing::Values(ov::test::static_shapes_to_test_representation(inputShapes[5])),
                            ::testing::ValuesIn(modelTypes), ::testing::Values(shift[5]), ::testing::Values(axes[5]),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Roll_Test_Check0, RollLayerTestCommon, testRollParams0,
                          RollLayerTestCommon::getTestCaseName);

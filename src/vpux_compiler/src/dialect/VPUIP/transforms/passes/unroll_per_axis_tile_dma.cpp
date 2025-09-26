@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -15,6 +14,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -139,8 +139,9 @@ mlir::LogicalResult PerAxisTileDMARewriter::unrollPerAxisTile(VPUIP::PerAxisTile
             return Strides(strides);
         };
 
-        auto newSrcMemRef = vpux::getMemRefType(subInShape, srcType.getElementType(), dimOrder, srcType.getMemSpace(),
-                                                getStrides(subInShape, elemTypeSize));
+        const auto strides = getStrides(subInShape, elemTypeSize);
+        auto newSrcMemRef =
+                vpux::getMemRefType(subInShape, srcType.getElementType(), dimOrder, srcType.getMemSpace(), strides);
 
         auto newSrcBuff =
                 srcType.getMemSpace().getIndex().has_value()
@@ -170,8 +171,9 @@ mlir::LogicalResult PerAxisTileDMARewriter::unrollPerAxisTile(VPUIP::PerAxisTile
             newDstType = VPUIP::DistributedBufferType::get(ctx, subOutShape.raw(), dstType.getElementType(), layout,
                                                            dstType.getMemSpace(), distributionAttr);
         } else {
+            const auto strides = getStrides(subOutShape, elemTypeSize);
             newDstType = vpux::getMemRefType(subOutShape, dstType.getElementType(), dimOrder, dstType.getMemSpace(),
-                                             getStrides(subOutShape, elemTypeSize));
+                                             strides);
         }
 
         auto newDstBuff =
@@ -460,7 +462,7 @@ void UnrollPerAxisTileDMAPass::safeRunOnFunc() {
 
     auto func = getOperation();
     auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto dmaOp = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaOp = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     auto dmaPortCount = dmaOp.getCount();
 
     mlir::RewritePatternSet patterns(&ctx);

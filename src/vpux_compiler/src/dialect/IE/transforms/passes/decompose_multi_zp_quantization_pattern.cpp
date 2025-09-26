@@ -63,7 +63,6 @@ public:
 
 private:
     mlir::FailureOr<PatternOps> initializePatternOps(const IE::WeightsDequantizeStructureInfo& wdInfo) const;
-    mlir::LogicalResult staticMatchAndRewrite(const PatternOps& patternOps, mlir::PatternRewriter& rewriter) const;
     Logger _log;
 };
 
@@ -161,14 +160,47 @@ mlir::FailureOr<PatternOps> GroupWisePatternRewriter<ConcreteOp>::initializePatt
               (LxC)                                             (LxC)
 */
 template <typename ConcreteOp>
-mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::staticMatchAndRewrite(const PatternOps& patternOps,
-                                                                                mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
+                                                                          mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
+
+    // Match the weights dequantize structure once...
+    const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());
+    if (mlir::failed(maybeWdInfo)) {
+        return matchFailed(rewriter, origOp, "Failed to match WeightsDequantize structure.");
+    }
+    const auto& wdInfo = maybeWdInfo.value();
+
+    if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
+        return matchFailed(rewriter, origOp, "Skipping decomposing for u2 groupwise prefill pattern.");
+    }
+
+    auto maybePatternOps = initializePatternOps(wdInfo);
+    if (mlir::failed(maybePatternOps)) {
+        return matchFailed(rewriter, origOp, "Failed to initialize pattern ops.");
+    }
+    const auto& patternOps = maybePatternOps.value();
+
     auto origWeights = patternOps.weights;
     auto origMultiplyOp = patternOps.multiplyOp;
     auto origMatMulOp = patternOps.matMulOp;
     auto scale = patternOps.scale;
     auto zeroPoint = patternOps.zeroPoint;
     auto activation = patternOps.activation;
+
+    auto is3DShape = [](mlir::Value val) {
+        if (val == nullptr) {
+            return false;
+        }
+        return getShape(val).size() == 3;
+    };
+    if (!is3DShape(origOp.getOutput()) || !is3DShape(zeroPoint) || !is3DShape(scale)) {
+        return matchFailed(rewriter, origOp, "Expect 3D shape weights, zero-point and scale for group-wise pattern");
+    }
+
+    if (getShape(zeroPoint)[Dims3D::Act::B] == 1) {
+        return matchFailed(rewriter, origOp, "ZP is not per-channel. Skipping decomposing.");
+    }
 
     rewriter.setInsertionPointAfter(patternOps.weights);
     // Remove ZP from original pattern
@@ -227,49 +259,6 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::staticMatchAndRewrite(
     rewriter.replaceAllUsesExcept(origMatMulOp->getResult(0), newSubtractOp.getOutput(), {newSubtractOp});
 
     return mlir::success();
-}
-
-template <typename ConcreteOp>
-mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
-                                                                          mlir::PatternRewriter& rewriter) const {
-    _log.trace("Got op {0} at {1}", origOp->getName(), origOp->getLoc());
-
-    // Match the weights dequantize structure once...
-    const auto maybeWdInfo = IE::WeightsDequantizeStructureInfo::create(origOp, _log.nest());
-    if (mlir::failed(maybeWdInfo)) {
-        return matchFailed(rewriter, origOp, "Failed to match WeightsDequantize structure.");
-    }
-    const auto& wdInfo = maybeWdInfo.value();
-
-    auto maybePatternOps = initializePatternOps(wdInfo);
-    if (mlir::failed(maybePatternOps)) {
-        return matchFailed(rewriter, origOp, "Failed to initialize pattern ops.");
-    }
-    const auto& patternOps = maybePatternOps.value();
-
-    auto zeroPoint = patternOps.zeroPoint;
-    auto scale = patternOps.scale;
-
-    auto is3DShape = [](mlir::Value val) {
-        if (val == nullptr) {
-            return false;
-        }
-        return getShape(val).size() == 3;
-    };
-    if (!is3DShape(origOp.getOutput()) || !is3DShape(zeroPoint) || !is3DShape(scale)) {
-        return matchFailed(rewriter, origOp, "Expect 3D shape weights, zero-point and scale for group-wise pattern");
-    }
-
-    if (getShape(zeroPoint)[Dims3D::Act::B] == 1) {
-        return matchFailed(rewriter, origOp, "ZP is not per-channel. Skipping decomposing.");
-    }
-
-    if (wdInfo.getDynamicScale() != nullptr) {
-        // Support will be added in the future.
-        return matchFailed(rewriter, origOp, "Got dynamic scale.");
-    }
-
-    return staticMatchAndRewrite(patternOps, rewriter);
 }
 
 class DecomposeMultiZPQuantizationPatternPass final :

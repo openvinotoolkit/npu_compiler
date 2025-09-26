@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @dma_broadcast inputsInfo : {
     DataInfo "input_0" : tensor<16x32x1x1xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -43,16 +43,17 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
     %2313 = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>
     %indices = VPURT.DeclareBuffer <CMX_NN> [4] <0> -> memref<1x5x1x1xi64, #NHWC, [@CMX_NN, 4]>
     %2315 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%320 : !VPURegMapped.Index<0:0:0>) inputs(%2304 : memref<16x32x1x1xf16, #NHWC, @DDR>) outputs(%2308, %2309, %2310 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>, memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>, memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
-    %2316 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%352 : !VPURegMapped.Index<0:1:0>) inputs(%2311 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%2305 : memref<16x32x1x1xf16, #NHWC, @DDR>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) indices(%indices : memref<1x5x1x1xi64, #NHWC, [@CMX_NN, 4]>) -> !VPURegMapped.Index<0:1:0>
+    %2316 = VPUMI40XX.NNDMA {addressingMode = 1 : i64, port = 0 : i64} taskLocation(%352 : !VPURegMapped.Index<0:1:0>) inputs(%2311 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 0]>) outputs(%2305 : memref<16x32x1x1xf16, #NHWC, @DDR>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) indices(%indices : memref<1x5x1x1xi64, #NHWC, [@CMX_NN, 4]>) -> !VPURegMapped.Index<0:1:0>
     %2317 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%353 : !VPURegMapped.Index<0:1:1>) inputs(%2312 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 2]>) outputs(%2306 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2316 : !VPURegMapped.Index<0:1:0>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:1>
     %2318 = VPUMI40XX.NNDMA {port = 0 : i64} taskLocation(%354 : !VPURegMapped.Index<0:1:2>) inputs(%2313 : memref<16x32x1x1xf16, #NHWC, [@CMX_NN, 4]>) outputs(%2307 : memref<16x32x1x1xf16, #NHWC, @DDR>) previousDMA(%2317 : !VPURegMapped.Index<0:1:1>) start_after(1) clean_after(1) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:1:2>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
 
 
 //CHECK:    VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_0_0) input(@io.NetworkInput.0::@DeclareBuffer_0) outputs([@buffer.CMX_NN.0::@DeclareBuffer_4, @buffer.CMX_NN.2::@DeclareBuffer_5, @buffer.CMX_NN.4::@DeclareBuffer_6]) waits([]) updates([]) start_after(1) clean_after(0) dma_descriptor(<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>) tile_indexes([0, 2, 4])
-//CHECK:    VPUASM.NNDMA @NNDMA_0_1_0 idx(!VPURegMapped.Index<0:1:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_0) links(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_1) input(@buffer.CMX_NN.0::@DeclareBuffer_7) outputs([@io.NetworkOutput.0::@DeclareBuffer_1]) waits([]) updates([]) start_after(1) clean_after(1) dma_descriptor(<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>) indices(@buffer.CMX_NN.4::@DeclareBuffer_10)
+//CHECK:    VPUASM.NNDMA @NNDMA_0_1_0 idx(!VPURegMapped.Index<0:1:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_0) links(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_1) input(@buffer.CMX_NN.0::@DeclareBuffer_7) outputs([@io.NetworkOutput.0::@DeclareBuffer_1]) waits([]) updates([]) start_after(1) clean_after(1) dma_descriptor(<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>) indices(@buffer.CMX_NN.4::@DeclareBuffer_10) {addressing_mode = 1 : i64}
 //CHECK:    VPUASM.NNDMA @NNDMA_0_1_1 idx(!VPURegMapped.Index<0:1:1>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_1) links(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_2) input(@buffer.CMX_NN.2::@DeclareBuffer_8) outputs([@io.NetworkOutput.1::@DeclareBuffer_2]) waits([]) updates([]) start_after(1) clean_after(1) dma_descriptor(<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>)
 //CHECK:    VPUASM.NNDMA @NNDMA_0_1_2 idx(!VPURegMapped.Index<0:1:2>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_DMA_0_1_2) input(@buffer.CMX_NN.4::@DeclareBuffer_9) outputs([@io.NetworkOutput.2::@DeclareBuffer_3]) waits([]) updates([]) start_after(1) clean_after(1) dma_descriptor(<numPlanes = 0 : i32, len = 1024 : i32, srcWidth = 1024 : i32, srcStride = 1024 : i32, srcPlaneStride = 0 : i32, dstWidth = 1024 : i32, dstStride = 1024 : i32, dstPlaneStride = 0 : i32>) acceleration_mode(<DISABLE>)

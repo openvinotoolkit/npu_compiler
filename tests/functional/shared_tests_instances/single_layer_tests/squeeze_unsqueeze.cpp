@@ -78,7 +78,7 @@ const std::vector<ov::test::utils::SqueezeOpType> opTypes = {ov::test::utils::Sq
                                                              ov::test::utils::SqueezeOpType::UNSQUEEZE};
 const auto paramConfig =
         testing::Combine(::testing::ValuesIn(axes), ::testing::ValuesIn(opTypes), ::testing::ValuesIn(modelTypes),
-                         ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Basic, SqueezeUnsqueezeLayerTestCommon, paramConfig,
                          SqueezeUnsqueezeLayerTestCommon::getTestCaseName);

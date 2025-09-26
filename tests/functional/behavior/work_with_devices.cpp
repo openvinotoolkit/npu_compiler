@@ -14,8 +14,7 @@ const std::vector<ov::AnyMap> configs = {
 };
 
 INSTANTIATE_TEST_SUITE_P(smoke_BehaviorTest, TestCompiledModelNPU,
-                         ::testing::Combine(::testing::Values(ov::test::utils::DEVICE_NPU),
-                                            ::testing::ValuesIn(configs)),
+                         ::testing::Combine(::testing::Values(test_utils::TARGET_DEVICE), ::testing::ValuesIn(configs)),
                          TestCompiledModelNPU::getTestCaseName);
 
 }  // namespace

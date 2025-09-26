@@ -235,39 +235,6 @@ func.func @InsertAvgPoolToFakeQuantizeAndLeakyRelu(%arg0: tensor<1x16x8x8xf16>) 
 
 // -----
 
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
-
-// CHECK-LABEL: @InsertMaxPoolBeforeMemPermute
-func.func @InsertMaxPoolBeforeMemPermute(%arg0: tensor<1x16x32x64xf16, {order = #NHWC}>)
-    -> tensor<1x32x16x64xf16, {order = #NHWC}> {
-    %PERMUTE = IE.MemPermute(%arg0) {
-        dst_order = #NHWC,
-        mem_perm = #NWHC
-    } : tensor<1x16x32x64xf16, {order = #NHWC}> -> tensor<1x32x16x64xf16, {order = #NHWC}>
-
-    return %PERMUTE : tensor<1x32x16x64xf16, {order = #NHWC}>
-
-    // CHECK:   [[POOLING:%.*]] = IE.MaxPool(%arg0) {
-    // CHECK-SAME:      kernel_size = [1, 1],
-    // CHECK-SAME:      pads_begin = [0, 0],
-    // CHECK-SAME:      pads_end = [0, 0],
-    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
-    // CHECK-SAME:      strides = [1, 1]
-    // CHECK-SAME:  } : tensor<1x16x32x64xf16, {order = #NHWC}>
-    // CHECK-SAME:      -> tensor<1x16x32x64xf16, {order = #NHWC}>
-
-    // CHECK:   [[PERMUTE:%.*]] = IE.MemPermute([[POOLING]]) {
-    // CHECK-SAME:      dst_order = #NHWC,
-    // CHECK-SAME:      mem_perm = #NWHC
-    // CHECK-SAME:  } : tensor<1x16x32x64xf16, {order = #NHWC}>
-    // CHECK-SAME:      -> tensor<1x32x16x64xf16, {order = #NHWC}>
-
-    // CHECK:   return [[PERMUTE]] : tensor<1x32x16x64xf16, {order = #NHWC}>
-}
-
-// -----
-
 // CHECK-LABEL: @InsertAvgPoolToAddWithMultipleUsersAndRelu
 func.func @InsertAvgPoolToAddWithMultipleUsersAndRelu(%arg0: tensor<1x128x4x4xf16>, %arg1: tensor<1x128x4x4xf16>) -> tensor<1x128x4x4xf16> {
     %add0 = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x4x4xf16>, tensor<1x128x4x4xf16> -> tensor<1x128x4x4xf16>
@@ -546,39 +513,6 @@ func.func @SkipMemPermuteWithSmallHeight(%arg0: tensor<1x16x1x64xf16, {order = #
     // CHECK-SAME:      -> tensor<1x16x1x64xf16>
 
     // CHECK:   return [[PERMUTE]] : tensor<1x16x1x64xf16>
-}
-
-// -----
-
-#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
-#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
-
-// CHECK-LABEL: @MemPermuteWithSmallByteSize
-func.func @MemPermuteWithSmallByteSize(%arg0: tensor<1x16x32x2xf16, {order = #NHWC}>)
-    -> tensor<1x32x16x2xf16, {order = #NHWC}> {
-    %PERMUTE = IE.MemPermute(%arg0) {
-        dst_order = #NHWC,
-        mem_perm = #NWHC
-    } : tensor<1x16x32x2xf16, {order = #NHWC}> -> tensor<1x32x16x2xf16, {order = #NHWC}>
-
-    return %PERMUTE : tensor<1x32x16x2xf16, {order = #NHWC}>
-
-    // CHECK:   [[POOLING:%.*]] = IE.MaxPool(%arg0) {
-    // CHECK-SAME:      kernel_size = [1, 1],
-    // CHECK-SAME:      pads_begin = [0, 0],
-    // CHECK-SAME:      pads_end = [0, 0],
-    // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>,
-    // CHECK-SAME:      strides = [1, 1]
-    // CHECK-SAME:  } : tensor<1x16x32x2xf16, {order = #NHWC}>
-    // CHECK-SAME:      -> tensor<1x16x32x2xf16, {order = #NHWC}>
-
-    // CHECK:   [[PERMUTE:%.*]] = IE.MemPermute([[POOLING]]) {
-    // CHECK-SAME:      dst_order = #NHWC,
-    // CHECK-SAME:      mem_perm = #NWHC
-    // CHECK-SAME:  } : tensor<1x16x32x2xf16, {order = #NHWC}>
-    // CHECK-SAME:      -> tensor<1x32x16x2xf16, {order = #NHWC}>
-
-    // CHECK:   return [[PERMUTE]] : tensor<1x32x16x2xf16, {order = #NHWC}>
 }
 
 // -----

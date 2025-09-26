@@ -248,7 +248,8 @@ vpux::NDTypeInterface vpux::updateSwizzlingSchemeBasedOnDistributedType(VPUIP::D
         return newType;
     }
 
+    const auto strides = newType.getStrides();
     return vpux::getMemRefType(newType.getShape(), newType.getElementType(), newType.getDimsOrder(),
-                               newType.getMemSpace(), newType.getStrides(), parentSwizzlingSchemeAttr,
+                               newType.getMemSpace(), strides, parentSwizzlingSchemeAttr,
                                VPUIP::getSparsityCompressionAttr(newType));
 }

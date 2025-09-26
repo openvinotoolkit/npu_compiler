@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/utils/error.hpp"
 
 #include "vpux/utils/core/mem_size.hpp"
 #include "vpux/utils/logger/logger.hpp"
@@ -73,7 +74,11 @@ bool isOutputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, Log
 //
 
 Byte getWeightsTableSize(int64_t OC);
-mlir::FailureOr<SmallVector<Byte>> getWeightsTableSize(int64_t OC, mlir::Operation* op);
+
+mlir::FailureOr<SmallVector<Byte>> getWeightsTableSize(int64_t OC, mlir::Value weightsTable,
+                                                       mlir::Value weightTableScale, mlir::Value weightTableBias);
+
+mlir::LogicalResult getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers, int64_t OC);
 
 //
 // Fuse PadOp check
@@ -112,6 +117,12 @@ mlir::LogicalResult verifyKernel(mlir::Operation* origOp, Logger log = Logger::g
 mlir::LogicalResult verifyPoolCMX(mlir::Location loc, mlir::ModuleOp module, vpux::NDTypeInterface inputType,
                                   vpux::NDTypeInterface outputType, mlir::ArrayAttr kernelSize,
                                   mlir::ArrayAttr kernelStrides, Logger log = Logger::global());
+
+//
+// Verify weights table utils
+//
+mlir::LogicalResult verifyWeightTables(mlir::Operation* origOp, Logger log = Logger::global());
+
 //
 // Check if given architecture supports Elementwise multiply operation
 //
@@ -122,8 +133,10 @@ bool isEltwiseMultiplySubtractSupported(const config::ArchKind arch);
 // Check whether alignment is beneficial for the operation
 //
 
+bool isParentOptimalForAlignment(mlir::Operation* parentOp);
 bool isAlignmentBeneficial(mlir::Operation* op);
 
+bool hasDimensionExceedingVPULimit(ShapeRef shape);
 }  // namespace NCEInvariant
 
 }  // namespace VPU

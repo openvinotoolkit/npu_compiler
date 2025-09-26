@@ -70,7 +70,15 @@ public:
 
 class ConvolutionOpModel :
         public VPU::NCEConvolutionOpModel<ConvolutionOpModel, VPU::NCEConvolutionOp>,
-        public ConvMpeModeModel {};
+        public ConvMpeModeModel {
+public:
+    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEConvolutionOp>(op).getWeightTableScale();
+    }
+    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEConvolutionOp>(op).getWeightTableBias();
+    }
+};
 class ReduceOpModel : public VPU::NCEReduceOpModel<ReduceOpModel, VPU::NCEReduceOp>, public ConvMpeModeModel {};
 class DepthConvolutionOpModel :
         public VPU::NCEConvolutionOpModel<DepthConvolutionOpModel, VPU::NCEDepthConvolutionOp>,

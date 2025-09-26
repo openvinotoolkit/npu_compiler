@@ -10,9 +10,9 @@
 
 #include "vpux/compiler/utils/analysis.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 #include "vpux/utils/core/error.hpp"
 
@@ -25,7 +25,7 @@ std::tuple<LinearScanHandler, std::list<ScheduledOpOneResource>> vpux::runLinear
         VPU::MemoryKind memKind, Logger log, ArrayRef<std::pair<vpux::AddressType, vpux::AddressType>> vec) {
     auto module = funcOp->getParentOfType<mlir::ModuleOp>();
     auto memKindAttr = mlir::SymbolRefAttr::get(funcOp.getContext(), stringifyEnum(memKind));
-    auto availableMem = IE::getAvailableMemory(module, memKindAttr);
+    auto availableMem = config::getAvailableMemory(module, memKindAttr);
     VPUX_THROW_WHEN(availableMem == nullptr, "The memory space '{0}' is not available", memKind);
 
     const Byte maxMemSize = availableMem.size();
@@ -246,7 +246,7 @@ AllocationInfo::AllocationInfo(mlir::func::FuncOp netFunc, const AsyncDepsInfo& 
     // Check for reserved memory which memory scheduler should take into account
     // so that they not overlap with other buffers. Those reserved resource might be related
     // to handling of additional special features (e.g. DMA HW profiling)
-    _moduleReservedMemVec = IE::getReservedMemOffsetAndSizeVec(module, memSpaceAttr);
+    _moduleReservedMemVec = config::getReservedMemOffsetAndSizeVec(module, memSpaceAttr);
 
     // Check that cycles assigned to 'async.execute' ops are legal
     size_t prevCycleBegin = 0;

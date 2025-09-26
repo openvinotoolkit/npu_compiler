@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
@@ -558,12 +557,13 @@ DistributionMode vpux::VPU::getSWInputTensorDistributionMode(VPU::ClusteredOpInt
                 return getSWInputTensorDistributionMode(interpolateOp, strategy, operand);
             })
             .Case<VPU::MultiplyOp, VPU::DivideOp, VPU::PowerOp, VPU::MaximumOp, VPU::MinimumOp, VPU::GreaterOp,
-                  VPU::GreaterEqualOp, VPU::LessOp, VPU::EqualOp, VPU::NotEqualOp, VPU::AndOp, VPU::SubtractOp,
-                  VPU::AddOp, VPU::FloorOp, VPU::CeilingOp, VPU::FakeQuantizeOp, VPU::SelectOp, VPU::RoundOp,
-                  VPU::SinOp, VPU::CosOp, VPU::ExpOp, VPU::MishOp, VPU::NegativeOp, VPU::LogicalNotOp, VPU::BitwiseOrOp,
-                  VPU::BitwiseAndOp, VPU::BitwiseNotOp, VPU::BitwiseXorOp>([&](mlir::Operation* eltwiseOp) {
-                return getSWInputTensorDistributionMode(eltwiseOp, strategy, inputType);
-            })
+                  VPU::GreaterEqualOp, VPU::LessOp, VPU::EqualOp, VPU::NotEqualOp, VPU::LessEqualOp, VPU::AndOp,
+                  VPU::SubtractOp, VPU::AddOp, VPU::FloorOp, VPU::CeilingOp, VPU::FakeQuantizeOp, VPU::SelectOp,
+                  VPU::RoundOp, VPU::SinOp, VPU::CosOp, VPU::ExpOp, VPU::MishOp, VPU::NegativeOp, VPU::LogicalNotOp,
+                  VPU::SoftPlusOp, VPU::BitwiseOrOp, VPU::BitwiseAndOp, VPU::BitwiseNotOp, VPU::BitwiseXorOp>(
+                    [&](mlir::Operation* eltwiseOp) {
+                        return getSWInputTensorDistributionMode(eltwiseOp, strategy, inputType);
+                    })
             .Case<VPU::PReluOp>([&](VPU::PReluOp preluOp) {
                 return getSWInputTensorDistributionMode(preluOp, strategy, operand);
             })
@@ -1284,14 +1284,13 @@ SmallVector<int64_t> vpux::VPU::getSWInputTensorNumTiles(VPU::ClusteredOpInterfa
                 return getSWInputTensorNumTiles(interpolateOp, numClustersAvailableForCompilation, strategy, operand);
             })
             .Case<VPU::MultiplyOp, VPU::DivideOp, VPU::PowerOp, VPU::MaximumOp, VPU::MinimumOp, VPU::PReluOp,
-                  VPU::GreaterOp, VPU::GreaterEqualOp, VPU::LessOp, VPU::EqualOp, VPU::NotEqualOp, VPU::AndOp,
-                  VPU::SubtractOp, VPU::AddOp, VPU::FloorOp, VPU::CeilingOp, VPU::FakeQuantizeOp, VPU::SelectOp,
-                  VPU::RoundOp, VPU::SinOp, VPU::CosOp, VPU::ExpOp, VPU::MishOp, VPU::NegativeOp, VPU::LogicalNotOp,
-                  VPU::BitwiseOrOp, VPU::BitwiseAndOp, VPU::BitwiseNotOp, VPU::BitwiseXorOp>(
-                    [&](mlir::Operation* eltwiseOp) {
-                        return getSWInputTensorNumTiles(eltwiseOp, numClustersAvailableForCompilation, strategy,
-                                                        inputType);
-                    })
+                  VPU::GreaterOp, VPU::GreaterEqualOp, VPU::LessOp, VPU::EqualOp, VPU::NotEqualOp, VPU::LessEqualOp,
+                  VPU::AndOp, VPU::SubtractOp, VPU::AddOp, VPU::FloorOp, VPU::CeilingOp, VPU::FakeQuantizeOp,
+                  VPU::SelectOp, VPU::RoundOp, VPU::SinOp, VPU::CosOp, VPU::ExpOp, VPU::MishOp, VPU::NegativeOp,
+                  VPU::LogicalNotOp, VPU::SoftPlusOp, VPU::BitwiseOrOp, VPU::BitwiseAndOp, VPU::BitwiseNotOp,
+                  VPU::BitwiseXorOp>([&](mlir::Operation* eltwiseOp) {
+                return getSWInputTensorNumTiles(eltwiseOp, numClustersAvailableForCompilation, strategy, inputType);
+            })
             .Case<VPU::AccumulateOp>([&](VPU::AccumulateOp accumulateOp) {
                 return getSWInputTensorNumTiles(accumulateOp, numClustersAvailableForCompilation, strategy, operand,
                                                 inputType);

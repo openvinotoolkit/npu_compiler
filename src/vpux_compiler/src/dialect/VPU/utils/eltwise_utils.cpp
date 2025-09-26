@@ -27,6 +27,11 @@ bool vpux::VPU::isNCEEltwiseSupported(mlir::Operation* op, vpux::NDTypeInterface
         return false;
     }
 
+    if (input1Type.getShape()[Dims4D::Act::N] != 1) {
+        logCb(formatv("Only Batch size 1 is supported"));
+        return false;
+    }
+
     // Output type can differ from input type. In case of quantization this can be different quant scale value.
     // Input types can also differ when both of them are quantized. E.g. scale value for Eltwise Multiply
     const auto input1ElemType = input1Type.getElementType();

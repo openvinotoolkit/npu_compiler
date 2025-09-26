@@ -174,6 +174,7 @@ def VPU_ShapeCastOp :
 
     let extraClassDeclaration = [{
         bool isSupportedTilingDim(DimArrRef tilingDims);
+        bool isSupportedTilingDimWithRestrictions(Dim tilingDim);
         bool isSupportedOutTile(const TileInfo& outTile);
         // Note: to be compatible with existing code
         mlir::Value getSource() { return getInput(); }

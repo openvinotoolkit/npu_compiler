@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/wrap_vf_rewriter.hpp"
-#include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 
 namespace vpux::VPU::VF::v2 {
 

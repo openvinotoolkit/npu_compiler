@@ -12,7 +12,6 @@
 #include "vpux/compiler/utils/batch.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
-#include "vpux/utils/core/dense_map.hpp"
 
 #include <unordered_set>
 
@@ -847,7 +846,7 @@ void DebatcherPass::safeRunOnFunc() {
             if (castedType == originalOpType) {
                 continue;
             }
-            castedType.changeShape(mlir::cast<vpux::NDTypeInterface>(originalOpType).getShape().toValues());
+            castedType.changeShape(mlir::cast<vpux::NDTypeInterface>(originalOpType).getShape());
             const auto debatchedResLoc = appendLoc(operand.getLoc(), "_debatched_arg");
             auto unrealizedCast =
                     builder.create<mlir::UnrealizedConversionCastOp>(debatchedResLoc, originalOpType, operand);

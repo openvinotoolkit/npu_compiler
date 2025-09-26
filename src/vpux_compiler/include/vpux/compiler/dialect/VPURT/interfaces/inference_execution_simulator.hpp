@@ -3,14 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/cycle_cost_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
-#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
-#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
-#include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
-#include "vpux/compiler/utils/dma.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 namespace vpux {
 namespace VPURT {

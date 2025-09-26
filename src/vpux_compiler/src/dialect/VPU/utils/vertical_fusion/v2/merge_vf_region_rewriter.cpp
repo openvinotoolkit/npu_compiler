@@ -11,10 +11,8 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -123,7 +121,7 @@ StrategyCost MergeVFRegionRewriter::extractVFCost(VFConfig& vfConfig) const {
         OutputTiling tiles;
         auto* operation = operations.front();
         if (dim.has_value()) {
-            auto tiling = fillDividedTiles(operation, Shape(tilingDims), getShape(operation->getResult(0)));
+            auto tiling = fillDividedTiles(operation, ShapeRef(tilingDims), getShape(operation->getResult(0)));
             VPUX_THROW_WHEN(mlir::failed(tiling), "Incorrect tiling {0} for vf {1}", tilingDims, vfOp);
             tiles = tiling.value();
         }

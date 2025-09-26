@@ -894,3 +894,62 @@ func.func @MixedPrecisionGroupMatmul(%arg0: tensor<1x8x1x64xf16>) -> tensor<1x8x
   //CHECK: return [[VAL2]]
 }
 
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128}>
+
+// CHECK-LABEL: @DoNotFuseMixedPrecisionSubtractPerAxisOut
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x1x1xf16>, [[ARG1:%.+]]: tensor<1x16x1x1xf16>)
+func.func @DoNotFuseMixedPrecisionSubtractPerAxisOut(%arg0: tensor<1x16x1x1xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1x!qElemType> {
+    %sub = IE.Subtract(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    %quantize = IE.Quantize(%sub) {dstElemType = !qElemType} : tensor<1x16x1x1xf16> -> tensor<1x16x1x1x!qElemType>
+
+    return %quantize : tensor<1x16x1x1x!qElemType>
+
+    //CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    //CHECK: [[QUANT:%.+]] = IE.Quantize([[SUBTRACT]]) {dstElemType = !qElemType} : tensor<1x16x1x1xf16> -> tensor<1x16x1x1x!qElemType>
+    //CHECK: return [[QUANT]] : tensor<1x16x1x1x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128}>
+
+// CHECK-LABEL: @DoNotFuseMixedPrecisionAddPerAxisOut
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x1x1xf16>, [[ARG1:%.+]]: tensor<1x16x1x1xf16>)
+func.func @DoNotFuseMixedPrecisionAddPerAxisOut(%arg0: tensor<1x16x1x1xf16>, %arg1: tensor<1x16x1x1xf16>) -> tensor<1x16x1x1x!qElemType> {
+    %add = IE.Add(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    %quantize = IE.Quantize(%add) {dstElemType = !qElemType} : tensor<1x16x1x1xf16> -> tensor<1x16x1x1x!qElemType>
+
+    return %quantize : tensor<1x16x1x1x!qElemType>
+
+    //CHECK: [[ADD:%.+]] = IE.Add([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x1x1xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x1x1xf16>
+    //CHECK: [[QUANT:%.+]] = IE.Quantize([[ADD]]) {dstElemType = !qElemType} : tensor<1x16x1x1xf16> -> tensor<1x16x1x1x!qElemType>
+    //CHECK: return [[QUANT]] : tensor<1x16x1x1x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128, 0.956:128, 0.785:128, 0.567:128, 0.785:128}>
+
+// CHECK-LABEL: @DoNotFuseMixedPrecisionAvgPoolPerAxisOut
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x16x3x3xf16>)
+func.func @DoNotFuseMixedPrecisionAvgPoolPerAxisOut(%arg0: tensor<1x16x3x3xf16>) -> tensor<1x16x3x3x!qElemType> {
+    %avgPool = IE.AvgPool(%arg0) {
+        kernel_size = [1, 1],
+        pads_begin = [0, 0],
+        pads_end = [0, 0],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+
+    %quantize = IE.Quantize(%avgPool) {
+        dstElemType = !qElemType
+    } : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+
+    return %quantize : tensor<1x16x3x3x!qElemType>
+
+    // CHECK: [[AVGPOOL:%.+]] = IE.AvgPool([[ARG0]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3xf16>
+    // CHECK: [[QUANT:%.+]] = IE.Quantize([[AVGPOOL]]) {dstElemType = !qElemType} : tensor<1x16x3x3xf16> -> tensor<1x16x3x3x!qElemType>
+    // CHECK: return [[QUANT]] : tensor<1x16x3x3x!qElemType>
+}

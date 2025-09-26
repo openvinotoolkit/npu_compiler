@@ -57,7 +57,7 @@ mlir::LogicalResult vpux::VPU::ConvolutionOp::inferReturnTypes(mlir::MLIRContext
                                               return checked_cast<int64_t>(val);
                                           }));
 
-    const auto outType = inType.changeShape(Shape(shapeI64));
+    const auto outType = inType.changeShape(ShapeRef(shapeI64));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

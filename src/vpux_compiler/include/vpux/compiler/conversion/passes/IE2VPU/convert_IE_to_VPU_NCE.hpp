@@ -11,6 +11,108 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux {
+//
+// ConvToNCE
+//
+
+class ConvToNCE final : public mlir::OpRewritePattern<IE::ConvolutionOp> {
+public:
+    ConvToNCE(mlir::MLIRContext* ctx, config::ArchKind arch, Logger log)
+            : mlir::OpRewritePattern<IE::ConvolutionOp>(ctx), _arch(arch), _log(log) {
+        setDebugName("ConvToNCE");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::ConvolutionOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    config::ArchKind _arch;
+    Logger _log;
+};
+
+//
+// MatMulToNCE
+//
+
+class MatMulToNCE final : public mlir::OpRewritePattern<IE::MatMulOp> {
+public:
+    MatMulToNCE(mlir::MLIRContext* ctx, config::ArchKind arch, Logger log)
+            : mlir::OpRewritePattern<IE::MatMulOp>(ctx), _arch(arch), _log(log) {
+        setDebugName("MatMulToNCE");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MatMulOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    config::ArchKind _arch;
+    Logger _log;
+};
+
+//
+// DepthConvToNCE
+//
+
+class DepthConvToNCE final : public mlir::OpRewritePattern<IE::GroupConvolutionOp> {
+public:
+    DepthConvToNCE(mlir::MLIRContext* ctx, config::ArchKind arch, Logger log)
+            : mlir::OpRewritePattern<IE::GroupConvolutionOp>(ctx), _arch(arch), _log(log) {
+        setDebugName("DepthConvToNCE");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::GroupConvolutionOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    config::ArchKind _arch;
+    Logger _log;
+};
+
+//
+// MaxPoolToNCE
+//
+
+class MaxPoolToNCE final : public mlir::OpRewritePattern<IE::MaxPoolOp> {
+public:
+    MaxPoolToNCE(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MaxPoolOp>(ctx), _log(log) {
+        setDebugName("MaxPoolToNCE");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MaxPoolOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    Logger _log;
+};
+
+//
+// AveragePoolToNCE
+//
+
+class AveragePoolToNCE final : public mlir::OpRewritePattern<IE::AvgPoolOp> {
+public:
+    AveragePoolToNCE(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::AvgPoolOp>(ctx), _log(log) {
+        setDebugName("AveragePoolToNCE");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::AvgPoolOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    Logger _log;
+};
+
+//
+// PermuteQuantizeToNCEPermute
+//
+
+class PermuteQuantizeToNCEPermute final : public mlir::OpRewritePattern<IE::PermuteQuantizeOp> {
+public:
+    PermuteQuantizeToNCEPermute(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::PermuteQuantizeOp>(ctx), _log(log) {
+        setDebugName("PermuteQuantizeToNCEPermute");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::PermuteQuantizeOp origOp, mlir::PatternRewriter& rewriter) const override;
+
+private:
+    Logger _log;
+};
 
 //
 // EltwiseToNCE
@@ -23,7 +125,6 @@ public:
             : mlir::OpRewritePattern<ConcreteOp>(ctx), _opType(opType), _log(log) {
     }
 
-public:
     mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
@@ -46,5 +147,4 @@ mlir::LogicalResult EltwiseToNCE<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
     rewriter.replaceOp(origOp, nceOp.getOutput());
     return mlir::success();
 }
-
 }  // namespace vpux

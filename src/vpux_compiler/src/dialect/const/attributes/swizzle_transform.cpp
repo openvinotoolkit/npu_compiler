@@ -152,7 +152,7 @@ vpux::NDTypeInterface vpux::Const::SwizzleConstantAttr::inferOutputType(vpux::ND
     }
 }
 
-bool vpux::Const::SwizzleConstantAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::SwizzleConstantAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 

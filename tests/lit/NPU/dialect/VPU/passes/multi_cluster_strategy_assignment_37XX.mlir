@@ -2532,6 +2532,22 @@ func.func @EqualAssignedSplitOverHeight(%arg0: tensor<1x1x256x256xf16>, %arg1: t
 
 // -----
 
+// CHECK-LABEL:   @EqualAssignedSplitOverWidth
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x1x1x1152xf16>, [[INPUT_1:%.+]]: tensor<1x1x1x1xf16>
+func.func @EqualAssignedSplitOverWidth(%arg0: tensor<1x1x1x1152xf16>, %arg1: tensor<1x1x1x1xf16>) -> tensor<1x1x1x1152xi8> {
+
+    %0 = VPU.Equal(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1152xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1152xi8>
+
+    return %0 : tensor<1x1x1x1152xi8>
+
+    //CHECK:   [[EQUAL:%.+]] = VPU.Equal([[INPUT_0]], [[INPUT_1]]) {
+    //CHECK-SAME:       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>}
+    //CHECK-SAME:       tensor<1x1x1x1152xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1152xi8>
+    //CHECK:   return [[EQUAL]] : tensor<1x1x1x1152xi8>
+}
+
+// -----
+
 // CHECK-LABEL:   @EqualAssignedClustering
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<2x106x1x256xf16>, [[INPUT_1:%.+]]: tensor<2x106x1x1xf16>
 func.func @EqualAssignedClustering(%arg0: tensor<2x106x1x256xf16>, %arg1: tensor<2x106x1x1xf16>) -> tensor<2x106x1x256xi8> {
@@ -3343,8 +3359,8 @@ func.func @MVN1SumAssignedSplitOverKernel(%arg0: tensor<1x12x20x3997xf16>) -> te
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 // CHECK-LABEL: @MVN1SumAssignedSOH
 func.func @MVN1SumAssignedSOH(%arg0: tensor<1x3x3997x1xf16, {order = #NHWC}>) -> tensor<1x3x4x2xf32, {order = #NHWC}> {

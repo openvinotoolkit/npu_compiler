@@ -6,6 +6,8 @@
 #ifndef VPUX_COMPILER_DIALECT_VPU_OPS_DPU
 #define VPUX_COMPILER_DIALECT_VPU_OPS_DPU
 
+include "vpux/compiler/dialect/core/constraints.td"
+include "vpux/compiler/dialect/core/types.td"
 include "vpux/compiler/dialect/VPU/ops/base.td"
 include "vpux/compiler/dialect/VPU/attributes.td"
 include "vpux/compiler/dialect/VPU/ops_interfaces.td"
@@ -308,6 +310,7 @@ def VPU_NCEDepthConvolutionOp :
         VPU_LayerOp<
             "NCE.DepthConvolution",
             [
+                AttrSizedOperandSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
@@ -319,7 +322,8 @@ def VPU_NCEDepthConvolutionOp :
                                                                      "doesLayerChangeOutputAlignmentFitIntoCMX",
                                                                      "getDistributedTypeForOpOperand"]>,
                 DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
-                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "NCE version of Depthwise Convolution layer";
@@ -327,7 +331,12 @@ def VPU_NCEDepthConvolutionOp :
     let arguments = (ins
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[4DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$filter,
-        AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>:$weightsTable,
+        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
+        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
+        Optional<AnyTypeOf<[4DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
+        Optional<AnyTypeOf<[4DTensorOf<[F32, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
+        Optional<AnyTypeOf<[4DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
+        Optional<AnyTypeOf<[4DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
 
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$strides,
         VPU_PaddingAttr:$pad,
@@ -352,11 +361,16 @@ def VPU_NCEDepthConvolutionOp :
     let assemblyFormat = [{
         `(`
             $input `,`
-            $filter `,`
-            $weightsTable
+            $filter
+            (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
+            (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
+            (`,` $weight_table_sp_ptr^ `` custom<OptionalTypes>(type($weight_table_sp_ptr)))?
+            (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
+            (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
+            (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
         attr-dict
-        custom<OptionalTypes>(type($input), type($filter), type($weightsTable)) ``
+        custom<OptionalTypes>(type($input), type($filter)) ``
         `->` type(results)
         custom<OptionalRegion>($workloads)
     }];
@@ -755,7 +769,8 @@ def VPU_NCEPermuteOp :
                                                                  "isOperationSplitOverWidthCompatible",
                                                                  "isOperationSplitOverKernelCompatible",
                                                                  "getDistributedTypeForOpOperand"]>,
-            DeclareOpInterfaceMethods<VPU_SparseOpInterface>
+            DeclareOpInterfaceMethods<VPU_SparseOpInterface>,
+            DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
         ]
         > {
     let summary = "More abstract version of combined NCE Permute and Quantization layers";

@@ -114,8 +114,9 @@ mlir::LogicalResult vpux::VPU::ReshapeOp::inferReturnTypes(mlir::MLIRContext* ct
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(reshape.getInput().getType());
 
-    const auto typeComponents =
-            TypeComponents().setShape(Shape(outShape.value())).setDimsOrder(DimsOrder::fromNumDims(outShape->size()));
+    const auto typeComponents = TypeComponents()
+                                        .setShape(ShapeRef(outShape.value()))
+                                        .setDimsOrder(DimsOrder::fromNumDims(outShape->size()));
     auto outType = inType.changeTypeComponents(typeComponents);
 
     inferredReturnTypes.push_back(outType);

@@ -3,17 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/ShaveCodeGen/analysis.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
+#include "vpux/utils/core/error.hpp"
+
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/Dialect/Func/IR/FuncOps.h>
 #include <mlir/IR/Operation.h>
 #include <mlir/IR/Value.h>
+
 #include <deque>
 #include <unordered_set>
 #include <utility>
 #include <vector>
-#include "vpux/compiler/ShaveCodeGen/analysis.hpp"
-#include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/utils/core/error.hpp"
 
 using namespace vpux;
 

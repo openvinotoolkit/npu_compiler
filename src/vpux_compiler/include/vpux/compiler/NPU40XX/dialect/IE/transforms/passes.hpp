@@ -14,12 +14,6 @@ namespace IE {
 namespace arch40xx {
 
 //
-// Passes
-//
-
-std::unique_ptr<mlir::Pass> createReduceNumTilesForSmallModelsPass(Logger log = Logger::global());
-
-//
 // DefaultHWOptions
 //
 
@@ -51,9 +45,6 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
                            "Weights smaller than the limit will be statically dequantized"),
             llvm::cl::init(524'288)};  // 512kb
 
-    BoolOption enableDynamicShapeTransformationsPipeline{*this, "enable-dynamic-shape-transformations",
-                                                         llvm::cl::desc("Enable DynamicShapeTransformations Pipeline"),
-                                                         llvm::cl::init(true)};
     BoolOption enableMatmulMixedPrecisionDecomposition{
             *this, "enable-matmul-mixed-precision-decomposition",
             llvm::cl::desc("Enable mixed precision decomposition for matmul"), llvm::cl::init(true)};
@@ -81,7 +72,6 @@ void buildReferenceSWPipeline(mlir::OpPassManager& pm, const IE::arch40xx::Defau
 //
 
 void registerIEPipelines();
-void registerPasses();
 
 }  // namespace arch40xx
 }  // namespace IE

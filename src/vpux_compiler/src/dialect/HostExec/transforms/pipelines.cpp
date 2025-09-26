@@ -39,6 +39,7 @@ void HostExec::buildHostExecPipeline(mlir::OpPassManager& pm, Logger /*log*/) {
     pm.addPass(mlir::createArithToLLVMConversionPass());
     pm.addPass(HostExec::createSerializeELFToBinaryPass());
     pm.addPass(HostExec::createConvertToLLVMUMDCallsPass());
+    pm.addPass(HostExec::createSerializeNetworkMetadataPass());
 
     // This should be placed after ConvertToLLVMUMDCalls
     // as additional arguments (e.g., L0 command list, command queue, and so on)

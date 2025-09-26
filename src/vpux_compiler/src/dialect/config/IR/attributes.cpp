@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/dialect.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -104,39 +104,32 @@ struct Resources {
     }
 };
 
-struct SetResoursesFuncs {
-    using AddExecutorFuncType = FuncRef<IE::ExecutorResourceOp(VPU::ExecutorKind, size_t)>;
-    using AddTileExecutorFuncType = FuncRef<IE::TileResourceOp(size_t)>;
-    using AddSubExecutorFuncType = FuncRef<IE::ExecutorResourceOp(IE::TileResourceOp, VPU::ExecutorKind, size_t)>;
-    using AddMemoryFuncType = FuncRef<IE::MemoryResourceOp(mlir::SymbolRefAttr, Byte)>;
-    using AddMemoryWithAttrsFuncType = FuncRef<void(mlir::SymbolRefAttr, Byte, double, size_t)>;
-    using AddInnerMemoryFuncType = FuncRef<IE::MemoryResourceOp(IE::TileResourceOp, mlir::SymbolRefAttr, Byte)>;
+struct SetResourcesFuncs {
+    using AddGlobalResourcesFuncType = FuncRef<config::ResourcesOp()>;
+    using AddTileExecutorFuncType = FuncRef<config::ResourcesOp(size_t)>;
+    using AddSubExecutorFuncType = FuncRef<config::ExecutorResourceOp(config::ResourcesOp, VPU::ExecutorKind, size_t)>;
+    using AddInnerMemoryFuncType = FuncRef<config::MemoryResourceOp(config::ResourcesOp, mlir::SymbolRefAttr, Byte)>;
     using AddInnerMemoryWithAttrsFuncType =
-            FuncRef<void(IE::TileResourceOp, mlir::SymbolRefAttr, Byte, double, size_t)>;
+            FuncRef<void(config::ResourcesOp, mlir::SymbolRefAttr, Byte, double, size_t)>;
 
-    AddExecutorFuncType addExecutor;
+    AddGlobalResourcesFuncType addGlobalResources;
     AddTileExecutorFuncType addTileExecutor;
     AddSubExecutorFuncType addSubExecutor;
-    AddMemoryFuncType addMemory;
-    AddMemoryWithAttrsFuncType addMemoryWithAttrs;
     AddInnerMemoryFuncType addInnerMemory;
     AddInnerMemoryWithAttrsFuncType addInnerMemoryWithAttrs;
 
-    SetResoursesFuncs(AddExecutorFuncType addExecutor, AddTileExecutorFuncType addTileExecutor,
-                      AddSubExecutorFuncType addSubExecutor, AddMemoryFuncType addMemory,
-                      AddMemoryWithAttrsFuncType addMemoryWithAttrs, AddInnerMemoryFuncType addInnerMemory,
+    SetResourcesFuncs(AddGlobalResourcesFuncType addGlobalResources, AddTileExecutorFuncType addTileExecutor,
+                      AddSubExecutorFuncType addSubExecutor, AddInnerMemoryFuncType addInnerMemory,
                       AddInnerMemoryWithAttrsFuncType addInnerMemoryWithAttrs)
-            : addExecutor(addExecutor),
+            : addGlobalResources(addGlobalResources),
               addTileExecutor(addTileExecutor),
               addSubExecutor(addSubExecutor),
-              addMemory(addMemory),
-              addMemoryWithAttrs(addMemoryWithAttrs),
               addInnerMemory(addInnerMemory),
               addInnerMemoryWithAttrs(addInnerMemoryWithAttrs) {
     }
 };
 
-void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res, const SetResoursesFuncs& funcs,
+void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res, const SetResourcesFuncs& funcs,
              bool allowCustom) {
     VPUX_THROW_WHEN(!allowCustom && module->hasAttr(archAttrName),
                     "Architecture is already defined, probably you run '--init-compiler' twice");
@@ -154,7 +147,7 @@ void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res,
         return numOfDMAPortsVal;
     };
 
-    IE::TileResourceOp nceCluster;
+    config::ResourcesOp nceCluster;
 
     const auto ddrSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::DDR));
     const auto cmxSymbolAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
@@ -169,10 +162,10 @@ void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res,
                         ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
                         : VPUX37XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
 
-        funcs.addMemoryWithAttrs(ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 8);
+        auto globalResource = funcs.addGlobalResources();
+        funcs.addSubExecutor(globalResource, VPU::ExecutorKind::DMA_NN, getNumOfDMAPortsVal(VPUX37XX_MAX_DMA_PORTS));
+        funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 8);
 
-        // Have NN_DMA as shared resource across clusters
-        funcs.addExecutor(VPU::ExecutorKind::DMA_NN, getNumOfDMAPortsVal(VPUX37XX_MAX_DMA_PORTS));
         nceCluster = funcs.addTileExecutor(numOfDPUGroups);
         funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::DPU, 1);
         funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::SHAVE_NN, 1);
@@ -190,14 +183,13 @@ void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res,
                         ? Byte(static_cast<double>(availableCMXMemory.value().count()) * FRAGMENTATION_AVOID_RATIO)
                         : VPUX40XX_CMX_WORKSPACE_FRAGMENTATION_AWARE_SIZE;
 
-        funcs.addMemoryWithAttrs(ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
+        auto globalResource = funcs.addGlobalResources();
+        funcs.addSubExecutor(globalResource, VPU::ExecutorKind::DMA_NN,
+                             getNumOfDMAPortsVal(std::min(numOfDPUGroups, VPUX40XX_MAX_DMA_PORTS)));
+        funcs.addSubExecutor(globalResource, VPU::ExecutorKind::M2I, 1);
+        funcs.addInnerMemoryWithAttrs(globalResource, ddrSymbolAttr, DDR_HEAP_SIZE, 0.6, 64);
 
-        // Have NN_DMA as shared resource across clusters
-        auto numClusters = numOfDPUGroups;
-        funcs.addExecutor(VPU::ExecutorKind::DMA_NN,
-                          getNumOfDMAPortsVal(std::min(numClusters, VPUX40XX_MAX_DMA_PORTS)));
-        funcs.addExecutor(VPU::ExecutorKind::M2I, 1);
-        nceCluster = funcs.addTileExecutor(numClusters);
+        nceCluster = funcs.addTileExecutor(numOfDPUGroups);
         funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::DPU, 1);
         funcs.addSubExecutor(nceCluster, VPU::ExecutorKind::SHAVE_ACT, VPUX40XX_MAX_SHAVES_PER_TILE);
         funcs.addInnerMemoryWithAttrs(nceCluster, cmxSymbolAttr, workspaceCMXSize, 1.0, 64);
@@ -217,26 +209,27 @@ void setArch(mlir::ModuleOp module, config::ArchKind kind, const Resources& res,
 void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int numOfDPUGroups,
                            std::optional<int> numOfDMAPorts, std::optional<vpux::Byte> availableCMXMemory,
                            bool allowCustomValues) {
-    const auto addExecutor = [&](VPU::ExecutorKind kind, size_t count) {
-        VPUX_THROW_WHEN(!allowCustomValues && IE::hasExecutor(module, kind),
-                        "Available executor kind '{0}' was already added", kind);
-        if (IE::hasExecutor(module, kind)) {
-            return IE::getAvailableExecutor(module, kind);
+    const auto addGlobalResource = [&]() {
+        VPUX_THROW_WHEN(!allowCustomValues && config::hasGlobalResource(module),
+                        "Available global resources was already added");
+        if (config::hasGlobalResource(module)) {
+            return config::getGlobalResource(module);
         }
 
-        return IE::addAvailableExecutor(module, kind, count);
+        return config::addGlobalResource(module);
     };
 
     const auto addTileExecutor = [&](size_t count) {
-        VPUX_THROW_WHEN(!allowCustomValues && IE::hasTileExecutor(module), "Available tile executor was already added");
-        if (IE::hasTileExecutor(module)) {
-            return IE::getTileExecutor(module);
+        VPUX_THROW_WHEN(!allowCustomValues && config::hasTileExecutor(module),
+                        "Available tile executor was already added");
+        if (config::hasTileExecutor(module)) {
+            return config::getTileExecutor(module);
         }
 
-        return IE::addTileExecutor(module, count);
+        return config::addTileExecutor(module, count);
     };
 
-    const auto addSubExecutor = [&](IE::TileResourceOp tileResOp, VPU::ExecutorKind kind, size_t count) {
+    const auto addSubExecutor = [&](config::ResourcesOp tileResOp, VPU::ExecutorKind kind, size_t count) {
         VPUX_THROW_WHEN(!allowCustomValues && tileResOp.hasSubExecutor(kind),
                         "Available executor kind '{0}' was already added", kind);
         if (tileResOp.hasSubExecutor(kind)) {
@@ -246,28 +239,7 @@ void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int num
         return tileResOp.addSubExecutor(kind, count);
     };
 
-    const auto addAvailableMemory = [&](mlir::SymbolRefAttr memSpace, Byte size) {
-        VPUX_THROW_WHEN(!allowCustomValues && IE::hasAvailableMemory(module, memSpace),
-                        "Available memory kind '{0}' was already added", memSpace);
-        if (IE::hasAvailableMemory(module, memSpace)) {
-            return IE::getAvailableMemory(module, memSpace);
-        }
-
-        return IE::addAvailableMemory(module, memSpace, size);
-    };
-
-    const auto addMemWithAttrs = [&](mlir::SymbolRefAttr memSpace, Byte size, double derateFactor, size_t bandwidth) {
-        auto mem = addAvailableMemory(memSpace, size);
-        if (!mem->hasAttr(derateFactorAttrName)) {
-            mem->setAttr(derateFactorAttrName, getFPAttr(module.getContext(), derateFactor));
-        }
-
-        if (!mem->hasAttr(bandwidthAttrName)) {
-            mem->setAttr(bandwidthAttrName, getIntAttr(module.getContext(), bandwidth));
-        }
-    };
-
-    const auto addInnerAvailableMemory = [&](IE::TileResourceOp tileResOp, mlir::SymbolRefAttr memSpace, Byte size) {
+    const auto addInnerAvailableMemory = [&](config::ResourcesOp tileResOp, mlir::SymbolRefAttr memSpace, Byte size) {
         VPUX_THROW_WHEN(!allowCustomValues && tileResOp.hasAvailableMemory(memSpace),
                         "Available memory kind '{0}' was already added", memSpace);
         if (tileResOp.hasAvailableMemory(memSpace)) {
@@ -277,7 +249,7 @@ void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int num
         return tileResOp.addAvailableMemory(memSpace, size);
     };
 
-    const auto addInnerAvailableMemoryWithAttrs = [&](IE::TileResourceOp tileResOp, mlir::SymbolRefAttr memSpace,
+    const auto addInnerAvailableMemoryWithAttrs = [&](config::ResourcesOp tileResOp, mlir::SymbolRefAttr memSpace,
                                                       Byte size, double derateFactor, size_t bandwidth) {
         auto mem = addInnerAvailableMemory(tileResOp, memSpace, size);
         if (!mem->hasAttr(derateFactorAttrName)) {
@@ -290,8 +262,8 @@ void vpux::config::setArch(mlir::ModuleOp module, config::ArchKind kind, int num
     };
 
     ::Resources res(numOfDPUGroups, numOfDMAPorts, availableCMXMemory);
-    ::SetResoursesFuncs funcs(addExecutor, addTileExecutor, addSubExecutor, addAvailableMemory, addMemWithAttrs,
-                              addInnerAvailableMemory, addInnerAvailableMemoryWithAttrs);
+    ::SetResourcesFuncs funcs(addGlobalResource, addTileExecutor, addSubExecutor, addInnerAvailableMemory,
+                              addInnerAvailableMemoryWithAttrs);
 
     return ::setArch(module, kind, res, funcs, allowCustomValues);
 }

@@ -724,6 +724,27 @@ func.func @FoldFusedWeightWithMajorityOfF16Type() -> memref<1x1x1x384xf16> {
 
 // -----
 
+!qElemType = !quant.uniform<ui4:f16, 0.5>
+
+// CHECK-LABEL: @QuantizeSubbyteSplat
+func.func @QuantizeSubbyteSplat() -> memref<1x16x3x3x!qElemType> {
+    %cst = const.Declare memref<1x16x3x3x!qElemType> =
+        dense<5.0> : tensor<1x16x3x3xf16>,
+        [
+            #const.Quantize<!qElemType>
+        ]
+
+    return %cst : memref<1x16x3x3x!qElemType>
+
+    // This will create 'dense<170> : tensor<1x1x1x72xui8>, [#const.ChangeShapeAndElemType<[1, 16, 3, 3], !qElemType>]'
+    // where 170 which is 0b10101010 which consists of two 0b1010 nibbles
+    // and 0b1010 is decimal 10. Because the scale is 0.5 then we get 10 x 0.5 = 5.0.
+    // CHECK:   [[CST:%.*]] = const.Declare memref<1x16x3x3x!qElemType> = dense<170> : tensor<1x1x1x72xui8>, [#const.ChangeShapeAndElemType<[1, 16, 3, 3], !qElemType>]
+    // CHECK:   return [[CST]] : memref<1x16x3x3x!qElemType>
+}
+
+// -----
+
 !qElemType = !quant.uniform<ui8:f16, 0.5>
 
 // CHECK-LABEL: @QuantizeSplat

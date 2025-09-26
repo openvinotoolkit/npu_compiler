@@ -83,7 +83,7 @@ INSTANTIATE_TEST_SUITE_P(smoke_ExperimentalROIExtractor, ExperimentalDetectronRO
                                             ::testing::ValuesIn(samplingRatio), ::testing::ValuesIn(pyramidScales),
                                             ::testing::ValuesIn(aligned),
                                             ::testing::Values(ov::element::f32, ov::element::f16),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ExperimentalDetectronROIFeatureExtractorLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(precommit_ExperimentalROIExtractor, ExperimentalDetectronROIFeatureExtractorLayerTestCommon,
@@ -91,7 +91,7 @@ INSTANTIATE_TEST_SUITE_P(precommit_ExperimentalROIExtractor, ExperimentalDetectr
                                             ::testing::ValuesIn(samplingRatio), ::testing::ValuesIn(pyramidScales),
                                             ::testing::ValuesIn(aligned),
                                             ::testing::Values(ov::element::f32, ov::element::f16),
-                                            ::testing::Values(ov::test::utils::DEVICE_NPU)),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
                          ExperimentalDetectronROIFeatureExtractorLayerTest::getTestCaseName);
 
 }  // namespace

@@ -7,9 +7,9 @@
 // REQUIRES: arch-NPU40XX
 
 module @OneDMAWithoutAttributes attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 6 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<1x2x3x4xf16>
   } outputsInfo : {

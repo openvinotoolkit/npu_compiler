@@ -48,3 +48,39 @@ func.func @ParseAndPrintAffineReshape() -> tensor<6x2x2xf32, {order=#HWC}> {
     // CHECK: [[CST:%.+]] = const.Declare tensor<6x2x2xf32, {order = #HWC}> = dense<1.000000e+00> : tensor<2x3x4xf32, {order = #map}>, [#const.AffineReshape<{{\[\[}}0], [0], [1, 2]], [6, 2, 2]>]
     // CHECK: return [[CST]] : tensor<6x2x2xf32, {order = #HWC}>
 }
+
+// -----
+
+// CHECK-LABEL: @ParseAndPrintRescaleAttr
+func.func @ParseAndPrintRescaleAttr() -> (tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32>) {
+    %cst_two_transformations = const.Declare tensor<1x1x2x2xf32> = dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+    [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>>>,
+     #const.Add<1.000000e+00 : f64>]
+
+
+    %cst_rescale_inner_transformation = const.Declare tensor<1x1x2x2xf32> = dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+    [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
+
+
+    return %cst_two_transformations, %cst_rescale_inner_transformation : tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32>
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
+    // CHECK-SAME{LITERAL}: dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+    // CHECK-SAME{LITERAL}: [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>>>, #const.Add<1.000000e+00 : f64>]
+
+    // CHECK:  [[CST_0:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
+    // CHECK-SAME{LITERAL}: dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+    // CHECK-SAME{LITERAL}:  [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
+
+    // CHECK-NEXT: return [[CST]], [[CST_0]] : tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @ParseAndPrintSplatRescaleAttr
+func.func @ParseAndPrintSplatRescaleAttr() -> tensor<1x1x32x1xf16> {
+    %cst = const.Declare tensor<1x1x32x1xf16> = dense<5.000000e+00> : tensor<1x1x32x1xf16>, [#const.Rescale<-1.000000e+00 : f64>]
+    return %cst : tensor<1x1x32x1xf16>
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x32x1xf16> = dense<5.000000e+00> : tensor<1x1x32x1xf16>, [#const.Rescale<-1.000000e+00 : f64>]
+
+    // CHECK-NEXT: return [[CST]] : tensor<1x1x32x1xf16>
+}

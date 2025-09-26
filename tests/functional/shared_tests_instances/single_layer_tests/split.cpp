@@ -46,13 +46,13 @@ const auto params =
         testing::Combine(::testing::Values(2, 3), ::testing::Values(0, 1, 2, 3), ::testing::ValuesIn(modelTypes),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>({{{6, 6, 12, 24}}}))),
-                         ::testing::Values(std::vector<size_t>({})), ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(std::vector<size_t>({})), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsPrecommit =
         testing::Combine(::testing::Values(2, 3), ::testing::Values(0), ::testing::ValuesIn(modelTypes),
                          ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                  std::vector<std::vector<ov::Shape>>({{{6, 6, 12, 24}}}))),
-                         ::testing::Values(std::vector<size_t>({})), ::testing::Values(ov::test::utils::DEVICE_NPU));
+                         ::testing::Values(std::vector<size_t>({})), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_Split, SplitLayerTestCommon, params, SplitLayerTestCommon::getTestCaseName);
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_Split, SplitLayerTestCommon, paramsPrecommit,

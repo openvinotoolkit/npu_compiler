@@ -5,11 +5,11 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/subgraph_optimizer.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
 namespace vpux {

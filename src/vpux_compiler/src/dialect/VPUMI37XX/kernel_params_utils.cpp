@@ -63,6 +63,8 @@ sw_params::DataType KernelParamsSerializer::getDataTypeFromMlirType(mlir::Type t
                 return sw_params::DataType::NN_U8;
             case 4:
                 return sw_params::DataType::NN_U4;
+            case 2:
+                return sw_params::DataType::NN_U2;
             case 1:
                 return sw_params::DataType::NN_BIN;
             }
@@ -92,6 +94,11 @@ sw_params::DataType KernelParamsSerializer::getDataTypeFromMlirType(mlir::Type t
                 mlir::isa<mlir::quant::QuantileQuantizedType, mlir::quant::QuantileQuantizedPerAxisType>(quantizeType);
         auto isFloatStorage = mlir::isa<mlir::FloatType>(quantizeType.getStorageType());
         switch (bitWidth) {
+        case 16:
+            if (!isQuantileType && !isFloatStorage) {
+                return isSigned ? sw_params::DataType::NN_I16 : sw_params::DataType::NN_U16;
+            }
+            break;
         case 8:
             if (!isQuantileType && !isFloatStorage) {
                 return isSigned ? sw_params::DataType::NN_I8 : sw_params::DataType::NN_U8;
@@ -105,6 +112,9 @@ sw_params::DataType KernelParamsSerializer::getDataTypeFromMlirType(mlir::Type t
                 return sw_params::DataType::NN_NF4;
             }
             break;
+        case 2:
+            // 2bit data can also be wrapped as quantile type, so far we're treating them as integer storage only
+            return isSigned ? sw_params::DataType::NN_I2 : sw_params::DataType::NN_U2;
         }
     }
     VPUX_THROW("Conversion to sw_params::DataType failed for {0}", type);

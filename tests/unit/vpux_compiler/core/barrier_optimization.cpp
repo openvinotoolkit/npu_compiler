@@ -707,16 +707,17 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             module @VPU.SW {
                 func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE }
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
@@ -840,16 +841,17 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ct
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             func.func @main(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
                 %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
                 %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -938,16 +940,17 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ct
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             func.func @main(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
                 %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
                 %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -1152,16 +1155,17 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             func.func @main(%arg0: memref<1x3x64x64xf16, @DDR>, %arg1: memref<1x3x64x64xf16, @DDR>) -> memref<1x3x64x64xf16, @DDR> {
                 %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
                 %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -1260,21 +1264,23 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
+            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
             config.Option @VPU.ReduceSupported : false
             config.Option @VPU.AutoPaddingODU : false
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             module @VPU.SW {
                 func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE }
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
@@ -1787,21 +1793,23 @@ void parallelWaitBarriersIRconfig(mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
+            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
             config.Option @VPU.ReduceSupported : false
             config.Option @VPU.AutoPaddingODU : false
             config.Option @VPU.BarrierMaxVariantSum : 64
             config.Option @VPU.BarrierMaxVariantCount : 128
             }
-            IE.TileResource 6 of @NCE at 1.850000e+03 MHz {
-            IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-            IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-            IE.ExecutorResource 2 of @SHAVE_ACT
-            IE.ExecutorResource 1 of @DPU
+            config.Resources 6 of @NCE at 1.850000e+03 MHz {
+                config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
+                config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+                config.ExecutorResource 2 of @SHAVE_ACT
+                config.ExecutorResource 1 of @DPU
             }
-            IE.ExecutorResource 1 of @M2I
-            IE.ExecutorResource 2 of @DMA_NN
-            IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
-
+            config.Resources 1 of @global {
+                config.ExecutorResource 1 of @M2I
+                config.ExecutorResource 2 of @DMA_NN
+                config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+            }
             module @VPU.SW {
                 func.func private @builtin_relu(%input : memref<*xf16>, %output : memref<*xf16>) attributes {VPU.kernel_code = "activation_relu.cpp", VPU.kernel_entry = "activation_relu", VPU.task_type = @COMPUTE }
                 func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
@@ -1922,11 +1930,223 @@ TEST_F(MLIR_BarrierInfoTests, createLegalVariantBatchesByExecutorType) {
 }
 
 /**
+ * Graph to detect incorrect graph split
+ *  dma: 0 - b0       b1 - 2 (sync) - b2 - 3 - b3 - 4 - b4 - 5 (sync) - b5 -----       b6 - 8
+ *              \   /                                                            \   /
+ *  dpu:          1                                                           6    7
+ *
+ * Task 6 should depend on sync point 5 update barrier b5
+ */
+BarrierInfoMaps getIncorrectGraphSplitConfig(bool fixGraph = false) {
+    BarrierInfoMaps inputBarrierMaps;
+    inputBarrierMaps.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2 - sync task
+            {3},  // task 3
+            {4},  // task 4
+            {5},  // task 5 - sync task
+            {},   // task 6
+            {6},  // task 7
+            {},   // task 8
+    };
+
+    inputBarrierMaps.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2 - sync task
+            {2},  // task 3
+            {3},  // task 4
+            {4},  // task 5 - sync task
+            {},   // task 6
+            {5},  // task 7
+            {6},  // task 8
+    };
+
+    if (fixGraph) {
+        inputBarrierMaps.taskWaitBarriers[6].push_back(5);
+    }
+    fillProducersAndConsumers(inputBarrierMaps);
+    inputBarrierMaps.syncTasksIds = {2, 5};
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 2, 3, 4, 5, 8};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {1, 6, 7};
+    return inputBarrierMaps;
+}
+
+TEST_F(BarrierInfoTests, detectIncorrectGraphSplit) {
+    auto barrierConfig = getIncorrectGraphSplitConfig();
+    BarrierInfoTest barrierInfoTest(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig(/* fixGraph */ true);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_TRUE(barrierInfoTest.verifyControlGraphSplit());
+}
+
+/**
+ * Graph to detect incorrect graph split
+ *  dma: 0 - b0 - 1 (sync) - b1 - 2
+ *  dpu: 3
+ *
+ * Task 3 should depend on sync point 1 update barrier b1
+ */
+BarrierInfoMaps getIncorrectGraphSplitConfig2(bool fixGraph = false) {
+    BarrierInfoMaps inputBarrierMaps;
+    inputBarrierMaps.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1 - sync task
+            {},   // task 2
+            {},   // task 3
+    };
+
+    inputBarrierMaps.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1 - sync task
+            {1},  // task 2
+            {},   // task 3
+    };
+
+    if (fixGraph) {
+        inputBarrierMaps.taskWaitBarriers[3].push_back(1);
+    }
+    fillProducersAndConsumers(inputBarrierMaps);
+    inputBarrierMaps.syncTasksIds = {1};
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 1, 2};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {3};
+    return inputBarrierMaps;
+}
+
+TEST_F(BarrierInfoTests, detectIncorrectGraphSplit2) {
+    auto barrierConfig = getIncorrectGraphSplitConfig2();
+    BarrierInfoTest barrierInfoTest(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig2(/* fixGraph */ true);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_TRUE(barrierInfoTest.verifyControlGraphSplit());
+}
+
+/**
+ * Graph to detect incorrect graph split
+ *  dma: 0 - b0 - 2 (sync) - b1 - 3
+ *  dpu: 1
+ *
+ * Sync task 2 should depend on task 1
+ */
+BarrierInfoMaps getIncorrectGraphSplitConfig3(bool fixGraph = false) {
+    BarrierInfoMaps inputBarrierMaps;
+    inputBarrierMaps.taskUpdateBarriers = {
+            {0},  // task 0
+            {},   // task 1
+            {1},  // task 2 - sync task
+            {},   // task 3
+    };
+
+    inputBarrierMaps.taskWaitBarriers = {
+            {},   // task 0
+            {},   // task 1
+            {0},  // task 2 - sync task
+            {1},  // task 3
+    };
+
+    if (fixGraph) {
+        inputBarrierMaps.taskUpdateBarriers[1].push_back(0);
+    }
+    fillProducersAndConsumers(inputBarrierMaps);
+    inputBarrierMaps.syncTasksIds = {2};
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 2, 3};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {1};
+    return inputBarrierMaps;
+}
+
+TEST_F(BarrierInfoTests, detectIncorrectGraphSplit3) {
+    auto barrierConfig = getIncorrectGraphSplitConfig3();
+    BarrierInfoTest barrierInfoTest(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig3(/* fixGraph */ true);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_TRUE(barrierInfoTest.verifyControlGraphSplit());
+}
+
+/**
+ * Graph to detect incorrect graph split
+ *  dma: 0 - b0 - 1 - b1 - 2 (sync) - b2 - 4 - b3 - 5 (sync) - b4 - 6
+ *  dpu: 3
+ *
+ * Task 3 should depend on sync point 2 update barrier b2 and should update b4
+ */
+BarrierInfoMaps getIncorrectGraphSplitConfig4(bool fixWaitBarrier = false, bool fixUpdateBarrier = false) {
+    BarrierInfoMaps inputBarrierMaps;
+    inputBarrierMaps.taskUpdateBarriers = {
+            {0},  // task 0
+            {1},  // task 1
+            {2},  // task 2 - sync task
+            {},   // task 3
+            {3},  // task 4
+            {4},  // task 5 - sync task
+            {},   // task 6
+    };
+
+    inputBarrierMaps.taskWaitBarriers = {
+            {},   // task 0
+            {0},  // task 1
+            {1},  // task 2 - sync task
+            {},   // task 3
+            {2},  // task 4
+            {3},  // task 5 - sync task
+            {4},  // task 6
+    };
+
+    if (fixWaitBarrier) {
+        inputBarrierMaps.taskWaitBarriers[3].push_back(2);
+    }
+    if (fixUpdateBarrier) {
+        inputBarrierMaps.taskUpdateBarriers[3].push_back(3);
+    }
+    fillProducersAndConsumers(inputBarrierMaps);
+    inputBarrierMaps.syncTasksIds = {2, 5};
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 1, 2, 4, 5, 6};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {3};
+    return inputBarrierMaps;
+}
+
+TEST_F(BarrierInfoTests, detectIncorrectGraphSplit4) {
+    auto barrierConfig = getIncorrectGraphSplitConfig4();
+    BarrierInfoTest barrierInfoTest(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig4(/* fixWaitBarrier */ true, /* fixUpdateBarrier */ false);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig4(/* fixWaitBarrier */ false, /* fixUpdateBarrier */ true);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_FALSE(barrierInfoTest.verifyControlGraphSplit());
+
+    barrierConfig = getIncorrectGraphSplitConfig4(/* fixWaitBarrier */ true, /* fixUpdateBarrier */ true);
+    barrierInfoTest.initializeBarrierMaps(barrierConfig);
+    EXPECT_TRUE(barrierInfoTest.verifyControlGraphSplit());
+}
+
+/**
  * Correct out-of-block dependencies according to graph-split constraints
  *
  * Test should remove out-of-block connection to consumer
  *         /------------------------------------------------------------------------------\
- *   0 - b0 - 1 - b1 - 2 (sync) - b2 - 3 - b3 - 4 - b4 - 5 (sync) - b5 - 6 - b6 - 7 - b7 - 8
+ *   0 - b0 - 1 - b1 - 2 (sync) - b2 - 3 - b3 - 4 - b4 - 5 (sync) - b5 - 6 - b6 - 7 - b7 - 8 - b8 - 9
  *
  * since task 8 already waits for b7
  */
@@ -1942,7 +2162,8 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyConfig() {
             {5},  // task 5 - sync task
             {6},  // task 6
             {7},  // task 7
-            {},   // task 8
+            {8},  // task 8
+            {},   // task 9
     };
 
     inputBarrierMaps.taskWaitBarriers = {
@@ -1955,10 +2176,16 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyConfig() {
             {5},     // task 6
             {6},     // task 7
             {0, 7},  // task 8
+            {8},     // task 9
     };
 
     fillProducersAndConsumers(inputBarrierMaps);
     inputBarrierMaps.syncTasksIds = {2, 5};
+
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 2, 3, 4, 5, 6, 9};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {1, 7, 8};
 
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
@@ -1969,7 +2196,8 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyConfig() {
             {5},  // task 5 - sync task
             {6},  // task 6
             {7},  // task 7
-            {},   // task 8
+            {8},  // task 8
+            {},   // task 9
     };
 
     expectedBarrierMaps.taskWaitBarriers = {
@@ -1982,6 +2210,7 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyConfig() {
             {5},  // task 6
             {6},  // task 7
             {7},  // task 8
+            {8},  // task 9
     };
 
     fillProducersAndConsumers(expectedBarrierMaps);
@@ -2042,6 +2271,10 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockWaitDependencyToSyncTaskCo
 
     fillProducersAndConsumers(inputBarrierMaps);
     inputBarrierMaps.syncTasksIds = {2, 5};
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    const VPURT::TaskQueueType dpu0Type{VPU::ExecutorKind::DPU, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 2, 3, 4, 5, 6, 8};
+    inputBarrierMaps.taskQueueTypeMap[dpu0Type] = {1, 7};
 
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
@@ -2130,6 +2363,8 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> multipleOutOfBlockWaitDependenciesCo
 
     fillProducersAndConsumers(inputBarrierMaps);
     inputBarrierMaps.syncTasksIds = {2, 5};
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0
@@ -2216,6 +2451,8 @@ std::pair<BarrierInfoMaps, BarrierInfoMaps> outOfBlockUpdateDependencyConfig() {
 
     fillProducersAndConsumers(inputBarrierMaps);
     inputBarrierMaps.syncTasksIds = {2, 5};
+    const VPURT::TaskQueueType dma0Type{VPU::ExecutorKind::DMA_NN, 0};
+    inputBarrierMaps.taskQueueTypeMap[dma0Type] = {0, 1, 2, 3, 4, 5, 6, 7, 8};
 
     expectedBarrierMaps.taskUpdateBarriers = {
             {0},  // task 0

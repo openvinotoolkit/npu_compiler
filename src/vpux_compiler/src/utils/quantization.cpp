@@ -285,10 +285,10 @@ mlir::Type vpux::tileScalesAndZP(mlir::Type perAxisQType, ArrayRef<int64_t> offs
 
     std::vector<double> newScales;
     std::vector<int64_t> newZeroes;
-    auto nClusters = offsets.size();
+    auto numTiles = offsets.size();
     int64_t length = inScales.size();
 
-    for (size_t k = 0; k < nClusters; k++) {
+    for (size_t k = 0; k < numTiles; k++) {
         VPUX_THROW_UNLESS(offsets[k] + sizes[k] <= length, "Slice exceeds full type length: {0} + {1} > {2}",
                           offsets[k], sizes[k], length);
         newScales.insert(newScales.end(), inScales.begin() + offsets[k], inScales.begin() + offsets[k] + sizes[k]);

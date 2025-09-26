@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 module @VPU.SW {
     func.func private @builtin_LstmDpu(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64) attributes {VPU.kernel_code = "lstm_dpu.cpp", VPU.kernel_entry = "lstm_dpu", VPU.task_type = @COMPUTE}
@@ -99,7 +99,7 @@ func.func @AddSyncTaskAfterShaveKernelWithDpu(%arg3: memref<1x1x2x64xf16, @DDR>,
 // -----
 
 #GNHWC = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d3, d4, d2)>
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {IE.ExecutorResource 1 of @DPU}
+config.Resources 4 of @NCE at 1.700000e+03 MHz {config.ExecutorResource 1 of @DPU}
 module @VPU.SW {
     func.func private @builtin_LstmDpu(memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xsi32, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, i64, i64) attributes {VPU.kernel_code = "lstm_dpu1.cpp", VPU.kernel_entry = "lstm_dpu1", VPU.task_type = @COMPUTE}
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}

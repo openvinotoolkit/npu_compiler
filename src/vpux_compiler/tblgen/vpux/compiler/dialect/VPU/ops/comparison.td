@@ -187,21 +187,40 @@ def VPU_LessEqualOp :
             "LessEqual",
             [
                 VPU_TilingBuilderOpInterface,
-                VPU_EltwiseOp
+                VPU_EltwiseOp,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
             ]
         > {
     let summary = "LessEqual VPU layer";
 
     let arguments = (ins
-        RankedTensorOf<[F16, F32, SI32]>:$input1,
-        RankedTensorOf<[F16, F32, SI32]>:$input2,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32]>, VPU_DistributedTensor]>:$input1,
+        AnyTypeOf<[RankedTensorOf<[F16, F32, SI32]>, VPU_DistributedTensor]>:$input2,
 
-        IE_AutoBroadcastTypeAttr:$auto_broadcast
+        IE_AutoBroadcastTypeAttr:$auto_broadcast,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[Bool8]>:$output
+        AnyTypeOf<[RankedTensorOf<[Bool8]>, VPU_DistributedTensor]>:$output
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::AutoBroadcastTypeAttr":$auto_broadcast
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 

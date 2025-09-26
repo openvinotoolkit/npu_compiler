@@ -577,6 +577,47 @@ func.func @DontReconvertWeightsMultToFakeQuantize(%input: tensor<4x4x3x3xf32>) -
 
 // -----
 
+// CHECK-LABEL: @DontU2WeightsConstPrefillPatternToFakeQuantize
+// CHECK-SAME:      [[ACT:%.+]]: tensor<1x3x4xf32>
+// CHECK-SAME: -> tensor<1x3x4xf32>
+func.func @DontU2WeightsConstPrefillPatternToFakeQuantize(%act : tensor<1x3x4xf32>) -> tensor<1x3x4xf32> {
+  %weights = const.Declare tensor<4x2x2xf16> = dense_resource<weights_blob> : tensor<16xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 2]>, #const.CastElemType<f16>]
+  %scale = const.Declare tensor<4x2x1xf16> = dense<[0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
+  %shift = const.Declare tensor<4x2x1xf16> = dense_resource<shift_blob> : tensor<8xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 1]>, #const.CastElemType<f16>]
+
+  %1 = IE.Subtract(%weights, %shift) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  %2 = IE.Multiply(%1, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
+  %4 = IE.Convert(%3) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
+  %5 = IE.Reshape(%act) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
+  %6 = IE.FullyConnected(%5, %4) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  %7 = IE.Reshape(%6) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
+  return %7 : tensor<1x3x4xf32>
+
+  // CHECK: [[WEIGHTS:%.+]] = const.Declare tensor<4x2x2xf16> = dense_resource<weights_blob> : tensor<16xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 2]>, #const.CastElemType<f16>]
+  // CHECK: [[SCALE:%.+]] = const.Declare tensor<4x2x1xf16> = dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
+  // CHECK: [[SHIFT:%.+]] = const.Declare tensor<4x2x1xf16> = dense_resource<shift_blob> : tensor<8xui2>, [#const.ConvertElemType<ui8>, #const.Reshape<[4, 2, 1]>, #const.CastElemType<f16>]
+  // CHECK: [[SUBTRACT:%.+]] = IE.Subtract([[WEIGHTS]], [[SHIFT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[SUBTRACT]], [[SCALE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  // CHECK: [[RESHAPE_1:%.+]] = IE.AffineReshape([[MULTIPLY]])
+  // CHECK: [[CONVERT:%.+]] = IE.Convert([[RESHAPE_1]]) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
+  // CHECK: [[RESHAPE_2:%.+]] = IE.Reshape([[ACT]]) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
+  // CHECK: [[FC:%.+]] = IE.FullyConnected([[RESHAPE_2]], [[CONVERT]]) : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  // CHECK: [[RESHAPE_3:%.+]] = IE.Reshape([[FC]]) {shape_value = [1, 3, 4]} : tensor<3x4xf32> -> tensor<1x3x4xf32>
+  // CHECK: return [[RESHAPE_3]]
+}
+
+{-#
+  dialect_resources: {
+    builtin: {
+      weights_blob: "0x010000001AA12345",
+      shift_blob: "0x010000001AA1"
+    }
+  }
+#-}
+
+// -----
+
 // Note: this case serves to document the current pattern matching behavior,
 // which looks wrong, yet it may be sufficient for "real models" that only have
 // simple patterns.
@@ -1051,7 +1092,7 @@ func.func @BlockArgPerGroupScalePerGroupShiftToFakeQuantize(%input: tensor<1x1x8
   %1 = IE.Subtract(%0, %shift) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x2x4xf16>, tensor<8x2x1xf16> -> tensor<8x2x4xf16>
   %2 = IE.Multiply(%1, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x2x4xf16>, tensor<8x2x1xf16> -> tensor<8x2x4xf16>
   %3 = IE.Reshape(%input) {shape_value = [1, 1, 1, 8]} : tensor<1x1x8xf16> -> tensor<1x1x1x8xf16>
-  %4 = IE.Reshape(%1) {shape_value = [8, 8]} : tensor<8x2x4xf16> -> tensor<8x8xf16>
+  %4 = IE.Reshape(%2) {shape_value = [8, 8]} : tensor<8x2x4xf16> -> tensor<8x8xf16>
   %5 = IE.MatMul(%3, %4) {transpose_b} : tensor<1x1x1x8xf16>, tensor<8x8xf16> -> tensor<1x1x1x8xf16>
 
   return %5 : tensor<1x1x1x8xf16>
@@ -1059,9 +1100,9 @@ func.func @BlockArgPerGroupScalePerGroupShiftToFakeQuantize(%input: tensor<1x1x8
   // CHECK:  [[IN_LOW:%.+]] = const.Declare tensor<1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1xf16>
   // CHECK:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1xf16> = dense<3.000000e+00> : tensor<1x1x1xf16>
   // CHECK:  [[OUT_LOW:%.+]] = const.Declare tensor<8x2x1xf16> =
-  // CHECK-SAME{LITERAL}:  dense<[[[-1.000000e+00], [-2.000000e+00]], [[-3.000000e+00], [-4.000000e+00]], [[-5.000000e+00], [-6.000000e+00]], [[-7.000000e+00], [-8.000000e+00]], [[-9.000000e+00], [-1.000000e+01]], [[-1.100000e+01], [-1.200000e+01]], [[-1.300000e+01], [-1.400000e+01]], [[-1.500000e+01], [-1.600000e+01]]]> : tensor<8x2x1xf16>
+  // CHECK-SAME{LITERAL}:  dense<[[[-9.997550e-02], [-3.999020e-01]], [[-9.003900e-01], [-1.599610e+00]], [[-2.500000e+00], [-3.601560e+00]], [[-4.902340e+00], [-6.398440e+00]], [[-8.101560e+00], [-1.000000e+01]], [[-1.209380e+01], [-1.440630e+01]], [[-1.689060e+01], [-1.960940e+01]], [[-2.250000e+01], [-2.559380e+01]]]> : tensor<8x2x1xf16>
   // CHECK:  [[OUT_HIGH:%.+]] = const.Declare tensor<8x2x1xf16> =
-  // CHECK-SAME{LITERAL}:  dense<[[[2.000000e+00], [1.000000e+00]], [[0.000000e+00], [-1.000000e+00]], [[-2.000000e+00], [-3.000000e+00]], [[-4.000000e+00], [-5.000000e+00]], [[-6.000000e+00], [-7.000000e+00]], [[-8.000000e+00], [-9.000000e+00]], [[-1.000000e+01], [-1.100000e+01]], [[-1.200000e+01], [-1.300000e+01]]]> : tensor<8x2x1xf16>
+  // CHECK-SAME{LITERAL}:  dense<[[[1.999510e-01], [1.999510e-01]], [[0.000000e+00], [-3.999020e-01]], [[-1.000000e+00], [-1.800780e+00]], [[-2.800780e+00], [-4.000000e+00]], [[-5.398440e+00], [-7.000000e+00]], [[-8.796870e+00], [-1.080470e+01]], [[-1.300000e+01], [-1.540630e+01]], [[-1.800000e+01], [-2.079690e+01]]]> : tensor<8x2x1xf16>
 
   // CHECK:  [[CONVERT:%.+]] = IE.Convert([[WEIGHTS]]) {dstElemType = f16} : tensor<8x2x4xui2> -> tensor<8x2x4xf16>
   // CHECK:  [[FQ:%.+]] = IE.FakeQuantize([[CONVERT]], [[IN_LOW]], [[IN_HIGH]], [[OUT_LOW]], [[OUT_HIGH]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 4 : i64} : tensor<8x2x4xf16>, tensor<1x1x1xf16>, tensor<1x1x1xf16>, tensor<8x2x1xf16>, tensor<8x2x1xf16> -> tensor<8x2x4xf16>
@@ -1075,20 +1116,20 @@ func.func @BlockArgPerGroupScalePerGroupShiftToFakeQuantize(%input: tensor<1x1x8
 // -----
 
 // CHECK-LABEL: @BlockArgPerGroupScaleExtraConvertToFakeQuantize
-// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x3x4xf32>
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x1x4xf32>
 // CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x2x2xui2>
-// CHECK-SAME: -> tensor<3x4xf32>
-func.func @BlockArgPerGroupScaleExtraConvertToFakeQuantize(%input: tensor<1x3x4xf32>, %weights: tensor<4x2x2xui2>) -> tensor<3x4xf32> {
+// CHECK-SAME: -> tensor<1x4xf32>
+func.func @BlockArgPerGroupScaleExtraConvertToFakeQuantize(%input: tensor<1x1x4xf32>, %weights: tensor<4x2x2xui2>) -> tensor<1x4xf32> {
   %scale = const.Declare tensor<4x2x1xf16> = dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
 
   %0 = IE.Convert(%weights) {dstElemType = f16} : tensor<4x2x2xui2> -> tensor<4x2x2xf16>
   %1 = IE.Multiply(%0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
   %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
   %3 = IE.Convert(%2) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
-  %4 = IE.Reshape(%input) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
-  %5 = IE.MatMul(%4, %3) {transpose_b} : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  %4 = IE.Reshape(%input) {shape_value = [1, 4]} : tensor<1x1x4xf32> -> tensor<1x4xf32>
+  %5 = IE.MatMul(%4, %3) {transpose_b} : tensor<1x4xf32>, tensor<4x4xf32> -> tensor<1x4xf32>
 
-  return %5 : tensor<3x4xf32>
+  return %5 : tensor<1x4xf32>
 
   // CHECK:  [[IN_LOW:%.+]] = const.Declare tensor<1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1xf16>
   // CHECK:  [[IN_HIGH:%.+]] = const.Declare tensor<1x1x1xf16> = dense<3.000000e+00> : tensor<1x1x1xf16>
@@ -1102,10 +1143,40 @@ func.func @BlockArgPerGroupScaleExtraConvertToFakeQuantize(%input: tensor<1x3x4x
   // CHECK-SAME{LITERAL}:  dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
   // CHECK:  [[CONVERT_1:%.+]] = IE.Convert([[RESHAPE_WGT]]) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
 
-  // CHECK:  [[RESHAPE_ACT:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
-  // CHECK:  [[MATMUL:%.+]] = IE.MatMul([[RESHAPE_ACT]], [[CONVERT_1]]) {transpose_b} : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+  // CHECK:  [[RESHAPE_ACT:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [1, 4]} : tensor<1x1x4xf32> -> tensor<1x4xf32>
+  // CHECK:  [[MATMUL:%.+]] = IE.MatMul([[RESHAPE_ACT]], [[CONVERT_1]]) {transpose_b} : tensor<1x4xf32>, tensor<4x4xf32> -> tensor<1x4xf32>
 
-  // CHECK:  return [[MATMUL]] : tensor<3x4xf32>
+  // CHECK:  return [[MATMUL]] : tensor<1x4xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @DontBlockArgPrefillPatternToFakeQuantize
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x3x4xf32>
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4x2x2xui2>
+// CHECK-SAME: -> tensor<3x4xf32>
+func.func @DontBlockArgPrefillPatternToFakeQuantize(%input: tensor<1x3x4xf32>, %weights: tensor<4x2x2xui2>) -> tensor<3x4xf32> {
+  %scale = const.Declare tensor<4x2x1xf16> = dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
+
+  %0 = IE.Convert(%weights) {dstElemType = f16} : tensor<4x2x2xui2> -> tensor<4x2x2xf16>
+  %1 = IE.Multiply(%0, %scale) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x2x2xf16>, tensor<4x2x1xf16> -> tensor<4x2x2xf16>
+  %2 = IE.AffineReshape(%1) {dim_mapping = [[0], [1], [1]], shape_value = [4, 4]} : tensor<4x2x2xf16> -> tensor<4x4xf16>
+  %3 = IE.Convert(%2) {dstElemType = f32} : tensor<4x4xf16> -> tensor<4x4xf32>
+  %4 = IE.Reshape(%input) {shape_value = [3, 4]} : tensor<1x3x4xf32> -> tensor<3x4xf32>
+  %5 = IE.MatMul(%4, %3) {transpose_b} : tensor<3x4xf32>, tensor<4x4xf32> -> tensor<3x4xf32>
+
+  return %5 : tensor<3x4xf32>
+
+  // CHECK-NOT:  IE.FakeQuantize
+
+  // CHECK: [[SCALE:%.+]] = const.Declare tensor<4x2x1xf16> = dense<[9.997550e-02, 1.999510e-01, 3.000490e-01, 3.999020e-01, 5.000000e-01, 6.000980e-01, 7.001950e-01, 7.998050e-01]> : tensor<8xf16>, [#const.Reshape<[4, 2, 1]>]
+  // CHECK: [[CONVERT:%.+]] = IE.Convert([[WEIGHTS]])
+  // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[CONVERT]], [[SCALE]])
+  // CHECK: [[AFFINERESHAPE:%.+]] = IE.AffineReshape([[MULTIPLY]])
+  // CHECK: [[CONVERT_1:%.+]] = IE.Convert([[AFFINERESHAPE]])
+  // CHECK: [[RESHAPE:%.+]] = IE.Reshape([[INPUT]])
+  // CHECK: [[MATMUL:%.+]] = IE.MatMul([[RESHAPE]], [[CONVERT_1]])
+  // CHECK: return [[MATMUL]]
 }
 
 // -----
@@ -1170,9 +1241,10 @@ func.func @DontLhsConstScaleToFakeQuantize(%arg0: tensor<1x2xf32>) -> tensor<1x6
 
   // CHECK-NOT:  IE.FakeQuantize
 
-  // CHECK:  [[LHS:%.+]] = const.Declare tensor<6x2xf32> = dense<[1.000000e-01, 2.000000e-01, 3.000000e-01, 4.000000e-01, 5.000000e-01, 6.000000e-01, 0.699999988, 8.000000e-01, 0.899999976, 1.000000e+00, 1.100000e+00, 1.200000e+00]>
-  // CHECK:  [[RHS:%.+]] = const.Declare tensor<6x2xf32> = dense<[0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]> : tensor<12xui8>
-  // CHECK:  [[MULTIPLY:%.+]] = IE.Multiply([[LHS]], [[RHS]])
-  // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[MULTIPLY]])
+  // CHECK:   [[CST:%.+]] = const.Declare tensor<6x2xf32> =
+  // CHECK-SAME{LITERAL}:     dense<[1.000000e-01, 2.000000e-01, 3.000000e-01, 4.000000e-01, 5.000000e-01, 6.000000e-01, 0.699999988, 8.000000e-01, 0.899999976, 1.000000e+00, 1.100000e+00, 1.200000e+00]> : tensor<12xf32>,
+  // CHECK-SAME{LITERAL}:       [#const.Reshape<[6, 2]>, #const.Rescale<Content<dense<[0, 1, 2, 3, 0, 1, 2, 3, 0, 1, 2, 3]> : tensor<12xui8>, [#const.Reshape<[6, 2]>, #const.CastElemType<f32>]>>]
+
+  // CHECK:  [[FC:%.+]] = IE.FullyConnected([[INPUT]], [[CST]])
   // CHECK:  return [[FC]]
 }

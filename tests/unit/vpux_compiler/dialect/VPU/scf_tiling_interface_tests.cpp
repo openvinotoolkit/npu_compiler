@@ -34,7 +34,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesEltwise) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(
          %arg0: tensor<1x16x256x140xf16, {order = #NHWC}>,
          %arg1: tensor<1x16x256x140xf16, {order = #NHWC}>
@@ -54,7 +54,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesEltwise) {
          >,
          tilingStrategy = [1, 1, 1, 2]
      } -> tensor<1x16x256x140xf16, {order = #NHWC}>
- 
+
      return %1 : tensor<1x16x256x140xf16, {order = #NHWC}>
 }
         }
@@ -66,7 +66,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesEltwise) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    vpux::VPU::SCFTilingEltwiseModelOp nceEltwiseOpModel;
+    vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::NCEEltwiseOp> nceEltwiseOpModel;
 
     func.walk([&](VPU::NCEEltwiseOp eltwise) {
         VPU::SCFTileInfo outputTile({1, 16, 256, 70}, builder);
@@ -100,7 +100,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesConv) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x32x64x64xf16, {order = #NHWC}>) -> tensor<1x256x64x64xf16, {order = #NHWC}> {
     %weights = const.Declare tensor<256x32x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<256x32x3x3xf16>, [#const.Reorder<#NHWC>]
     %weights_table = const.Declare tensor<256x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<256x1x1x4xsi32>
@@ -163,7 +163,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesCTileConv) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(
             %arg0: tensor<1x256x14x14xf16, {order = #NHWC}>)
                 -> tensor<1x512x14x14xf16, {order = #NHWC}> {
@@ -248,7 +248,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesPooling) {
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
             func.func @main(%arg0: tensor<1x16x200x200xf16, {order = #NHWC}>) -> tensor<1x16x200x200xf16, {order = #NHWC}> {
     %weights_table = const.Declare tensor<16x1x1x4xsi32, {order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32>
 
@@ -272,7 +272,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesPooling) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    vpux::VPU::SCFTilingPoolingModelOp<VPU::NCEMaxPoolOp> ncePoolOpModel;
+    vpux::VPU::SCFMaxPoolOpModel ncePoolOpModel;
     auto tileDim = Dims4D::Act::H;
 
     const auto numTiles = 2;
@@ -309,7 +309,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
     constexpr llvm::StringLiteral inputIR = R"(
         #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
         module @test {
-            IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+            config.Resources 4 of @NCE at 6.000000e+02 MHz
              func.func @main(
          %arg0: tensor<1x32x200x200xf16, {order = #NHWC}>,
          %arg1: tensor<32x16x1x1xf16, {order = #NHWC}>,
@@ -334,7 +334,7 @@ TEST_F(MLIR_SCFTilingTest, ComputeInputTilesDWConv) {
          strides = [1, 1],
          tilingStrategy = [1, 2, 1, 1]
      } -> tensor<1x32x200x200xf16, {order = #NHWC}>
- 
+
      return %1 : tensor<1x32x200x200xf16, {order = #NHWC}>
 
 }

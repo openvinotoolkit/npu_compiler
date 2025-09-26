@@ -210,16 +210,14 @@ TEST_F(MLIR_ControlEdgeGenerator, TestMemOverlapEdgesWithSubViewTest5) {
     const auto memrefType = mlir::MemRefType::get(shape.raw(), mlir::Float16Type::get(&ctx), layout, memSpace);
 
     mlir::OpBuilder builder(&ctx);
-    auto dummyBuffer0 = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), memrefType,
-                                                               VPURT::BufferSection::CMX_NN, /*byte_offset=*/0)
-                                .getBuffer();
+    mlir::OwningOpRef<VPURT::DeclareBufferOp> dummyBuffer0 = builder.create<VPURT::DeclareBufferOp>(
+            mlir::UnknownLoc::get(&ctx), memrefType, VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
 
-    auto dummyBuffer1 = builder.create<VPURT::DeclareBufferOp>(mlir::UnknownLoc::get(&ctx), memrefType,
-                                                               VPURT::BufferSection::CMX_NN, /*byte_offset=*/0)
-                                .getBuffer();
+    mlir::OwningOpRef<VPURT::DeclareBufferOp> dummyBuffer1 = builder.create<VPURT::DeclareBufferOp>(
+            mlir::UnknownLoc::get(&ctx), memrefType, VPURT::BufferSection::CMX_NN, /*byte_offset=*/0);
 
-    ScheduledOpOneResource::ResourceView resView0({{dummyBuffer0}, {0}, {50}, {100}});
-    ScheduledOpOneResource::ResourceView resView1({{dummyBuffer1}, {50}, {50}, {100}});
+    ScheduledOpOneResource::ResourceView resView0({{dummyBuffer0->getBuffer()}, {0}, {50}, {100}});
+    ScheduledOpOneResource::ResourceView resView1({{dummyBuffer1->getBuffer()}, {50}, {50}, {100}});
 
     // Create example schedule where operations execute in sequence and either produce
     // or consume certain range of memory

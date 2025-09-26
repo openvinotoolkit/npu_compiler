@@ -6,9 +6,9 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --optimize-copies %s | FileCheck %s
 // REQUIRES: arch-NPU40XX
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: func.func @NotMoveTilingCopyBeforeSubviewByNotFixCMX
@@ -90,9 +90,9 @@ func.func @NotMoveTilingCopyBeforeSubviewByNotFixCMX(%arg0: memref<11008x128x1x1
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -127,9 +127,9 @@ func.func @NotFuseCMXCopyToTheFrontOfTillingCopyDueToCMXSizeLimitation() -> !Inp
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 // CHECK-LABEL: func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation
 // CHECK-SAME:      [[DATA:%.+]]: memref<8000x32xf16>
@@ -144,7 +144,8 @@ func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation(%data : memref<
   %gather_out = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64} inputs(%data : memref<8000x32xf16>) indices(%subview_indices_in : memref<16000x1xi64, [@CMX_NN, 0]>) outputs(%alloc_gather : memref<16000x32xf16, [@CMX_NN, 0]>) -> memref<16000x32xf16, [@CMX_NN, 0]>
   return %gather_out : memref<16000x32xf16, [@CMX_NN, 0]>
 
-  // CHECK:   [[INDICES_IN:%.+]] = VPUIP.ViewOp [[INDICES]] : memref<64000x1xi64, [@CMX_NN, 0]> to memref<16000x1xi64, [@CMX_NN, 0]>
+  // CHECK:   [[SUBVIEW:%.+]] = VPUIP.SubView [[INDICES]] [0, 0] [16000, 1]
+  // CHECK:   [[INDICES_IN:%.+]] = VPUIP.ViewOp [[SUBVIEW]] : memref<16000x1xi64, [@CMX_NN, 0]> to memref<16000x1xi64, [@CMX_NN, 0]>
   // CHECK-NOT:   memref.alloc()
   // CHECK-NOT:   VPUIP.Copy
   // CHECK:   [[ALLOC_GATHER:%.+]] = memref.alloc() : memref<16000x32xf16, [@CMX_NN, 0]>
@@ -154,9 +155,9 @@ func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation(%data : memref<
 
 // -----
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -187,9 +188,9 @@ func.func @NotRemoveDistributedOpCMXToCMXCopyDueToSubView()
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 // CHECK-LABEL: func.func @NotEraseCMX2CMXNonDistributedCopyWithoutNCEClusterTask
 // CHECK-SAME:      [[DATA:%.+]]: memref<1x256x256x3x!qElemType, #NHWC, @DDR>
@@ -225,9 +226,9 @@ func.func @NotEraseCMX2CMXNonDistributedCopyWithoutNCEClusterTask(%data : memref
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 // CHECK-LABEL: func.func @EraseCMX2CMXNonDistributedCopyWithNCEClusterTask
 // CHECK-SAME:      [[WEIGHTS:%.+]]: memref<1x256x256x3x!qElemType, #NHWC, [@CMX_NN, 0]>
@@ -285,9 +286,9 @@ func.func @EraseCMX2CMXNonDistributedCopyWithNCEClusterTask(%weights: memref<1x2
      memory_shapes = [[1, 2, 1, 121], [1, 2, 1, 121], [1, 2, 1, 121], [1, 2, 1, 121]],
      memory_offsets = [[0, 0, 0, 0], [0, 0, 1, 0], [0, 0, 2, 0], [0, 0, 3, 0]]}>
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 // CHECK-LABEL: @NotFuseDistributedOpCopiesThroughReshapeDueToNoAxisMapping

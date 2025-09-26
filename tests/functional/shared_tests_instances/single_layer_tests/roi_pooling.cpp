@@ -4,6 +4,7 @@
 //
 
 #include "single_op_tests/roi_pooling.hpp"
+#include "common/npu_test_env_cfg.hpp"
 #include "common_test_utils/data_utils.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
@@ -70,7 +71,7 @@ std::string ROIPoolingLayerTestAddLayout::getTestCaseName(
     }
     result << "modelType=" << model_type.to_string() << "_";
     result << "Layout=" << order.to_string() << "_";  // newly added
-    result << "trgDev=" << target_device;
+    result << "trgDev=" << test_utils::TARGET_DEVICE;
     return result.str();
 }
 
@@ -185,13 +186,13 @@ auto inputShapes = [](const std::vector<ov::Shape>& in1, const std::vector<ov::S
 const auto test_ROIPooling_max = ::testing::Combine(
         ::testing::ValuesIn(inputShapes), ::testing::ValuesIn(pooledShapes_max), ::testing::ValuesIn(spatial_scales),
         ::testing::Values(ROIPoolingTypes::ROI_MAX), ::testing::ValuesIn(modelTypes),
-        ::testing::ValuesIn({ov::Layout("NCHW"), ov::Layout("NHWC")}), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn({ov::Layout("NCHW"), ov::Layout("NHWC")}), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto test_ROIPooling_bilinear = ::testing::Combine(
         ::testing::ValuesIn(inputShapes), ::testing::ValuesIn(pooledShapes_bilinear),
         ::testing::Values(spatial_scales[1]), ::testing::Values(ROIPoolingTypes::ROI_BILINEAR),
         ::testing::ValuesIn(modelTypes), ::testing::ValuesIn({ov::Layout("NCHW"), ov::Layout("NHWC")}),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_TestsROIPooling_max, ROIPoolingLayerTestCommon, test_ROIPooling_max,
                          ROIPoolingLayerTestCommon::getTestCaseName);

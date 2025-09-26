@@ -4,21 +4,18 @@
 //
 
 #include <vpux/utils/core/error.hpp>
-#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/IR/PatternMatch.h>
@@ -105,7 +102,7 @@ mlir::FailureOr<int> TileLSTMSequence::getNumSplits(VPU::LSTMSequenceOp op) cons
     const auto results = op.getResults();
 
     const auto module = op->getParentOfType<mlir::ModuleOp>();
-    const auto numClustersAvailableForCompilation = IE::getTileExecutor(module).getCount();
+    const auto numClustersAvailableForCompilation = config::getTileExecutor(module).getCount();
     const auto multiClusterStrategy = op.getMultiClusterStrategy();
 
     const auto applyMultiClusterTiling = [&](mlir::Value operand,
@@ -120,7 +117,7 @@ mlir::FailureOr<int> TileLSTMSequence::getNumSplits(VPU::LSTMSequenceOp op) cons
                        [](double shapeVal, double tileVal) {
                            return std::ceil(shapeVal / tileVal);
                        });
-        return type.changeShape(Shape(typeShape));
+        return type.changeShape(ShapeRef(typeShape));
     };
 
     for (const auto& operand : operands) {

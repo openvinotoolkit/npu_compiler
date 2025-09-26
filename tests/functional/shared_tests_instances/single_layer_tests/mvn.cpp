@@ -173,10 +173,10 @@ using AxesVec = std::vector<std::vector<int>>;
 /* ================================= Param builder utils ================================= */
 
 const auto genMvn6Params = [](auto shapes, auto axes, auto eps) {
-    return ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shapes)),
-                              ::testing::Values(ov::element::f16), ::testing::Values(ov::element::i32),
-                              ::testing::ValuesIn(axes), ::testing::ValuesIn(normalizeVariance),
-                              ::testing::ValuesIn(eps), ::testing::ValuesIn(epsMode), ::testing::Values(DEVICE_NPU));
+    return ::testing::Combine(
+            ::testing::ValuesIn(static_shapes_to_test_representation(shapes)), ::testing::Values(ov::element::f16),
+            ::testing::Values(ov::element::i32), ::testing::ValuesIn(axes), ::testing::ValuesIn(normalizeVariance),
+            ::testing::ValuesIn(eps), ::testing::ValuesIn(epsMode), ::testing::Values(test_utils::TARGET_DEVICE));
 };
 
 // less test combinations
@@ -186,7 +186,7 @@ const auto genMvn6LessParams = [](auto shape, auto axes, auto eps) {
     return ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(shape)),
                               ::testing::Values(ov::element::f16), ::testing::Values(ov::element::i32),
                               ::testing::ValuesIn(axes), ::testing::Values(normVariance), ::testing::ValuesIn(eps),
-                              ::testing::Values(epsMode), ::testing::Values(DEVICE_NPU));
+                              ::testing::Values(epsMode), ::testing::Values(test_utils::TARGET_DEVICE));
 };
 
 /* ============================ MVN1 tests ============================= */
@@ -257,7 +257,7 @@ INSTANTIATE_TEST_SUITE_P(precommit_MVN1, Mvn1LayerTest_SW,
                                             ::testing::Values(ov::element::f16),
                                             ::testing::ValuesIn(emptyReductionAxes),
                                             ::testing::ValuesIn(acrossChannels), ::testing::ValuesIn(normalizeVariance),
-                                            ::testing::ValuesIn(epsilon), ::testing::Values(DEVICE_NPU)),
+                                            ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
                          Mvn1LayerTest_SW::getTestCaseName);
 
 // -------------- MVN1 Decomposition
@@ -267,7 +267,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesForDecomposition)),
                            ::testing::Values(ov::element::f32), ::testing::ValuesIn(emptyReductionAxes),
                            ::testing::ValuesIn(acrossChannels), ::testing::ValuesIn(normalizeVariance),
-                           ::testing::ValuesIn(epsilon), ::testing::Values(DEVICE_NPU)),
+                           ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
         Mvn1LayerTest_NPU4000_HW::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
@@ -275,7 +275,7 @@ INSTANTIATE_TEST_SUITE_P(
         ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(inputShapesForDecomposition)),
                            ::testing::Values(ov::element::f32), ::testing::ValuesIn(emptyReductionAxes),
                            ::testing::ValuesIn(acrossChannels), ::testing::ValuesIn(normalizeVariance),
-                           ::testing::ValuesIn(epsilon), ::testing::Values(DEVICE_NPU)),
+                           ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE)),
         Mvn1LayerTest_SW::getTestCaseName);
 
 // -------------- MVN6 'pseudo' tests : actually testing MVN1 op,
@@ -303,7 +303,7 @@ INSTANTIATE_TEST_SUITE_P(pseudo_MVN6_5D, Mvn6LayerTestCommon, pse5D, Mvn6LayerTe
 const auto zeroTestCfg = ::testing::Combine(
         ::testing::Values(static_shapes_to_test_representation(inputShapes4D[0])), ::testing::Values(ov::element::f32),
         ::testing::ValuesIn(emptyReductionAxes), ::testing::ValuesIn(acrossChannels), ::testing::Values(true),
-        ::testing::ValuesIn(epsilon), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(epsilon), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(zero_input, Mvn1ZeroInputLayerTest_NPU3720_HW, zeroTestCfg,
                          Mvn1ZeroInputLayerTest_NPU3720_HW::getTestCaseName);
@@ -361,7 +361,7 @@ std::vector<std::vector<int>> axesF32 = {{2} /*MVN6*/, {2, 3} /*MVN1*/};
 const auto cfgF32 = ::testing::Combine(
         ::testing::Values(static_shapes_to_test_representation(shapes4D[0])), ::testing::Values(ov::element::f32),
         ::testing::Values(ov::element::i32), ::testing::ValuesIn(axesF32), ::testing::Values(true),
-        ::testing::ValuesIn(bigEps), ::testing::Values(epsMode[0]), ::testing::Values(DEVICE_NPU));
+        ::testing::ValuesIn(bigEps), ::testing::Values(epsMode[0]), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_MVN6_fp32, Mvn6LayerTestCommonFP32, cfgF32, Mvn6LayerTestCommonFP32::getTestCaseName);
 

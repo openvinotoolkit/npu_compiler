@@ -22,6 +22,8 @@ std::unique_ptr<mlir::Pass> createSerializeELFToBinaryPass(Logger log = Logger::
 std::unique_ptr<mlir::Pass> createConvertToLLVMUMDCallsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWrapFuncCallsIntoAsyncRegionsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeMemRefCopiesPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createReplaceAllocsWithSingleAllocAndViewsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSerializeNetworkMetadataPass(Logger log = Logger::global());
 
 void buildHostExecPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 

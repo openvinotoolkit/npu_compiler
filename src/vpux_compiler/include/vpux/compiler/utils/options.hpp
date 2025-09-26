@@ -17,7 +17,7 @@ using Int64Option = mlir::detail::PassOptions::Option<int64_t>;
 using StrOption = mlir::detail::PassOptions::Option<std::string>;
 using BoolOption = mlir::detail::PassOptions::Option<bool>;
 using DoubleOption = mlir::detail::PassOptions::Option<double>;
-enum class WorkloadManagementMode { PWLM_V0_LCA = 0, PWLM_V1_BARRIER_FIFO = 1, PWLM_V2_PAGES = 2, FWLM_V1_PAGES = 3 };
+enum class WorkloadManagementMode { PWLM_V0_LCA = 0, PWLM_V1_BARRIER_FIFO = 1, PWLM_V2_PAGES = 2 };
 enum class AllocateShaveStackFrames { ENABLED = 0, DISABLED = 1 };
 enum class WorkloadManagementBarrierProgrammingMode {
     LEGACY = 0,

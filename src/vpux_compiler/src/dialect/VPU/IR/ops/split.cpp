@@ -96,7 +96,7 @@ mlir::LogicalResult vpux::VPU::SplitOp::inferReturnTypes(mlir::MLIRContext* ctx,
     outShape[*axis] /= num_splits;
 
     for (int i = 0; i < num_splits; ++i) {
-        const auto outType = inType.changeShape(Shape(outShape.raw()));
+        const auto outType = inType.changeShape(outShape);
         inferredReturnTypes.push_back(outType);
     }
 

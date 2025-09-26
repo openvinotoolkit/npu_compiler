@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUIPDPU/rewriters/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/utils/core/numeric.hpp"
 
 namespace vpux::VPUIPDPU::arch40xx::IDU {
 
@@ -20,11 +21,10 @@ mlir::LogicalResult buildIDUWorkloadSet(mlir::OpBuilder& builder, const mlir::Lo
     return mlir::success();
 }
 
-mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& log,
+mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& /*log*/,
                                       int64_t inStartZ, int64_t inEndZ, int64_t outStartZ, int64_t outEndZ,
                                       std::optional<int64_t> outChannelOffset, VPUIP::NCETaskType taskType,
                                       const vpux::NDTypeInterface& inActType, const vpux::NDTypeInterface& outActType,
-                                      const vpux::NDTypeInterface& weightsType,
                                       std::optional<mlir::ArrayAttr> kernelSize) {
     // weight_start is updated during run-time relocation by addition with weight_table address
     auto outputZ = outActType.getShape()[Dims4D::Act::C];
@@ -34,7 +34,7 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
     auto inputZ = inActType.getShape()[Dims4D::Act::C];
     auto inSizeZ = getRangeSize(inStartZ, inEndZ);
     auto outSizeZ = getRangeSize(outStartZ, outEndZ);
-    auto weightNum = outSizeZ;
+    auto weightNum = vpux::alignValUp(outSizeZ, static_cast<int64_t>(16));
     int64_t weightSize = 0;
 
     int64_t kernelX = 1, kernelY = 1;
@@ -51,11 +51,6 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
     case VPUIP::NCETaskType::CONV: {
         weightSize = kernelX * kernelY;
         if (inActType.getShape()[Dims4D::Act::C] < 16) {
-            if (!weightsType) {
-                log.error("Missing weights for DPU task type {0}", VPUIP::stringifyNCETaskType(taskType));
-                return mlir::failure();
-            }
-            weightNum = weightsType.getShape()[Dims4D::Act::N];
             weightSize *= 16;
         } else {
             weightSize *= inputZ;
@@ -195,11 +190,9 @@ mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUVariantIDU(VPUASM::DPUVari
         return mlir::failure();
     }
 
-    mlir::Type weightsType;
     std::optional<int64_t> weightsSwizzlingKey;
     if (origInvOp.getWeights()) {
         auto weights = symRefMap.lookupSymbol(origInvOp.getWeights().value());
-        weightsType = getBufferType(weights);
         weightsSwizzlingKey = getSwizzlingKey(weights);
     }
 
@@ -220,7 +213,7 @@ mlir::LogicalResult vpux::VPUIPDPU::arch40xx::buildDPUVariantIDU(VPUASM::DPUVari
         auto inActType = getBufferType(inAct);
         if (buildIDUWeightSet(builder, origVarOp.getLoc(), log, inStartZ, inEndZ, outStartZ, outEndZ,
                               origInvOp.getOutChannelOffset(), origInvOp.getNceTaskType(), inActType, outActType,
-                              weightsType, origInvOp.getKernelSize())
+                              origInvOp.getKernelSize())
                     .failed()) {
             return mlir::failure();
         }

@@ -18,15 +18,15 @@
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 module @testsubgraph attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
-  IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 1 of @M2I
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 1 of @M2I
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 64 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "result.1" : tensor<1x3x224x224xf16>
   } outputsInfo : {
@@ -42,7 +42,7 @@ module @testsubgraph attributes {config.arch = #config.arch_kind<NPU40XX>, confi
     %3 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     %4 = VPURT.ConfigureBarrier<4> -> !VPURT.Barrier
     %5 = VPURT.ConfigureBarrier<5> -> !VPURT.Barrier
-    %6 = VPURT.ConfigureBarrier<6> {isFinalBarrier} -> !VPURT.Barrier
+    %6 = VPURT.ConfigureBarrier<6> <{isFinalBarrier}> -> !VPURT.Barrier
     %cst = const.Declare memref<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
     %cst_0 = const.Declare memref<64x1x1x160x!qElemType, #NHWC> = dense<1.0> : tensor<64x3x7x7xf32>, [#const.CastElemType<f16>, #const.CastElemType<ui8>, #const.CastElemType<!qElemType>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 1, 0, 0]>, #const.SubView<[0, 0, 0, 0], [64, 3, 7, 7]>, #const.Reshape<[64, 1, 1, 147]>, #const.PadWithZero<[0, 0, 0, 0], [0, 0, 0, 13]>]
     %cst_1 = const.Declare memref<1x1x1x5120xui8> = dense<1> : tensor<1x1x1x5120xui8>
@@ -193,7 +193,7 @@ module @testsubgraph attributes {config.arch = #config.arch_kind<NPU40XX>, confi
 
   // CHECK:       [[BAR0:%.*]] = VPURT.ConfigureBarrier<0> -> !VPURT.Barrier
   // CHECK:       [[BAR1:%.*]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
-  // CHECK:       [[BAR2:%.*]] = VPURT.ConfigureBarrier<0> {isFinalBarrier} -> !VPURT.Barrier
+  // CHECK:       [[BAR2:%.*]] = VPURT.ConfigureBarrier<0> <{isFinalBarrier}> -> !VPURT.Barrier
   // CHECK-NOT:                  VPURT.ConfigureBarrier
 
   // CHECK-DAG:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <NetworkOutput> <0> -> memref<1x224x4x115x!qElemType, #NWCH, @DDR>

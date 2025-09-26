@@ -88,5 +88,8 @@ enum class EnableShaveDDRAccessOptimization { TRUE, FALSE, AUTO };
 
 EnableShaveDDRAccessOptimization getShaveDDRAccessOptimizationMode(StringRef enableShaveDDRAccessOptimization);
 
+bool isMultiClusterTilingSupported(mlir::Operation* op);
+bool isTilingSupported(mlir::Operation* op);
+
 }  // namespace VPU
 }  // namespace vpux

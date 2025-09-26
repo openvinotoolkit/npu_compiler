@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/utils/llvm_to_binary.hpp"
 #include "shave_ld.hpp"
+#include "vpux/compiler/act_kernels/shave_binary_resources.h"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
@@ -17,22 +18,15 @@
 #include <llvm/Support/FileSystem.h>
 #include <llvm/Support/Program.h>
 
+#if defined(_WIN32) || defined(_WIN64)
+#include <llvm/Bitcode/BitcodeWriter.h>
+#endif
+
 #include <fstream>
 
 using namespace vpux;
 
 namespace {
-std::string getMoviToolsArchArgument(config::ArchKind arch) {
-    switch (arch) {
-    case config::ArchKind::NPU37XX:
-        return "3720xx";
-    case config::ArchKind::NPU40XX:
-        return "4000xx";
-    default:
-        VPUX_THROW("Invalid ArchKind for MoviTools usage");
-    }
-}
-
 std::string getMoviLDArchPath(config::ArchKind arch) {
     switch (arch) {
     case config::ArchKind::NPU37XX:
@@ -101,8 +95,14 @@ static void addDenormalFlags(llvm::Module& module) {
     }
 }
 
-void vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKernelSymbol, vpux::Logger log) {
-    // Create a temporary module to perform the LLVM IR lowering on.
+std::unique_ptr<llvm::Module> vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKernelSymbol,
+                                                      llvm::LLVMContext& llvmContext) {
+    auto llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
+
+    VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
+
+    // We create a temporary module in which we clone the llvmFuncOp and then translate it
+    // to LLVM IR.
     auto moduleBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
     auto tmpModuleOp = moduleBuilder.create<mlir::ModuleOp>(moduleOp.getLoc(), llvm::StringRef("TempModule"));
 
@@ -116,34 +116,54 @@ void vpux::translateToLLVMIR(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
     // mlir::registerLLVMDialectTranslation() are called in init.cpp,
     // in function vpux::registerCommonInterfaces().
 
-    // Convert the module to LLVM IR in a new LLVM IR context.
-    llvm::LLVMContext llvmContext;
+    // Convert the module to LLVM IR.
     auto llvmModule = mlir::translateModuleToLLVMIR(tmpModuleOp, llvmContext);
     if (!llvmModule) {
-        log.error("Failed to emit LLVM IR\n");
-        return;
+        VPUX_THROW("Failed to emit LLVM IR\n");
     }
-
-    tmpModuleOp.erase();
-
     addDenormalFlags(*llvmModule);
-
-    // We write llvmModule to file sw_layer.ll.
-    std::error_code llFileEC;
-    llvm::raw_fd_ostream llFile("sw_layer.ll", llFileEC);
-    llFile << *llvmModule;
+    tmpModuleOp.erase();
+    return llvmModule;
 }
 
-void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKernelSymbol) {
+llvm::StringRef vpux::getShaveKernelLDScript() {
+    return SHAVE_LD_SCRIPT;
+}
+
+void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, std::unique_ptr<llvm::Module> llvmModule,
+                             mlir::SymbolRefAttr swKernelSymbol, vpux::Logger log) {
     auto llvmFuncOp = moduleOp.lookupSymbol<mlir::LLVM::LLVMFuncOp>(swKernelSymbol);
     VPUX_THROW_UNLESS(llvmFuncOp != nullptr, "llvmFuncOp should be valid");
 
     const auto arch = config::getArch(moduleOp);
     VPUX_THROW_UNLESS(arch != config::ArchKind::UNKNOWN, "Could not identify arch");
 
-    auto archArgument = getMoviToolsArchArgument(arch);
-
     auto llvmFuncOpNameStr = llvmFuncOp.getName().str();
+    ShaveBinaryResources& sbr = ShaveBinaryResources::getInstance();
+
+#if defined(_WIN32) || defined(_WIN64)
+    // Write the llvm module to a buffer.
+    llvm::SmallVector<char, 1024> llvmBlob;
+    llvm::BitcodeWriter writer(llvmBlob);
+    writer.writeModule(*llvmModule);
+    writer.writeStrtab();
+
+    // Compile the module using the movicompile pipeline.
+    ComputeBinary::CompiledElf output;
+    ComputeBinary::CompileOptions opts;
+    if (!ComputeBinary::compileInput(arch, llvmBlob, llvmFuncOpNameStr, opts, output, log)) {
+        VPUX_THROW("Could not compile shave binary");
+    }
+    sbr.addCompiledElf(llvmFuncOpNameStr, std::move(output.elfBinary), output.size, arch, true);
+    return;
+#endif
+
+    auto archArgument = sbr.getSwKernelArchString(arch);
+
+    // We write llvmModule to file sw_layer.ll.
+    std::error_code llFileEC;
+    llvm::raw_fd_ostream llFile("sw_layer.ll", llFileEC);
+    llFile << *llvmModule;
 
     llvm::SmallVector<std::optional<StringRef>> redirects = {
             std::nullopt,  // stdin(0)
@@ -170,16 +190,17 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
 
     auto prgMCStr = std::string(mvToolsPathCompleteStr) + "/linux64/bin/moviCompile";
     llvm::StringRef prgMC = prgMCStr;
-    std::string mcpuStr = std::string("-mcpu=") + archArgument;
-    llvm::SmallVector<llvm::StringRef> runArgsMC = {prgMC,         // Movicompile tool
-                                                    mcpuStr,       // CPU
-                                                    "-S",          // Only run preprocess and compilation steps
-                                                    "-o",          // Write output to:
-                                                    "sw_layer.s",  // file sw_layer.s
-                                                    "-x",          // Treat subsequent input files as having:
-                                                    "ir",          // type ir
-                                                    "-O3",         // optimize code
-                                                    "-mllvm",      // Next option is for llvm
+    auto mcpuStr = vpux::SmallString("-mcpu=") + archArgument;
+
+    llvm::SmallVector<llvm::StringRef> runArgsMC = {prgMC,          // Movicompile tool
+                                                    mcpuStr.str(),  // CPU
+                                                    "-S",           // Only run preprocess and compilation steps
+                                                    "-o",           // Write output to:
+                                                    "sw_layer.s",   // file sw_layer.s
+                                                    "-x",           // Treat subsequent input files as having:
+                                                    "ir",           // type ir
+                                                    "-O3",          // optimize code
+                                                    "-mllvm",       // Next option is for llvm
                                                     "-enable-loop-flatten",  // Enable the loop flatten optimization
                                                     "sw_layer.ll"};          // Input file
 
@@ -199,7 +220,7 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
 
     std::string elfPathFileNameStr = llvmFuncOpNameStr + "/a.out";
 
-    // We create folder (e.g. generated_Cos0)
+    // Create the folder associated with this shave kernel (e.g. generated_Cos0).
     llvm::sys::fs::create_directory(llvmFuncOpNameStr);
 
     // We run the linker to obtain the ELF file a.out from sw_layers.o
@@ -256,13 +277,13 @@ void vpux::lowerLLVMToBinary(mlir::ModuleOp moduleOp, mlir::SymbolRefAttr swKern
     std::ofstream fOut("FileList.in", std::ios::app);
     if (fOut.is_open()) {  // Make sure file opened before writing
         if (!(fOut << llvmFuncOpNameStr + "/a.out\n")) {
-            llvm::errs() << "Write to FileList.in failed.\n";
+            log.trace("[SCG] Write to FileList.in failed");
         }
 
         if (!(fOut << llvmFuncOpNameStr + "\n")) {
-            llvm::errs() << "Write to FileList.in failed.\n";
+            log.trace("[SCG] Write to FileList.in failed");
         }
     } else {
-        llvm::errs() << "Cannot open file FileList.in.\n";
+        log.trace("[SCG] Cannot open file FileList.in");
     }
 }

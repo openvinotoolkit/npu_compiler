@@ -11,7 +11,6 @@
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include "vpux/utils/IE/config.hpp"
-#include "vpux/utils/logger/logger.hpp"
 
 namespace vpux {
 
@@ -41,6 +40,12 @@ std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XXRefer
 /// @brief This method creates a pipeline strategy for Monolithic WS compilation.
 template <class OptionsType>
 std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XXWS(
+        config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
+        const OptionsType* options);
+
+/// @brief This method creates a pipeline strategy for HostCompile compilation.
+template <class OptionsType>
+std::unique_ptr<IDialectPipelineStrategy> createDialectPipelineStrategy40XXHostCompile(
         config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
         const OptionsType* options);
 

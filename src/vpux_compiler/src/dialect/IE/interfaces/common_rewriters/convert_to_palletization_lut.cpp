@@ -8,8 +8,10 @@
 
 using namespace vpux;
 
-bool vpux::IE::isLegalTensorElemForPalletization(mlir::Type elementType, const bool convertOnlyAsymmetricZp) {
-    const auto isQuantizedTypeLegal = [convertOnlyAsymmetricZp](mlir::quant::QuantizedType quantizedType) -> bool {
+bool vpux::IE::isLegalTensorElemForPalletization(mlir::Type elementType, const bool convertOnlyAsymmetricZp,
+                                                 const bool allowPerChannelZp) {
+    const auto isQuantizedTypeLegal = [convertOnlyAsymmetricZp,
+                                       allowPerChannelZp](mlir::quant::QuantizedType quantizedType) -> bool {
         auto storageTypeInt = mlir::dyn_cast<mlir::IntegerType>(quantizedType.getStorageType());
         // conversion rule for u2/i2 and u4/i4; when convertOnlyAsymmetricZp == true don't execute the
         // conversion if the zp is symmetric
@@ -17,8 +19,10 @@ bool vpux::IE::isLegalTensorElemForPalletization(mlir::Type elementType, const b
                 (storageTypeInt != nullptr) && (convertOnlyAsymmetricZp ? !isSymmetricZeroPoint(quantizedType) : true);
         // If the quantisation is per channel instead of per tensor, the conversion can be supported if all the zp are
         // the same in value (checked by getSingleZeroPointOrFail(quantizedType))
-        const bool isConversionRequired = symmetryConvertCondition && storageTypeInt.getWidth() <= 4 &&
-                                          mlir::succeeded(getSingleZeroPointOrFail(quantizedType));
+        const bool isQuantizationSchemeAllowed =
+                allowPerChannelZp || mlir::succeeded(getSingleZeroPointOrFail(quantizedType));
+        const bool isConversionRequired =
+                symmetryConvertCondition && storageTypeInt.getWidth() <= 4 && isQuantizationSchemeAllowed;
         return !isConversionRequired;
     };
 

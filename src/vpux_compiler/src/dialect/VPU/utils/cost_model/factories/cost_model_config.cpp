@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/utils/cost_model_factory.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/utils/cost_model_factory.hpp"
+#include "vpux/utils/core/error.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 using namespace vpux::config;
 namespace vpux::VPU {

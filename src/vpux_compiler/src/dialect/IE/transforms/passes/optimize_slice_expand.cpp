@@ -7,19 +7,32 @@
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Pass/PassManager.h>
+
+namespace vpux::IE {
+#define GEN_PASS_DECL_OPTIMIZESLICEEXPAND
+#define GEN_PASS_DEF_OPTIMIZESLICEEXPAND
+#include "vpux/compiler/dialect/IE/passes.hpp.inc"
+}  // namespace vpux::IE
 
 using namespace vpux;
 
@@ -401,8 +414,8 @@ mlir::LogicalResult vpux::IE::OptimizeSliceExpand::matchAndRewrite(IE::ExpandOp 
     }
     // E#93789: Follow up task to continue keep slice-expand for Eltwise if expand has multi users
     if (expandOp.getOutput().hasOneUse() && isEltwiseOp) {
-        auto newExpandedShapeResult = getShapeCastExpandedShape(eltwiseOp, getShape(expandOp.getOutput()).toValues(),
-                                                                getShape(expandOp.getInput()).toValues(), _log.nest());
+        auto newExpandedShapeResult = getShapeCastExpandedShape(eltwiseOp, getShape(expandOp.getOutput()),
+                                                                getShape(expandOp.getInput()), _log.nest());
         if (!mlir::failed(newExpandedShapeResult)) {
             innerLog.trace("Expand channel for Eltwise, skip this optimization");
             return mlir::failure();
@@ -431,6 +444,42 @@ mlir::LogicalResult vpux::IE::OptimizeSliceExpand::matchAndRewrite(IE::ExpandOp 
     }
 
     return mlir::failure();
+}
+
+//
+// OptimizeSliceLayoutCastExpand
+//
+
+mlir::LogicalResult vpux::IE::OptimizeSliceLayoutCastExpand::matchAndRewrite(IE::ExpandOp expandOp,
+                                                                             mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), expandOp->getName(), expandOp->getLoc());
+    const auto innerLog = _log.nest();
+
+    auto layoutCastOp = mlir::dyn_cast_or_null<IE::LayoutCastOp>(expandOp.getInput().getDefiningOp());
+    if (layoutCastOp == nullptr || !layoutCastOp->hasOneUse()) {
+        innerLog.trace("'Expand' at '{0}' input is not 'LayoutCast'", expandOp->getLoc());
+        return mlir::failure();
+    }
+
+    auto sliceOp = mlir::dyn_cast_or_null<IE::SliceOp>(layoutCastOp.getInput().getDefiningOp());
+    if (sliceOp == nullptr) {
+        innerLog.trace("'Expand' at '{0}' input is not 'SliceOp'", expandOp->getLoc());
+        return mlir::failure();
+    }
+
+    auto inputSliceShape = mlir::cast<vpux::NDTypeInterface>(sliceOp.getInput().getType()).getShape();
+    auto outputExpandedShape = mlir::cast<vpux::NDTypeInterface>(expandOp.getOutput().getType()).getShape();
+    if (inputSliceShape != outputExpandedShape) {
+        innerLog.trace("Output 'Expand' at '{0}' and input 'Slice' has different shape'", expandOp->getLoc());
+        return mlir::failure();
+    }
+
+    auto newExpand = rewriter.create<IE::ExpandOp>(expandOp->getLoc(), sliceOp.getOutput(), expandOp.getPadsBegin(),
+                                                   expandOp.getPadsEnd());
+
+    rewriter.replaceOpWithNewOp<IE::LayoutCastOp>(expandOp, newExpand.getOutput(), layoutCastOp.getDstOrder());
+
+    return mlir::success();
 }
 
 //
@@ -488,6 +537,15 @@ mlir::LogicalResult vpux::IE::genericOptimizeSliceImplicitExpand(IE::ExpandOp ex
                                                                  mlir::PatternRewriter& rewriter, Logger innerLog) {
     if (implicitOp == nullptr || implicitOp->getNumOperands() != 1 || implicitOp->getNumResults() != 1 ||
         !implicitOp->hasOneUse()) {
+        return mlir::failure();
+    }
+
+    const auto hasConvUser = llvm::any_of(expandOp.getOutput().getUsers(), [&](mlir::Operation* userOp) {
+        return mlir::isa_and_present<IE::ConvolutionOp>(userOp);
+    });
+    if (hasConvUser && VPU::inputCompatibleWithAutoPad(expandOp.getInput().getType()) &&
+        VPU::hasAutoPaddingIDU(getModuleOp(expandOp))) {
+        innerLog.trace("Skip as user can use autopad");
         return mlir::failure();
     }
 
@@ -816,4 +874,123 @@ mlir::LogicalResult IE::OptimizeSliceOpsExpand::matchAndRewrite(IE::ExpandOp exp
 
     rewriter.replaceOpWithNewOp<IE::ExpandOp>(expandOp, expandOp.getType(), preOutput, padBegin, padEnd);
     return mlir::success();
+}
+
+namespace {
+
+//
+// OptimizeSliceSoftmaxExpand
+//
+
+class OptimizeSliceSoftmaxExpand final : public mlir::OpRewritePattern<IE::ExpandOp> {
+public:
+    OptimizeSliceSoftmaxExpand(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::ExpandOp>(ctx), _log(log) {
+        setDebugName("OptimizeSliceSoftmaxExpand");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ExpandOp origOp, mlir::PatternRewriter& rewriter) const final {
+        _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+        const auto innerLog = _log.nest();
+
+        auto implicitOp = origOp.getInput().getDefiningOp<IE::SoftMaxOp>();
+        if (implicitOp == nullptr) {
+            innerLog.trace("Expand '{0}' input is not 'SoftMaxOp'", origOp->getLoc());
+            return mlir::failure();
+        }
+
+        auto inputType = mlir::cast<NDTypeInterface>(implicitOp.getInput().getType());
+        auto order = inputType.getDimsOrder();
+        auto outputShape = inputType.getShape();
+        auto innerDim = getInnermostNonTrivialDim(outputShape, order);
+        auto axisIdx = implicitOp.getAxisInd();
+
+        if (innerDim != Dim(axisIdx)) {
+            innerLog.trace("'SoftMaxOp' process axis should be innermost but got '{0}'", innerDim);
+            return mlir::failure();
+        }
+
+        auto expandedShape = to_small_vector(getShape(origOp.getOutput()));
+        auto implicitShape = to_small_vector(getShape(implicitOp->getResult(0)));
+        int64_t expandedAxisSize = expandedShape[axisIdx] - implicitShape[axisIdx];
+        const auto loc = origOp->getLoc();
+        auto optimizeSuccess = genericOptimizeSliceImplicitExpand(origOp, implicitOp.getOperation(),
+                                                                  /*hasCalculationCost=*/true, rewriter, innerLog);
+        if (optimizeSuccess.failed()) {
+            return mlir::failure();
+        }
+        // update necessary attribute
+        implicitOp.setPadSizeAttr(getIntAttr(rewriter.getContext(), expandedAxisSize));
+        innerLog.trace("Optimization completed successfully at '{0}'", loc);
+        return mlir::success();
+    }
+
+private:
+    Logger _log;
+};
+
+//
+// OptimizeSliceExpandPass
+//
+
+class OptimizeSliceExpandPass final : public IE::impl::OptimizeSliceExpandBase<OptimizeSliceExpandPass> {
+public:
+    explicit OptimizeSliceExpandPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
+    }
+
+private:
+    void safeRunOnFunc() final;
+};
+
+//
+// safeRunOnFunc
+//
+
+void OptimizeSliceExpandPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+
+    mlir::RewritePatternSet patterns(&ctx);
+    patterns.add<IE::OptimizeSliceExpand>(&ctx, _log);
+    patterns.add<IE::OptimizeExpandSlice>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceImplicitExpand<IE::QuantizeCastOp>>(&ctx, _log, /*hasCalculationCost=*/false);
+    patterns.add<IE::OptimizeSliceImplicitExpand<IE::HSwishOp>>(&ctx, _log, /*hasCalculationCost=*/true);
+    patterns.add<IE::OptimizeSliceImplicitExpand<IE::SwishOp>>(&ctx, _log, /*hasCalculationCost=*/true);
+    patterns.add<IE::OptimizeSliceImplicitExpand<IE::GeluOp>>(&ctx, _log, /*hasCalculationCost=*/true);
+    patterns.add<IE::OptimizeSliceImplicitExpand<IE::ClampOp>>(&ctx, _log, /*hasCalculationCost=*/true);
+    patterns.add<OptimizeSliceSoftmaxExpand>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceLayoutCastExpand>(&ctx, _log);
+
+    patterns.add<IE::OptimizeSliceShapeCastExpand<IE::HSwishOp>>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceShapeCastExpand<IE::SwishOp>>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceShapeCastExpand<IE::GeluOp>>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceShapeCastExpand<IE::SigmoidOp>>(&ctx, _log);
+
+    // The middle op has multi inputs
+    patterns.add<IE::OptimizeSliceConcatExpand>(&ctx, _log);
+    patterns.add<IE::OptimizeSlicePReluExpand>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceEltwiseExpand<IE::MultiplyOp>>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceEltwiseExpand<IE::AddOp>>(&ctx, _log);
+    patterns.add<IE::OptimizeSliceEltwiseExpand<IE::SubtractOp>>(&ctx, _log);
+
+    // Pattern slice-op1-op2-...-opN-expand
+    patterns.add<IE::OptimizeSliceOpsExpand>(&ctx, _log);
+
+    auto func = getOperation();
+    // There is case for `OptimizeExpandSlice` that the iteration time larger than 10
+    // Increase the default maxIterations value from 10 to 60
+    auto greedyRewriteConfig = getDefaultGreedyRewriteConfig();
+    greedyRewriteConfig.maxIterations = 60;
+
+    if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), greedyRewriteConfig))) {
+        signalPassFailure();
+        return;
+    }
+}
+
+}  // namespace
+
+std::unique_ptr<mlir::Pass> vpux::IE::createOptimizeSliceExpandPass(Logger log) {
+    return std::make_unique<OptimizeSliceExpandPass>(log);
 }

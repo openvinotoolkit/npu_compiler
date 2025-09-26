@@ -109,7 +109,7 @@ mlir::LogicalResult vpux::IE::GatherOp::inferReturnTypeComponents(
     }
 
     const auto outDesc =
-            vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), /*memSpace=*/nullptr, std::move(bounds));
+            vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), /*memSpace=*/nullptr, bounds);
     inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();

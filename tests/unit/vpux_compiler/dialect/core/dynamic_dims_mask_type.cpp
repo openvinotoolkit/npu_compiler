@@ -53,7 +53,7 @@ public:
         const auto elemType = mlir::Float32Type::get(&ctx);
         const auto order = DimsOrder::NCHW;
         const auto dimsMask = SmallVector<int64_t>{0, 0, 1, 1};
-        const auto tensorAttr = getTensorAttr(&ctx, order, nullptr, Bounds(), DynamicDimsMask(dimsMask));
+        const auto tensorAttr = getTensorAttr(&ctx, order, nullptr, /*Bounds=*/{}, DynamicDimsMaskRef(dimsMask));
         const auto type = mlir::RankedTensorType::get(shape, elemType, tensorAttr);
 
         return std::make_pair(type, dimsMask);
@@ -107,7 +107,7 @@ TEST_F(MLIR_DynamicDimsMaskTensorTypeTest, ChangeDynamicDimsMask) {
     const auto newDimsMask = mlir::SmallVector<int64_t>{1, 1, 1, 1};
     ASSERT_TRUE(dimsMask != newDimsMask);
 
-    const auto newType = dynamicDimsMaskType.changeDynamicDimsMask(DynamicDimsMask(newDimsMask));
+    const auto newType = dynamicDimsMaskType.changeDynamicDimsMask(DynamicDimsMaskRef(newDimsMask));
     ASSERT_TRUE(llvm::equal(newType.getDynamicDimsMask(), newDimsMask));
 }
 
@@ -117,10 +117,11 @@ TEST_F(MLIR_DynamicDimsMaskTensorTypeTest, ThrowChangeIncorrectMask) {
     auto dynMaskType = mlir::dyn_cast<Core::DynamicDimsMaskTensorType>(type);
     ASSERT_TRUE(dynMaskType != nullptr);
 
-    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMask{10, 1, 0, 0}),
+    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMaskRef({10, 1, 0, 0})),
                  std::exception);
-    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMask{1, 0}), std::exception);
-    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMask{0, 0, 0, 0}),
+    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMaskRef({1, 0})),
+                 std::exception);
+    EXPECT_THROW([[maybe_unused]] auto _ = dynMaskType.changeDynamicDimsMask(DynamicDimsMaskRef({0, 0, 0, 0})),
                  std::exception);
 }
 

@@ -14,7 +14,6 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/types.hpp"
 
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -560,7 +559,7 @@ Const::DeclareOp FuseSliceWithConvRewriter::createConstOp(Const::DeclareOp cstOp
         constShape[vpux::Dims4D::Act::C.ind()] = inShape[vpux::Dims4D::Act::C];
     }
 
-    auto cstContentAttr = cstOp.transformContentAttr().subview(ShapeRef(newInOffset), Shape(constShape)).get();
+    auto cstContentAttr = cstOp.transformContentAttr().subview(ShapeRef(newInOffset), ShapeRef(constShape)).get();
     return rewriter.create<Const::DeclareOp>(cstOp.getLoc(), cstContentAttr.getType(), std::move(cstContentAttr));
 }
 

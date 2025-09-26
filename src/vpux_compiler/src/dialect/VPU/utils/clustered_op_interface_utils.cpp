@@ -4,21 +4,22 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/clustered_op_interface_utils.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;
 
 int64_t VPU::getNumTiles(mlir::Operation* op) {
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     return tileOp.getCount();
 }
 
@@ -33,7 +34,7 @@ bool VPU::isOperationSplitOverHeightCompatible(mlir::Operation* op, const vpux::
 
     auto isUniformDistributedSegments = VPU::isUniformDistributedSegmentsSupported(clusteredOp);
 
-    auto outputShape = outputTile.shape.empty() ? getShape(clusteredOp->getResult(0)) : ShapeRef(outputTile.shape);
+    const Shape outputShape(outputTile.shape.empty() ? getBoundedShape(clusteredOp->getResult(0)) : outputTile.shape);
     auto heightCompatibleCheck = [&](ShapeRef outputShape) {
         const auto OH = outputShape[Dims4D::Act::H];
         auto numClustersForSOH = VPU::getNumberOfClustersForSpatialDim(outputShape[Dims4D::Act::H], numTiles,
@@ -268,7 +269,7 @@ bool VPU::isOperationSplitOverGroupCompatible(mlir::Operation* op, const vpux::T
     }
 
     auto moduleOp = op->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(moduleOp);
+    auto tileOp = config::getTileExecutor(moduleOp);
     const auto numTiles = tileOp.getCount();
     const auto minimumOutputGroupsForSOG = numTiles;
 
@@ -291,7 +292,7 @@ bool VPU::isOperationSplitOverGroupCompatible(mlir::Operation* op, const vpux::T
 
 bool VPU::checkMCRestrictions(mlir::Operation* op) {
     auto module = op->getParentOfType<mlir::ModuleOp>();
-    if (IE::getAvailableExecutor(module, VPU::ExecutorKind::SHAVE_ACT) == nullptr) {
+    if (config::getAvailableExecutor(module, VPU::ExecutorKind::SHAVE_ACT) == nullptr) {
         return false;
     }
 

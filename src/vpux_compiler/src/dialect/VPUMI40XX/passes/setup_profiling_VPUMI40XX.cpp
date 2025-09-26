@@ -4,13 +4,13 @@
 //
 
 #include "vpux/compiler/core/profiling.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
@@ -65,7 +65,7 @@ private:
     mlir::Value createDmaHwpBaseDynamic(mlir::OpBuilder builderFunc, mlir::ModuleOp moduleOp) {
         _log.trace("createDmaHwpBase");
         const auto ctx = builderFunc.getContext();
-        auto dmaProfMem = IE::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::DDR);
+        auto dmaProfMem = config::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::DDR);
         VPUX_THROW_WHEN(dmaProfMem == nullptr, "Missing DMA HWP reserved buffer");
         auto dmaProfMemOffset = dmaProfMem.getOffset();
         VPUX_THROW_WHEN(dmaProfMemOffset == std::nullopt, "DMA HWP has no allocated address");
@@ -86,7 +86,7 @@ private:
     // Note on 40xx DMA Scratch buffer is mandatory for non-profiling blobs, see E#101929
     mlir::Value createDmaHwpScratch(mlir::OpBuilder builderFunc, mlir::ModuleOp moduleOp) {
         _log.trace("createDmaHwpScratch");
-        auto dmaProfMem = IE::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::CMX_NN);
+        auto dmaProfMem = config::getDmaProfilingReservedMemory(moduleOp, VPU::MemoryKind::CMX_NN);
         VPUX_THROW_WHEN(dmaProfMem == nullptr, "Missing DMA HWP scratch buffer");
         auto dmaProfMemOffset = dmaProfMem.getOffset();
         VPUX_THROW_WHEN(dmaProfMemOffset == std::nullopt, "No address allocated.");

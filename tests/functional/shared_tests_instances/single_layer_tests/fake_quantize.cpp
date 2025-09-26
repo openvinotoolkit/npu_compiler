@@ -115,7 +115,7 @@ const auto fqParamsU =
 
 const auto perTensorCfg = ::testing::Combine(fqParamsU, ::testing::Values(ov::element::f16),
                                              ::testing::ValuesIn(static_shapes_to_test_representation(inShapes3720)),
-                                             ::testing::Values(DEVICE_NPU));
+                                             ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_NPU3720, perTensorCfg,
                          FakeQuantizeLayerTest_SW_NPU3720::getTestCaseName);
@@ -131,7 +131,7 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_tiling_FakeQuantize_PerTensor, FakeQuantizeLayerTest_SW_NPU3720,
         ::testing::Combine(fqParamsT, ::testing::Values(ov::element::f16),
                            ::testing::ValuesIn({static_shapes_to_test_representation(tilingShapes3720[2])}),
-                           ::testing::Values(DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         FakeQuantizeLayerTest_SW_NPU3720::getTestCaseName);
 
 // NPU3720 Per-Channel (different lo/hi limits per channel)
@@ -148,7 +148,7 @@ const auto perChParams(std::vector<ov::Shape> inShape) {
 
     return ::testing::Combine(fqParams, ::testing::Values(ov::element::f16),
                               ::testing::Values(static_shapes_to_test_representation(inShape)),
-                              ::testing::Values(DEVICE_NPU));
+                              ::testing::Values(test_utils::TARGET_DEVICE));
 }
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_FakeQuantize_PerCh_a, FakeQuantizeLayerTest_SW_NPU3720,
@@ -190,13 +190,13 @@ INSTANTIATE_TEST_SUITE_P(
         smoke_FakeQuantize_ND, FakeQuantizeLayerTest_HW_NPU3720,
         ::testing::Combine(params3720, ::testing::ValuesIn(modelTypes3720),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes3720nd)),
-                           ::testing::Values(DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         FakeQuantizeLayerTest_HW_NPU3720::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(
         smoke_FakeQuantize_4D, FakeQuantizeLayerTest_HW_NPU3720,
         ::testing::Combine(params3720, ::testing::ValuesIn(modelTypes3720),
                            ::testing::ValuesIn(static_shapes_to_test_representation(inputShapes37204d)),
-                           ::testing::Values(DEVICE_NPU)),
+                           ::testing::Values(test_utils::TARGET_DEVICE)),
         FakeQuantizeLayerTest_HW_NPU3720::getTestCaseName);
 }  // namespace

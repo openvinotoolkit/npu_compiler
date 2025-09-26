@@ -505,9 +505,9 @@ func.func @NotMoveUpsamplingDMAInCMXWithLargeSize(%arg0: memref<1x64x128x128xf16
 
 // -----
 
-IE.TileResource 3 of @NCE {
-IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 3 of @NCE {
+config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
@@ -551,9 +551,9 @@ func.func @ConvertPerAxisTileToDMAOutputDDR(%arg0: memref<1x1x1x1000xf16, @DDR>,
 
 // -----
 
-IE.TileResource 3 of @NCE {
-IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+config.Resources 3 of @NCE {
+config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
@@ -641,4 +641,3 @@ func.func @ConvertMemPermuteNCHWToHCWN(%arg0: memref<128x2x36x68xf16, @DDR>)
 
     // CHECK:   return [[COPY2]] : memref<36x2x68x128xf16, @DDR>
 }
-

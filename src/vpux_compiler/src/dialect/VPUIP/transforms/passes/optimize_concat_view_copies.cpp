@@ -3,8 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/Operation.h>
+#include <mlir/IR/PatternMatch.h>
+#include <mlir/IR/Value.h>
+#include <mlir/Support/LLVM.h>
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 #include "vpux/compiler/core/aliases_info.hpp"
 #include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
@@ -21,12 +27,6 @@
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-
-#include <mlir/IR/Operation.h>
-#include <mlir/IR/PatternMatch.h>
-#include <mlir/IR/Value.h>
-#include <mlir/Support/LLVM.h>
-#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_OPTIMIZECONCATVIEWCOPIES
@@ -244,7 +244,7 @@ mlir::LogicalResult AvoidConcatExtraChannel::checkConcatInputs(mlir::ValueRange 
         auto offsets = parseIntArrayAttr<int64_t>(subview.getStaticOffsetsAttr());
         auto sizes = parseIntArrayAttr<int64_t>(subview.getStaticSizesAttr());
 
-        auto concatDims = getConcatDims(Shape(sizes), concatOutShape);
+        auto concatDims = getConcatDims(ShapeRef(sizes), concatOutShape);
         if (concatDims.size() != 1 && llvm::find(concatDims, Dims4D::Act::C) != concatDims.end()) {
             return mlir::failure();
         }
@@ -651,7 +651,7 @@ mlir::LogicalResult FuseConcatView::fuseTwoConcatViewInputs(VPUIP::ConcatViewOp 
     }
 
     VPUX_THROW_UNLESS(_userCopyOp != nullptr, "Cannot get DDR to DDR Copy Op after '{0}'", concatViewOp->getLoc());
-    VPUIP::SubViewOp outCopySubView = _userCopyOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>();
+    auto outCopySubView = _userCopyOp.getOutputBuff().getDefiningOp<VPUIP::SubViewOp>();
 
     auto nextConcatViewOp = mlir::dyn_cast<VPUIP::ConcatViewOp>(*_userCopyOp.getOutput().getUsers().begin());
     if (nextConcatViewOp == nullptr) {
@@ -2973,6 +2973,7 @@ public:
         auto rightBranchTilingAndSubviewOnSameAxis =
                 mlir::isa<VPUIP::DistributedBufferType>(rightBranchInput.getType()) &&
                 (tilingAxis == rightBranchSubviewAxis) && (newConcatDim.ind() != tilingAxis);
+        auto rightBranchTilingAndExtractFlatSliceOnSameAxis = (newConcatDim.ind() == tilingAxis);
         if (!highestNonOneDim.has_value()) {
             nestedLog.trace("PermuteCast output shape is full on 1s");
             return mlir::failure();
@@ -3006,6 +3007,37 @@ public:
                                  newConcatDim,
                                  permuteCastOp};
 
+        if (rightBranchTilingAndExtractFlatSliceOnSameAxis) {
+            auto tilingDimOffset = params.leftConcatInputSize;
+            auto tilingDimLength = params.rightInputSize;
+            auto tileDim = Dim(tilingAxis);
+            auto illegalExtractFlatSlice = llvm::any_of(distributedCopies, [&](VPUIP::CopyOp tiledCopy) {
+                auto distributedType = mlir::cast<vpux::VPUIP::DistributedBufferType>(tiledCopy.getResult().getType());
+                auto perClusterShapes = distributedType.getPerClusterMemoryShapes();
+                auto perClusterOffsets = distributedType.getPerClusterMemoryShapeOffsets();
+                auto shape = distributedType.getShape();
+                if (tilingDimOffset < 0 || tilingDimOffset >= shape[tileDim]) {
+                    return true;
+                }
+                size_t clusterId = perClusterOffsets.size() - 1;
+                for (size_t idx = 0; idx < perClusterOffsets.size() - 1; ++idx) {
+                    auto nextClusterOffset = perClusterOffsets[idx + 1][tileDim];
+                    if (tilingDimOffset < nextClusterOffset) {
+                        clusterId = idx;
+                        break;
+                    }
+                }
+                if (tilingDimLength + tilingDimOffset >
+                    perClusterOffsets[clusterId][tileDim] + perClusterShapes[clusterId][tileDim]) {
+                    return true;
+                }
+                return false;
+            });
+            if (illegalExtractFlatSlice) {
+                nestedLog.trace("Illegal distribution for ExtractFlatSliceOp");
+                return mlir::failure();
+            }
+        }
         const auto isOverlappedOrNone = [](mlir::Value branchInput) {
             auto inputType = mlir::cast<vpux::NDTypeInterface>(branchInput.getType());
             auto distributedBufferType = mlir::dyn_cast<vpux::VPUIP::DistributedBufferType>(inputType);
@@ -3147,6 +3179,31 @@ private:
             }
             copies.push_back(copyOrConvertDMAOp);
             copyOrConvertDMAOp = patternInput.getDefiningOp();
+        }
+        // Check if the input has stride. Because we will move permuteCast to the front. The pattern becomes
+        // input(stride) -> permuteCast -> copy.
+        // Since permuteCast can not support stride input, so we will lose the stride info for the
+        // DMA after permuteCast, which finally cause accuracy issue.
+        // TODO: #E180063 to support stride input for permuteCast.
+        if (!copies.empty()) {
+            const auto inType = mlir::cast<vpux::NDTypeInterface>(copies.back()->getOperand(0).getType());
+            const auto dimsOrder = inType.getDimsOrder();
+            const auto logicShape = inType.getShape();
+            const auto memShape = dimsOrder.toMemoryOrder(logicShape);
+            const auto compactMemStrides =
+                    StrideReqs::compact(dimsOrder.numDims()).calcStrides(inType.getElemTypeSize(), memShape);
+            const auto strides = inType.getStrides();
+            const auto memStrides = dimsOrder.toMemoryOrder(strides);
+            for (auto dim : irange(dimsOrder.numDims())) {
+                // No need to check the highest dim if the shape is 1, such as below case, we think it is compact.
+                // memref<1x32x1x96xf16, {order = #NCHW, strides = [9216, 96, 96, 1]}, @DDR>
+                if (dim == 0 && memShape[MemDim(dim)] == 1) {
+                    continue;
+                }
+                if (memStrides[MemDim(dim)] != compactMemStrides[MemDim(dim)]) {
+                    return {nullptr, {}};
+                }
+            }
         }
         if (patternInput != nullptr) {
             return {patternInput, copies};
@@ -3512,8 +3569,8 @@ private:
                                                     printToString("right_{0}", index));
 
         auto dstView = rewriter.createOrFold<VPUIP::ExtractFlatSliceOp>(appendLoc(baseLoc, "right_dst_view_{0}", index),
-                                                                        dstBuffer, params.leftConcatInputSize);
-
+                                                                        dstBuffer, params.leftConcatInputSize,
+                                                                        params.rightInputSize);
         auto copyShape = getShape(subViewOp->getResult(0)).toValues();
         copyShape[params.newConcatDim] = params.rightInputSize;
 

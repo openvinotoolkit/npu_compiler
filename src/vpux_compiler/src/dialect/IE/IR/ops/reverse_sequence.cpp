@@ -60,8 +60,8 @@ mlir::LogicalResult vpux::IE::ReverseSequenceOp::inferReturnTypeComponents(
     }
 
     const auto elementType = dataType.getElementType();
-    if (!(elementType.isF16() || elementType.isF32() || elementType.isUnsignedInteger(8))) {
-        return errorAt(loc, "Reverse Sequence only support FP16, FP32, U8 data type");
+    if (!(elementType.isF16() || elementType.isF32() || elementType.isInteger(8))) {
+        return errorAt(loc, "Reverse Sequence only support FP16, FP32, INT8 (I8/U8/SI8) data type");
     }
 
     inferredReturnShapes.emplace_back(dataShape, elementType);
@@ -83,7 +83,7 @@ mlir::OpFoldResult vpux::IE::ReverseSequenceOp::fold(FoldAdaptor adaptor) {
 }
 
 namespace {
-class ConvertU8ToFP16 final : public mlir::OpRewritePattern<IE::ReverseSequenceOp> {
+class ConvertIntToFP16 final : public mlir::OpRewritePattern<IE::ReverseSequenceOp> {
 public:
     using mlir::OpRewritePattern<IE::ReverseSequenceOp>::OpRewritePattern;
 
@@ -99,18 +99,34 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::ReverseSequenceOp rsOp, mlir::PatternRewriter& rewriter) const final;
 };
 
-mlir::LogicalResult ConvertU8ToFP16::matchAndRewrite(IE::ReverseSequenceOp rsOp,
-                                                     mlir::PatternRewriter& rewriter) const {
+mlir::LogicalResult ConvertIntToFP16::matchAndRewrite(IE::ReverseSequenceOp rsOp,
+                                                      mlir::PatternRewriter& rewriter) const {
     const auto dataType = mlir::cast<mlir::ShapedType>(rsOp.getData().getType());
 
-    if (dataType.getElementType().isUnsignedInteger(8)) {
+    if (dataType.getElementType().isInteger(8)) {
         auto convertOpBefore = rewriter.create<IE::ConvertOp>(appendLoc(rsOp.getLoc(), "cvt_in"), rsOp.getData(),
                                                               mlir::Float16Type::get(getContext()));
         auto reverseSequenceOp =
                 rewriter.create<IE::ReverseSequenceOp>(rsOp.getLoc(), convertOpBefore.getOutput(), rsOp.getSeqLength(),
                                                        rsOp.getSeqAxis(), rsOp.getBatchAxis());
-        auto inputTypeAttr = mlir::TypeAttr::get(
-                mlir::IntegerType::get(getContext(), 8, mlir::IntegerType::SignednessSemantics::Unsigned));
+
+        auto getInputTypeAttr = [&]() -> mlir::TypeAttr {
+            auto elementType = mlir::cast<mlir::IntegerType>(dataType.getElementType());
+            switch (elementType.getSignedness()) {
+            case mlir::IntegerType::SignednessSemantics::Unsigned:
+                return mlir::TypeAttr::get(
+                        mlir::IntegerType::get(getContext(), 8, mlir::IntegerType::SignednessSemantics::Unsigned));
+            case mlir::IntegerType::SignednessSemantics::Signed:
+                return mlir::TypeAttr::get(
+                        mlir::IntegerType::get(getContext(), 8, mlir::IntegerType::SignednessSemantics::Signed));
+            case mlir::IntegerType::SignednessSemantics::Signless:
+            default:
+                return mlir::TypeAttr::get(
+                        mlir::IntegerType::get(getContext(), 8, mlir::IntegerType::SignednessSemantics::Signless));
+            }
+        };
+
+        mlir::TypeAttr inputTypeAttr = getInputTypeAttr();
         auto outOp = rewriter.replaceOpWithNewOp<IE::ConvertOp>(rsOp, reverseSequenceOp.getOutput(), inputTypeAttr);
         extendOpLoc(outOp, "cvt_out");
         return mlir::success();
@@ -138,5 +154,5 @@ mlir::LogicalResult NormalizeAxis::matchAndRewrite(IE::ReverseSequenceOp rsOp, m
 void vpux::IE::ReverseSequenceOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns,
                                                               mlir::MLIRContext* context) {
     patterns.add<NormalizeAxis>(context);
-    patterns.add<ConvertU8ToFP16>(context);
+    patterns.add<ConvertIntToFP16>(context);
 }

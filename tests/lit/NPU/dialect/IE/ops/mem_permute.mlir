@@ -522,16 +522,16 @@ func.func @NotConvertShapeCastWhenShapeChanged(%arg0: tensor<1x49x1x1024xf16, {o
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 
-// CHECK-LABEL:   @NotConvertShapeCastWhenPermuteCastNotFound
+// CHECK-LABEL:   @ConvertShapeCastWhenPermuteCastFound
 // CHECK-SAME:    [[INPUT:%.+]]: tensor<1x1x2x2xf16, {order = #NHWC}>
-func.func @NotConvertShapeCastWhenPermuteCastNotFound(%arg0: tensor<1x1x2x2xf16, {order = #NHWC}>) -> tensor<1x1x2x2xf16> {
+func.func @ConvertShapeCastWhenPermuteCastFound(%arg0: tensor<1x1x2x2xf16, {order = #NHWC}>) -> tensor<1x1x2x2xf16> {
     %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NHCW} : tensor<1x1x2x2xf16, {order = #NHWC}> -> tensor<1x2x2x1xf16>
     %1 = IE.ShapeCast {shape = [1, 1, 2, 2]} inputs(%0 : tensor<1x2x2x1xf16>) -> tensor<1x1x2x2xf16>
 
     return %1 : tensor<1x1x2x2xf16>
 
-    // CHECK:     [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCHW, mem_perm = #NHCW} : tensor<1x1x2x2xf16, {order = #NHWC}> -> tensor<1x2x2x1xf16>
-    // CHECK:     [[SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 1, 2, 2]} inputs([[MEMPERMUTE]] : tensor<1x2x2x1xf16>) -> tensor<1x1x2x2xf16>
-    // CHECK:     return [[SHAPECAST]]
+    // CHECK:     [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCHW, mem_perm = #NWHC} : tensor<1x1x2x2xf16, {order = #NHWC}> -> tensor<1x1x2x2xf16>
+    // CHECK:     return [[MEMPERMUTE]]
 }

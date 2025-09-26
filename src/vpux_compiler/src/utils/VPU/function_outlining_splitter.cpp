@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/outlining_utils.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
 
 using namespace vpux;
@@ -66,24 +67,6 @@ mlir::Operation* trySearchForRootOp(mlir::Operation* op) {
     return *op->getResult(0).getUsers().begin();
 }
 
-bool isConstOperandOp(mlir::Operation* op) {
-    if (mlir::isa<VPU::StorageElementTableOp, Const::DeclareOp>(op)) {
-        return true;
-    }
-
-    if (mlir::isa<VPU::GroupedViewLikeOpInterface>(op)) {
-        return llvm::all_of(op->getOperands(), [&](mlir::Value v) {
-            if (mlir::isa<mlir::BlockArgument>(v)) {
-                return true;
-            }
-            auto parentOp = v.getDefiningOp();
-            return isConstOperandOp(parentOp);
-        });
-    }
-
-    return false;
-}
-
 bool VFOutliningSplitter::isProcessInputOp(mlir::Operation* op) {
     if (op == nullptr) {
         return false;
@@ -93,7 +76,7 @@ bool VFOutliningSplitter::isProcessInputOp(mlir::Operation* op) {
         return isProcessInputOp(op->getOperand(0).getDefiningOp());
     }
 
-    if (isConstOperandOp(op)) {
+    if (VPU::isConstOperandOp(op)) {
         return true;
     }
 

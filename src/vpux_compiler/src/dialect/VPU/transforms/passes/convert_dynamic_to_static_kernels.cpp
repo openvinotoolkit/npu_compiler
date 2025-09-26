@@ -7,7 +7,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-#include "vpux/compiler/utils/logging.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Affine/IR/AffineOps.h>
 #include <mlir/Dialect/ControlFlow/IR/ControlFlowOps.h>
@@ -44,6 +44,22 @@ private:
         if (auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
             return !rankedTensorType.hasStaticShape();
         }
+        return false;
+    };
+
+    auto checkForDynamicTensor(mlir::Operation* op) {
+        for (auto operand : op->getOperands()) {
+            if (isDynamicTensor(operand)) {
+                return true;
+            }
+        }
+
+        for (auto result : op->getResults()) {
+            if (isDynamicTensor(result)) {
+                return true;
+            }
+        }
+
         return false;
     };
 
@@ -100,7 +116,7 @@ bool ConvertDynamicToStaticKernelsPass::adjustIndexIntoDynamicTensor(mlir::scf::
     auto stepDiff = thenBuilder.create<mlir::arith::SubIOp>(ifOp.getLoc(), forOp.getStep(), minValue);
 
     // Check whether we have enough elements to backtrack
-    auto canBacktrack = thenBuilder.create<mlir::arith::CmpIOp>(stepDiff.getLoc(), mlir::arith::CmpIPredicate::slt,
+    auto canBacktrack = thenBuilder.create<mlir::arith::CmpIOp>(stepDiff.getLoc(), mlir::arith::CmpIPredicate::sgt,
                                                                 forOp.getInductionVar(), stepDiff);
     thenBuilder.create<mlir::cf::AssertOp>(canBacktrack.getLoc(), canBacktrack,
                                            "Not enough elements to backtrack in scf.for loop");
@@ -270,7 +286,10 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
         // Get the list of call operations inside the scf.for loop
         SmallVector<mlir::func::CallOp> callOpsWithDynamicTensors;
         for (auto op : forOp.getOps<mlir::func::CallOp>()) {
-            if (vpux::IE::hasDynamicTensors(op)) {
+            // After extract_slice operations in scf tiling, resulting tensor slices have dynamic shapes without bounds
+            // or dynamic_dims attributes. This causes hasDynamicTensors checks to fail. This additional check ensures
+            // operations with dynamic tensors are correctly identified and processed.
+            if (vpux::IE::hasDynamicTensors(op) || checkForDynamicTensor(op)) {
                 callOpsWithDynamicTensors.push_back(op);
             }
         }
@@ -359,7 +378,16 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
 
                     auto castToDynamicTensor =
                             builder.create<mlir::tensor::CastOp>(newCallOp->getLoc(), oldResult.getType(), newResult);
-                    oldResult.replaceAllUsesWith(castToDynamicTensor.getResult());
+
+                    for (auto user : llvm::make_early_inc_range(oldResult.getUsers())) {
+                        if (user != castToDynamicTensor.getOperation()) {
+                            if (mlir::isa<mlir::func::CallOp>(user)) {
+                                user->replaceUsesOfWith(oldResult, newResult);
+                            } else {
+                                user->replaceUsesOfWith(oldResult, castToDynamicTensor.getResult());
+                            }
+                        }
+                    }
                 } else {
                     oldResult.replaceAllUsesWith(newResult);
                 }

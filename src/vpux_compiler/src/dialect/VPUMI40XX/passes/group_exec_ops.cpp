@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/shave.hpp"
@@ -249,10 +249,11 @@ void GroupExecutionOpsPass::safeRunOnFunc() {
     auto mpi = VPUMI40XX::getMPI(netFunc);
 
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();
-    const auto tilesCount = IE::getTileExecutor(parentModule).getCount();
+    const auto tilesCount = config::getTileExecutor(parentModule).getCount();
 
     auto numShaveQueuesPerTile = [&] {
-        const auto shavesCountPerTile = IE::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
+        const auto shavesCountPerTile =
+                config::getAvailableExecutor(parentModule, VPU::ExecutorKind::SHAVE_ACT).getCount();
         return fifoPerShaveEngineEnabled ? static_cast<size_t>(shavesCountPerTile) : static_cast<size_t>(1);
     }();
 

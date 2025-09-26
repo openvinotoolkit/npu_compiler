@@ -9,11 +9,14 @@
 
 void vpux::VPU::arch40xx::registerSCFTilingOpsInterfaces(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
-        VPU::NCEEltwiseOp::attachInterface<vpux::VPU::SCFTilingEltwiseModelOp>(*ctx);
-        VPU::NCEAveragePoolOp::attachInterface<vpux::VPU::SCFTilingPoolingModelOp<VPU::NCEAveragePoolOp>>(*ctx);
-        VPU::NCEMaxPoolOp::attachInterface<vpux::VPU::SCFTilingPoolingModelOp<VPU::NCEMaxPoolOp>>(*ctx);
+        VPU::NCEEltwiseOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::NCEEltwiseOp>>(*ctx);
+        VPU::NCEAveragePoolOp::attachInterface<vpux::VPU::SCFAvgPoolOpModel>(*ctx);
+        VPU::NCEMaxPoolOp::attachInterface<vpux::VPU::SCFMaxPoolOpModel>(*ctx);
         VPU::NCEConvolutionOp::attachInterface<vpux::VPU::SCFConvOpModel>(*ctx);
         VPU::NCEDepthConvolutionOp::attachInterface<vpux::VPU::SCFTilingDepthConvModelOp>(*ctx);
+        VPU::NCEPermuteOp::attachInterface<vpux::VPU::SCFTilingPermuteModelOp>(*ctx);
+
+        VPU::ConvertOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::ConvertOp>>(*ctx);
 
         VPU::LayoutCastOp::attachInterface<vpux::VPU::SCFLayoutCastTilingModelOp>(*ctx);
     });

@@ -42,12 +42,12 @@ mlir::LogicalResult vpux::IE::MultiplyOp::inferReturnTypeComponents(
         if (mlir::failed(IE::padOutputShape(outShape, multiply.getOutputPaddingAttr(), loc))) {
             return mlir::failure();
         }
-        const auto outBounds = inferOutputBounds(multiply.getInput1(), multiply.getInput2(), Shape(outShape),
+        const auto outBounds = inferOutputBounds(multiply.getInput1(), multiply.getInput2(), ShapeRef(outShape),
                                                  multiply.getAutoBroadcast());
         const auto outOrder =
                 in1Type.getRank() >= in2Type.getRank() ? vpux::getOrder(in1Type) : vpux::getOrder(in2Type);
 
-        const auto tensorAttr = getTensorAttr(ctx, outOrder, getMemorySpace(in1Type), Bounds(outBounds));
+        const auto tensorAttr = getTensorAttr(ctx, outOrder, getMemorySpace(in1Type), BoundsRef(outBounds));
         inferredReturnShapes.emplace_back(outShape, in1Type.getElementType(), tensorAttr);
     }
 
@@ -58,18 +58,40 @@ mlir::OpFoldResult vpux::IE::MultiplyOp::fold(FoldAdaptor adaptor) {
     auto operands = adaptor.getOperands();
     VPUX_THROW_UNLESS(operands.size() == 2, "Wrong number of operands : {0}", operands.size());
 
-    const bool shapeChanges = getShape(getInput1()) != getShape(getOutput());
+    const auto lhsInputShape = getShape(getInput1());
+    const auto rhsInputShape = getShape(getInput2());
+    const auto outputShape = getShape(getOutput());
+
+    const bool shapeChanges = (lhsInputShape != outputShape);
     if (shapeChanges) {
         return nullptr;
     }
 
-    const auto attr = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[1]);
-    if (attr == nullptr || !attr.isSplat()) {
+    auto rhsAttr = mlir::dyn_cast_or_null<vpux::Const::ContentAttr>(operands[1]);
+    if (rhsAttr && rhsAttr.isSplat()) {
+        const auto folded = rhsAttr.fold();
+        const double splatVal = folded.getSplatValue<double>();
+        if (isDoubleEqual(splatVal, 1.0)) {
+            return getInput1();
+        }
         return nullptr;
     }
 
-    const auto content = static_cast<Const::ContentAttr>(attr).fold();
-    return isDoubleEqual(content.getSplatValue<double>(), 1.0f) ? getInput1() : nullptr;
+    auto lhsAttr = mlir::dyn_cast_or_null<vpux::Const::ContentAttr>(operands[0]);
+    // Do not fold constants with different shapes
+    const bool equalShapes = (lhsInputShape == rhsInputShape);
+    if (!equalShapes) {
+        return nullptr;
+    }
+
+    if (lhsAttr && rhsAttr) {
+        // Note: Rescale doesn't support scalar * tensor
+        if (lhsAttr.isSplat() && !rhsAttr.isSplat()) {
+            return rhsAttr.transform().rescale(lhsAttr).get();
+        }
+        return lhsAttr.transform().rescale(rhsAttr).get();
+    }
+    return nullptr;
 }
 
 mlir::LogicalResult vpux::IE::MultiplyOp::reifyResultShapes(mlir::OpBuilder& builder,

@@ -14,7 +14,11 @@ namespace test {
 
 class LogicalLayerTestCommon : public LogicalLayerTest, virtual public VpuOv2LayerTest {};
 class LogicalLayerTestHW : public LogicalLayerTestCommon {};
-class ShaveCodeGenLogicalLayerTestCommon : public LogicalLayerTestCommon {};
+class ShaveCodeGenLogicalLayerTestCommon : public LogicalLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 TEST_P(LogicalLayerTestCommon, NPU3720_SW) {
     setReferenceSoftwareMode();
@@ -32,7 +36,7 @@ TEST_P(LogicalLayerTestCommon, NPU4000_SW) {
 }
 
 TEST_P(ShaveCodeGenLogicalLayerTestCommon, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -97,22 +101,24 @@ std::map<ov::Shape, std::vector<ov::Shape>> tiling_inShapes = {
 const auto logical_params = ::testing::Combine(
         ::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(inShapes))),
         ::testing::ValuesIn(supportedTypes), ::testing::ValuesIn(secondInputTypes), ::testing::ValuesIn(modelTypes),
-        ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config));
 
 const auto precommit_logical_params = ::testing::Combine(
         ::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(precommit_inShapes))),
         ::testing::ValuesIn(supportedTypes), ::testing::ValuesIn(secondInputTypes), ::testing::ValuesIn(modelTypes),
-        ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+        ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(additional_config));
 
-const auto precommit_logical_params_not = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(inShapesNot))),
-        ::testing::Values(LogicalTypes::LOGICAL_NOT), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto precommit_logical_params_not =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(inShapesNot))),
+                           ::testing::Values(LogicalTypes::LOGICAL_NOT), ::testing::Values(InputLayerType::CONSTANT),
+                           ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
-const auto tiling_logical_params = ::testing::Combine(
-        ::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(tiling_inShapes))),
-        ::testing::Values(LogicalTypes::LOGICAL_OR), ::testing::ValuesIn(secondInputTypes),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU), ::testing::Values(additional_config));
+const auto tiling_logical_params =
+        ::testing::Combine(::testing::ValuesIn(static_shapes_to_test_representation(combineShapes(tiling_inShapes))),
+                           ::testing::Values(LogicalTypes::LOGICAL_OR), ::testing::ValuesIn(secondInputTypes),
+                           ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
 
 // [Tracking number E#109588]
 INSTANTIATE_TEST_SUITE_P(DISABLED_TMP_smoke_logical, LogicalLayerTestCommon, logical_params,

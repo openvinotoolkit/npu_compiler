@@ -6,9 +6,6 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/empty_node.hpp"
-
-#include "vpux/utils/core/checked_cast.hpp"
 
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
@@ -38,7 +35,7 @@ mlir::LogicalResult vpux::VPU::MaxPool8Op::inferReturnTypes(mlir::MLIRContext* c
     const auto shapeI64 = inferMaxPool8OutputShape(ShapeInfo::fromNDType(inType), windowStrides, windowDilations,
                                                    dataPaddingBelow, dataPaddingAbove, windowShape, roundingType);
 
-    const auto outType = inType.changeShape(Shape(shapeI64.shape));
+    const auto outType = inType.changeShape(ShapeRef(shapeI64.shape));
     inferredReturnTypes.push_back(outType);
 
     const auto outType1 = outType.changeElemType(maxPool8.getIndexElementType());

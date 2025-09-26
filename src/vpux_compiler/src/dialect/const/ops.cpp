@@ -48,7 +48,7 @@ mlir::Operation* vpux::Const::ConstDialect::materializeConstant(mlir::OpBuilder&
 // ConstDialect: bufferize Const::DeclareOp
 //
 
-mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, Const::DeclareOp origOp, Const::DeclareOp::Adaptor,
+mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, Const::DeclareOp origOp, Const::DeclareOp::Adaptor&,
                                       mlir::RewriterBase& rewriter) {
     auto log = Logger::global().nest("one-shot-bufferize-ConstDeclareOp", 0);
     log.trace("Found Constant Operation '{0}'", origOp->getLoc());

@@ -125,11 +125,13 @@
 #include <transformations/op_conversions/convert_shapeof3.hpp>
 #include <transformations/op_conversions/convert_slice_to_strided_slice.hpp>
 #include <transformations/op_conversions/convert_softmax_upgrade.hpp>
+#include <transformations/op_conversions/convert_squeeze15_downgrade.hpp>
 #include <transformations/op_conversions/convert_topk11_downgrade.hpp>
 #include <transformations/op_conversions/detection_output_downgrade.hpp>
 #include <transformations/op_conversions/einsum_decomposition.hpp>
 #include <transformations/op_conversions/gelu7_downgrade.hpp>
 #include <transformations/op_conversions/group_normalization_decomposition.hpp>
+#include <transformations/op_conversions/group_query_attention_decomposition.hpp>
 #include <transformations/op_conversions/log_softmax_decomposition.hpp>
 #include <transformations/op_conversions/normalize_l2_decomposition.hpp>
 #include <transformations/op_conversions/scaled_dot_product_attention_decomposition.hpp>
@@ -326,8 +328,10 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset1::ConvolutionBackpropData),
             MAP_ENTRY(ov::opset1::GroupConvolutionBackpropData),
             MAP_ENTRY(ov::opset1::AvgPool),
+            MAP_ENTRY(ov::opset16::AvgPool),
             MAP_ENTRY(ov::opset1::MaxPool),
             MAP_ENTRY(ov::opset8::MaxPool),
+            MAP_ENTRY(ov::opset14::MaxPool),
             MAP_ENTRY(ov::opset8::AdaptiveAvgPool),
             MAP_ENTRY(ov::opset8::AdaptiveMaxPool),
             MAP_ENTRY(ov::opset1::ShuffleChannels),
@@ -1383,6 +1387,29 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     addOutputs(origNode, op);
 }
 
+void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset16::AvgPool>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v16::AvgPool>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto attrKernelSize = getIntArrayAttr(_ctx, origNode->get_kernel());
+    const auto attrStride = getIntArrayAttr(_ctx, origNode->get_strides());
+    const auto attrDilations = getIntArrayAttr(_ctx, origNode->get_dilations());
+    const auto attrPadsBegin = getIntArrayAttr(_ctx, origNode->get_pads_begin());
+    const auto attrPadsEnd = getIntArrayAttr(_ctx, origNode->get_pads_end());
+
+    const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
+    const auto attrExcludePads = origNode->get_exclude_pad() ? mlir::UnitAttr::get(_ctx) : nullptr;
+
+    auto op = builder.create<IE::AvgPool16Op>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+                                              attrDilations, attrPadsBegin, attrPadsEnd, attrRoundingType,
+                                              attrExcludePads, nullptr, nullptr, nullptr, nullptr, nullptr);
+    addOutputs(origNode, op);
+}
+
 void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::MaxPool>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v1::MaxPool>::value,
                   "opset operation mismatch");
@@ -1406,6 +1433,31 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
 
 void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::MaxPool>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v8::MaxPool>::value,
+                  "opset operation mismatch");
+
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 1, "nGraph node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto attrKernelSize = getIntArrayAttr(_ctx, origNode->get_kernel());
+    const auto attrStride = getIntArrayAttr(_ctx, origNode->get_strides());
+    const auto attrDilation = getIntArrayAttr(_ctx, origNode->get_dilations());
+    const auto attrPadsBegin = getIntArrayAttr(_ctx, origNode->get_pads_begin());
+    const auto attrPadsEnd = getIntArrayAttr(_ctx, origNode->get_pads_end());
+
+    const auto dstTypeAttr = mlir::TypeAttr::get(importPrecision(_ctx, origNode->get_index_element_type()));
+    const auto attrRoundingType = importRoundingType(origNode->get_rounding_type());
+
+    const auto axisAttr = getIntAttr(_ctx, origNode->get_axis());
+
+    auto op = builder.create<IE::MaxPool8Op>(createLocation(origNode), inputs[0], attrKernelSize, attrStride,
+                                             attrDilation, attrPadsBegin, attrPadsEnd, attrRoundingType, dstTypeAttr,
+                                             axisAttr);
+    addOutputs(origNode, op);
+}
+
+void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset14::MaxPool>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v14::MaxPool>::value,
                   "opset operation mismatch");
 
     const auto inputs = getInputs(origNode);
@@ -3172,35 +3224,31 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder,
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::opset14::ScaledDotProductAttention>::value,
                   "opset operation mismatch");
 
-    const auto causal = origNode->get_causal();
-    VPUX_THROW_UNLESS(causal == false, "ScaledDotProductAttention with 'causal == true' attribute is not supported.");
-
     const auto inputs = getInputs(origNode);
     const auto size = inputs.size();
     VPUX_THROW_UNLESS(size >= 3 && size <= 5,
                       "nGraph ScaledDotProductAttention node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto getSDPAArgs = [&](size_t size) {
-        mlir::Value arg3 = nullptr, arg4 = nullptr, arg5 = nullptr;
-        if (size == 5) {
-            arg3 = inputs[3];
-            arg4 = inputs[4];
-        } else if (size == 4) {
-            const auto inputType = mlir::cast<vpux::NDTypeInterface>(inputs[3].getType());
-            const auto isMaskInput = inputType.getShape().totalSize() > 1;
-            if (isMaskInput) {
-                arg3 = inputs[3];
-            } else {
-                arg4 = inputs[3];
-            }
-        }
-        // For size == 3, all are nullptr
-        return std::make_tuple(inputs[0], inputs[1], inputs[2], arg3, arg4, arg5);
-    };
+    mlir::Value attentionMask = nullptr;
+    mlir::Value scale = nullptr;
 
-    auto [inQ, inK, inV, inM, inS, inB] = getSDPAArgs(size);
-    auto op = builder.create<IE::SDPAOp>(createLocation(origNode), inQ, inK, inV, inM, inS, inB);
+    if (size == 4) {
+        attentionMask = inputs[3];
+    } else if (size == 5) {  // NOLINT magic number
+        // OpenVINO SDPA layer has no constructor for no-mask yes-scale case
+        // Instead, it passes a scalar (0) to the attention mask input, indicating that the mask should not be added
+        const auto maskType = mlir::cast<vpux::NDTypeInterface>(inputs[3].getType());
+        if (maskType.getShape().totalSize() > 1) {
+            attentionMask = inputs[3];
+        }
+        scale = inputs[4];
+    }
+
+    auto causal = origNode->get_causal() ? mlir::UnitAttr::get(_ctx) : nullptr;
+
+    auto op = builder.create<IE::SDPAOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], attentionMask,
+                                         scale, causal);
     addOutputs(origNode, op);
 }
 
@@ -4261,6 +4309,10 @@ IE::RoundingTypeAttr NGraphImporter::importRoundingType(ov::op::RoundingType rou
         return IE::RoundingTypeAttr::get(_ctx, IE::RoundingType::FLOOR);
     case ov::op::RoundingType::CEIL:
         return IE::RoundingTypeAttr::get(_ctx, IE::RoundingType::CEIL);
+    case ov::op::RoundingType::CEIL_TORCH:
+        // `CEIL_TORCH` is not yet supported in OpenVINO.
+        // In pass `ConvertMaxPool14ToMaxPool8`, OpenVino uses `CEIL` instead.
+        return IE::RoundingTypeAttr::get(_ctx, IE::RoundingType::CEIL);
     default:
         VPUX_THROW("Unknown RoundingType");
     }
@@ -4985,12 +5037,14 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
     parseEnv("NPU_DECOMPOSE_SDPA", enableDecompositionForSDPA);
 #endif
+    decomp->add_matcher<ov::pass::GroupQueryAttentionDecomposition>();
     if (enableDecompositionForSDPA) {
         decomp->add_matcher<ov::pass::ScaledDotProductAttentionDecomposition>();
     }
 
     decomp->add_matcher<ov::pass::GroupNormalizationDecomposition>();
     decomp->set_name("ov::pass::CommonDecompositions");
+    manager.register_pass<ov::pass::SliceToStridedSlice>(true);
 
     // CF is required after all decompositions
     manager.register_pass<ov::pass::ConstantFolding>();
@@ -5014,7 +5068,20 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
     manager.register_pass<ov::pass::ConvertGather1ToGather7>();
     manager.register_pass<ov::pass::ConvertGather7ToGather8>();
     manager.register_pass<ov::pass::ConvertDeformableConv8To1>();
-    manager.register_pass<ov::pass::ConvertMaxPool14ToMaxPool8>();
+
+    auto maxpool_conversion = manager.register_pass<ov::pass::GraphRewrite>();
+    maxpool_conversion->add_matcher<ov::pass::ConvertMaxPool14ToMaxPool8>();
+    maxpool_conversion->set_name("ov::pass::ConditionalMaxPool14ToMaxPool8Conversion");
+
+    pass_config->set_callback<ov::pass::ConvertMaxPool14ToMaxPool8>(
+            [](const std::shared_ptr<const ov::Node>& node) -> bool {
+                if (auto maxpool = ov::as_type_ptr<const ov::opset14::MaxPool>(node)) {
+                    return maxpool->get_rounding_type() ==
+                           ov::op::RoundingType::CEIL_TORCH;  // Skip conversion if rounding type is CEIL_TORCH
+                }
+                return false;  // Don't skip for other rounding types
+            });
+
     manager.register_pass<ov::pass::ConvertMaxPool8ToMaxPool1>();
     manager.register_pass<ov::pass::ConvertAvgPool14ToAvgPool1>();
     manager.register_pass<ov::pass::ConvertSoftMax1ToSoftMax8>();
@@ -5068,6 +5135,7 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
 
     manager.register_pass<ov::pass::ConvertPad12ToPad1>();
     manager.register_pass<ov::pass::ConvertSoftMax1ToSoftMax8>();
+    manager.register_pass<ov::pass::ConvertSqueeze15ToSqueeze0>();
 
 #if defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
     if (const auto serializeCanonicalModel = std::getenv("NPU_SERIALIZE_CANONICAL_MODEL")) {

@@ -118,6 +118,25 @@ func.func @ConvertReduceSumToPooling3D(%arg0: tensor<256x7x7xf16>) -> tensor<256
   // CHECK:       %3 = IE.Reshape(%2) {shape_value = [256, 1, 7]} : tensor<1x256x1x7xf16> -> tensor<256x1x7xf16>
 }
 
+// CHECK-LABEL: @ConvertBatchedReduceSumToPooling
+// CHECK-SAME: [[INPUT:%.+]]: tensor<8x2x1x256xf16>
+func.func @ConvertBatchedReduceSumToPooling(%arg0: tensor<8x2x1x256xf16>) -> tensor<8x1x256xf16> {
+  %0 = IE.ReduceSum(%arg0) {axes_value = [1]} : tensor<8x2x1x256xf16> -> tensor<8x1x256xf16>
+  return %0 : tensor<8x1x256xf16>
+
+  // CHECK-NOT:   ReduceSum
+  // CHECK:    [[RESHAPED_IN:%.+]] = IE.Reshape([[INPUT]]) {shape_value = [8, 2, 16, 16]} : tensor<8x2x1x256xf16> -> tensor<8x2x16x16xf16>
+  // CHECK:    [[TRANSPOSED_IN:%.+]] = IE.Transpose([[RESHAPED_IN]]) {order_value = #NWCH} : tensor<8x2x16x16xf16> -> tensor<8x16x2x16xf16>
+  // CHECK:    [[RESHAPED_IN2:%.+]] = IE.Reshape([[TRANSPOSED_IN]]) {shape_value = [1, 128, 2, 16]} : tensor<8x16x2x16xf16> -> tensor<1x128x2x16xf16>
+  // CHECK:    [[AVG_POOL:%.+]] = IE.AvgPool([[RESHAPED_IN2]]) {exclude_pads, kernel_size = [2, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x128x2x16xf16> -> tensor<1x128x1x16xf16>
+  // CHECK:    [[CST:%.+]] = const.Declare tensor<1xf16> = dense<2.000000e+00> : tensor<1xf16>
+  // CHECK:    [[MUL:%.+]] = IE.Multiply([[AVG_POOL]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x1x16xf16>, tensor<1xf16> -> tensor<1x128x1x16xf16>
+  // CHECK:    [[RESHAPED_OUT2:%.+]] = IE.Reshape([[MUL]]) {shape_value = [8, 16, 1, 16]} : tensor<1x128x1x16xf16> -> tensor<8x16x1x16xf16>
+  // CHECK:    [[TRANSPOSED_OUT:%.+]] = IE.Transpose([[RESHAPED_OUT2]]) {order_value = #NHWC} : tensor<8x16x1x16xf16> -> tensor<8x1x16x16xf16>
+  // CHECK:    [[RESHAPED_OUT:%.+]] = IE.Reshape([[TRANSPOSED_OUT]]) {shape_value = [8, 1, 256]} : tensor<8x1x16x16xf16> -> tensor<8x1x256xf16>
+  // CHECK:    return [[RESHAPED_OUT]] : tensor<8x1x256xf16>
+}
+
 // CHECK-LABEL: @ConvertReduceSumToPoolingReduceDimOneKeepDim
 func.func @ConvertReduceSumToPoolingReduceDimOneKeepDim(%arg0: tensor<1x1x1x50xf16>) -> tensor<1x1x1x50xf16> {
   %0 = IE.ReduceSum(%arg0) {axes_value = [0], keep_dims} : tensor<1x1x1x50xf16> -> tensor<1x1x1x50xf16>

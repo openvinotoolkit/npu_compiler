@@ -12,6 +12,8 @@
 #include "transformations/op_conversions/bidirectional_sequences_decomposition.hpp"
 #include "transformations/op_conversions/convert_sequences_to_tensor_iterator.hpp"
 
+#include <fstream>
+
 namespace ov {
 namespace test {
 
@@ -512,16 +514,9 @@ private:
             }
         }
 #ifdef LSTM_PRINT_DEBUG_STATISTICS
-        std::cout << "[ COMPARATION Y] ["
-                  << "  b"
-                  << ", "
-                  << "  d"
-                  << ", "
-                  << "  s"
-                  << "] "
-                  << ": " << std::fixed << std::setprecision(10)
-                  << *(std::max_element(v_mse_hidden_vals.begin(), v_mse_hidden_vals.end())) << " | " << std::fixed
-                  << std::setprecision(10)
+        std::cout << "[ COMPARATION Y] [" << "  b" << ", " << "  d" << ", " << "  s" << "] " << ": " << std::fixed
+                  << std::setprecision(10) << *(std::max_element(v_mse_hidden_vals.begin(), v_mse_hidden_vals.end()))
+                  << " | " << std::fixed << std::setprecision(10)
                   << *(std::max_element(v_max_abs_hidden_vals.begin(), v_max_abs_hidden_vals.end())) << " | "
                   << std::fixed << std::setprecision(10)
                   << *(std::min_element(v_cosine_hidden_vals.begin(), v_cosine_hidden_vals.end())) << std::endl;
@@ -538,8 +533,7 @@ private:
                 double max_abs_hidden_vals = get_max_abs(actualBuffer, expectedBuffer, hidden_size);
                 double cosine_hidden_vals = get_cosine_similarity(actualBuffer, expectedBuffer, hidden_size);
 #ifdef LSTM_PRINT_DEBUG_STATISTICS
-                std::cout << "[ COMPARATION Ho] [" << std::setw(3) << b << ", " << std::setw(3) << d << ", "
-                          << "] "
+                std::cout << "[ COMPARATION Ho] [" << std::setw(3) << b << ", " << std::setw(3) << d << ", " << "] "
                           << ": " << std::fixed << std::setprecision(10) << mse_hidden_vals << " | " << std::fixed
                           << std::setprecision(10) << max_abs_hidden_vals << " | " << std::fixed
                           << std::setprecision(10) << cosine_hidden_vals << " | " << std::endl;
@@ -652,7 +646,7 @@ const auto lstmConfig = ::testing::Combine(
         ::testing::ValuesIn(mode), ::testing::ValuesIn(seq_lengths_zero_clip), ::testing::ValuesIn(batch),
         ::testing::ValuesIn(hidden_size), ::testing::ValuesIn(input_size), ::testing::ValuesIn(activations),
         ::testing::ValuesIn(clip), ::testing::ValuesIn(direction), ::testing::Values(utils::InputLayerType::CONSTANT),
-        ::testing::ValuesIn(modelTypes), ::testing::Values(utils::DEVICE_NPU));
+        ::testing::ValuesIn(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMSequenceCommonZeroClip, LSTMSequenceLayerTestCommon, lstmConfig,
                          LSTMSequenceLayerTestCommon::getTestCaseName);
@@ -671,7 +665,7 @@ const auto lstmConfigPt = ::testing::Combine(
         ::testing::ValuesIn(hidden_sizePt), ::testing::ValuesIn(input_sizePt), ::testing::ValuesIn(activations),
         ::testing::ValuesIn(clipPt), ::testing::ValuesIn(directionPt),
         ::testing::Values(ov::test::utils::InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMSequencePt, LSTMSequenceLayerTestCommon, lstmConfigPt,
                          LSTMSequenceLayerTestCommon::getTestCaseName);
@@ -689,7 +683,7 @@ const auto lstmConfigAccuracy = ::testing::Combine(
         ::testing::ValuesIn(hiddenSizeAccuracy), ::testing::ValuesIn(inputSizeAccuracy),
         ::testing::ValuesIn(activations), ::testing::ValuesIn(clipAccuracy), ::testing::ValuesIn(directionAccuracy),
         ::testing::Values(ov::test::utils::InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes),
-        ::testing::Values(ov::test::utils::DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMSequenceAccuracy, LSTMSequenceLayerTestCommon, lstmConfigAccuracy,
                          LSTMSequenceLayerTestCommon::getTestCaseName);

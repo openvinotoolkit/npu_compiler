@@ -59,6 +59,29 @@ auto createFQ(mlir::PatternRewriter& rewriter, mlir::Value input, IE::FakeQuanti
                                                fq.getLowFpTypeAttr(), fq.getAutoBroadcast());
 }
 
+auto createDQ(mlir::PatternRewriter& rewriter, IE::DequantizeOp dq, int64_t index, StringRef composedIndex) {
+    const auto sliceDqConstInput = [&](mlir::Value dqInput, StringRef locSuffix) {
+        const auto dqInputShape = mlir::cast<vpux::NDTypeInterface>(dqInput.getType()).getShape();
+        auto newDqInputShape = to_small_vector(dqInputShape);
+        Shape inputOffsets(dqInputShape.size(), 0);
+        newDqInputShape[index] = 1;
+        const auto newDqInputShapeAttr = getIntArrayAttr(rewriter.getContext(), newDqInputShape);
+        const auto inputOffsetsAttr = getIntArrayAttr(rewriter.getContext(), inputOffsets);
+        const auto inputSlice = rewriter.createOrFold<IE::SliceOp>(
+                takeOpLoc(dq, StringLiteral("slice_dim{0}_{1}_{2}"), index, composedIndex, locSuffix), dqInput,
+                inputOffsetsAttr, newDqInputShapeAttr);
+        newDqInputShape.erase(newDqInputShape.begin() + index);
+        const auto newDqInputShapeSqueezedAttr = getIntArrayAttr(rewriter.getContext(), newDqInputShape);
+
+        return rewriter.createOrFold<IE::ReshapeOp>(
+                takeOpLoc(dq, StringLiteral("reshape_in_dim{0}_{1}_{2}"), index, composedIndex, locSuffix), inputSlice,
+                nullptr, false, newDqInputShapeSqueezedAttr);
+    };
+    auto slicedInput = sliceDqConstInput(dq.getInput(), "in_slice");
+    return rewriter.create<IE::DequantizeOp>(takeOpLoc(dq, StringLiteral("dq_in_dim{0}_{1}"), index, composedIndex),
+                                             slicedInput, dq.getDstElemTypeAttr());
+}
+
 SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, mlir::Value input,
                                           ShapeRef filterShape, Logger log) {
     SmallVector<mlir::Value> slicedFilters;
@@ -79,6 +102,13 @@ SmallVector<mlir::Value> getSlicedFilters(mlir::PatternRewriter& rewriter, mlir:
         offsets[Dims5D::Filter::KY] = kernelY;
 
         auto weightsCst = input.getDefiningOp<Const::DeclareOp>();
+        auto weightsDQ = input.getDefiningOp<IE::DequantizeOp>();
+        if (weightsDQ != nullptr) {
+            auto newConstInput = createDQ(rewriter, weightsDQ, Dims5D::Filter::KZ.ind(), std::to_string(kz));
+            slicedFilters.push_back(newConstInput);
+            continue;
+        }
+
         auto weightsFQ = input.getDefiningOp<IE::FakeQuantizeOp>();
         if (weightsFQ != nullptr) {
             weightsCst = weightsFQ.getInput().getDefiningOp<Const::DeclareOp>();
@@ -570,6 +600,7 @@ void UnrollConv3dToConv2dPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::GroupConvolutionOp>(isLegalGroupConvOp);
 
     target.addLegalOp<IE::FakeQuantizeOp>();
+    target.addLegalOp<IE::DequantizeOp>();
     target.addLegalOp<IE::ExpandDilatedOp>();
     target.addLegalOp<IE::ExpandOp>();
     target.addLegalOp<IE::ConcatOp>();

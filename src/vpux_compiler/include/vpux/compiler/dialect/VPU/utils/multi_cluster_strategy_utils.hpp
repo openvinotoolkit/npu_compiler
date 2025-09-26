@@ -10,7 +10,12 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
-#include <vpu_layer_cost_model.h>
+#include <vpu/vpu_tiling_strategy.h>
+
+namespace VPUNN {
+class VPULayerCostModel;
+struct VPULayerStrategy;
+}  // namespace VPUNN
 
 namespace vpux {
 namespace VPU {

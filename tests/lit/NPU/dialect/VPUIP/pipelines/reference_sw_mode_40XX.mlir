@@ -33,7 +33,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.com
         DataInfo "softmax" : tensor<1x1000xf16>
     }
 
-    IE.TileResource 1 of @NCE at 1.300000e+03 MHz
+    config.Resources 1 of @NCE at 1.300000e+03 MHz
 
     func.func @main(%arg0: memref<1x1000xf16>, %arg1: memref<1x1000xf16>) -> memref<1x1000xf16> {
         %0 = VPUIP.GenericReshape inputs(%arg0 : memref<1x1000xf16>) -> memref<1x1x1x1000xf16>
@@ -50,7 +50,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.com
         %8 = VPUIP.Copy inputs(%7 : memref<1x1000xf16, [@CMX_NN, 0]>) outputs(%arg1 : memref<1x1000xf16>) -> memref<1x1000xf16>
         return %8 : memref<1x1000xf16>
 
-        // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+        // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
         // CHECK:   [[BUFF0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK:   [[BUFF1:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK:   [[BUFF2:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1000xf16, @DDR>
@@ -61,7 +61,7 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.com
         // CHECK:   [[BUFF6:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x1x1x1000xf16, @DDR>
         // CHECK:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
         // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
-        // CHECK:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> {isFinalBarrier} -> !VPURT.Barrier
+        // CHECK:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK:   [[BUFF7:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1000xf16, [@CMX_NN, 0]>
 
         // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {

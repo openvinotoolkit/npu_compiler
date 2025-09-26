@@ -98,7 +98,7 @@ const auto gruSequenceParamTarget1 = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeTarget1)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeResetTarget),
         ::testing::ValuesIn(directionTarget), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 // Target resolution 2
 const std::vector<std::vector<ov::Shape>> iShapeTarget2 = {
         {{2, 3, 256}, {2, 1, 256}, {2}},
@@ -107,43 +107,43 @@ const auto gruSequenceParamTarget2 = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeTarget2)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeResetTarget),
         ::testing::ValuesIn(directionTarget), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam0 = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShape)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionMode), ::testing::Values(InputLayerType::CONSTANT), ::testing::Values(modelTypes),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam0Bi = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeBi)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionModeBi), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam1 = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeTiling)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionMode), ::testing::Values(InputLayerType::CONSTANT), ::testing::Values(modelTypes),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam1Bi = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeTilingBi)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionModeBi), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam2 = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeSplit)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionMode), ::testing::Values(InputLayerType::CONSTANT), ::testing::Values(modelTypes),
-        ::testing::Values(DEVICE_NPU));
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto gruSequenceParam2Bi = testing::Combine(
         ::testing::Values(testMode), ::testing::ValuesIn(static_shapes_to_test_representation(iShapeSplitBi)),
         ::testing::Values(activations), ::testing::Values(clip), ::testing::ValuesIn(shouldLinearBeforeReset),
         ::testing::ValuesIn(directionModeBi), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(modelTypes), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRUSequence, GRUSequenceLayerTestCommon, gruSequenceParam0,
                          GRUSequenceTest::getTestCaseName);

@@ -4,11 +4,11 @@
 //
 
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
 namespace vpux::VPUIP {
 #define GEN_PASS_DECL_SEGMENTHALOS
@@ -280,7 +280,7 @@ void SegmentHalosPass::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto ctx = module.getContext();
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE executor information");
 
     if (tileOp.getCount() == 1) {

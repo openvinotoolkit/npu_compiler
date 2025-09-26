@@ -68,15 +68,35 @@ func.func @ExpandMaxPoolChannelsWithSliceProducer(%arg0: tensor<1x4x30x30xf16, {
 !qElemType1 = !quant.uniform<u8<0:254>:f16:1, {8.7179349163385824E-4:127,5.2096149114173233E-4:127,0.0013264333169291339:127}>
 !qElemType2 = !quant.uniform<u8<0:254>:f16:1, {8.7179349163385824E-4:127,5.2096149114173233E-4:127,0.0013264333169291339:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127}>
 
-// CHECK-LABEL: @ExpandQuantMaxPoolChannels
-func.func @ExpandQuantMaxPoolChannels(%input: tensor<1x3x30x30x!qElemType, {order = #NHWC}>) -> tensor<1x3x15x13x!qElemType1, {order = #NHWC}> {
+// CHECK-LABEL: @NotExpandQuantMaxPoolChannels
+func.func @NotExpandQuantMaxPoolChannels(%input: tensor<1x3x30x30x!qElemType, {order = #NHWC}>) -> tensor<1x3x15x13x!qElemType1, {order = #NHWC}> {
     %1 = IE.MaxPool(%input) {
         kernel_size = [5, 5], pads_begin = [2, 0], pads_end = [2, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]
     } : tensor<1x3x30x30x!qElemType, {order = #NHWC}> -> tensor<1x3x15x13x!qElemType1, {order = #NHWC}>
     return %1 : tensor<1x3x15x13x!qElemType1, {order = #NHWC}>
 }
 
+// CHECK-NOT: IE.Expand
+// CHECK-NOT: IE.Slice
+// CHECK:     IE.MaxPool(%arg0) {kernel_size = [5, 5], pads_begin = [2, 0], pads_end = [2, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]} : tensor<1x3x30x30x!qElemType, {order = #NHWC}> -> tensor<1x3x15x13x!qElemType1, {order = #NHWC}>
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!qElemType = !quant.uniform<u8<0:254>:f16:1, {8.7179349163385824E-4:127,5.2096149114173233E-4:127,0.0013264333169291339:127}>
+!qElemType1 = !quant.uniform<u8<0:254>:f16:1, {8.7179349163385824E-4:127,5.2096149114173233E-4:127,0.0013264333169291339:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127,1.000000e+00:127}>
+
+// CHECK-LABEL: @ExpandQuantMaxPoolChannels
+func.func @ExpandQuantMaxPoolChannels(%input: tensor<1x3x30x30x!qElemType, {order = #NHWC}>) -> tensor<1x3x15x13x!qElemType, {order = #NHWC}> {
+    %1 = IE.MaxPool(%input) {
+        kernel_size = [5, 5], pads_begin = [2, 0], pads_end = [2, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]
+    } : tensor<1x3x30x30x!qElemType, {order = #NHWC}> -> tensor<1x3x15x13x!qElemType, {order = #NHWC}>
+    return %1 : tensor<1x3x15x13x!qElemType, {order = #NHWC}>
+}
+
 // CHECK:       [[EXPAND_OUT:%.+]] = IE.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]}
+// CHECK-SAME:  : tensor<1x3x30x30x!qElemType, {order = #NHWC}> -> tensor<1x16x30x30x!qElemType1, {order = #NHWC}>
 
 // CHECK:       [[MAXPOOL_OUT:%.+]] = IE.MaxPool([[EXPAND_OUT]])
 // CHECK-SAME:      kernel_size = [5, 5]
@@ -84,9 +104,10 @@ func.func @ExpandQuantMaxPoolChannels(%input: tensor<1x3x30x30x!qElemType, {orde
 // CHECK-SAME:      pads_end = [2, 0]
 // CHECK-SAME:      rounding_type = #IE.rounding_type<FLOOR>
 // CHECK-SAME:      strides = [2, 2]
-// CHECK-SAME:      -> tensor<1x16x15x13x!qElemType2, {order = #NHWC}>
+// CHECK-SAME:      -> tensor<1x16x15x13x!qElemType1, {order = #NHWC}>
 
 // CHECK:       [[SLICE_OUT:%.+]] = IE.Slice [[MAXPOOL_OUT]] [0, 0, 0, 0] [1, 3, 15, 13]
+// CHECK-SAME:  : tensor<1x16x15x13x!qElemType1, {order = #NHWC}> to tensor<1x3x15x13x!qElemType, {order = #NHWC}>
 
 // CHECK:       return [[SLICE_OUT]]
 

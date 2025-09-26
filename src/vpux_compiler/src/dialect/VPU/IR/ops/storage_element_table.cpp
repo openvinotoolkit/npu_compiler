@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -124,7 +123,7 @@ mlir::LogicalResult FuseChildSliceOps::matchAndRewrite(VPU::StorageElementTableO
             const auto inputDataShape = Shape(parseIntArrayAttr<int64_t>(origOp.getDataShape()));
             auto inputTileShape = Shape(inputDataShape.size());
             auto inputTileOffset = inputTileShape;
-            auto newSeAttr = seAttr.extractTile(Shape(effectiveOutputOffsets), Shape(effectiveOutputSizes),
+            auto newSeAttr = seAttr.extractTile(ShapeRef(effectiveOutputOffsets), ShapeRef(effectiveOutputSizes),
                                                 inputDataShape, inputTileOffset, inputTileShape);
             SmallVector<int64_t> seSizesVec(
                     seSizes.begin() + sliceOffsets[Dims4D::Act::C.ind()],

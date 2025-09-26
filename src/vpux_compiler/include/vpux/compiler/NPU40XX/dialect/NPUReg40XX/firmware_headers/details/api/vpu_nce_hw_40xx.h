@@ -428,7 +428,7 @@ typedef struct {
             uint32_t ppe_clk_en : 1;
             uint32_t odu_stat_en : 1;
             uint32_t idu_stat_en : 1;
-            uint32_t reserved_1 : 1;
+            uint32_t noc_clk_en : 1;
             uint32_t odu_stat_clr_mode : 1;
             uint32_t idu_stat_clr_mode : 1;
             uint32_t reserved1 : 1;

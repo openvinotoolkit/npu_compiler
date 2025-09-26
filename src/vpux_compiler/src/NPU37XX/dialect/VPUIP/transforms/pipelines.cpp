@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
@@ -167,7 +166,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(VPUIP::createAdjustInputDataForExplicitSETablePass(log));
     }
 
-    VPUIP::arch37xx::buildDMAUnrollingPipeline(pm, log);
+    VPUIP::buildDMAUnrollingPipeline(pm, log);
 
     // TODO: E#140041 enable profiling with outlining
     bool isOutliningEnabled = (options.functionOutlining.hasValue() || options.enableVerticalFusionOutlining) &&
@@ -192,7 +191,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass(std::nullopt, std::nullopt, log));
 
-    pm.addPass(VPURT::arch37xx::createAddFinalBarrierPass(log));
+    pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 
     VPURT::buildBarrierLegalizationPipeline(pm, std::nullopt, std::nullopt,
                                             /* unevenVariantSplitFlag */ false, log);
@@ -271,7 +270,7 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
-    pm.addPass(VPURT::arch37xx::createAddFinalBarrierPass(log));
+    pm.addPass(VPURT::createAddFinalBarrierPass(options.workloadManagementMode, log));
 
     // Level 1 : VPU RunTime
 
@@ -290,23 +289,6 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createDumpStatisticsOfTaskOpsPass(log));
 }
 
-//
-// DMAUnrollingPipeline
-//
-
-void vpux::VPUIP::arch37xx::buildDMAUnrollingPipeline(mlir::OpPassManager& pm, Logger log) {
-    pm.addPass(VPUIP::createUnrollDMAAnalysisPass(log));
-    pm.addPass(VPUIP::arch37xx::createUnrollDepthToSpaceDMAPass(log));
-    pm.addPass(VPUIP::arch37xx::createUnrollSpaceToDepthDMAPass(log));
-    pm.addPass(VPUIP::arch37xx::createUnrollPermuteDMAPass(log));
-
-    pm.addPass(VPUIP::createUnrollUpsamplingDMAPass(log));
-    pm.addPass(VPUIP::createUnrollExpandDMAPass(log));
-    pm.addPass(VPUIP::createUnrollPerAxisTileDMAPass(log));
-    pm.addPass(VPUIP::createUnrollGatherDMAPass(log));
-    pm.addPass(VPUIP::createInvalidateUnrollDMAAnalysisPass(log));
-}
-
 void vpux::VPUIP::arch37xx::registerVPUIPPipelines() {
     mlir::PassPipelineRegistration<VPUIP::arch37xx::OptimizeCopiesOptions>(
             "optimize-copies-pipeline", "Optimize Copies Pipeline",
@@ -321,7 +303,7 @@ void vpux::VPUIP::arch37xx::registerVPUIPPipelines() {
             });
 
     mlir::PassPipelineRegistration<>("dma-unrolling", "DMA unrolling", [](mlir::OpPassManager& pm) {
-        VPUIP::arch37xx::buildDMAUnrollingPipeline(pm);
+        VPUIP::buildDMAUnrollingPipeline(pm);
     });
 
     mlir::PassPipelineRegistration<VPUIP::arch37xx::DefaultHWOptions>(

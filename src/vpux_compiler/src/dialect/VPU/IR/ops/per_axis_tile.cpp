@@ -36,7 +36,7 @@ mlir::LogicalResult vpux::VPU::PerAxisTileOp::inferReturnTypes(mlir::MLIRContext
 
     outShape[axis] *= tiles;
 
-    const auto outType = inType.changeShape(Shape(outShape));
+    const auto outType = inType.changeShape(ShapeRef(outShape));
 
     inferredReturnTypes.push_back(outType);
 

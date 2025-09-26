@@ -4,9 +4,9 @@
 //
 
 #include "vpux/compiler/core/barrier_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
@@ -14,6 +14,8 @@
 #include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/SetOperations.h>
+
+#include <fstream>
 
 using namespace vpux;
 
@@ -24,8 +26,6 @@ using namespace vpux;
 vpux::BarrierInfo::BarrierInfo(mlir::func::FuncOp func)
         : _log(Logger::global().nest("barrier-info", 0)),
           _func(func),
-          _taskIndexAttrName(mlir::StringAttr::get(func->getContext(), "task-index")),
-          _barrierIndexAttrName(mlir::StringAttr::get(func->getContext(), "barrier-index")),
           _syncTaskAttrName(mlir::StringAttr::get(func->getContext(), "sync-task")) {
     buildBarrierMaps(func);
 }
@@ -38,16 +38,17 @@ vpux::BarrierInfo::BarrierInfo(): _log(Logger::global().nest("barrier-info", 0))
 //
 
 void vpux::BarrierInfo::clearAttributes() {
-    auto removeAttributeFromRange = [](mlir::StringAttr attrName, auto range) {
-        for (auto op : range) {
-            VPUX_THROW_UNLESS(op->hasAttr(attrName), "Remove: attribute '{0}' was not set for '{1}' operation at '{2}'",
-                              attrName, op->getName(), op->getLoc());
-            op->removeAttr(attrName);
-        }
-    };
-
-    removeAttributeFromRange(_taskIndexAttrName, _allTaskOps);
-    removeAttributeFromRange(_barrierIndexAttrName, _allBarrierOps);
+    for (auto op : _allTaskOps) {
+        VPUX_THROW_UNLESS(op.getProperties().getTaskIndex().has_value(),
+                          "Remove: task index was not set for '{0}' operation at '{1}'", op->getName(), op->getLoc());
+        op.getProperties().setTaskIndex(std::nullopt);
+    }
+    for (auto op : _allBarrierOps) {
+        VPUX_THROW_UNLESS(op.getBarrierIndex().has_value(),
+                          "Remove: barrier index was not set for '{0}' operation at '{1}'", op->getName(),
+                          op->getLoc());
+        op.setBarrierIndex(std::nullopt);
+    }
 }
 
 //
@@ -55,11 +56,11 @@ void vpux::BarrierInfo::clearAttributes() {
 //
 
 uint32_t vpux::BarrierInfo::getIndex(VPURT::TaskOp taskOp) const {
-    const auto attr = taskOp->getAttrOfType<mlir::IntegerAttr>(_taskIndexAttrName);
-    VPUX_THROW_UNLESS(attr != nullptr, "Get: attribute '{0}' was not set for '{1}' operation at '{2}'",
-                      _taskIndexAttrName, taskOp->getName(), taskOp->getLoc());
+    const auto taskIndex = taskOp.getProperties().getTaskIndex();
+    VPUX_THROW_UNLESS(taskIndex.has_value(), "Get: task index was not set for '{0}' operation at '{1}'",
+                      taskOp->getName(), taskOp->getLoc());
 
-    return checked_cast<uint32_t>(attr.getValue().getZExtValue());
+    return checked_cast<uint32_t>(taskIndex.value());
 }
 
 //
@@ -67,11 +68,11 @@ uint32_t vpux::BarrierInfo::getIndex(VPURT::TaskOp taskOp) const {
 //
 
 uint32_t vpux::BarrierInfo::getIndex(VPURT::BarrierOpInterface barrierOp) const {
-    const auto attr = barrierOp->getAttrOfType<mlir::IntegerAttr>(_barrierIndexAttrName);
-    VPUX_THROW_UNLESS(attr != nullptr, "Get: attribute '{0}' was not set for '{1}' operation at '{2}'",
-                      _barrierIndexAttrName, barrierOp->getName(), barrierOp->getLoc());
+    VPUX_THROW_UNLESS(barrierOp.getBarrierIndex().has_value(),
+                      "Get: barrier index was not set for '{0}' operation at '{1}'", barrierOp->getName(),
+                      barrierOp->getLoc());
 
-    return checked_cast<uint32_t>(attr.getValue().getZExtValue());
+    return checked_cast<uint32_t>(barrierOp.getBarrierIndex().value());
 }
 
 //
@@ -119,18 +120,21 @@ size_t vpux::BarrierInfo::getLastTaskForQueueType(VPURT::TaskQueueType taskQueue
     return static_cast<size_t>(lastTaskInd);
 }
 
-std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnSameQueue(size_t taskInd) const {
+std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnQueue(size_t taskInd, VPURT::TaskQueueType taskQueueType) const {
     VPUX_THROW_UNLESS(getNumOfTasks() > taskInd, "Task index '{0}' out of range", taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
 
-    const auto taskQueueType = getTaskQueueType(taskInd);
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
                     "Task queue map not initialized for executor of task {0}", taskInd);
 
-    const auto taskBitVec = _taskQueueTypeMap.at(taskQueueType);
+    const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
     auto prevTaskInd = taskBitVec.find_prev(taskInd);
     return (prevTaskInd == -1) ? std::nullopt : std::optional<size_t>{prevTaskInd};
+}
+
+std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnSameQueue(size_t taskInd) const {
+    return getPrevTaskOnQueue(taskInd, getTaskQueueType(taskInd));
 }
 
 std::optional<size_t> vpux::BarrierInfo::getNextTaskOnSameQueue(size_t taskInd) const {
@@ -141,7 +145,7 @@ std::optional<size_t> vpux::BarrierInfo::getNextTaskOnSameQueue(size_t taskInd) 
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
                     "Task queue map not initialized for executor of task {0}", taskInd);
 
-    const auto taskBitVec = _taskQueueTypeMap.at(taskQueueType);
+    const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
     auto nextTaskInd = taskBitVec.find_next(taskInd);
     return (nextTaskInd == -1) ? std::nullopt : std::optional<size_t>{nextTaskInd};
@@ -158,7 +162,7 @@ std::optional<size_t> vpux::BarrierInfo::getPrevTaskOnSameQueueWithWaitBar(size_
     VPUX_THROW_WHEN(_taskQueueTypeMap.find(taskQueueType) == _taskQueueTypeMap.end(),
                     "Task queue map not initialized for executor of task {0}", taskInd);
 
-    const auto taskBitVec = _taskQueueTypeMap.at(taskQueueType);
+    const auto& taskBitVec = _taskQueueTypeMap.at(taskQueueType);
 
     auto currentTaskInd = taskInd;
     do {
@@ -419,6 +423,18 @@ size_t vpux::BarrierInfo::getNumOfTasks() const {
     return _allTaskOps.size();
 }
 
+size_t vpux::BarrierInfo::getNumOfTasks(vpux::VPU::ExecutorKind executorKind) const {
+    VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
+    size_t taskCount = 0;
+    for (auto& [queueType, queueTasks] : _taskQueueTypeMap) {
+        if (queueType.type == executorKind) {
+            taskCount += queueTasks.count();
+        }
+    }
+
+    return taskCount;
+}
+
 //
 // resizeBitMap
 //
@@ -489,7 +505,11 @@ size_t vpux::BarrierInfo::getBarrierBlockIndex(size_t barInd) {
 
 std::optional<size_t> vpux::BarrierInfo::getControlGraphSyncPoint(size_t taskInd) const {
     auto blockInd = getControlGraphBlockIndex(taskInd);
-    if (blockInd == _syncTasksIds.size()) {
+    return getControlGraphSyncPointForBlock(blockInd);
+}
+
+std::optional<size_t> vpux::BarrierInfo::getControlGraphSyncPointForBlock(size_t blockInd) const {
+    if (blockInd >= _syncTasksIds.size()) {
         return std::nullopt;
     }
     return _syncTasksIds[blockInd];
@@ -559,8 +579,13 @@ bool vpux::BarrierInfo::inImplicitQueueTypeDependencyList(const TaskSet& taskLis
 void vpux::BarrierInfo::buildBarrierMaps(mlir::func::FuncOp func) {
     _log.trace("Collect initial producer maps");
 
-    _allTaskOps = to_small_vector(func.getOps<VPURT::TaskOp>());
-    _allBarrierOps = to_small_vector(func.getOps<VPURT::BarrierOpInterface>());
+    for (auto& op : func.getOps()) {
+        if (auto taskOp = mlir::dyn_cast<VPURT::TaskOp>(op)) {
+            _allTaskOps.push_back(taskOp);
+        } else if (auto barrierOp = mlir::dyn_cast<VPURT::BarrierOpInterface>(op)) {
+            _allBarrierOps.push_back(barrierOp);
+        }
+    }
 
     _log.nest().trace("There are '{0}' VPURT::TaskOp", getNumOfTasks());
     _log.nest().trace("There are '{0}' VPURT::BarrierOpInterface", _allBarrierOps.size());
@@ -573,7 +598,7 @@ void vpux::BarrierInfo::buildBarrierMaps(mlir::func::FuncOp func) {
 
     // set index to task ops and barrier ops
     for (const auto& p : _allTaskOps | indexed) {
-        p.value()->setAttr(_taskIndexAttrName, getIntAttr(p.value().getContext(), p.index()));
+        p.value().getProperties().setTaskIndex(p.index());
         if (p.value()->hasAttr(_syncTaskAttrName)) {
             _syncTasksIds.push_back(p.index());
         }
@@ -581,19 +606,21 @@ void vpux::BarrierInfo::buildBarrierMaps(mlir::func::FuncOp func) {
 
     if (!_syncTasksIds.empty()) {
         buildTaskBlockMap();
-        // Check block sizes
-        size_t firstBlockSize = _syncTasksIds[0] + 1;
-        for (size_t i = 1; i < _syncTasksIds.size(); i++) {
-            size_t nextBlockSize = _syncTasksIds[i] - _syncTasksIds[i - 1];
-            if (nextBlockSize != firstBlockSize) {
-                _log.trace("Inferred first block size is '{0}', block '{1}' has {2} tasks", firstBlockSize, i,
-                           nextBlockSize);
+        if (_log.isActive(LogLevel::Trace)) {
+            // Check block sizes
+            size_t firstBlockSize = _syncTasksIds[0] + 1;
+            for (size_t i = 1; i < _syncTasksIds.size(); i++) {
+                size_t nextBlockSize = _syncTasksIds[i] - _syncTasksIds[i - 1];
+                if (nextBlockSize != firstBlockSize) {
+                    _log.trace("Inferred first block size is '{0}', block '{1}' has {2} tasks", firstBlockSize, i,
+                               nextBlockSize);
+                }
             }
         }
     }
 
     for (const auto& p : _allBarrierOps | indexed) {
-        p.value()->setAttr(_barrierIndexAttrName, getIntAttr(p.value().getContext(), p.index()));
+        p.value().setBarrierIndex(p.index());
     }
 
     for (auto& op : func.getOps()) {
@@ -743,7 +770,7 @@ void vpux::BarrierInfo::addTaskOp(VPURT::TaskOp taskOp) {
 
 size_t vpux::BarrierInfo::addNewBarrier(VPURT::BarrierOpInterface barrierOp) {
     size_t barrierInd = _allBarrierOps.size();
-    barrierOp->setAttr(_barrierIndexAttrName, getIntAttr(barrierOp.getContext(), barrierInd));
+    barrierOp.setBarrierIndex(barrierInd);
 
     _log.trace("Add new barrier '{0}', new barrier size '{1}'", barrierInd, _allBarrierOps.size());
     _allBarrierOps.push_back(barrierOp);
@@ -759,7 +786,7 @@ size_t vpux::BarrierInfo::addNewBarrier(VPURT::BarrierOpInterface barrierOp) {
 
 size_t vpux::BarrierInfo::addNewTaskOp(VPURT::TaskOp taskOp) {
     size_t taskOpIdx = getNumOfTasks();
-    taskOp->setAttr(_taskIndexAttrName, getIntAttr(taskOp.getContext(), taskOpIdx));
+    taskOp.getProperties().setTaskIndex(taskOpIdx);
 
     _log.trace("Add new taskOp '{0}', new taskOps size '{1}'", taskOpIdx, getNumOfTasks());
 
@@ -808,6 +835,7 @@ void vpux::BarrierInfo::setUpdateBarriers(size_t taskInd, const TaskSet& barrier
 //
 
 void vpux::BarrierInfo::removeProducer(size_t barrierInd, size_t taskInd) {
+    _log.trace("Remove producer '{0}' for barrier '{1}'", taskInd, barrierInd);
     _barrierProducerMap[barrierInd].erase(taskInd);
     _taskUpdateBarriers[taskInd].erase(barrierInd);
 }
@@ -820,6 +848,7 @@ void vpux::BarrierInfo::removeProducer(VPURT::BarrierOpInterface barrierOp, size
 // removeConsumer
 //
 void vpux::BarrierInfo::removeConsumer(size_t barrierInd, size_t taskInd) {
+    _log.trace("Remove consumer '{0}' for barrier '{1}'", taskInd, barrierInd);
     _barrierConsumerMap[barrierInd].erase(taskInd);
     _taskWaitBarriers[taskInd].erase(barrierInd);
 }
@@ -1380,6 +1409,164 @@ bool vpux::BarrierInfo::verifyControlGraphSplit() {
                 }
             }
         }
+    }
+
+    // Verify if tasks from different queues correctly pass through synchronization points (sync-tasks), eg.
+    // queue1:  t1       t3 --|                      |-- t8 ...
+    // queue2:  t2 -     |  - bW - t5 (sync-task) - bU - t7 - b ...
+    // queue3:  t4 - b - |                                    |-- t6 ...
+    //          ----------------------------------  --------------------
+    //                       block N                    block N + 1
+    //
+    // - t3 must (directly or indirectly) update sync-task wait barrier bW
+    // - t8 must (directly or indirectly) depend on sync-task update barrier bU
+    // - t2 may update bW and t7 may wait for bU
+    // - t6 must (directly or indirectly) depend on sync-task update barrier bU
+    // - t2 and t5 must belong to the same block as t2 precedes sync-task t5 on single queue
+    // - t4 does not need to directly update bW, because it updates a barrier that is consumed by t3 which updates bW,
+    // hence there is guarantee that t4 will not execute in parallel with sync-task t5
+
+    std::map<VPURT::TaskQueueType, llvm::BitVector> taskQueueTypeMapOrig;
+    if (_func != nullptr) {
+        // In units tests, _taskQueueTypeMap is not built but provided by hand. Building it here without IR is not
+        // possible either due to functions that operate on ModuleOp or TaskOps which typically are not provided in unit
+        // tests.
+        mlir::DenseSet<vpux::VPU::ExecutorKind> executorKind = {
+                VPU::ExecutorKind::DPU,
+                VPU::ExecutorKind::DMA_NN,
+                VPU::ExecutorKind::SHAVE_ACT,
+        };
+
+        taskQueueTypeMapOrig = _taskQueueTypeMap;
+        clearTaskQueueTypeMap();
+        initializeTaskQueueTypeMap(executorKind);
+        buildTaskQueueTypeMap();
+    }
+    VPUX_THROW_WHEN(_taskQueueTypeMap.empty(), "Task queue map not initialized");
+
+    size_t taskControlMapBlockInd = std::numeric_limits<size_t>::max();
+    SmallVector<llvm::BitVector> taskControlMap;
+    size_t taskControlMapOffset = 0;
+
+    size_t nextTaskControlMapBlockInd = std::numeric_limits<size_t>::max();
+    SmallVector<llvm::BitVector> nextTaskControlMap;
+    size_t nextTaskControlMapOffset = 0;
+
+    auto updateControlMap = [&](size_t blockInd, SmallVector<llvm::BitVector>& controlMap, size_t& controlMapOffset,
+                                size_t& controlMapBlockInd) {
+        if (controlMapBlockInd != blockInd) {
+            if (taskControlMapBlockInd == blockInd) {
+                controlMap = taskControlMap;
+                controlMapOffset = taskControlMapOffset;
+            } else if (nextTaskControlMapBlockInd == blockInd) {
+                controlMap = nextTaskControlMap;
+                controlMapOffset = nextTaskControlMapOffset;
+            } else {
+                std::tie(controlMap, controlMapOffset) =
+                        buildTaskControlMap(blockInd, /* considerTaskFifoDependency */ true);
+            }
+            controlMapBlockInd = blockInd;
+        }
+    };
+
+    for (size_t taskInd = 0; taskInd < getNumOfTasks(); ++taskInd) {
+        if (isSyncPoint(taskInd)) {
+            // there's no need to check barrier dependencies for tasks preceding and following the sync-task on the
+            // sync-task's queue
+            continue;
+        }
+
+        size_t taskBlockInd = getControlGraphBlockIndex(taskInd);
+        auto taskSyncPoint = getControlGraphSyncPoint(taskInd);
+        auto nextTask = getNextTaskOnSameQueue(taskInd);
+
+        if (nextTask.has_value()) {
+            size_t nextTaskBlockInd = getControlGraphBlockIndex(nextTask.value());
+
+            if (!taskSyncPoint.has_value() || taskBlockInd == nextTaskBlockInd) {
+                // No need to check dependencies to sync-tasks via update barriers for tasks from the last block (i.e.
+                // when taskSyncPoint has no value), or when tasks belong to the same block
+                // Separate checks for taskInd and nextTask to avoid frequent updates of taskControlMap and path checks
+                // for every task.
+                continue;
+            }
+
+            VPUX_THROW_WHEN(nextTask.value() == taskSyncPoint.value(),
+                            "A pair of consecutive tasks on a queue, where the second one is a sync-point for the "
+                            "first task, must belong to the same task block");
+
+            // For consecutive tasks belonging to different task blocks, check if barrier exists between the last
+            // task in the block and the block sync-task.
+            updateControlMap(taskBlockInd, taskControlMap, taskControlMapOffset, taskControlMapBlockInd);
+            if (!controlPathExistsBetweenTasksInSameBlock(taskControlMap, taskInd - taskControlMapOffset,
+                                                          taskSyncPoint.value() - taskControlMapOffset, false)) {
+                auto taskQueueType = getTaskQueueType(taskInd);
+                _log.debug("Last (non-sync-point) {0}.{1} task ({2}) in block {3} does not have a barrier "
+                           "dependence to block {4} sync-point {5}",
+                           taskQueueType.type, taskQueueType.id, taskInd, taskBlockInd, taskBlockInd,
+                           taskSyncPoint.value());
+                return false;
+            }
+
+            // For consecutive tasks belonging to different task blocks, check if barrier exists between the first
+            // task in the following block and sync-task from the preceding block.
+            auto prevBlockSyncPoint = getControlGraphSyncPointForBlock(nextTaskBlockInd - 1);
+            VPUX_THROW_UNLESS(prevBlockSyncPoint.has_value(),
+                              "Could not find preceding sync-task for task ({0}) in block {1}", nextTask.value(),
+                              nextTaskBlockInd - 1);
+
+            updateControlMap(nextTaskBlockInd, nextTaskControlMap, nextTaskControlMapOffset,
+                             nextTaskControlMapBlockInd);
+            if (!controlPathExistsBetweenTasksInSameBlock(nextTaskControlMap,
+                                                          prevBlockSyncPoint.value() - nextTaskControlMapOffset,
+                                                          nextTask.value() - nextTaskControlMapOffset, false)) {
+                auto taskQueueType = getTaskQueueType(nextTask.value());
+                _log.debug("First {0}.{1} task ({2}) in block {3} does not have a barrier dependence to the "
+                           "previous block sync-task {4}",
+                           taskQueueType.type, taskQueueType.id, nextTask.value(), nextTaskBlockInd,
+                           prevBlockSyncPoint.value());
+                return false;
+            }
+        } else {
+            // taskInd is the last task on the queue
+            if (taskSyncPoint.has_value()) {
+                // The task does not belong to the last block and a path must exist from the task to sync-task from
+                // the same block
+                updateControlMap(taskBlockInd, taskControlMap, taskControlMapOffset, taskControlMapBlockInd);
+                if (!controlPathExistsBetweenTasksInSameBlock(taskControlMap, taskInd - taskControlMapOffset,
+                                                              taskSyncPoint.value() - taskControlMapOffset, false)) {
+                    auto taskQueueType = getTaskQueueType(taskInd);
+                    _log.debug("Last {0}.{1} task ({2}) in block {3} does not have a barrier dependence to the "
+                               "its block sync-task {4}",
+                               taskQueueType.type, taskQueueType.id, taskInd, taskBlockInd, taskSyncPoint.value());
+                    return false;
+                }
+            }
+            if (taskBlockInd > 0) {
+                // The task does not belong to the first block and it must depend on the previous block sync-task update
+                // barrier
+                auto prevBlockSyncPoint = getControlGraphSyncPointForBlock(taskBlockInd - 1);
+                VPUX_THROW_UNLESS(prevBlockSyncPoint.has_value(),
+                                  "Could not find preceding sync-task for task ({0}) in block {1}", taskInd,
+                                  taskBlockInd - 1);
+
+                updateControlMap(taskBlockInd, taskControlMap, taskControlMapOffset, taskControlMapBlockInd);
+                if (!controlPathExistsBetweenTasksInSameBlock(taskControlMap,
+                                                              prevBlockSyncPoint.value() - taskControlMapOffset,
+                                                              taskInd - taskControlMapOffset, false)) {
+                    auto taskQueueType = getTaskQueueType(taskInd);
+                    _log.debug("First {0}.{1} task ({2}) in block {3} does not have a barrier dependence to the "
+                               "previous block sync-task {4}",
+                               taskQueueType.type, taskQueueType.id, taskInd, taskBlockInd, prevBlockSyncPoint.value());
+                    return false;
+                }
+            }
+        }
+    }
+
+    // restore original state of _taskQueueTypeMap to keep the state unchanged
+    if (_func != nullptr) {
+        _taskQueueTypeMap = std::move(taskQueueTypeMapOrig);
     }
     return true;
 }
@@ -2623,7 +2810,7 @@ unsigned vpux::BarrierInfo::createBarrierDependenciesBetweenExecutionGroups(size
         auto taskOp = getTaskOpAtIndex(producer);
         mlir::OpBuilder builder(taskOp);
         auto newBarrier = builder.create<VPURT::DeclareVirtualBarrierOp>(taskOp->getLoc());
-        newBarrier->setAttr(_barrierIndexAttrName, getIntAttr(newBarrier.getContext(), newBarrierIdx));
+        newBarrier.setBarrierIndex(newBarrierIdx);
         _allBarrierOps.push_back(newBarrier);
         _log.trace("Add new barrier '{0}', new barrier size '{1}'", newBarrierIdx, _allBarrierOps.size());
 
@@ -2763,30 +2950,30 @@ void vpux::BarrierInfo::initializeTaskQueueTypeMap(const mlir::DenseSet<vpux::VP
 
         switch (execKind) {
         case VPU::ExecutorKind::DMA_NN: {
-            const auto dmaPortNum = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+            const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
             auto dmaChannels = getDMAChannelsWithIndependentLinkAgents(config::getArch(module));
             for (auto dmaPortIdx : irange(dmaPortNum)) {
                 for (auto dmaChannel : dmaChannels) {
                     taskQueueType.id = getDMAQueueIdEncoding(dmaPortIdx, dmaChannel);
                     llvm::BitVector taskList(checked_cast<uint32_t>(getNumOfTasks()));
-                    _taskQueueTypeMap.insert(std::make_pair(taskQueueType, taskList));
+                    _taskQueueTypeMap.insert(std::make_pair(taskQueueType, std::move(taskList)));
                 }
             }
             break;
         }
 
         case VPU::ExecutorKind::DPU: {
-            auto numClusters = IE::getTileExecutor(module).getCount();
+            auto numClusters = config::getTileExecutor(module).getCount();
             for (auto clusterId : irange(numClusters)) {
                 taskQueueType.id = clusterId;
                 llvm::BitVector taskList(checked_cast<uint32_t>(getNumOfTasks()));
-                _taskQueueTypeMap.insert(std::make_pair(taskQueueType, taskList));
+                _taskQueueTypeMap.insert(std::make_pair(taskQueueType, std::move(taskList)));
             }
             break;
         }
 
         case VPU::ExecutorKind::SHAVE_ACT: {
-            auto tileOp = IE::getTileExecutor(module);
+            auto tileOp = config::getTileExecutor(module);
             VPUX_THROW_UNLESS(tileOp != nullptr, "Expected tileOp executor in order to query {0} executor.", execKind);
 
             auto numClusters = tileOp.getCount();
@@ -2943,7 +3130,7 @@ std::pair<SmallVector<llvm::BitVector>, size_t> vpux::BarrierInfo::buildTaskCont
         VPUX_THROW_WHEN(newDeps != removedDeps, "Temporary barriers have not been correctly removed");
     }
 
-    return std::make_pair(taskControlMap, blockStartInd);
+    return std::make_pair(std::move(taskControlMap), blockStartInd);
 }
 
 //
@@ -3020,6 +3207,21 @@ bool vpux::BarrierInfo::isDepFromTaskToBarrier(size_t taskInd, size_t barInd,
     auto barProdTasks = getBarrierProducers(barInd);
     return llvm::any_of(barProdTasks, [&](const auto barProdTask) {
         return isDepFromTaskAToTaskB(taskInd, barProdTask, taskControlMapAndOffset, blockIdxOfTaskControlMap);
+    });
+}
+
+// Check if there is a dependency from barrier to task by checking if there is a dependency
+// from any consumer of this barrier to this task. If yes then there is a guarantee that task
+// can execute only after barrier is produced - there is topological dependency.
+// taskControlMapAndOffset and blockIdxOfTaskControlMap arguments are input and output parameters. If it turns
+// out that provided control map for control graph block does not match block index of taskInd and barInd function will
+// build new control map and update those arguments.
+bool vpux::BarrierInfo::isDepFromBarrierToTask(size_t barInd, size_t taskInd,
+                                               std::pair<SmallVector<llvm::BitVector>, size_t>& taskControlMapAndOffset,
+                                               std::optional<size_t>& blockIdxOfTaskControlMap) {
+    auto barConsTasks = getBarrierConsumers(barInd);
+    return llvm::any_of(barConsTasks, [&](const auto barConsTask) {
+        return isDepFromTaskAToTaskB(barConsTask, taskInd, taskControlMapAndOffset, blockIdxOfTaskControlMap);
     });
 }
 

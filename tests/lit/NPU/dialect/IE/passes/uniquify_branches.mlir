@@ -942,3 +942,173 @@ func.func @NotMoveQuantizeCastBeforeMultipleSlicesForNotQuantileType(%arg0: tens
     // CHECK:       [[QUANTIZECAST1:%.+]] = IE.QuantizeCast
     // CHECK:       return [[QUANTIZECAST0]], [[QUANTIZECAST1]]
 }
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @MoveReorderBeforeEltwise
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x256x128xf16>
+func.func @MoveReorderBeforeEltwise(%arg0: tensor<1x16x256x128xf16>) -> (tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>) {
+    %0 = IE.MaxPool(%arg0) {
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %1 = IE.Cos(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %2 = IE.Sin(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    %4 = IE.Reorder(%2) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    return %3, %4 : tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>
+    
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool([[INPUT]]) {kernel_size = [3, 3], pads_begin = [1, 1], pads_end = [1, 1], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    // CHECK:       [[REORDER:%.+]] = IE.Reorder([[MAXPOOL]]) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    // CHECK-DAG:   [[SIN:%.+]] = IE.Sin([[REORDER]]) : tensor<1x16x256x128xf16, {order = #NCWH}> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    // CHECK-DAG:   [[COS:%.+]] = IE.Cos([[REORDER]]) : tensor<1x16x256x128xf16, {order = #NCWH}> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    // CHECK:       return [[COS]], [[SIN]]
+}
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NotMoveReorderBeforeEltwiseForDifferentOrder
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x256x128xf16>
+func.func @NotMoveReorderBeforeEltwiseForDifferentOrder(%arg0: tensor<1x16x256x128xf16>) -> (tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NWCH}>) {
+    %0 = IE.MaxPool(%arg0) {
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %1 = IE.Cos(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %2 = IE.Sin(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    %4 = IE.Reorder(%2) {dstOrder = #NWCH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NWCH}>
+    return %3, %4 : tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NWCH}>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool
+    // CHECK-DAG:   [[COS:%.+]] = IE.Cos
+    // CHECK-DAG:   [[SIN:%.+]] = IE.Sin
+    // CHECK:       [[REORDER_COS:%.+]] = IE.Reorder
+    // CHECK:       [[REORDER_SIN:%.+]] = IE.Reorder
+    // CHECK:       return [[REORDER_COS]], [[REORDER_SIN]]
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @NotMoveReorderBeforeEltwiseForNoReorderUser
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x256x128xf16>
+func.func @NotMoveReorderBeforeEltwiseForNoReorderUser(%arg0: tensor<1x16x256x128xf16>) -> (tensor<1x16x256x128xf16>, tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>) {
+    %0 = IE.MaxPool(%arg0) {
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %1 = IE.Cos(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %2 = IE.Sin(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    %4 = IE.Reorder(%2) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    return %0, %3, %4 : tensor<1x16x256x128xf16>, tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool
+    // CHECK-DAG:   [[COS:%.+]] = IE.Cos
+    // CHECK-DAG:   [[SIN:%.+]] = IE.Sin
+    // CHECK:       [[REORDER_COS:%.+]] = IE.Reorder
+    // CHECK:       [[REORDER_SIN:%.+]] = IE.Reorder
+    // CHECK:       return [[MAXPOOL]], [[REORDER_COS]], [[REORDER_SIN]]
+}
+
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+
+// CHECK-LABEL: @NotMoveReorderBeforeEltwiseForMultiUsers
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x256x128xf16>
+func.func @NotMoveReorderBeforeEltwiseForMultiUsers(%arg0: tensor<1x16x256x128xf16>) -> (tensor<1x16x256x128xf16>, tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>) {
+    %0 = IE.MaxPool(%arg0) {
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %1 = IE.Cos(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %2 = IE.Sin(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    %4 = IE.Reorder(%2) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    return %1, %3, %4 : tensor<1x16x256x128xf16>, tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NCWH}>
+    
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool
+    // CHECK-DAG:   [[COS:%.+]] = IE.Cos
+    // CHECK-DAG:   [[SIN:%.+]] = IE.Sin
+    // CHECK:       [[REORDER_COS:%.+]] = IE.Reorder
+    // CHECK:       [[REORDER_SIN:%.+]] = IE.Reorder
+    // CHECK:       return [[COS]], [[REORDER_COS]], [[REORDER_SIN]]
+}
+
+// -----
+
+#NCWH = affine_map<(d0, d1, d2, d3) -> (d0, d1, d3, d2)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @NotMoveReorderBeforeEltwiseForMultiOperands
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x256x128xf16>
+func.func @NotMoveReorderBeforeEltwiseForMultiOperands(%arg0: tensor<1x16x256x128xf16>) -> (tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NWCH}>) {
+    %0 = IE.MaxPool(%arg0) {
+        kernel_size = [3, 3],
+        pads_begin = [1, 1],
+        pads_end = [1, 1],
+        rounding_type = #IE.rounding_type<FLOOR>,
+        strides = [1, 1]
+    } : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %1 = IE.Cos(%0) : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %2 = IE.Add(%0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x256x128xf16>, tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NCWH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NCWH}>
+    %4 = IE.Reorder(%2) {dstOrder = #NWCH} : tensor<1x16x256x128xf16> -> tensor<1x16x256x128xf16, {order = #NWCH}>
+    return %3, %4 : tensor<1x16x256x128xf16, {order = #NCWH}>, tensor<1x16x256x128xf16, {order = #NWCH}>
+
+    // CHECK:       [[MAXPOOL:%.+]] = IE.MaxPool
+    // CHECK:       [[COS:%.+]] = IE.Cos
+    // CHECK:       [[ADD:%.+]] = IE.Add
+    // CHECK:       [[REORDER_COS:%.+]] = IE.Reorder
+    // CHECK:       [[REORDER_ADD:%.+]] = IE.Reorder
+    // CHECK:       return [[REORDER_COS]], [[REORDER_ADD]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @MoveReorderWithTwoUsesBeforeEltwise
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x160x1x1xf16>
+func.func @MoveReorderWithTwoUsesBeforeEltwise(%arg0: tensor<1x160x1x1xf16>) -> (tensor<1x1x1x320xf16, {order = #NHWC}>) {
+    %0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1, 2], [3], [3], [3]], shape_value = [1, 1, 1, 160]} : tensor<1x160x1x1xf16> -> tensor<1x1x1x160xf16>
+    %1 = IE.Cos(%0) : tensor<1x1x1x160xf16> -> tensor<1x1x1x160xf16>
+    %2 = IE.Sin(%0) : tensor<1x1x1x160xf16> -> tensor<1x1x1x160xf16>
+    %3 = IE.Reorder(%1) {dstOrder = #NHWC} : tensor<1x1x1x160xf16> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+    %4 = IE.Add(%3, %3) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x1x1x160xf16, {order = #NHWC}>, tensor<1x1x1x160xf16, {order = #NHWC}> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+    %5 = IE.Reorder(%2) {dstOrder = #NHWC} : tensor<1x1x1x160xf16> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+    %6 = IE.Add(%5, %5) {auto_broadcast = #IE.auto_broadcast_type<NONE_OR_EXPLICIT>} : tensor<1x1x1x160xf16, {order = #NHWC}>, tensor<1x1x1x160xf16, {order = #NHWC}> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+    %7 = IE.Concat(%4, %6) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 160]]} : tensor<1x1x1x160xf16, {order = #NHWC}>, tensor<1x1x1x160xf16, {order = #NHWC}> -> tensor<1x1x1x320xf16, {order = #NHWC}>
+    return %7 : tensor<1x1x1x320xf16, {order = #NHWC}>
+
+    // CHECK:       [[REORDER:%.+]] = IE.Reorder
+    // CHECK-DAG:   [[SIN:%.+]] = IE.Sin([[REORDER]]) : tensor<1x1x1x160xf16, {order = #NHWC}> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+    // CHECK-DAG:   [[COS:%.+]] = IE.Cos([[REORDER]]) : tensor<1x1x1x160xf16, {order = #NHWC}> -> tensor<1x1x1x160xf16, {order = #NHWC}>
+}

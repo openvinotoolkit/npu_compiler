@@ -106,7 +106,7 @@ module {
     // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     //                     0(DMA-0)
@@ -273,7 +273,7 @@ module {
     // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     //                     0(DMA-0)

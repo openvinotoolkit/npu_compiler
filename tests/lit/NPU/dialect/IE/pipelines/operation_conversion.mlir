@@ -239,8 +239,8 @@ func.func @MatMulWithGroupQuant(%arg0: tensor<16x3072xf16>) -> tensor<16x4096xf1
     // CHECK-SAME:     shape_value = [16, 4096]
     // CHECK-SAME:  : tensor<16x4096x1x1xf16> -> tensor<16x4096xf16>
 
-    // CHECK:   [[ADD_0:%.+]] = IE.Accumulate([[GEMM_0_2D]], [[GEMM_1_2D]])
-    // CHECK:   [[ADD_1:%.+]] = IE.Accumulate([[ADD_0]], [[GEMM_2_2D]])
+    // CHECK:   [[ADD_0:%.+]] = IE.Add([[GEMM_0_2D]], [[GEMM_1_2D]])
+    // CHECK:   [[ADD_1:%.+]] = IE.Add([[ADD_0]], [[GEMM_2_2D]])
 
     return %GEMM : tensor<16x4096xf16>
 }

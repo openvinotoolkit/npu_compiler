@@ -34,7 +34,7 @@ mlir::Value reduceWeightsConstant(VPUIP::NCEClusterTaskOp nceOp, VPUIP::CopyOp w
     auto weightsConstOp = weightsCopyInput.getDefiningOp<vpux::Const::DeclareOp>();
     mlir::OpBuilder constBuilder(weightsConstOp);
 
-    auto newContentAttr = weightsConstOp.transformContentAttr().subview(Shape(currentOffset), origShape).get();
+    auto newContentAttr = weightsConstOp.transformContentAttr().subview(ShapeRef(currentOffset), origShape).get();
 
     auto newConstType = mlir::cast<vpux::NDTypeInterface>(weightsConstOp.getType()).changeShape(origShape);
     auto newWeightsConstOp = constBuilder.create<Const::DeclareOp>(

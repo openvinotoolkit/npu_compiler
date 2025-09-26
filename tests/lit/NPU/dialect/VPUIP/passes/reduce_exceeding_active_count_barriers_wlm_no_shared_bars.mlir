@@ -21,7 +21,7 @@ module {
     %bar1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar2 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     %bar3 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    %bar4 = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    %bar4 = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     %buf0 = VPURT.DeclareBuffer <DDR> <0> -> memref<1x3x64x64xf16, @DDR>
     %buf1 = VPURT.DeclareBuffer <DDR> <32> -> memref<1x3x64x64xf16, @DDR>
 
@@ -107,7 +107,7 @@ module {
     // CHECK: [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
     // CHECK-NOT: VPURT.DeclareVirtual
 
     // 0(DMA-0)    1(DMA-1)   2(SW)

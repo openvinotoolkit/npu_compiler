@@ -8,9 +8,9 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-      IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-      IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+      config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
   // CHECK-LABEL: func.func @SOHTilingMVN1SumNotCorrectHForMS
   // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<3x1x1000001x1xf16, {order = #NHWC}>
@@ -49,9 +49,9 @@ module @executors {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-      IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-      IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+      config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
   // CHECK-LABEL: func.func @SOHTilingMVN1SumCorrectHForMS
   // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x3x1000001x1xf16, {order = #NHWC}>
@@ -90,9 +90,9 @@ module @executors {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-      IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-      IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+      config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
   // CHECK-LABEL: func.func @ClusteringTilingMVN1SumCorrectHForMS
   // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x3x1000001x1xf16, {order = #NHWC}>
@@ -143,9 +143,9 @@ module @executors {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @executors {
-  IE.TileResource 2 of @NCE at 1.700000e+03 MHz {
-      IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-      IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 2 of @NCE at 1.700000e+03 MHz {
+      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+      config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
   // CHECK-LABEL: func.func @SOKTilingMVN1Sum
   // CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x3x1000001x1xf16>
@@ -190,11 +190,11 @@ module @executors {
 
 module {
 
-IE.TileResource 2 of @NCE at 1.850000e+03 MHz {
-    IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @DPU
+config.Resources 2 of @NCE at 1.850000e+03 MHz {
+    config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @DPU
 }
 
 // CHECK-LABEL: func.func @SOKTilingMVN1SumEqualChannelsToClusters

@@ -1777,7 +1777,6 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     %convWeightsTable = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
     %dwConvWeights = const.Declare tensor<64x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<64x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %dwConvWeightsTable = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
 
     %maxPoolWeightsTable = const.Declare tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> =
         dense<1> : tensor<128x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}>
@@ -1798,9 +1797,8 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     %4 = VPU.Copy(%3) : !Distributed -> tensor<1x64x36x36xf16, {order = #NHWC}>
     // Input 2 of Concat
     %5 = VPU.Copy(%dwConvWeights) {out_mem_space = @CMX_NN} : tensor<64x16x1x1xf16, {order = #NHWC}> -> !Distributed4
-    %6 = VPU.Copy(%dwConvWeightsTable) {out_mem_space = @CMX_NN} : tensor<64x1x1x4xsi32> -> !Distributed3
 
-    %7 = VPU.NCE.DepthConvolution(%3, %5, %6) {
+    %6 = VPU.NCE.DepthConvolution(%3, %5) {
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
                 lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
@@ -1808,23 +1806,23 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
                 strides = [1, 1]
             } -> !Distributed
 
-    %8 = VPU.Copy(%7) : !Distributed -> tensor<1x64x36x36xf16, {order = #NHWC}>
+    %7 = VPU.Copy(%6) : !Distributed -> tensor<1x64x36x36xf16, {order = #NHWC}>
 
-    %9 = VPU.Concat(%4, %8) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x36x36xf16, {order = #NHWC}>, tensor<1x64x36x36xf16, {order = #NHWC}> -> tensor<1x128x36x36xf16, {order = #NHWC}>
+    %8 = VPU.Concat(%4, %7) {static_offsets = [[0, 0, 0, 0], [0, 64, 0, 0]]} : tensor<1x64x36x36xf16, {order = #NHWC}>, tensor<1x64x36x36xf16, {order = #NHWC}> -> tensor<1x128x36x36xf16, {order = #NHWC}>
 
     // Concat output
-    %10 = VPU.Copy(%9) {out_mem_space = @CMX_NN} : tensor<1x128x36x36xf16, {order = #NHWC}> -> !Distributed5
+    %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x128x36x36xf16, {order = #NHWC}> -> !Distributed5
 
-    %11 = VPU.NCE.MaxPool(%10, %maxPoolWeightsTable) {
+    %10 = VPU.NCE.MaxPool(%9, %maxPoolWeightsTable) {
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64>,
                 strides = [1, 1],
                 kernel_size = [1, 1]
             } -> !Distributed5
 
-    %12 = VPU.Copy(%11) : !Distributed5 -> tensor<1x128x36x36xf16, {order = #NHWC}>
+    %11 = VPU.Copy(%10) : !Distributed5 -> tensor<1x128x36x36xf16, {order = #NHWC}>
 
-    return %12 : tensor<1x128x36x36xf16, {order = #NHWC}>
+    return %11 : tensor<1x128x36x36xf16, {order = #NHWC}>
 
     // CHECK:       [[CST:%.+]] = const.Declare tensor<64x64x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x64x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
     // CHECK:       [[CST_0:%.+]] = const.Declare tensor<64x1x1x4xsi32> = dense<1> : tensor<64x1x1x4xsi32>
@@ -1895,16 +1893,7 @@ func.func @InsertAvgPoolingWhenNCEOpHasExtraUser(%arg0: tensor<1x64x36x36xf16, {
     // CHECK-SAME{LITERAL}:                 memory_shapes = [[64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1], [64, 16, 1, 1]],
     // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
 
-    // CHECK:       [[COPY_IN_4:%.+]] = VPU.Copy([[CST_0]])
-    // CHECK-SAME:                      -> !VPU.DistributedTensor<
-    // CHECK-SAME:                          64x1x1x4xsi32, #NCHW, @CMX_NN, {
-    // CHECK-SAME:                          mode = "DUPLICATED", num_clusters = 6 : i64, uniform_distributed_segments,
-    // CHECK-SAME{LITERAL}:                 compute_shapes = [[64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4]],
-    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
-    // CHECK-SAME{LITERAL}:                 memory_shapes = [[64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4], [64, 1, 1, 4]],
-    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]}>
-
-    // CHECK:       [[DW_CONV:%.+]] = VPU.NCE.DepthConvolution([[CONV]], [[COPY_IN_3]], [[COPY_IN_4]]) {
+    // CHECK:       [[DW_CONV:%.+]] = VPU.NCE.DepthConvolution([[CONV]], [[COPY_IN_3]]) {
     // CHECK-SAME:                          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
     // CHECK-SAME:                          ppe = #VPU.PPEInt<mode = <LRELU>, clamp_low = -128 : i64, clamp_high = 127 : i64,
     // CHECK-SAME:                              lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,

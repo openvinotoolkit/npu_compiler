@@ -114,10 +114,11 @@ module @AtanhF16Layer {
 // -----
 // IE.Tanh
 
-// CHECK: @TanhF16Layer
-module @TanhF16Layer {
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: TanhF16Layer
+module @TanhF16Layer  {
   net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "input0" : tensor<1x1x1x1000xf16>
+    DataInfo "input" : tensor<1x1x1x1000xf16>
   } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf16>
   }
@@ -129,18 +130,23 @@ module @TanhF16Layer {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 
-// CHECK-NOT:     IE.Tanh
-// CHECK:         [[RET:%.+]] = math.tanh [[ARG:%.+]] fastmath<afn> : tensor<1x1x1x1000xf16>
-// CHECK:         IE.CGCYield [[RET]] : tensor<1x1x1x1000xf16>
+    // CHECK-NOT:     IE.Tanh
+    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
+    // CHECK-NEXT:      [[RES:%.+]] = math.tanh [[IN]] fastmath<afn> : f16
+    // CHECK-NEXT:      linalg.yield [[RES]] : f16
+    // CHECK-NEXT:    } -> tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xf16>
   }
 }
 
 // -----
 
-// CHECK: @TanhF32Layer
-module @TanhF32Layer {
+// CHECK: [[NCHW:#.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK: TanhF32Layer
+module @TanhF32Layer  {
   net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "input0" : tensor<1x1x1x1000xf32>
+    DataInfo "input" : tensor<1x1x1x1000xf32>
   } outputsInfo : {
     DataInfo "output" : tensor<1x1x1x1000xf32>
   }
@@ -152,8 +158,12 @@ module @TanhF32Layer {
     } -> tensor<1x1x1x1000xf32>
     return %0 : tensor<1x1x1x1000xf32>
 
-// CHECK-NOT:     IE.Tanh
-// CHECK:         [[RET:%.+]] = math.tanh [[ARG:%.+]] fastmath<afn> : tensor<1x1x1x1000xf32>
-// CHECK:         IE.CGCYield [[RET]] : tensor<1x1x1x1000xf32>
+    // CHECK-NOT:     IE.Tanh
+    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf32>) outs([[ARG0]] : tensor<1x1x1x1000xf32>) {
+    // CHECK-NEXT:    ^bb0([[IN:%.+]]: f32, {{%.+}}: f32):
+    // CHECK-NEXT:      [[RES:%.+]] = math.tanh [[IN]] fastmath<afn> : f32
+    // CHECK-NEXT:      linalg.yield [[RES]] : f32
+    // CHECK-NEXT:    } -> tensor<1x1x1x1000xf32>
+    // CHECK-NEXT:    IE.CGCYield [[LINALG_OP]] : tensor<1x1x1x1000xf32>
   }
 }

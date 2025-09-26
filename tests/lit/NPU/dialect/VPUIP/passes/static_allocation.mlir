@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --static-allocation="memory-space=DDR" %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values" --static-allocation="memory-space=DDR" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK-LABEL: @LinearGraph
@@ -109,11 +109,13 @@ func.func @main(%in: memref<1x1x1x1000xf16>, %out: memref<1x1x1x1000xf16>) -> me
 // CHECK-LABEL: @LinearGraphWithReservedMem
 module @LinearGraphWithReservedMem {
 
-builtin.module @ReservedMemory {
-  module @CustomReservedMemory {
-    IE.MemoryResource 512 bytes of @DDR offset 0
-  }
-}
+    config.Resources 1 of @global {
+        builtin.module @ReservedMemory {
+            module @CustomReservedMemory {
+                config.MemoryResource 512 bytes of @DDR offset 0
+            }
+        }
+    }
 
 net.NetworkInfo
     entryPoint : @main

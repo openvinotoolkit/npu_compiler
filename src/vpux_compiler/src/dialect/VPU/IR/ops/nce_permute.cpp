@@ -20,6 +20,9 @@
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include "mlir/Dialect/Arith/Utils/Utils.h"
+
 using namespace vpux;
 
 namespace {
@@ -227,7 +230,7 @@ mlir::LogicalResult vpux::VPU::NCEPermuteOp::inferReturnTypes(mlir::MLIRContext*
 
 vpux::InputTiling vpux::VPU::NCEPermuteOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
     auto nceOp = mlir::cast<VPU::NCEOpInterface>(getOperation());
-    const auto origInputShape = getShape(getInput());
+    const auto origInputShape = getBoundedShape(getInput());
     const auto origPadding = toPadInfo(VPU::getPaddingAttr(getContext(), 0, 0, 0, 0));
     const auto kernelSize = getIntArrayAttr(getContext(), nceOp.getKernelSizeVal());
     const auto strides = getIntArrayAttr(getContext(), nceOp.getStridesVal());
@@ -260,6 +263,34 @@ void vpux::VPU::NCEPermuteOp::adjustAttrs(const TilingInfo& /*inputTiling*/, con
 
 mlir::FailureOr<OutputTiling> vpux::VPU::NCEPermuteOp::getTilingStrategy(TilingMode tilingMode, Logger log) {
     return vpux::getHWLayerTilingStrategy(this->getOperation(), tilingMode, log);
+}
+
+mlir::LogicalResult vpux::VPU::NCEPermuteOp::reifyResultShapes(mlir::OpBuilder& builder,
+                                                               mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    SmallVector<mlir::OpFoldResult> shapes;
+    const auto loc = getLoc();
+    const auto inputShapedType = mlir::cast<mlir::ShapedType>(getInput().getType());
+    const auto outputShapedType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+    for (const auto& dimIdx : irange(outputShapedType.getRank())) {
+        if (outputShapedType.isDynamicDim(dimIdx)) {
+            // for dynamic case it's unclear how to expand dynamic channels to static value
+            if (Dim(dimIdx) == Dims4D::Act::C) {
+                return mlir::failure();
+            }
+            // Dynamic dimension: return mlir::Value according to permutation.
+            mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(loc, getInput(), dimIdx);
+            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, dimOp));
+        } else {
+            if (Dim(dimIdx) == Dims4D::Act::C) {
+                shapes.push_back(builder.getIndexAttr(getExpandedChannels()));
+            } else {
+                // Static dimension: return mlir::IntegerAttr.
+                shapes.push_back(builder.getIndexAttr(inputShapedType.getDimSize(dimIdx)));
+            }
+        }
+    }
+    reifiedReturnShapes.emplace_back(std::move(shapes));
+    return mlir::success();
 }
 
 //

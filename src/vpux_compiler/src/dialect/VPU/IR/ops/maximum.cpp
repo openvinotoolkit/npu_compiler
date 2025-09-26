@@ -53,6 +53,10 @@ bool vpux::VPU::MaximumOp::checkStrategyCompatibility(VPU::MultiClusterStrategy 
         return true;
     }
 
+    if (strategy == VPU::MultiClusterStrategy::SplitOverWidth && inShape[Dims4D::Act::W] > 1) {
+        return true;
+    }
+
     return false;
 }
 

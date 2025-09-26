@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -69,7 +70,9 @@ void freezeOutputShape(mlir::Operation* op) {
     VPUX_THROW_UNLESS(boundedType != nullptr, "Expected to get BoundedTensorType at {0}", op->getResult(0).getLoc());
     auto bounds = boundedType.getBounds();
     const auto newShape = bounds.raw();
-    const auto newType = mlir::RankedTensorType::get(newShape, origType.getElementType());
+    const auto newType = mlir::RankedTensorType::get(newShape, origType.getElementType(),
+                                                     getTensorAttr(op->getContext(), origType.getDimsOrder(), nullptr));
+
     op->getResult(0).setType(newType);
     // TODO(#157061): outputType of DynamicDataMaskOp depends on an attribute
     if (auto generateDynGarbageOp = mlir::dyn_cast<IE::DynamicDataMaskOp>(op)) {

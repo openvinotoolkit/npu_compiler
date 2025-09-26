@@ -114,12 +114,12 @@ const std::vector<ov::op::PhiloxAlignment> philoxAlignments = {ov::op::PhiloxAli
 const auto randParams =
         ::testing::Combine(::testing::ValuesIn(outputShapes), ::testing::ValuesIn(randomUniformSpecificParams),
                            ::testing::ValuesIn(globalSeeds), ::testing::ValuesIn(opSeeds),
-                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto randParamsF32 =
         ::testing::Combine(::testing::Values(outputShapes[1]), ::testing::ValuesIn(randomUniformSpecificParamsF32),
                            ::testing::Values(globalSeeds[0]), ::testing::Values(opSeeds[1]),
-                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(DEVICE_NPU));
+                           ::testing::ValuesIn(philoxAlignments), ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_RandomUniform, RandomLayerTestCommon, randParams,
                          RandomLayerTestCommon::getTestCaseName);

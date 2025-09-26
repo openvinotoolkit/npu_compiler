@@ -6,7 +6,7 @@
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/interfaces/workload_splitter_base.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/workload_splitter.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
@@ -24,7 +24,7 @@ public:
         auto log = Logger::global();
         const auto arch = config::getArch(func);
         auto sparsityConstraint = VPU::getSparsityConstraint(arch);
-        VPU::WorkloadSplitter40XX splitter(func, log);
+        VPU::WorkloadSplitter splitter(func, vpux::VPU::supportedChannelsDW, log);
 
         // More than one operation might need to be handled at the same time for some sparse activations,
         // to satisfy the requirements of the consumer ops

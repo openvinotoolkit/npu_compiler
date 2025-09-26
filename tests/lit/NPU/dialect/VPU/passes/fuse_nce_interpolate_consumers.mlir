@@ -43,20 +43,17 @@ func.func @FuseInterpolateNearestWithConv(%arg0: tensor<1x16x3x3xf16, {order = #
     } -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     %conv_weights = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %conv_weights_table = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-
-    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights, %conv_weights_table) {
+    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) {
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [32, 16, 1, 1],
             strides = [1, 1]
-        } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x6x6xf16, {order = #NHWC}>
+        } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x6x6xf16, {order = #NHWC}>
 
     return %conv_output : tensor<1x32x6x6xf16, {order = #NHWC}>
 
 
     // CHECK-DAG:  [[CST_WEIGHTS:%.+]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    // CHECK-DAG:  [[CST_WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
     // CHECK-DAG:  [[INPUT_SPARSITY_MAP:%.+]] = const.Declare tensor<1x16x6x6xi1> = dense<true> : tensor<1x16x6x6xi1>
 
     // CHECK:      [[INPUT_SE_TABLE:%.+]] = VPU.StorageElementTable {
@@ -82,7 +79,7 @@ func.func @FuseInterpolateNearestWithConv(%arg0: tensor<1x16x3x3xf16, {order = #
 
     // CHECK-NOT:  VPU.NCE.Interpolate
 
-    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[CST_WEIGHTS]], [[CST_WEIGHTS_TABLE]]) {
+    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INPUT_SPARSE]], [[CST_WEIGHTS]]) {
     // CHECK-SAME:     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:     ppe = #VPU.PPEStub<>,
     // CHECK-SAME:     rawFilterShape = [32, 16, 1, 1],
@@ -131,19 +128,16 @@ func.func @DoNotFuseInterpolateBilinearWithConv(%arg0: tensor<1x16x3x3xf16, {ord
     } -> tensor<1x16x6x6xf16, {order = #NHWC}>
 
     %conv_weights = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}> = dense<1.0> : tensor<32x16x1x1xf16>, [#const.Reorder<#NHWC>]
-    %conv_weights_table = const.Declare tensor<32x1x1x4xsi32> = dense<1> : tensor<32x1x1x4xsi32>
-
-    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights, %conv_weights_table) {
+    %conv_output = VPU.NCE.Convolution(%interp_output, %conv_weights) {
             pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [32, 16, 1, 1],
             strides = [1, 1]
-        } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}>, tensor<32x1x1x4xsi32> -> tensor<1x32x6x6xf16, {order = #NHWC}>
+        } : tensor<1x16x6x6xf16, {order = #NHWC}>, tensor<32x16x1x1xf16, {order = #NHWC}> -> tensor<1x32x6x6xf16, {order = #NHWC}>
 
     return %conv_output : tensor<1x32x6x6xf16, {order = #NHWC}>
 
     // CHECK-DAG:  [[CONV_WEIGHTS:%.+]] = const.Declare tensor<32x16x1x1xf16, {order = #NHWC}>
-    // CHECK-DAG:  [[CONV_WEIGHTS_TABLE:%.+]] = const.Declare tensor<32x1x1x4xsi32>
     // CHECK-DAG:  [[INTERP_WEIGHTS:%.+]] = const.Declare tensor<16x16x2x2xf16, {order = #NHWC}>
     // CHECK-DAG:  [[INTERP_WEIGHTS_TABLE:%.+]] = const.Declare tensor<16x1x1x4xsi32>
     // CHECK-DAG:  [[INTERP_SPARSITY_MAP:%.+]] = const.Declare tensor<1x16x7x7xi1>
@@ -153,6 +147,6 @@ func.func @DoNotFuseInterpolateBilinearWithConv(%arg0: tensor<1x16x3x3xf16, {ord
 
     // CHECK:      [[INTERP_OUTPUT:%.+]] = VPU.NCE.Interpolate([[INTERP_INPUT]], [[INTERP_WEIGHTS]], [[INTERP_WEIGHTS_TABLE]])
 
-    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INTERP_OUTPUT]], [[CONV_WEIGHTS]], [[CONV_WEIGHTS_TABLE]])
+    // CHECK:      [[CONV_OUTPUT:%.+]] = VPU.NCE.Convolution([[INTERP_OUTPUT]], [[CONV_WEIGHTS]])
     // CHECK:      return [[CONV_OUTPUT]]
 }

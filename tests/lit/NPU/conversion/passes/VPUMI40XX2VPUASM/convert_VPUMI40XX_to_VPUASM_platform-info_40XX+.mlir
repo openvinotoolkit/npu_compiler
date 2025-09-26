@@ -8,8 +8,8 @@
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input_0" : tensor<16x32x1x1xf16, {order = #NHWC}>
   } outputsInfo : {
@@ -28,6 +28,7 @@ IE.TileResource 1 of @NCE at 6.000000e+02 MHz
   func.func private @main() {
     %2 = VPUMI40XX.PlatformInfo -> <0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

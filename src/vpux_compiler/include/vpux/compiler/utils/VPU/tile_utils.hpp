@@ -30,6 +30,18 @@ SmallVector<vpux::NDTypeInterface> getTileTypes(NCEOp origOp, const TileInfo& ou
     return tileTypes;
 }
 
+template <typename NCEOp>
+int64_t countElementsPerOutputChannelInWeightTable(NCEOp nceOp) {
+    bool isNewWeightTable = nceOp.getWeightsTable() == nullptr;
+    int64_t numberOfNewWeightTables = isNewWeightTable ? (nceOp.getWeightTableScale() == nullptr ? 0 : 1) +
+                                                                 (nceOp.getWeightTableBias() == nullptr ? 0 : 1)
+                                                       : 0;
+    int64_t elemsPerChannel =
+            isNewWeightTable ? VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * numberOfNewWeightTables
+                             : VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC;
+    return elemsPerChannel;
+}
+
 // Convolution
 
 SmallVector<vpux::NDTypeInterface> getTileTypes(VPU::ConvolutionOp origOp, const TileInfo& outTile,
@@ -176,8 +188,6 @@ Byte getRequiredCMX(mlir::Operation* op, const SmallVector<NDTypeInterface>& typ
 
 OutputTiling getUniqueShapeTilingCandidates(mlir::Operation* op, const OutputTiling& origTiles, Logger log);
 
-int64_t countElementsPerOutputChannelInWeightTable(VPU::NCEConvolutionOp convOp);
-
 bool canSWLayerBeEvenlyUnrolled(mlir::Operation* op, const OutputTiling& tiles, Dim targetDim, Logger);
 struct TileShapeCompare {
     bool operator()(const TileInfo& tile1, const TileInfo& tile2) const {
@@ -188,6 +198,13 @@ struct TileShapeCompare {
 bool isDivisibleTile(mlir::Operation* op, ShapeRef tileAxis, Dim tileDim);
 
 bool hasRestrictedTilingDim(VPU::DistributedCastOpInterface distributedCastOp);
+
+// TilingInfoOpInterface
+
+bool isSupportedIsolatedTilingEltwise(mlir::Operation* origOp, const OutputTiling& tiles, Logger log);
+bool isSupportedIsolatedTilingSwLayer(mlir::Operation* origOp, const OutputTiling& tiles, Logger log);
+bool isSupportedPipeliningTilingSwLayer(mlir::Operation* origOp, const OutputTiling& tiles, Logger log);
+bool isSupportedTilingStrategyImpl(mlir::Operation* op, const vpux::Shape& strategy, TilingMode tilingMode, Logger log);
 
 }  // namespace VPU
 }  // namespace vpux

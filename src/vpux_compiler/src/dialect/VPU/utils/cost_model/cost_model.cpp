@@ -4,10 +4,13 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
@@ -16,6 +19,9 @@
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/Quant/QuantTypes.h>
+
+#include <vpu/layer.h>
+#include <vpu_layer_strategy.h>
 
 using namespace vpux;
 
@@ -378,6 +384,22 @@ void correctParamsForNcePermute(Shape& inputShape, Shape& outputShape, PadInfo& 
     outputShape[Dims4D::Act::W] = OH;
 }
 
+void setAutopadFields(VPUNN::DPUWorkload& workload, const VPUIP::WorkloadCostParams& params) {
+    // The workloads that use the IDU / ODU autopad features must be explicitly marked for VPUNN to correctly calculate
+    // their cost.
+    // Note: Compressed Convolutions are an alternative way to avoid padding the input channels to 16, by only
+    // padding them to 4. For these workloads, VPUNN does not expect the IDU autopad to be marked as enabled
+    const auto usesIDUAutopad =
+            workload.inputs[0].z() < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT && !params.isNceCompressConv;
+    const auto usesODUAutopad = workload.outputs[0].z() < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    if (usesIDUAutopad) {
+        workload.input_autopad = true;
+    }
+    if (usesODUAutopad) {
+        workload.output_autopad = true;
+    }
+}
+
 VPUNN::DPULayer vpux::VPU::getDPULayer(const VPUIP::WorkloadCostParams& params) {
     VPUX_THROW_WHEN(params.kernelSize.size() < 2, "Kernel array size less than 2");
     const unsigned int KY = checked_cast<unsigned int>(params.kernelSize[Dims4D::Kernel::Y.ind()]);
@@ -433,6 +455,8 @@ VPUNN::DPULayer vpux::VPU::getDPULayer(const VPUIP::WorkloadCostParams& params) 
     if (vpux::VPU::NCESparsity::isSuperdenseRequired(params.outOrder, params.outputShape, params.outDataType)) {
         vpunnLayer.superdense_memory = true;
     }
+
+    setAutopadFields(vpunnLayer, params);
 
     return vpunnLayer;
 }
@@ -511,7 +535,8 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
         const auto useOCAsIC =
                 (!mlir::isa<VPU::NCEConvolutionOp, VPU::NCECompressConvolutionOp, VPU::NCEPermuteOp>(
                         nceOp.getOperation())) &&
-                (outputPerClusterShapes[0][Dims4D::Act::C] != actInputPerClusterShapes[0][Dims4D::Act::C]);
+                (outputPerClusterShapes[0][Dims4D::Act::C] != actInputPerClusterShapes[0][Dims4D::Act::C]) &&
+                !canAutopadOutput(nceOp.getOperation());
         const auto inputMode = actInputDistributedType.getDistribution().getMode().getValue();
         // Only have memory shapes for input
         // Memory shapes could be bigger than actual compute shapes because of possible broadcast
@@ -606,6 +631,8 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
                                                    params.outDataType)) {
             vpunnLayer.superdense_memory = true;
         }
+
+        setAutopadFields(vpunnLayer, params);
 
         vpunnLayers.push_back(std::move(vpunnLayer));
     }
@@ -721,6 +748,8 @@ VPUNN::DPUWorkload vpux::VPU::getDPUWorkload(const VPUIP::WorkloadCostParams& ti
         vpunnDPUWorkload.superdense_memory = true;
     }
 
+    setAutopadFields(vpunnDPUWorkload, tileParams);
+
     return vpunnDPUWorkload;
 }
 
@@ -734,8 +763,8 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
     const auto inputOrder = inputType.getDimsOrder();
     const auto outputOrder = outputType.getDimsOrder();
 
-    const auto inputShape = inputType.getShape();
-    const auto outputShape = outputType.getShape();
+    const auto inputShape = getBoundedShape(inputType);
+    const auto outputShape = getBoundedShape(outputType);
 
     const auto pads = nceOp.getPad();
 
@@ -839,6 +868,7 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
             })
             .Case<VPU::NCECompressConvolutionOp>([&](VPU::NCECompressConvolutionOp) {
                 params.nceTaskType = VPUIP::NCETaskType::CONV;
+                params.isNceCompressConv = true;
             })
             .Case<VPU::NCEDepthConvolutionOp>([&](VPU::NCEDepthConvolutionOp) {
                 params.nceTaskType = VPUIP::NCETaskType::DWCONV;

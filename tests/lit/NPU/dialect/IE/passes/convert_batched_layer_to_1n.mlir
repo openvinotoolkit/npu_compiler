@@ -522,3 +522,81 @@ func.func @MixedPrecisionF32Case(%arg0: tensor<5x16x1x1x!qElemType>, %arg1: tens
 
     // CHECK: return [[OUT_TRANSPOSE]] : tensor<5x4x1x1xf32>
 }
+
+// -----
+
+// CHECK-LABEL: @ConvertConvToGroupConv
+// CHECK-SAME: [[INPUT:%.+]]: tensor<64x1x516x516xf16>
+func.func @ConvertConvToGroupConv(%arg0: tensor<64x1x516x516xf16>) -> tensor<64x1x513x513xf16> {
+    %cst = const.Declare tensor<1x1x4x4xf16> = dense<1.0> : tensor<1x1x4x4xf16>
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<64x1x516x516xf16>, tensor<1x1x4x4xf16> -> tensor<64x1x513x513xf16>
+    return %0 : tensor<64x1x513x513xf16>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<64x1x4x4xf16> = dense<1.000000e+00> : tensor<1x1x4x4xf16>, [#const.Broadcast<0 : i64, 64 : i64>]
+    // CHECK: [[INPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [1, 64, 516, 516]} inputs([[INPUT]] : tensor<64x1x516x516xf16>) -> tensor<1x64x516x516xf16>
+    // CHECK: [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_RESHAPE]], [[CST]]) {dilations = [1, 1], groups = 64 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x64x516x516xf16>, tensor<64x1x4x4xf16> -> tensor<1x64x513x513xf16>
+    // CHECK: [[OUTPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [64, 1, 513, 513]} inputs([[GROUP_CONV]] : tensor<1x64x513x513xf16>) -> tensor<64x1x513x513xf16>
+    // CHECK: return [[OUTPUT_RESHAPE]] : tensor<64x1x513x513xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertConvToGroupConvWithBias
+// CHECK-SAME: [[INPUT:%.+]]: tensor<32x1x256x256xf16>
+func.func @ConvertConvToGroupConvWithBias(%arg0: tensor<32x1x256x256xf16>) -> tensor<32x1x255x255xf16> {
+    %cst = const.Declare tensor<1x1x2x2xf16> = dense<0.5> : tensor<1x1x2x2xf16>
+    %bias = const.Declare tensor<1x1x1x1xf16> = dense<0.1> : tensor<1x1x1x1xf16>
+    %0 = IE.Convolution(%arg0, %cst, %bias) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<32x1x256x256xf16>, tensor<1x1x2x2xf16>, tensor<1x1x1x1xf16> -> tensor<32x1x255x255xf16>
+    return %0 : tensor<32x1x255x255xf16>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf16> = dense<9.997550e-02> : tensor<1x1x1x1xf16>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<32x1x2x2xf16> = dense<5.000000e-01> : tensor<1x1x2x2xf16>, [#const.Broadcast<0 : i64, 32 : i64>]
+    // CHECK: [[INPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [1, 32, 256, 256]} inputs([[INPUT]] : tensor<32x1x256x256xf16>) -> tensor<1x32x256x256xf16>
+    // CHECK: [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_RESHAPE]], [[CST_0]], [[CST]]) {dilations = [1, 1], groups = 32 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x32x256x256xf16>, tensor<32x1x2x2xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x255x255xf16>
+    // CHECK: [[OUTPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [32, 1, 255, 255]} inputs([[GROUP_CONV]] : tensor<1x32x255x255xf16>) -> tensor<32x1x255x255xf16>
+    // CHECK: return [[OUTPUT_RESHAPE]] : tensor<32x1x255x255xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoConvertConvToGroupConvWithMultipleChannels
+// CHECK-SAME: [[INPUT:%.+]]: tensor<64x3x516x516xf16>
+func.func @NoConvertConvToGroupConvWithMultipleChannels(%arg0: tensor<64x3x516x516xf16>) -> tensor<64x1x513x513xf16> {
+    %cst = const.Declare tensor<1x3x4x4xf16> = dense<1.0> : tensor<1x3x4x4xf16>
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<64x3x516x516xf16>, tensor<1x3x4x4xf16> -> tensor<64x1x513x513xf16>
+    return %0 : tensor<64x1x513x513xf16>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x3x4x4xf16> = dense<1.000000e+00> : tensor<1x3x4x4xf16>
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<64x3x516x516xf16>, tensor<1x3x4x4xf16> -> tensor<64x1x513x513xf16>
+    // CHECK: return [[CONV]] : tensor<64x1x513x513xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoConvertConvToGroupConvWithSingleBatch
+// CHECK-SAME: [[INPUT:%.+]]: tensor<1x1x516x516xf16>
+func.func @NoConvertConvToGroupConvWithSingleBatch(%arg0: tensor<1x1x516x516xf16>) -> tensor<1x1x513x513xf16> {
+    %cst = const.Declare tensor<1x1x4x4xf16> = dense<1.0> : tensor<1x1x4x4xf16>
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1x516x516xf16>, tensor<1x1x4x4xf16> -> tensor<1x1x513x513xf16>
+    return %0 : tensor<1x1x513x513xf16>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x4x4xf16> = dense<1.000000e+00> : tensor<1x1x4x4xf16>
+    // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1x516x516xf16>, tensor<1x1x4x4xf16> -> tensor<1x1x513x513xf16>
+    // CHECK: return [[CONV]] : tensor<1x1x513x513xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertConvToGroupConvWithPostOp
+// CHECK-SAME: [[INPUT:%.+]]: tensor<128x1x64x64xf16>
+func.func @ConvertConvToGroupConvWithPostOp(%arg0: tensor<128x1x64x64xf16>) -> tensor<128x1x62x62xf16> {
+    %cst = const.Declare tensor<1x1x3x3xf16> = dense<0.25> : tensor<1x1x3x3xf16>
+    %0 = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], post_op = #IE.LeakyRelu<negative_slope = 0.1 : f64>, strides = [1, 1]} : tensor<128x1x64x64xf16>, tensor<1x1x3x3xf16> -> tensor<128x1x62x62xf16>
+    return %0 : tensor<128x1x62x62xf16>
+
+    // CHECK: [[CST:%.+]] = const.Declare tensor<128x1x3x3xf16> = dense<2.500000e-01> : tensor<1x1x3x3xf16>, [#const.Broadcast<0 : i64, 128 : i64>]
+    // CHECK: [[INPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [1, 128, 64, 64]} inputs([[INPUT]] : tensor<128x1x64x64xf16>) -> tensor<1x128x64x64xf16>
+    // CHECK: [[GROUP_CONV:%.+]] = IE.GroupConvolution([[INPUT_RESHAPE]], [[CST]]) {dilations = [1, 1], groups = 128 : i64, pads_begin = [0, 0], pads_end = [0, 0], post_op = #IE.LeakyRelu<negative_slope = 1.000000e-01 : f64>, strides = [1, 1]} : tensor<1x128x64x64xf16>, tensor<128x1x3x3xf16> -> tensor<1x128x62x62xf16>
+    // CHECK: [[OUTPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [128, 1, 62, 62]} inputs([[GROUP_CONV]] : tensor<1x128x62x62xf16>) -> tensor<128x1x62x62xf16>
+    // CHECK: return [[OUTPUT_RESHAPE]] : tensor<128x1x62x62xf16>
+}

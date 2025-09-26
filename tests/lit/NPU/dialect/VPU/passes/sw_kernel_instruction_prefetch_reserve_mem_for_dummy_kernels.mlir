@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 module @SimpleGraphAddFirstResMem {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
   }
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -21,20 +21,20 @@ module @SimpleGraphAddFirstResMem {
     return %results: tensor<1x16x4x4xf16>
   }
 
-    // CHECK:     IE.TileResource
+    // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT:         IE.MemoryResource 8 bytes of @CMX_NN offset 1474552
+    // CHECK-NEXT:         config.MemoryResource 8 bytes of @CMX_NN offset 1473528
 }
 
 // -----
 
 module @SimpleGraphAddSecondResMem {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
     builtin.module @ReservedMemory {
         module @CustomReservedMemory {
-            IE.MemoryResource 512 bytes of @CMX_NN offset 1474048
+            config.MemoryResource 512 bytes of @CMX_NN offset 1473024
         }
     }
   }
@@ -49,19 +49,19 @@ module @SimpleGraphAddSecondResMem {
     return %results: tensor<1x16x4x4xf16>
   }
 
-    // CHECK:     IE.TileResource
+    // CHECK:     config.Resources
     // CHECK:         ReservedMemory
     // CHECK-NEXT:         DummySWKernelsForInstructionPrefetchReservedMemory
-    // CHECK-NEXT:         IE.MemoryResource 8 bytes of @CMX_NN offset 1474040
+    // CHECK-NEXT:         config.MemoryResource 8 bytes of @CMX_NN offset 1473016
     // CHECK:              CustomReservedMemory
-    // CHECK-NEXT:         IE.MemoryResource 512 bytes of @CMX_NN offset 1474048
+    // CHECK-NEXT:         config.MemoryResource 512 bytes of @CMX_NN offset 1473024
 }
 
 // -----
 
 module @SimpleGraphNotAddResMem {
-  IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
+  config.Resources 1 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {VPU.bandwidth = 64 : i64, VPU.derateFactor = 1.000000e+00 : f64}
   }
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
@@ -73,7 +73,7 @@ module @SimpleGraphNotAddResMem {
     return %arg0: tensor<1x16x4x4xf16>
   }
 
-    // CHECK:     IE.TileResource
+    // CHECK:     config.Resources
     // CHECK-NOT:         ReservedMemory
     // CHECK-NOT:         DummySWKernelsForInstructionPrefetchReservedMemory
 }

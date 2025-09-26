@@ -4,12 +4,12 @@
 //
 
 #include "vpux/compiler/core/aliases_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/constant_fusion.hpp"
@@ -767,7 +767,7 @@ void Swizzling::safeRunOnFunc() {
 
     DeviceInfo deviceInfo;
     deviceInfo.archKind = config::getArch(module);
-    deviceInfo.cmxSize = IE::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size().count();
+    deviceInfo.cmxSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size().count();
     deviceInfo.reservedCMXSize = deviceInfo.cmxSize - VPU::getTotalCMXSize(module).count();
 
     OpsInfo opsInfo;

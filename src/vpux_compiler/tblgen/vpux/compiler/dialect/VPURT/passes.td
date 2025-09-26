@@ -44,8 +44,7 @@ def AssignPhysicalBarriers : PassBase<"assign-physical-barriers", "vpux::Functio
             [{::llvm::cl::values(
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V0_LCA, "PWLM_V0_LCA", "WLM enqueue barriers search algorithm at VPURT ENABLED"),
                 clEnumValN(vpux::WorkloadManagementMode::PWLM_V1_BARRIER_FIFO, "PWLM_V1_BARRIER_FIFO", "WLM enqueue barriers search algorithm at VPURT DISABLED"),
-                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)"),
-                clEnumValN(vpux::WorkloadManagementMode::FWLM_V1_PAGES, "FWLM_V1_PAGES", "FWLM with split into subgraphs(pages)")
+                clEnumValN(vpux::WorkloadManagementMode::PWLM_V2_PAGES, "PWLM_V2_PAGES", "WLM with split into subgraphs(pages)")
             )}]
         >
     ];
@@ -98,11 +97,11 @@ def SimplifySchedule : PassBase<"simplify-schedule", "vpux::FunctionPass"> {
 }
 
 //
-// SplitExceedingVariantCountBarriers
+// SplitExceedingBarrierSlotCountPass
 //
 
-def SplitExceedingVariantCountBarriers : PassBase<"split-exceeding-variant-count-barriers", "vpux::FunctionPass"> {
-    let summary = "Split exceeding variant (producer and consumer) count barriers";
+def SplitExceedingBarrierSlotCount : PassBase<"split-exceeding-barrier-slot-count", "vpux::FunctionPass"> {
+    let summary = "Split barriers with the number of producers and consumers exceeding the maximal barrier slot count";
 
     let description = [{
         This pass splits virtual barriers in the IR such that the number of producer slots <= MAX_VARIANT_COUNT / 2
@@ -112,7 +111,7 @@ def SplitExceedingVariantCountBarriers : PassBase<"split-exceeding-variant-count
         It will split barriers to keep producers <= MAX_VARIANT_SUM / 2 and consumers <= MAX_VARIANT_SUM / 2.
     }];
 
-    let constructor = "vpux::VPURT::createSplitExceedingVariantCountBarriersPass()";
+    let constructor = "vpux::VPURT::createSplitExceedingBarrierSlotCountPass()";
 
     let options = [
         Option<
@@ -292,6 +291,252 @@ def InsertBarrierToMarkTheEndOfDescriptorGroup : PassBase<"insert-barrier-to-mar
     }];
 
     let constructor = "vpux::VPURT::createInsertBarrierToMarkTheEndOfDescriptorGroupPass()";
+}
+
+//
+// AddFinalBarrier
+//
+
+def AddFinalBarrier : PassBase<"add-final-barrier", "vpux::FunctionPass"> {
+    let summary = "Adds a dummy barrier to state that the task execution flow has been finished";
+
+    let description = [{
+        Adds a dummy update barrier state that the task execution flow has been finished.
+        When the barrier's producer count is changed to zero, it means all tasks are finished.
+    }];
+
+    let constructor = "vpux::VPURT::createAddFinalBarrierPass()";
+}
+
+//
+// InsertSyncTasks
+//
+
+def InsertSyncTasks : PassBase<"insert-sync-tasks", "vpux::FunctionPass"> {
+    let summary = "Insert sync tasks";
+
+    let description = [{
+        Insert sync task that mark start and end of each FuncOp.
+        Example:
+
+               | op -> .. -> op |
+        funcOp{| op -> .. -> op |}
+               | op -> .. -> op |
+
+                        =>
+
+               |          /-> op -> .. -> op -\           |
+        funcOp{| SyncTask --> op -> .. -> op --> SyncTask |}
+               |          \-> op -> .. -> op -/           |
+
+    }];
+
+    let constructor = "vpux::VPURT::createInsertSyncTasksPass()";
+}
+
+//
+// OptimizeSyncTasks
+//
+
+def OptimizeSyncTasks : PassBase<"optimize-sync-tasks", "vpux::FunctionPass"> {
+    let summary = "Remove unnecessary sync tasks";
+
+    let description = [{
+        Remove unnecessary sync task that were injected previously by InsertSyncTasks pass.
+        Example:
+
+                 /-> op -> .. -> op -\                       /-> op -> .. -> op -\
+        SyncTask --> op -> .. -> op --> SyncTask -> SyncTask --> op -> .. -> op --> SyncTask
+                 \-> op -> .. -> op -/                       \-> op -> .. -> op -/
+
+                        =>
+
+        /-> op -> .. -> op -\           /-> op -> .. -> op -\
+        --> op -> .. -> op --> SyncTask --> op -> .. -> op -->
+        \-> op -> .. -> op -/           \-> op -> .. -> op -/
+    }];
+
+    let constructor = "vpux::VPURT::createOptimizeSyncTasksPass()";
+}
+
+//
+// FindWlmEnqueueBarrier
+//
+
+def FindWlmEnqueueBarrier : PassBase<"find-wlm-enqueue-barrier", "vpux::FunctionPass"> {
+    let summary = "For WLM for each task find enqueue barrier";
+
+    let description = [{
+        For WLM each task needs to be enqueued at some point. This pass analyzes schedule
+        and for each task finds a barrier at which it can be enqueued. Later this information
+        will be lowered to dedicated enqueue ops (WorkItem task)
+    }];
+
+    let constructor = "vpux::VPURT::createFindWlmEnqueueBarrierPass()";
+
+    let options = [
+        Option<
+            "enqDmaAtBootstrapOpt", "enq-dma-at-bootstrap",
+            "bool", "",
+            "Enforce enqueuing DMA at bootstrap"
+        >
+    ];
+}
+
+//
+// OrderBarriersForWlm
+//
+
+def OrderBarriersForWlm : PassBase<"order-barriers-for-wlm", "vpux::FunctionPass"> {
+    let summary = "Order barriers for WLM";
+
+    let description = [{
+        For WLM barriers are epxected to be ordered following consumption order
+    }];
+
+    let constructor = "vpux::VPURT::createOrderBarriersForWlmPass()";
+}
+
+//
+// WlmSplitGraphToPages
+//
+
+def WlmSplitGraphToPages : PassBase<"wlm-split-graph-to-pages", "vpux::FunctionPass"> {
+    let summary = "For WLM split model into subgraphs (pages)";
+
+    let description = [{
+        This pass is intended for WLM mode where model is split into subgraphs called pages,
+        limited by number of barriers, to allow later seamless enabling of WLM related features.
+    }];
+
+    let constructor = "vpux::VPURT::createWlmSplitGraphToPagesPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
+}
+
+//
+// WlmLegalizeSplitGraphToPages
+//
+
+def WlmLegalizeSplitGraphToPages : PassBase<"wlm-legalize-split-graph-to-pages", "vpux::FunctionPass"> {
+    let summary = "For WLM legalize split model into subgraphs (pages)";
+
+    let description = [{
+        This pass is intended to legalize split into subgraphs for WLM
+    }];
+
+    let constructor = "vpux::VPURT::createWlmLegalizeSplitGraphToPagesPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
+}
+
+//
+// WlmLegalizePagesForBarrierDmas
+//
+
+def WlmLegalizePagesForBarrierDmas : PassBase<"wlm-legalize-pages-for-barrier-dmas", "vpux::FunctionPass"> {
+    let summary = "For WLM legalize split into pages for reprogramming Barrier FIFOs using compiler DMAs";
+
+    let description = [{
+        This pass is intended to legalize split into pages for WLM in case compiler will be responsible
+        for programming virtual instances of physical barriers by writing to the Barrier FIFO using DMAs
+        During this pass, we not only adjust the schedule but also insert reference DMAs
+        These reference DMAs serve as placeholders and will later be replaced with actual DMAs that will
+        write barrier descriptors to the Barrier FIFO registers
+    }];
+
+    let constructor = "vpux::VPURT::createWlmLegalizePagesForBarrierDmasPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >,
+        Option<
+            "barrierFifoDepthOpt", "barrier-fifo-depth",
+            "int", "",
+            "Depth of barrier fifo"
+        >
+    ];
+}
+
+//
+// WlmInsertDummyBarriersInPages
+//
+
+def WlmInsertDummyBarriersInPages : PassBase<"wlm-insert-dummy-barriers-in-pages", "vpux::FunctionPass"> {
+    let summary = "For WLM pages split insert dummy barriers if given page doesn't use half of physical barriers";
+
+    let description = [{
+        This pass checks if in each page except last one number of barriers is equal to half of
+        number of physical barriers. If not, then it inserts dummy barriers to fill the gap.
+        Dummy barriers will be inserted parallel to some existing barrier with same consumer and producer.
+    }];
+
+    let constructor = "vpux::VPURT::createWlmInsertDummyBarriersInPagesPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
+}
+
+//
+// OptimizeBarriersSlotsUsage
+//
+
+def OptimizeBarriersSlotsUsage : PassBase<"optimize-barriers-slots-usage", "vpux::FunctionPass"> {
+    let summary = "Perform final optimization of barriers slots usage";
+
+    let description = [{
+        This pass should be called at very end of scheduling before backend and perform final optimization
+        of barriers slots usage so that barriers do not have redundant producers or consumers which
+        are controlled by HW FIFO dependencies - no barrier should have more than 1 producer or 1 consumer
+        from tasks of same queue type. This pass should not be used for nonWLM config as task barrier production
+        or consumption events are used by runtime for task enqueue or descriptor loading and if task-barrier relation
+        gets optimized this mechanism may be spoiled
+    }];
+
+    let constructor = "vpux::VPURT::createOptimizeBarriersSlotsUsagePass()";
+}
+
+//
+// CheckWlmPageSplitConstraints
+//
+
+def CheckWlmPageSplitConstraints : PassBase<"check-wlm-page-split-constraints", "vpux::FunctionPass"> {
+    let summary = "For WLM verify pages split constraints are satisfied and schedule is valid";
+
+    let description = [{
+        This pass checks if the page splits are valid and adhere to the constraints set by the WLM page split
+        and Full WLM features - enqueue, fetch and barrier reprogramming through compiler created DMAs.
+    }];
+
+    let constructor = "vpux::VPURT::createCheckWlmPageSplitConstraintsPass()";
+
+    let options = [
+        Option<
+            "numBarriersOpt", "num-barriers",
+            "int", "",
+            "Number of physical barriers, available for use"
+        >
+    ];
 }
 
 #endif

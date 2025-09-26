@@ -4,13 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
-
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
+
+#include <vpu_cost_model.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -371,11 +372,6 @@ void vpux::VPU::splitWorkloadsWithInfo(VPU::NCEOpInterface nceOp, mlir::OpBuilde
 }
 
 bool vpux::VPU::isSupportedPreSplitNCEOp(VPU::NCEOpInterface nceOp) {
-    // Operations with input_padding or output_padding are unsupported because different IC and OC can't pass VPUNN
-    // sanity check Track E#164800
-    if (nceOp->hasAttr(VPU::INPUT_PADDING_ATTR_NAME) || nceOp->hasAttr(VPU::OUTPUT_PADDING_ATTR_NAME)) {
-        return false;
-    }
     if (mlir::isa<VPU::NCECompressConvolutionOp>(nceOp)) {
         // Track [E#160091]
         // CompressedConv VPUNN MPE mode causes performance regression

@@ -349,6 +349,17 @@ FbVector<ProfilingFB::DPUTask> getDpuTasksOffset(const ProfilingConfiguration& p
     return builder.CreateVector(dpuOffsets);
 }
 
+template <class SwType>
+bool isSkipProfiling(const SwType& swTask) {
+    if (mlir::isa<VPUIP::SwKernelOp>(swTask)) {
+        // For VPUIP::SwKernelOp, check if the skipProfiling attribute is set
+        // This UnitAttr is set only when it is a dummy SW kernel for shave instruction prefetch, and it cannot be
+        // profiled [E#169656]
+        return swTask->hasAttr("skipProfiling");
+    }
+    return false;
+}
+
 template <class DialectProvider, class SwType, class Iterable>
 FbVector<ProfilingFB::SWTask> getSwTasksOffset(const ProfilingConfiguration& profilingCfg,
                                                flatbuffers::FlatBufferBuilder& builder, const Iterable& swTasks,
@@ -357,6 +368,7 @@ FbVector<ProfilingFB::SWTask> getSwTasksOffset(const ProfilingConfiguration& pro
         return {};
     }
     std::vector<flatbuffers::Offset<ProfilingFB::SWTask>> swTaskOffsets;
+    size_t skipMetadataCount = 0;
     for (const auto& swTask : swTasks) {
         auto name = stringifyPrimaryLocationChecked(swTask->getLoc());
         std::string swTaskType;
@@ -374,6 +386,10 @@ FbVector<ProfilingFB::SWTask> getSwTasksOffset(const ProfilingConfiguration& pro
         const auto updateBarriersOffset = builder.CreateVector(opBarriers.second);
 
         auto maybeMetadata = DialectProvider::getSwProfilingMetadata(swTask);
+        if (!maybeMetadata.has_value() && isSkipProfiling<SwType>(swTask)) {
+            skipMetadataCount++;
+            continue;
+        }
         VPUX_THROW_UNLESS(maybeMetadata.has_value(), "Missed metadata for '{0}'", swTask->getLoc());
 
         const auto metadata = maybeMetadata.value();
@@ -391,7 +407,7 @@ FbVector<ProfilingFB::SWTask> getSwTasksOffset(const ProfilingConfiguration& pro
         swTaskOffsets.push_back(taskOffset);
     }
     size_t swTaskCount = std::distance(swTasks.begin(), swTasks.end());
-    VPUX_THROW_WHEN(swTaskOffsets.size() != swTaskCount,
+    VPUX_THROW_WHEN(swTaskOffsets.size() != swTaskCount - skipMetadataCount,
                     "Number of SW tasks in profiling metadata ({0}) doesn't match the number of SW tasks ({1})",
                     swTaskOffsets.size(), swTaskCount);
 

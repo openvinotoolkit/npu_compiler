@@ -4,18 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dynamic_shape_propagation.hpp"
-#include "vpux/compiler/utils/empty_node.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
-#include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <cstdint>

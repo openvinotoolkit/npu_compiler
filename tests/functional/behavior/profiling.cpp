@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <fstream>
 #include <optional>
 #include <set>
 #include <sstream>

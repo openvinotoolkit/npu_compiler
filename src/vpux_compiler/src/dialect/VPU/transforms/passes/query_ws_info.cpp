@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/weights_separation.hpp"
-#include "vpux/compiler/dialect/const/utils/utils.hpp"
-#include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/IR/BuiltinAttributes.h>
@@ -26,6 +24,14 @@ class QueryWSInfo final : public VPU::impl::QueryWSInfoBase<QueryWSInfo> {
 public:
     explicit QueryWSInfo(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
+    }
+
+    QueryWSInfo(std::optional<Byte> limit, const Logger& log) {
+        Base::initLogger(log, Base::getArgumentName());
+
+        if (limit.has_value()) {
+            memoryLimit = limit.value().count();
+        }
     }
 
 private:
@@ -51,4 +57,8 @@ void QueryWSInfo::safeRunOnModule() {
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createQueryWSInfoPass(const Logger& log) {
     return std::make_unique<QueryWSInfo>(log);
+}
+
+std::unique_ptr<mlir::Pass> vpux::VPU::createQueryWSInfoPass(std::optional<Byte> limit, const Logger& log) {
+    return std::make_unique<QueryWSInfo>(limit, log);
 }

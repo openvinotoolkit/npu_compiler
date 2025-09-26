@@ -5,15 +5,11 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
-#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
-
-#include "openvino/op/group_conv.hpp"
 
 using namespace vpux;
 
@@ -40,9 +36,6 @@ mlir::LogicalResult vpux::VPU::TransposedConvolutionOp::inferReturnTypes(
     const auto outputPadding = parseIntArrayAttr<int64_t>(convBackpropData.getSpatialOutputPadding());
 
     if (outputShape != nullptr) {
-        const SmallVector<ov::Dimension> nDataShape(std::next(featureShape.begin(), 2), featureShape.end());
-        const SmallVector<ov::Dimension> nFilterShape(std::next(filterShape.begin(), 2), filterShape.end());
-
         auto outputShapeConst = outputShape.getDefiningOp<Const::DeclareOp>();
         if (outputShapeConst == nullptr) {
             return errorAt(loc, "Only constant input is supported for output_shape");
@@ -56,7 +49,7 @@ mlir::LogicalResult vpux::VPU::TransposedConvolutionOp::inferReturnTypes(
         mlirOutputShape.push_back(filterShape[Dims4D::Filter::OC.ind()]);
         std::copy(outputShapeVals.begin(), outputShapeVals.end(), std::back_inserter(mlirOutputShape));
 
-        auto outType = featureType.changeShape(Shape(mlirOutputShape));
+        auto outType = featureType.changeShape(ShapeRef(mlirOutputShape));
         inferredReturnTypes.push_back(outType);
     } else {
         const auto inputType = mlir::cast<vpux::NDTypeInterface>(convBackpropData.getInput().getType());
@@ -70,7 +63,7 @@ mlir::LogicalResult vpux::VPU::TransposedConvolutionOp::inferReturnTypes(
                                                                     outputPadding);
 
         const auto outDesc =
-                vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, Bounds(shapeInfo.bounds));
+                vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(shapeInfo.bounds));
         const auto outType = mlir::RankedTensorType::get(shapeInfo.shape, inputType.getElementType(), outDesc);
         inferredReturnTypes.push_back(outType);
     }

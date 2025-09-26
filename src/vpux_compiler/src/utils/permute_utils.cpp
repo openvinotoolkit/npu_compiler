@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/utils/quantization.hpp"
 
 using namespace vpux;
 
@@ -255,9 +256,18 @@ IE::LayerWithPermuteInterface vpux::getFusableLayerWithPermuteInterface(mlir::Op
 NDTypeInterface vpux::inferNewTypeWithMemPerm(NDTypeInterface oldType, mlir::AffineMap memPerm,
                                               const DimsOrder& dstOrder) {
     const auto oldMemShape = oldType.getMemShape();
+    const auto oldOrder = oldType.getDimsOrder();
     const auto newMemShape = applyPerm(oldMemShape, memPerm);
     const auto newShape = dstOrder.toLogicalOrder(newMemShape);
-    return oldType.changeDimsOrder(dstOrder).changeShape(newShape);
+    auto elemType = oldType.getElementType();
+    if (auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
+        const auto origAxis = perAxisType.getQuantizedDimension();
+        const auto inMemAxis = oldOrder.dimPos(Dim(origAxis));
+        const auto outMemAxis = DimsOrder::fromAffineMap(memPerm).dimPos(Dim(inMemAxis));
+        const auto outAxis = dstOrder.dimAt(outMemAxis);
+        elemType = changeAxis(perAxisType, outAxis.ind());
+    }
+    return oldType.changeDimsOrder(dstOrder).changeShapeElemType(newShape, elemType);
 }
 
 mlir::FailureOr<VPU::DistributionInfo> vpux::applyPermutationOnDistributionInfo(
@@ -329,10 +339,10 @@ mlir::FailureOr<VPU::DistributionInfo> vpux::applyPermutationOnDistributionInfo(
 
 // for a given input and a output requirement(outOrdr and outShape), the function is trying to find a permutation that
 // can use permuteCastOp to convert input to output requirement.
-std::optional<IE::PermuteCastOp> vpux::tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
-                                                              ShapeRef outShape, mlir::PatternRewriter& rewriter) {
+std::optional<mlir::AffineMap> vpux::tryToFindPermutationForPermuteCast(NDTypeInterface inputType, DimsOrder outOrder,
+                                                                        ShapeRef outShape,
+                                                                        mlir::PatternRewriter& rewriter) {
     const auto ctx = rewriter.getContext();
-    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
     const auto inMemShape = inputType.getMemShape().raw();
     const auto outMemShape = outOrder.toMemoryOrder(outShape).raw();
 
@@ -363,11 +373,11 @@ std::optional<IE::PermuteCastOp> vpux::tryToFindPermuteCastOp(mlir::Location loc
     // in output, then store it to permutation map. Like if in mem shape is [10, 20, 30, 40],
     // out mem shape is [10, 20, 40, 30], then the permutation is {0, 1, 3, 2}.
     SmallVector<int64_t> permutation;
-    for (auto inShape : inMemShape) {
-        for (auto outShape : outMemShape | indexed) {
-            if (outShape.value() == inShape &&
-                std::find(permutation.begin(), permutation.end(), outShape.index()) == permutation.end()) {
-                permutation.push_back(outShape.index());
+    for (auto outShape : outMemShape) {
+        for (auto inShape : inMemShape | indexed) {
+            if (inShape.value() == outShape &&
+                std::find(permutation.begin(), permutation.end(), inShape.index()) == permutation.end()) {
+                permutation.push_back(inShape.index());
                 break;
             }
         }
@@ -378,15 +388,30 @@ std::optional<IE::PermuteCastOp> vpux::tryToFindPermuteCastOp(mlir::Location loc
     }
 
     auto permutationMap = mlir::AffineMap::getPermutationMap(permutation, ctx);
-    if (!isTrivialPermute(inputType.getMemShape(), permutationMap)) {
+    const auto memShape = inputType.getMemShape();
+    if (!isTrivialPermute(memShape, permutationMap)) {
         return std::nullopt;
     }
-    if (applyPerm(inputType.getMemShape(), permutationMap) != outOrder.toMemoryOrder(outShape)) {
+    if (applyPerm(memShape, permutationMap) != outOrder.toMemoryOrder(outShape)) {
         return std::nullopt;
     }
 
-    return rewriter.create<IE::PermuteCastOp>(loc, input, mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx)),
-                                              mlir::AffineMapAttr::get(permutationMap));
+    return permutationMap;
+}
+
+// for a given input and a output requirement(outOrdr and outShape), the function is trying to find a permutation that
+// can use permuteCastOp to convert input to output requirement.
+std::optional<IE::PermuteCastOp> vpux::tryToFindPermuteCastOp(mlir::Location loc, mlir::Value input, DimsOrder outOrder,
+                                                              ShapeRef outShape, mlir::PatternRewriter& rewriter) {
+    const auto ctx = rewriter.getContext();
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+    auto hasValidPermutationMap = tryToFindPermutationForPermuteCast(inputType, outOrder, outShape, rewriter);
+    if (hasValidPermutationMap.has_value()) {
+        return rewriter.create<IE::PermuteCastOp>(loc, input, mlir::AffineMapAttr::get(outOrder.toAffineMap(ctx)),
+                                                  mlir::AffineMapAttr::get(hasValidPermutationMap.value()));
+    } else {
+        return std::nullopt;
+    }
 }
 
 /**
@@ -423,19 +448,4 @@ Dim vpux::inferDimAfterPermutation(Dim dim, DimsOrder srcOrder, DimsOrder dstOrd
     const auto srcMemDim = srcOrder.toMemDim(dim);
     const auto dstDimPos = DimsOrder::fromAffineMap(perm).dimPos(Dim(srcMemDim.ind()));
     return dstOrder.dimAt(dstDimPos);
-}
-
-bool vpux::isSuitableToAdjustMemPermuteShape(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType,
-                                             mlir::AffineMap permuteMap) {
-    // Calculate merged dims, for cases mem_perm [0, 1, 3, 2], [0, 2, 1], [1, 0]
-    auto [mergedPermutation, mergedMemShape] = vpux::getMergedPermutationAndShape(inType, permuteMap);
-
-    if (outType.getDimsOrder() != DimsOrder::NCHW || inType.getDimsOrder() != DimsOrder::NCHW) {
-        return false;
-    }
-    if (mergedPermutation != SmallVector<uint32_t>{1, 0} && mergedPermutation != SmallVector<uint32_t>{0, 2, 1}) {
-        return false;
-    }
-
-    return true;
 }

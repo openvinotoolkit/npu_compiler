@@ -33,4 +33,39 @@ SmallVector<LazyFoldingOptions::OptimizeConstTransformationsFunc> getDefaultOpti
 
 LazyFoldingOptions::LazyFoldingOptions(): getFoldingSequenceOptimizations(getDefaultOptimizations) {
 }
+
+namespace ws {
+SmallVector<LazyFoldingOptions::OptimizeConstTransformationsFunc> getWsOptimizations(mlir::Type baseType) {
+    auto moveSubViewAfter = [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                                details::optimization::TransformAttrPos& currPos) {
+        return details::moveSubViewAfter(transformations, currPos, baseType);
+    };
+    auto fuseConsecutiveTransformations = [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                                              details::optimization::TransformAttrPos& currPos) {
+        return details::fuseConsecutiveTransformations(transformations, currPos, baseType);
+    };
+    auto foldTransformation = [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                                  details::optimization::TransformAttrPos& currPos) {
+        return details::foldTransformation(transformations, currPos, baseType);
+    };
+
+    auto moveAttributeBeforeLayoutTransformations = [=](SmallVector<Const::TransformAttrInterface>& transformations,
+                                                        details::optimization::TransformAttrPos& currPos) {
+        return details::moveAttributeBeforeLayoutTransformations(transformations, currPos, baseType);
+    };
+
+    return {fuseConsecutiveTransformations, foldTransformation, moveSubViewAfter,
+            moveAttributeBeforeLayoutTransformations,
+            // moveTransformationIntoFuse transformation can be useful for weights that remain in the Main schedule
+            details::moveTransformationIntoFuse};
+}
+}  // namespace ws
+
+LazyFoldingOptions getWsFoldingOptions() {
+    LazyFoldingOptions options;
+    options.getFoldingSequenceOptimizations = ws::getWsOptimizations;
+
+    return options;
+}
+
 }  // namespace vpux::Const

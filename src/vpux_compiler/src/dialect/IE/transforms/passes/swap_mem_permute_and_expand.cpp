@@ -4,12 +4,16 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/rewriters/expand_with_layer_rewriter.hpp"
+#include "vpux/compiler/dialect/IE/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/IR/Operation.h>
 #include <mlir/Transforms/DialectConversion.h>
 
 namespace vpux::IE {
@@ -63,10 +67,15 @@ bool isBeneficialToSwapExpandMemPermute(IE::ExpandOp origExpandOp, mlir::Operati
     if (mlir::isa<mlir::BlockArgument>(origExpandOp.getInput())) {
         return false;
     }
-
     if (!isConvertedFromReroder(memPermuteOp)) {
         return false;
     }
+
+    const auto users = SmallVector<mlir::Operation*>(origExpandOp->getUsers());
+    if (IE::anyIDUAutopadCandidate(users)) {
+        return false;
+    }
+
     const auto permuteInput = memPermuteOp.getInput();
     const auto inMemShape = getMemShape(permuteInput);
     const auto memPerm = memPermuteOp.getMemPerm();

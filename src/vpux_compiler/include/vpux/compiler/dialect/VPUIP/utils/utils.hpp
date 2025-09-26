@@ -5,11 +5,10 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/IE/IR/ops/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
-#include "vpux/utils/core/enums.hpp"
+#include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Dialect/Func/IR/FuncOps.h>
@@ -54,7 +53,7 @@ constexpr uint32_t HW_M2I_PROFILING_MAX_BUFFER_SIZE = 128;
 // 1024 bytes is safe for 40XX+
 // 256 bytes is safe for 37XX due to 4x smaller vector size
 constexpr int64_t MAX_SW_KERNEL_PREFETCH_DATA_SIZE_37XX = 256;
-constexpr int64_t MAX_SW_KERNEL_PREFETCH_DATA_SIZE_40XX = 1024;
+constexpr int64_t MAX_SW_KERNEL_PREFETCH_DATA_SIZE = 1024;
 
 // Reserved memory for buffers required by dummy kernels.
 // Used to prefetch SW kernels instructions on architectures
@@ -72,6 +71,7 @@ const EnumMap<config::ArchKind, size_t> firmwareVariantCount = {
         {config::ArchKind::NPU40XX, 128},
 };
 
+uint32_t getDPUProfMaxBufferSize(config::ArchKind arch);
 uint16_t getProfWorkloadSize(mlir::ModuleOp module);
 
 //
@@ -85,8 +85,8 @@ int64_t getMaxKernelSize(mlir::Operation* op);
 // Run-time info
 //
 
-double getMemoryDerateFactor(IE::MemoryResourceOp mem);
-uint32_t getMemoryBandwidth(IE::MemoryResourceOp mem);
+double getMemoryDerateFactor(config::MemoryResourceOp mem);
+uint32_t getMemoryBandwidth(config::MemoryResourceOp mem);
 int64_t getNumTilesUsed(mlir::ModuleOp module);
 int64_t getNumAvailableBarriers(mlir::Operation* parentOp);
 size_t getBarrierMaxVariantCount(mlir::Operation* parentOp);
@@ -662,7 +662,7 @@ VPU::DistributionInfoAttr getDistributedAttrAfterShapeCast(VPU::DistributedTypeI
         if (VPU::bitEnumContainsAny(distMode, VPU::DistributionMode::DUPLICATED) ||
             VPU::bitEnumContainsAny(distMode, VPU::DistributionMode::MULTICASTED)) {
             auto duplicatedOutputMode = VPU::DistributionModeAttr::get(ctx, VPU::DistributionMode::DUPLICATED);
-            return VPU::getNonOverlappedDistributedAttr(Shape(outShape), duplicatedOutputMode, nullptr,
+            return VPU::getNonOverlappedDistributedAttr(ShapeRef(outShape), duplicatedOutputMode, nullptr,
                                                         origDistribution.getNumClusters(), nullptr,
                                                         origDistribution.getUniformDistributedSegments(), ctx);
         }

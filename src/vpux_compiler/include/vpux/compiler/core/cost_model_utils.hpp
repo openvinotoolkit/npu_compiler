@@ -9,7 +9,10 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <mlir/Dialect/Async/IR/Async.h>
-#include <vpu_layer_cost_model.h>
+
+#include <vpu/dma_types.h>
+#include <vpu/dpu_types.h>
+#include <vpu/vpu_tiling_strategy.h>
 
 namespace vpux::VPU {
 class SWOpInterface;
@@ -20,6 +23,11 @@ class NCEClusterTaskOp;
 class SwKernelOp;
 class SwKernelRun;
 }  // namespace vpux::VPUIP
+namespace VPUNN {
+class VPUCostModel;
+struct SWOperation;
+struct DPUWorkload;
+}  // namespace VPUNN
 
 namespace vpux {
 

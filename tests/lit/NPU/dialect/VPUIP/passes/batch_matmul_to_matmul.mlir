@@ -13,8 +13,8 @@ module @BatchMatMulToMatMul attributes {
     config.arch = #config.arch_kind<NPU40XX>
 } {
 
-IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.850000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @main() -> () {
@@ -113,8 +113,8 @@ module @QuantBatchMatMulToMatMul attributes {
     config.arch = #config.arch_kind<NPU40XX>
 } {
 
-IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.850000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @main() -> () {
@@ -205,8 +205,8 @@ module @MatMulWithBatch1ToMatMul attributes {
     config.arch = #config.arch_kind<NPU40XX>
 } {
 
-IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.850000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 func.func @main() -> () {

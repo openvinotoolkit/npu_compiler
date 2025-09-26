@@ -5,6 +5,10 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/utils/cost_model_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model_data.hpp"
+#include "vpux/utils/core/array_ref.hpp"
+
+#include <vpu_cost_model.h>
+#include <vpu_layer_cost_model.h>
 
 namespace vpux {
 namespace VPU {

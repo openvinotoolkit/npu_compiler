@@ -21,7 +21,7 @@ mlir::LogicalResult NNDMARewriter::matchAndRewrite(VPUASM::NNDMAOp origOp, mlir:
     auto dma = rewriter.create<NPUReg40XX::NNDMAOp>(origOp->getLoc(), origOp.getSymNameAttr(), std::move(descriptor),
                                                     origOp.getInputAttr(), origOp.getOutputBuffsAttr(),
                                                     origOp.getNextLinkAttr(), origOp.getActCompressionSizeEntryAttr(),
-                                                    origOp.getIndicesAttr());
+                                                    origOp.getIndicesAttr(), origOp.getAddressingModeAttr());
 
     // TODO: (E#114625) Remove once proper refactoring happened
     if (!origOp.getTaskLocationAttr()) {

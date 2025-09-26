@@ -2,11 +2,13 @@
 // Copyright (C) 2022-2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
+#include <llvm/ADT/SmallVector.h>
+#include <mlir/Support/LLVM.h>
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 
@@ -61,6 +63,13 @@ mlir::LogicalResult vpux::IE::DepthToSpaceOp::inferReturnTypeComponents(
                        inShape[Dims4D::Act::C]);
     }
 
+    if (inShape[Dims4D::Act::C] == mlir::ShapedType::kDynamic) {
+        return errorAt(loc, "Input channels dimension is dynamic, cannot infer output shape");
+    }
+    if (inShape[Dims4D::Act::N] == mlir::ShapedType::kDynamic) {
+        return errorAt(loc, "Input batch size dimension is dynamic, cannot infer output shape");
+    }
+
     int64_t paddedIC = 0;
     int64_t paddedOC = 0;
 
@@ -81,18 +90,33 @@ mlir::LogicalResult vpux::IE::DepthToSpaceOp::inferReturnTypeComponents(
         }
     }
 
-    size_t W_out = inShape[Dims4D::Act::W] * block_size;
-    size_t H_out = inShape[Dims4D::Act::H] * block_size;
-    size_t C_out = (inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC;
-    size_t N_out = inShape[Dims4D::Act::N];
-
-    SmallVector<int64_t> outShape{checked_cast<int64_t>(N_out), checked_cast<int64_t>(C_out),
-                                  checked_cast<int64_t>(H_out), checked_cast<int64_t>(W_out)};
+    int64_t W_out = inShape[Dims4D::Act::W] == mlir::ShapedType::kDynamic
+                            ? mlir::ShapedType::kDynamic
+                            : checked_cast<int64_t>(inShape[Dims4D::Act::W] * block_size);
+    int64_t H_out = inShape[Dims4D::Act::H] == mlir::ShapedType::kDynamic
+                            ? mlir::ShapedType::kDynamic
+                            : checked_cast<int64_t>(inShape[Dims4D::Act::H] * block_size);
+    int64_t C_out = checked_cast<int64_t>((inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC);
+    int64_t N_out = checked_cast<int64_t>(inShape[Dims4D::Act::N]);
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(depthToSpace.getInput().getType());
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inputType), "{0} doesn't support dynamic shapes",
-                      IE::DepthToSpaceOp::getOperationName());
-    const auto outDesc = vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace());
+
+    auto [outDesc, outShape] = callOnShapeOf(inputType, [&](const auto& shape) {
+        SmallVector<int64_t> outShape{N_out, C_out, H_out, W_out};
+        if constexpr (std::is_same_v<std::decay_t<decltype(shape)>, BoundedShape>) {
+            SmallVector<int64_t> outBounds{inShape[Dims4D::Act::N],
+                                           (inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC,
+                                           static_cast<int64_t>(shape[Dims4D::Act::H].dimValue() * block_size),
+                                           static_cast<int64_t>(shape[Dims4D::Act::W].dimValue() * block_size)};
+            auto desc =
+                    vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace(), BoundsRef(outBounds));
+            return std::make_pair(std::move(desc), std::move(outShape));
+        } else {
+            auto desc = vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace());
+            return std::make_pair(std::move(desc), std::move(outShape));
+        }
+    });
+
     inferredReturnShapes.emplace_back(outShape, inType, outDesc);
     return mlir::success();
 }

@@ -89,9 +89,8 @@ bool isSupportedHWPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const
             });
 }
 
-template <class MainOpType>
-class LayerWithPostOpModel final :
-        public IE::LayerWithPostOpInterface::ExternalModel<LayerWithPostOpModel<MainOpType>, MainOpType> {
+template <typename ConcreteModel, typename MainOpType>
+class LayerWithPostOpModelBase : public VPU::LayerWithClampOpModel<ConcreteModel, MainOpType> {
 public:
     bool isSupportedPostOp(mlir::Operation* mainOp, mlir::Operation* postOp, const LogCb& logCb) const {
         if (config::getCompilationMode(postOp) == config::CompilationMode::ReferenceSW) {
@@ -104,23 +103,19 @@ public:
 
         return VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded();
     }
+};
 
-    bool isSupportedClampOp(mlir::Operation* mainOp, mlir::Operation* clampOp, const LogCb& logCb) const {
-        if (config::getCompilationMode(clampOp) == config::CompilationMode::ReferenceSW) {
-            return false;
-        }
-
-        if (!VPU::isSupportedHWClampOp(mainOp, clampOp, logCb)) {
-            return false;
-        }
-
-        return VPU::NCEInvariant::isSupported(mlir::cast<MainOpType>(mainOp)).succeeded();
-    }
-
-    void setLayerClampOp(mlir::Operation* mainOp, mlir::Operation* activationOp) const {
-        VPU::setHWClampOp(mainOp, activationOp);
+template <class MainOpType>
+class LayerWithPostOpUsingBiasAndStaticScaleModel final :
+        public LayerWithPostOpModelBase<LayerWithPostOpUsingBiasAndStaticScaleModel<MainOpType>, MainOpType> {
+public:
+    bool supportsFuseBiasScale(mlir::Operation*) const {
+        return true;
     }
 };
+
+template <class MainOpType>
+class LayerWithPostOpModel final : public LayerWithPostOpModelBase<LayerWithPostOpModel<MainOpType>, MainOpType> {};
 
 }  // namespace
 
@@ -130,9 +125,11 @@ public:
 
 void vpux::VPU::arch37xx::registerLayerWithPostOpModelInterface(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, IE::IEDialect*) {
-        IE::ConvolutionOp::attachInterface<LayerWithPostOpModel<IE::ConvolutionOp>>(*ctx);
-        IE::TransposedConvolutionOp::attachInterface<LayerWithPostOpModel<IE::TransposedConvolutionOp>>(*ctx);
-        IE::GroupConvolutionOp::attachInterface<LayerWithPostOpModel<IE::GroupConvolutionOp>>(*ctx);
+        IE::ConvolutionOp::attachInterface<LayerWithPostOpUsingBiasAndStaticScaleModel<IE::ConvolutionOp>>(*ctx);
+        IE::TransposedConvolutionOp::attachInterface<
+                LayerWithPostOpUsingBiasAndStaticScaleModel<IE::TransposedConvolutionOp>>(*ctx);
+        IE::GroupConvolutionOp::attachInterface<LayerWithPostOpUsingBiasAndStaticScaleModel<IE::GroupConvolutionOp>>(
+                *ctx);
         IE::MaxPoolOp::attachInterface<LayerWithPostOpModel<IE::MaxPoolOp>>(*ctx);
         IE::AvgPoolOp::attachInterface<LayerWithPostOpModel<IE::AvgPoolOp>>(*ctx);
         IE::AddOp::attachInterface<LayerWithPostOpModel<IE::AddOp>>(*ctx);

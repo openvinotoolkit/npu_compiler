@@ -33,7 +33,7 @@ module @Model20 {
         VPUASM.DeclareKernelData @DeclareKernelArgs_0_0 {elfMemOffsetAttrKey = 0 : ui64} : "activation_sigmoid"
       }
       ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
-        VPUASM.KernelParams @KernelParams_0_0 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") kernel_params(dense<1> : vector<72xui8>) {elfMemOffsetAttrKey = 0 : ui64}
+        VPUASM.KernelParams @KernelParams_0_0 inputs([@buffer.CMX_NN.0::@DeclareBuffer5]) outputs([@buffer.CMX_NN.0::@DeclareBuffer6]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_sigmoid") {elfMemOffsetAttrKey = 0 : ui64} < { kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
       }
       ELF.CreateSection @task.shave.range.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.ActKernelRange @ActKernelRange_0_0 idx(!VPURegMapped.Index<0:0:0>) taskLocation(@program.metadata.cmx::@DeclareTaskBuffer_ActKernelRange_0_0_0) kernelTaskType(@COMPUTE) calls @shave.text::@DeclareKernelText_0_0 : @DeclareKernelEntry_0_0 {elfMemOffsetAttrKey = 0 : ui64}
@@ -55,6 +55,10 @@ module @Model20 {
     return
 }
 
+    // CHECK: ELF.CreateSection @shave.params aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+    // CHECK:    VPUASM.KernelParams
+    // CHECK: {elfMemOffsetAttrKey = 0 : ui64}
+    // CHECK: < {kernel_params = [120, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 240, 128, 1, 64, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
 
     // CHECK:    VpuActKernelInvocation {
     // CHECK:        range = UINT 0x40203C00,
@@ -62,18 +66,6 @@ module @Model20 {
     // CHECK-SAME:   target(@shave.params)
     // CHECK-SAME:   symtab(@symtab)
     // CHECK-SAME:   secFlags("SHF_NONE")
-    // CHECK:      ELF.Reloc
-    // CHECK-SAME:   offset({{[0-9]+}})
-    // CHECK-SAME:   sourceSym(@symtab::@elfsym.buffer.CMX_NN.0)
-    // CHECK-SAME:   relocType(<R_VPU_32_BIT_OR_B21_B26_UNSET>)
-    // CHECK-SAME:   addend({{[0-9]+}})
-    // CHECK-SAME:   (description : "Input 0 (dataAddr) kernel params reloc")
-    // CHECK:      ELF.Reloc
-    // CHECK-SAME:   offset({{[0-9]+}})
-    // CHECK-SAME:   sourceSym(@symtab::@elfsym.buffer.CMX_NN.0)
-    // CHECK-SAME:   relocType(<R_VPU_32_BIT_OR_B21_B26_UNSET>)
-    // CHECK-SAME:   addend({{[0-9]+}})
-    // CHECK-SAME:   (description : "Output 0 (dataAddr) kernel params reloc")
     // CHECK:      ELF.Reloc
     // CHECK-SAME:   offset({{[0-9]+}})
     // CHECK-SAME:   sourceSym(@symtab::@elfsym.shave.params)

@@ -22,7 +22,8 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           updateBarriers, 0, 0, false, false, false, 0, VPUIP::DMAAccMode::DISABLE,
           /*act_compression_size_entry*/ nullptr, /*act_compression_sparsity_map*/ nullptr, dma_transaction,
           dma_descriptor, 0, nullptr, 0, nullptr, /*enqueue_target_barrier*/ nullptr, /*wlmPage*/ nullptr,
-          /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr);
+          /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
+          /*addressingMode*/ nullptr);
 }
 
 void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState, mlir::Type index,
@@ -38,7 +39,8 @@ void NNDMAOp::build(mlir::OpBuilder& odsBuilder, mlir::OperationState& odsState,
           updateBarriers, start_after, clean_after, is_out_of_order, is_critical, enable_msc, port, acceleration_mode,
           act_compression_size_entry, act_compression_sparsity_map, dma_transaction, dma_descriptor, dma_hwp_id,
           profilingMetadata, allow_different_in_out_shapes, indices, enqueueBarrier, wlmPage,
-          /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr);
+          /*physicalBarrierRangeAttr*/ nullptr, /*enqueueDMAAttr*/ nullptr, /*fetchDMAAttr*/ nullptr,
+          /*addressingMode*/ nullptr);
 }
 
 mlir::LogicalResult NNDMAOp::verify() {

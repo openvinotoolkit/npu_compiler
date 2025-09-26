@@ -19,7 +19,7 @@ mlir::LogicalResult commonMatchAndRewrite(OriginalOp origOp, IE::WeightsDequanti
     const auto loc = wdInfo.getLastOp()->getLoc();
     const auto ctx = rewriter.getContext();
 
-    const auto inputElemType = IE::getTrueElemTypeOfWeights(origOp);
+    const auto inputElemType = IE::getTrueElemType(origOp);
     // The commonMatchAndRewrite supported weights data type are I8, U8, I4, U4, I2, U2 and NF4
     if (!inputElemType.isInteger(8) && !inputElemType.isInteger(4) && !inputElemType.isInteger(2) &&
         !mlir::isa<vpux::type::QuantileFloatType>(inputElemType)) {
@@ -110,6 +110,12 @@ public:
             _log.trace("Can't create FakeQuantize with dynamic scale");
             return mlir::failure();
         }
+        if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
+            // Force to use DynamicDequantize for u2 WaC groupwise prefill model
+            _log.trace("Got u2 weights-as-constant groupwise prefill pattern.");
+            return mlir::failure();
+        }
+
         return commonMatchAndRewrite(origOp, wdInfo, rewriter);
     }
 
@@ -134,8 +140,8 @@ public:
             return mlir::failure();
         }
         auto wdInfo = std::move(*maybeWdInfo);
-        if (wdInfo.getDynamicScale() != nullptr) {
-            _log.trace("Can't create FakeQuantize with dynamic scale");
+        if (wdInfo.getDynamicScale() != nullptr || wdInfo.getDynamicShift() != nullptr) {
+            _log.trace("Can't create FakeQuantize with dynamic scale or shift");
             return mlir::failure();
         }
         if (wdInfo.getStaticScale() == nullptr && wdInfo.getStaticShift() == nullptr) {
@@ -146,6 +152,12 @@ public:
             // ConsolidateWeightsDequantization cannot handle higher-dimensionality cases.
             // TODO: E#171775 Change <2 to <3.
             _log.trace("Got per-tensor or per-channel quantization.");
+            return mlir::failure();
+        }
+        if (!wdInfo.isKVcachedPattern() && IE::getTrueElemType(origOp).isInteger(2)) {
+            // Force to use DynamicDequantize both when quant params are as constants as well as when they're not as
+            // constants for the u2 WaI groupwise prefill model
+            _log.trace("Got u2 groupwise prefill pattern.");
             return mlir::failure();
         }
 

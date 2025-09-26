@@ -150,6 +150,20 @@ func.func @NoPropagationPerAxisConcatDequantAndConst(%input: tensor<1x2x3x4x!qEl
 // -----
 
 !qElemType = !quant.uniform<u8:f16, 1.0000000000000000E-1>
+
+// CHECK-LABEL: @NotPropagateDueToAllInputsAreTensors
+// CHECK-SAME: ([[INPUT0:%.+]]: tensor<1x2x3x4xf16>, [[INPUT1:%.+]]: tensor<1x2x3x4x!qElemType>)
+func.func @NotPropagateDueToAllInputsAreTensors(%input0: tensor<1x2x3x4xf16>, %input1: tensor<1x2x3x4x!qElemType>) -> tensor<1x4x3x4xf16> {
+    %relu1 = IE.ReLU(%input0) : tensor<1x2x3x4xf16> -> tensor<1x2x3x4xf16>
+    %dequant = IE.Dequantize(%input1) {dstElemType = f16} : tensor<1x2x3x4x!qElemType> -> tensor<1x2x3x4xf16>
+    %concat = IE.Concat(%dequant, %relu1) {per_axis = #IE.Concat<axis = 1>} : tensor<1x2x3x4xf16>, tensor<1x2x3x4xf16> -> tensor<1x4x3x4xf16>
+
+    return %concat : tensor<1x4x3x4xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.0000000000000000E-1>
 !qElemType1 = !quant.uniform<u8:f16:1, {1.0000000000000000E-1, 2.0000000000000000E-1}>
 
 // CHECK-LABEL: @NoPropagationMixedQuantConcatTwoDequantsAndConst

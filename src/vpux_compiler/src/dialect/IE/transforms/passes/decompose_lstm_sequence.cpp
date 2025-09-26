@@ -14,13 +14,13 @@
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/error.hpp"
-#include "vpux/utils/core/small_vector.hpp"
 
 #include <mlir/IR/Value.h>
 #include <mlir/IR/ValueRange.h>
@@ -439,6 +439,35 @@ mlir::LogicalResult BaseDecomposeLSTMSequenceBidirectionalRewriter::decompose(IE
 }
 
 //
+// DecomposeDynamicLSTMSequenceBidirectionalRewriter
+//
+
+// Decompose a bidirectional dynamic LSTMSequence into one forward and one reverse operator.
+// This optimization allows us to skip the extra StridedSlice operations that are added as
+// part of the ExtractWeightsAndBiasesFromLSTMSequenceRewriter pass.
+
+class DecomposeDynamicLSTMSequenceBidirectionalRewriter final : public BaseDecomposeLSTMSequenceBidirectionalRewriter {
+public:
+    DecomposeDynamicLSTMSequenceBidirectionalRewriter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : BaseDecomposeLSTMSequenceBidirectionalRewriter(ctx, benefit, std::move(log)) {
+        this->setDebugName("DecomposeDynamicLSTMSequenceBidirectionalRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::LSTMSequenceOp op, mlir::PatternRewriter& rewriter) const final {
+        if (!IE::hasDynamicTensors(op)) {
+            return mlir::failure();
+        }
+        const auto module = getModuleOp(op);
+        auto tileOp = config::getTileExecutor(module);
+        const auto numOfTiles = tileOp.getCount();
+        if (numOfTiles == 1) {
+            return decompose(op, rewriter, true);
+        }
+        return mlir::failure();
+    }
+};
+
+//
 // DecomposeLSTMSequenceBidirectionalRewriter
 //
 
@@ -585,15 +614,18 @@ void DecomposeLSTMSequencePass::safeRunOnFunc() {
 
     // To explicitly control the patterns exec order to assure dependency
     // benefitLevels[0] is highest benefit level and represent the relative pattern is the first one to run
-    const uint32_t levelCount = 3;
+
+    const uint32_t levelCount = 4;
+
     const auto benefitLevels = getBenefitLevels(levelCount);
 
     mlir::RewritePatternSet patterns(&ctx);
     // In the dynamic case, decompose bidirectional LSTMSequence first to simplify handling of dynamic shapes
     // and avoid complex slicing operations. This makes subsequent optimizations easier.
-    patterns.add<ExtractWeightsAndBiasesFromLSTMSequenceRewriter>(&ctx, benefitLevels[0], _log);
-    patterns.add<DecomposeLSTMSequenceBidirectionalRewriter>(&ctx, benefitLevels[1], _log);
-    patterns.add<UnrollLSTMSequenceToLSTMCellsRewriter>(&ctx, benefitLevels[2], _log);
+    patterns.add<DecomposeDynamicLSTMSequenceBidirectionalRewriter>(&ctx, benefitLevels[0], _log);
+    patterns.add<ExtractWeightsAndBiasesFromLSTMSequenceRewriter>(&ctx, benefitLevels[1], _log);
+    patterns.add<DecomposeLSTMSequenceBidirectionalRewriter>(&ctx, benefitLevels[2], _log);
+    patterns.add<UnrollLSTMSequenceToLSTMCellsRewriter>(&ctx, benefitLevels[3], _log);
 
     auto func = getOperation();
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {

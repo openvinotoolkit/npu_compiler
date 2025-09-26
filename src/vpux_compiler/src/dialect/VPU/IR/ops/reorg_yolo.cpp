@@ -50,7 +50,7 @@ mlir::LogicalResult vpux::VPU::ReorgYoloOp::inferReturnTypes(mlir::MLIRContext* 
         outputShape[1] *= stride;
     }
 
-    const auto outType = inType.changeShape(Shape(outputShape));
+    const auto outType = inType.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

@@ -12,6 +12,10 @@
 
 using intel_npu::envVarStrToBool;
 
+namespace test_utils {
+const char* TARGET_DEVICE = "NPU";
+}  // namespace test_utils
+
 namespace ov::test::utils {
 
 VpuTestEnvConfig::VpuTestEnvConfig() {

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -195,9 +196,63 @@ mlir::LogicalResult ConvertToNearest::matchAndRewrite(IE::InterpolateOp op, mlir
 // fold
 //
 
-mlir::OpFoldResult vpux::IE::InterpolateOp::fold(FoldAdaptor) {
+mlir::OpFoldResult vpux::IE::InterpolateOp::fold(FoldAdaptor adaptor) {
     if (getInput().getType() == getOutput().getType()) {
         return getInput();
+    }
+    const auto ctx = getContext();
+    auto operands = adaptor.getOperands();
+    // If the input is all const, fold interp into const
+    if (const auto cst = mlir::dyn_cast_or_null<Const::ContentAttr>(operands[0])) {
+        const auto inType = mlir::cast<vpux::NDTypeInterface>(cst.getType());
+        const auto inOrder = inType.getDimsOrder();
+        // only support NCHW cst input
+        if (inOrder != DimsOrder::NCHW) {
+            return nullptr;
+        }
+        // only support CUBIC mode + HALF_PIXEL coord mode
+        const auto interpAttr = getAttr();
+        if (interpAttr.getMode().getValue() != IE::InterpolateMode::CUBIC ||
+            interpAttr.getCoordMode().getValue() != IE::InterpolateCoordMode::HALF_PIXEL) {
+            return nullptr;
+        }
+        // Infer sizes and axes from input, output and pads.
+        const auto inShape = getShape(getInput()).raw();
+        const auto outShape = getShape(getOutput()).raw();
+
+        const auto extractPads = [&](const mlir::ArrayAttr padsAttr) {
+            const auto pads = IE::extractIntVector(getLoc(), nullptr, padsAttr);
+            if (mlir::failed(pads) || pads.value().size() != outShape.size()) {
+                return SmallVector<int64_t>(outShape.size(), 0);
+            }
+            return pads.value();
+        };
+        const SmallVector<int64_t> padsBeginVal = extractPads(interpAttr.getPadsBegin());
+        const SmallVector<int64_t> padsEndVal = extractPads(interpAttr.getPadsEnd());
+
+        SmallVector<int64_t> sizesVal;
+        SmallVector<int64_t> axesVal;
+        for (size_t i = 0; i < inShape.size(); i++) {
+            const auto paddedInDim = inShape[i] + padsBeginVal[i] + padsEndVal[i];
+            if (paddedInDim != outShape[i]) {
+                sizesVal.push_back(outShape[i]);
+                axesVal.push_back(static_cast<int64_t>(i));
+            }
+        }
+        const auto sizesAttr = getIntArrayAttr(ctx, sizesVal);
+        const auto axesAttr = getIntArrayAttr(ctx, axesVal);
+
+        return static_cast<Const::ContentAttr>(cst)
+                .transform()
+                .interpolate(axesAttr, sizesAttr,
+                             /*mode=*/mlir::StringAttr::get(ctx, "CUBIC"),
+                             /*coordMode=*/mlir::StringAttr::get(ctx, "HALF_PIXEL"),
+                             /*nearestMode=*/mlir::StringAttr::get(ctx, "FLOOR"),
+                             /*antialias=*/interpAttr.getAntialias(),
+                             /*padsBegin=*/interpAttr.getPadsBegin(),
+                             /*padsEnd=*/interpAttr.getPadsEnd(),
+                             /*cubeCoeff=*/interpAttr.getCubeCoeff())
+                .get();
     }
 
     return nullptr;

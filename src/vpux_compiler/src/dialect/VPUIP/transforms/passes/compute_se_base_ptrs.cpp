@@ -148,8 +148,8 @@ void computeBasePtrs(VPUIP::StorageElementTableOp seTableOp, vpux::NDTypeInterfa
                         outputOffsets[Dims4D::Act::N.ind()] + 0, outputOffsets[Dims4D::Act::C.ind()] + seTotalSize,
                         outputOffsets[Dims4D::Act::H.ind()] + h, outputOffsets[Dims4D::Act::W.ind()] + w};
 
-                auto inputCoord =
-                        (seAttr != nullptr) ? seAttr.backInferInputCoord(outputCoord, Shape(inputShape)) : outputCoord;
+                auto inputCoord = (seAttr != nullptr) ? seAttr.backInferInputCoord(outputCoord, ShapeRef(inputShape))
+                                                      : outputCoord;
 
                 const auto seOffset = (h * outputW + w) * seDepth + se;  // HWC
 

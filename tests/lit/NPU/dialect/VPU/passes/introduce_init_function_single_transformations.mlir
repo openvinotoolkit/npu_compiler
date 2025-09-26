@@ -662,15 +662,15 @@ module @AffineReshape {
     func.func @main() -> tensor<1x1x3x3xf16, {order = #NCWH}> {
         // Note: CastElemType is only here to avoid this constant from being ignored as #const.AffineReshape is view-like.
         %cst = const.Declare tensor<1x1x3x3xf16, {order = #NCWH}> = dense_resource<vpux_ow_1> : tensor<1x1x3x3xf32>,
-            [#const.CastElemType<f16>, #const.AffineReshape<[[0], [1], [3], [2]], [1, 1, 3, 3]>]
+            [#const.AffineReshape<[[0], [1], [3], [2]], [1, 1, 3, 3]>, #const.CastElemType<f16>]
         return %cst : tensor<1x1x3x3xf16, {order = #NCWH}>
     }
 
     // CHECK:           func.func @init([[CST:%.+]]: tensor<1x1x3x3xf32>) -> tensor<1x1x3x3xf16, {order = #NCWH}>
-    // CHECK-NEXT:          [[CVT:%.+]] = IE.Convert([[CST]]) {dstElemType = f16}
-    // CHECK-NEXT:          [[AFFINE:%.+]] = IE.AffineReshape([[CVT]])
+    // CHECK-NEXT:          [[AFFINE:%.+]] = IE.AffineReshape([[CST]])
     // CHECK-LITERAL:           {dim_mapping = [[0], [1], [3], [2]], shape_value = [1, 1, 3, 3]}
-    // CHECK-NEXT:          return [[AFFINE]]
+    // CHECK-NEXT:          [[CVT:%.+]] = IE.Convert([[AFFINE]]) {dstElemType = f16}
+    // CHECK-NEXT:          return [[CVT]]
 }
 
 // -----
@@ -692,19 +692,19 @@ module @AffineReshape {
 module @LayoutCastAttr {
     net.NetworkInfo entryPoint : @main inputsInfo : {
     } outputsInfo : {
-        DataInfo "output1" : tensor<2x3x4x5xui8, {order = #NHWC}>
+        DataInfo "output1" : tensor<2x3x4x5xui8>
     }
 
-    func.func @main() -> tensor<2x3x4x5xui8, {order = #NHWC}> {
+    func.func @main() -> tensor<2x3x4x5xui8, {order = #NCWH}> {
         // Note: Reorder is only here to avoid this constant from being ignored as #const.LayoutCast is view-like.
-        %cst = const.Declare tensor<2x3x4x5xui8, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<2x3x4x5xui8>, [#const.Reorder<#NCWH>, #const.LayoutCast<#NHWC>]
-        return %cst : tensor<2x3x4x5xui8, {order = #NHWC}>
+        %cst = const.Declare tensor<2x3x4x5xui8, {order = #NCWH}> = dense_resource<vpux_ow_1> : tensor<2x3x4x5xui8>, [#const.LayoutCast<#NHWC>, #const.Reorder<#NCWH>]
+        return %cst : tensor<2x3x4x5xui8, {order = #NCWH}>
     }
 
-    // CHECK:           func.func @init([[CST:%.+]]: tensor<2x3x4x5xui8>) -> tensor<2x3x4x5xui8, {order = [[NHWC]]}>
-    // CHECK-NEXT:          [[REO:%.+]] = IE.Reorder([[CST]]) {dstOrder = [[NCWH]]}
-    // CHECK-NEXT:          [[L_CST:%.+]] = IE.LayoutCast([[REO]]) {dst_order = [[NHWC]]}
-    // CHECK-NEXT:          return [[L_CST]]
+    // CHECK:           func.func @init([[CST:%.+]]: tensor<2x3x4x5xui8>) -> tensor<2x3x4x5xui8, {order = [[NCWH]]}>
+    // CHECK-NEXT:          [[L_CST:%.+]] = IE.LayoutCast([[CST]]) {dst_order = [[NHWC]]}
+    // CHECK-NEXT:          [[REO:%.+]] = IE.Reorder([[L_CST]]) {dstOrder = [[NCWH]]}
+    // CHECK-NEXT:          return [[REO]]
 
 }
 

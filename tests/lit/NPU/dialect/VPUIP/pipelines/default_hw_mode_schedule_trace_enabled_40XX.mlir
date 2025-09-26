@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="enable-schedule-trace=true" %s | FileCheck %s --strict-whitespace
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --mlir-elide-elementsattrs-if-larger 8 --default-hw-mode-vpuip="enable-schedule-trace=true" %s | FileCheck %s
 // RUN: rm compileTimeScheduleTrace.json
 // REQUIRES: arch-NPU40XX
 
@@ -48,11 +48,11 @@ module @Gather attributes {config.arch = #config.arch_kind<NPU40XX>, config.comp
 
         return %1 : memref<1x1x4096xf16>
 
-        // CHECK-DAG:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+        // CHECK-DAG:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
         // CHECK-DAG:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
         // CHECK-DAG:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
         // CHECK-DAG:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
-        // CHECK-DAG:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> {isFinalBarrier} -> !VPURT.Barrier
+        // CHECK-DAG:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK-DAG:   [[CST:%.+]] = const.Declare memref<32000x4096xf16> = dense<1.000000e+00> : tensor<32000x4096xf16>
         // CHECK-DAG:   [[DUMMY_BUFF0:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK-DAG:   [[DUMMY_BUFF1:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>

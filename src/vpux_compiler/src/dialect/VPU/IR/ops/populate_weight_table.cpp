@@ -28,7 +28,7 @@ mlir::LogicalResult vpux::VPU::PopulateWeightTableOp::inferReturnTypes(
 
     const auto newOutputType = TypeComponents()
                                        .setDimsOrder(inType.getDimsOrder())
-                                       .setShape(Shape(wtShape))
+                                       .setShape(ShapeRef(wtShape))
                                        .setElementType(getSInt32Type(ctx));
 
     vpux::DimsOrder outOrder = newOutputType.dimsOrder.value();

@@ -59,6 +59,37 @@ func.func @FuseQuantParamsIntoEltwiseAdd(%arg0: tensor<1x3x16x16xf16>, %arg1: te
 // -----
 
 !qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
+!qElemType1 = !quant.uniform<u8:f16, -0.01013327205882353>
+!qElemType2 = !quant.uniform<u8:f16, 0.39320638320025275:128>
+
+// CHECK-LABEL: @DoNotFuseQParamsIntoAddWithNegativeScale
+// CHECK-SAME:  [[INPUT_0:%.+]]: tensor<1x16x180x320xf16>, [[INPUT_1:%.+]]: tensor<1x16x180x320xf16>
+func.func @DoNotFuseQParamsIntoAddWithNegativeScale(%arg0: tensor<1x16x180x320xf16>, %arg1: tensor<1x16x180x320xf16>) -> tensor<1x16x180x320xf16> {
+  %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType>
+  %1 = IE.Dequantize(%0) {dstElemType = f16} : tensor<1x16x180x320x!qElemType> -> tensor<1x16x180x320xf16>
+
+  %2 = IE.Quantize(%arg1) {dstElemType = !qElemType1} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType1>
+  %3 = IE.Dequantize(%2) {dstElemType = f16} : tensor<1x16x180x320x!qElemType1> -> tensor<1x16x180x320xf16>
+
+  %4 = IE.Add(%1, %3) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x16x180x320xf16>, tensor<1x16x180x320xf16> -> tensor<1x16x180x320xf16>
+
+  %5 = IE.Quantize(%4) {dstElemType = !qElemType2} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType2>
+  %6 = IE.Dequantize(%5) {dstElemType = f16} : tensor<1x16x180x320x!qElemType2> -> tensor<1x16x180x320xf16>
+  return %6 : tensor<1x16x180x320xf16>
+
+  // CHECK: [[QUANT0:%.+]]  = IE.Quantize([[INPUT_0]]) {dstElemType = !qElemType} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType>
+  // CHECK: [[DEQUANT0:%.+]] = IE.Dequantize([[QUANT0]]) {dstElemType = f16} : tensor<1x16x180x320x!qElemType> -> tensor<1x16x180x320xf16>
+  // CHECK: [[QUANT1:%.+]] = IE.Quantize([[INPUT_1]]) {dstElemType = !qElemType1} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType1>
+  // CHECK: [[DEQUANT1:%.+]] = IE.Dequantize([[QUANT1]]) {dstElemType = f16} : tensor<1x16x180x320x!qElemType1> -> tensor<1x16x180x320xf16>
+  // CHECK: [[ADD:%.+]] = IE.Add([[DEQUANT0]], [[DEQUANT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x180x320xf16>, tensor<1x16x180x320xf16> -> tensor<1x16x180x320xf16>
+  // CHECK: [[QUANT2:%.+]] = IE.Quantize([[ADD]]) {dstElemType = !qElemType2} : tensor<1x16x180x320xf16> -> tensor<1x16x180x320x!qElemType2>
+  // CHECK: [[DEQUANT2:%.+]] = IE.Dequantize([[QUANT2]]) {dstElemType = f16} : tensor<1x16x180x320x!qElemType2> -> tensor<1x16x180x320xf16>
+  // CHECK: return [[DEQUANT2]] : tensor<1x16x180x320xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 1.1534313725490195:128>
 
 // CHECK-LABEL: @FuseQuantParamsIntoSlice
 func.func @FuseQuantParamsIntoSlice(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x16x8xf16> {
@@ -632,4 +663,81 @@ func.func @FuseQuantParamsIntoMatMul(%arg0: tensor<1x8x16x16xf16>) -> tensor<1x8
   // CHECK: [[VAL2:%.+]] = IE.Dequantize([[VAL1]]) {dstElemType = f16}
   // CHECK-SAME: : tensor<1x8x16x32x!qElemType2> -> tensor<1x8x16x32xf16>
   // CHECK: return [[VAL2]] : tensor<1x8x16x32xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16, 0.051102941176470587:121>
+!qElemType1 = !quant.uniform<u8:f16, 0.034064797794117647:55>
+
+// CHECK-LABEL: @LeakyReluQuant
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x1x128x512x!qElemType>)
+func.func @LeakyReluQuant(%arg0: tensor<1x1x128x512x!qElemType>) -> tensor<1x1x128x512x!qElemType1> {
+  %0 = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x1x128x512x!qElemType> -> tensor<1x1x128x512xf16>
+  %1 = IE.LeakyRelu(%0) {negative_slope = 0.300048828125 : f64} : tensor<1x1x128x512xf16> -> tensor<1x1x128x512xf16>
+  %2 = IE.Quantize(%1) {dstElemType = !qElemType1 } : tensor<1x1x128x512xf16> -> tensor<1x1x128x512x!qElemType1>
+
+  return %2 : tensor<1x1x128x512x!qElemType1>
+
+  //CHECK: [[LEAKYRELU:%.+]] = IE.LeakyRelu([[INPUT]]) {negative_slope = 0.300048828125 : f64} : tensor<1x1x128x512x!qElemType> -> tensor<1x1x128x512x!qElemType1>
+  //CHECK: return [[LEAKYRELU]] : tensor<1x1x128x512x!qElemType1>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {1.000000e-01:128,2.000000e-01:128,3.000000e-01:128,4.000000e-01:128}>
+
+// CHECK-LABEL: @DoNotFusePerChannelAvgPool
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x4x16x16x!qElemType>)
+func.func @DoNotFusePerChannelAvgPool(%arg0: tensor<1x4x16x16x!qElemType>) -> tensor<1x4x16x16x!qElemType> {
+    %dequantize = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x4x16x16x!qElemType> -> tensor<1x4x16x16xf16>
+    %avgPool = IE.AvgPool(%dequantize) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    %quantize = IE.Quantize(%avgPool) {dstElemType = !qElemType}: tensor<1x4x16x16xf16> -> tensor<1x4x16x16x!qElemType>
+
+    return %quantize : tensor<1x4x16x16x!qElemType>
+
+    //CHECK:  [[DEQUANT:%.+]] = IE.Dequantize([[ARG0]])
+    //CHECK:  [[AVGPOOL:%.+]] = IE.AvgPool([[DEQUANT]]) {exclude_pads, kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    //CHECK:  [[QUANT:%.+]] = IE.Quantize([[AVGPOOL]])
+    //CHECK:  return [[QUANT]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {1.000000e-01:128,2.000000e-01:128,3.000000e-01:128,4.000000e-01:128}>
+
+// CHECK-LABEL: @DoNotFusePerChannelEltwise
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x4x16x16x!qElemType>, [[ARG1:%.+]]: tensor<1x4x16x16x!qElemType>)
+func.func @DoNotFusePerChannelEltwise(%arg0: tensor<1x4x16x16x!qElemType>, %arg1: tensor<1x4x16x16x!qElemType>) -> tensor<1x4x16x16x!qElemType> {
+    %dequantize0 = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x4x16x16x!qElemType> -> tensor<1x4x16x16xf16>
+    %dequantize1 = IE.Dequantize(%arg1) {dstElemType = f16} : tensor<1x4x16x16x!qElemType> -> tensor<1x4x16x16xf16>
+    %add = IE.Add(%dequantize0, %dequantize1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } : tensor<1x4x16x16xf16>, tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    %quantize = IE.Quantize(%add) {dstElemType = !qElemType}: tensor<1x4x16x16xf16> -> tensor<1x4x16x16x!qElemType>
+
+    return %quantize : tensor<1x4x16x16x!qElemType>
+
+    //CHECK:  [[DEQUANT0:%.+]] = IE.Dequantize([[ARG0]])
+    //CHECK:  [[DEQUANT1:%.+]] = IE.Dequantize([[ARG1]])
+    //CHECK:  [[ADD:%.+]] = IE.Add([[DEQUANT0]], [[DEQUANT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x4x16x16xf16>, tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    //CHECK:  [[QUANT:%.+]] = IE.Quantize([[ADD]])
+    //CHECK:  return [[QUANT]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<u8:f16:1, {1.000000e-01:128,2.000000e-01:128,3.000000e-01:128,4.000000e-01:128}>
+
+// CHECK-LABEL: @DoNotFusePerChannelAvgPool
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x4x16x16x!qElemType>)
+func.func @DoNotFusePerChannelAvgPool(%arg0: tensor<1x4x16x16x!qElemType>) -> tensor<1x4x16x16x!qElemType> {
+    %dequantize = IE.Dequantize(%arg0) {dstElemType = f16} : tensor<1x4x16x16x!qElemType> -> tensor<1x4x16x16xf16>
+    %avgPool = IE.AvgPool(%dequantize) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    %quantize = IE.Quantize(%avgPool) {dstElemType = !qElemType}: tensor<1x4x16x16xf16> -> tensor<1x4x16x16x!qElemType>
+
+    return %quantize : tensor<1x4x16x16x!qElemType>
+
+    //CHECK:  [[DEQUANT:%.+]] = IE.Dequantize([[ARG0]])
+    //CHECK:  [[AVGPOOL:%.+]] = IE.AvgPool([[DEQUANT]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x4x16x16xf16> -> tensor<1x4x16x16xf16>
+    //CHECK:  [[QUANT:%.+]] = IE.Quantize([[AVGPOOL]])
+    //CHECK:  return [[QUANT]]
 }

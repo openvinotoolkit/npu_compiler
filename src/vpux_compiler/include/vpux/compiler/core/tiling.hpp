@@ -93,6 +93,10 @@ static constexpr double NCECONV_DPU_SOK_OC_TO_SPATIAL_RATIO = 1.1;
 // If tilling strategy is not found, then binary search
 static constexpr int LINEAR_SEARCH_TIMES = 3;
 
+// An experimental number to control if we parallelize the loop calculating tiling costs
+// Avoids compile time regression from multi-threading on small numbers of ops
+static constexpr int MIN_OPS_FOR_PARALLEL_TILING = 100;
+
 //
 // Tiling Mode
 //
@@ -468,7 +472,7 @@ InputTiling backInferEltwiseTile(mlir::Operation* op, const vpux::TileInfo& outp
 
 // SWLayer
 
-mlir::FailureOr<OutputTiling> getSWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode tilingMode,
+mlir::FailureOr<OutputTiling> getSWLayerTilingStrategyWithTileDimOrder(mlir::Operation* op, TilingMode& tilingMode,
                                                                        DimArrRef tileDimOrder, Logger log,
                                                                        ArrayRef<int64_t> maxTilesPerDim = {});
 mlir::FailureOr<OutputTiling> getSWLayerTilingStrategy(mlir::Operation* op, TilingMode tilingMode, Logger log,
@@ -564,9 +568,9 @@ bool isNewTileWithSameCostHasPotentialDMABenefits(mlir::Operation* op, ShapeRef 
 SmallVector<Dim> getNonOneDim(ShapeRef inputShape);
 
 /*
- * Get the dimensions greater than 1 with tiling order
+ * Get the dimensions greater than 1 with the identity (NCHW for 4D) tiling order
  */
-SmallVector<Dim> getTilingOrderedDims(mlir::Operation* operation, ShapeRef tiling);
+SmallVector<Dim> getSCFTilingOrderedDims(mlir::Operation* operation, ShapeRef tiling);
 
 /*
  * Get the dimension with the maximum size in all non-one dimensions

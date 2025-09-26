@@ -73,7 +73,7 @@ vpux::NDTypeInterface vpux::Const::ReorderAttr::inferOutputType(vpux::NDTypeInte
     return input.changeDimsOrder(order);
 }
 
-bool vpux::Const::ReorderAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) {
+bool vpux::Const::ReorderAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
     return inputIsSplat;
 }
 

@@ -50,19 +50,19 @@ std::vector<int64_t> axis4D = {0, 1, 2, 3};
 
 const auto params2D = testing::Combine(testing::ValuesIn(modelType),
                                        testing::ValuesIn(static_shapes_to_test_representation(inShapes2D)),
-                                       testing::ValuesIn(axis2D), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(axis2D), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params3D = testing::Combine(testing::ValuesIn(modelType),
                                        testing::ValuesIn(static_shapes_to_test_representation(inShapes3D)),
-                                       testing::ValuesIn(axis3D), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(axis3D), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto params4D = testing::Combine(testing::ValuesIn(modelType),
                                        testing::ValuesIn(static_shapes_to_test_representation(inShapes4D)),
-                                       testing::ValuesIn(axis4D), testing::Values(DEVICE_NPU));
+                                       testing::ValuesIn(axis4D), testing::Values(test_utils::TARGET_DEVICE));
 
 const auto paramsTiling = testing::Combine(testing::ValuesIn(modelType),
                                            testing::ValuesIn({static_shapes_to_test_representation({inShapes4D[3]})}),
-                                           testing::Values(1), testing::Values(DEVICE_NPU));
+                                           testing::Values(1), testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_LogSoftmax_2D, LogSoftmaxLayerTestCommon, params2D,
                          LogSoftmaxLayerTestCommon::getTestCaseName);

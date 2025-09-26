@@ -7,6 +7,8 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 
+#include <vpu_cost_model.h>
+
 using namespace vpux;
 
 int64_t VPUIP::arch37xx::computeSplitCost(const WorkloadSplit& split, const WorkloadCostParams& params,

@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
-  IE.ExecutorResource 1 of @DMA_NN
-  IE.TileResource 1 of @NCE at 6.000000e+02 MHz
+  config.ExecutorResource 1 of @DMA_NN
+  config.Resources 1 of @NCE at 6.000000e+02 MHz
   net.NetworkInfo entryPoint : @dma_compressed_constant inputsInfo : {
     DataInfo "input_0" : tensor<1024x16x1x1xf16>
   } outputsInfo : {

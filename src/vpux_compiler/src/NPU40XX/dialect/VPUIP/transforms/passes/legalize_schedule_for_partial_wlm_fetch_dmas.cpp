@@ -5,15 +5,17 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/core/barrier_info.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/wlm_legalization_utils.hpp"
+
+#include <queue>
 
 namespace vpux::VPUIP::arch40xx {
 #define GEN_PASS_DECL_LEGALIZESCHEDULEFORPARTIALWLMFETCHDMAS

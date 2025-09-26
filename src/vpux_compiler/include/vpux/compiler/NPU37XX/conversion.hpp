@@ -5,30 +5,18 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-
-#include "vpux/compiler/utils/passes.hpp"
 #include "vpux/utils/logger/logger.hpp"
+
+#include <mlir/Pass/PassManager.h>
 
 namespace vpux {
 namespace arch37xx {
 
 //
-// LowerIE2VPU
-//
-
-std::unique_ptr<mlir::Pass> createConvertIEToVPUNCEPass(Logger log = Logger::global());
-
-//
 // Pipelines
 //
 
-void buildLowerIE2VPUPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
 void buildLowerVPUIP2ELFPipeline(mlir::OpPassManager& pm, Logger log = Logger::global());
-void buildLowerVPU2VPUIPPipeline(mlir::OpPassManager& pm, bool enableInPlaceBufferization,
-                                 bool useMemrefForHostFunctionBufferization, Logger log = Logger::global());
-
 void buildLowerIE2VPUPipelineReferenceSW(mlir::OpPassManager& pm, Logger log = Logger::global());
 
 //
@@ -36,7 +24,6 @@ void buildLowerIE2VPUPipelineReferenceSW(mlir::OpPassManager& pm, Logger log = L
 //
 
 void registerConversionPipeline();
-void registerConversionPasses();
 
 }  // namespace arch37xx
 }  // namespace vpux

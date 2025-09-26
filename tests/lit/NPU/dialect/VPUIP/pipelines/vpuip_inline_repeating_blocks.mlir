@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --vpu-arch=%arch% --split-input-file --dispatched-inliner --move-declarations-to-top %s | FileCheck %s
+// RUN: vpux-opt --init-compiler="vpu-arch=%arch% allow-custom-values" --split-input-file --dispatched-inliner --move-declarations-to-top %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK-LABEL: @CallChain

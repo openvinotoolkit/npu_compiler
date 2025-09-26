@@ -14,7 +14,7 @@ using namespace vpux;
 
 void vpux::VPU::arch37xx::buildIncrementalPipeline(mlir::OpPassManager& pm, const vpux::MCAndTilingOptionsBase& options,
                                                    Logger log) {
-    pm.addPass(VPU::arch37xx::createDecomposeMVNPass(log));
+    pm.addPass(VPU::createDecomposeMVNPass(log));
 
     pm.addPass(VPU::createMultiClusterStrategyAssignmentPass(options.enablePrefetching, options.opTilingCacheThreshold,
                                                              options.mcOptimizationScope, log));
@@ -24,7 +24,7 @@ void vpux::VPU::arch37xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
                                                   options.dumpStrategyToLog, false, log));
 
     pm.addPass(VPU::createSplitGRUSequencePass(log));
-    pm.addPass(VPU::arch37xx::createApplyTilingMVN1SumPass(options.enablePrefetching, log));
+    pm.addPass(VPU::createApplyTilingMVN1SumPass(options.enablePrefetching, log));
 
     VPU::buildTilingPipeline(pm, VPU::TilingOptions(options), log);
 
@@ -74,10 +74,10 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
-    pm.addPass(VPU::arch37xx::createAdjustForOptimizedLayersPass(log));
+    pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
 
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
-    pm.addPass(VPU::arch37xx::createSplitRealDFTOpsPass(log));
+    pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
 
     if (options.enableSEPtrsOperations || options.enableExperimentalSEPtrsOperations) {
@@ -91,17 +91,20 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPU::createFuseClampPass(log));
 
-    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(true, log));
+    pm.addPass(VPU::createEnsureNCEOpsSizeRequirementsPass(/*enableOutputEnsurance=*/true,
+                                                           /*enableDequantWeightEnsuranceBeforeStrategy=*/false,
+                                                           /*skipNonConvOC=*/false, log));
     pm.addPass(VPU::createOptimizeConcatPass(/*optimizeOnlyOuterConcat*/ false,
                                              /*disablePassOnEntryFunctionForHostCompile=*/false, log));
     if (options.enableWeightsSparsity) {
         VPU::buildWeightsSparsityPipeline(pm, VPU::WeightsSparsityOptions(options), log);
     }
-    pm.addPass(VPU::createAddExplicitPaddingBeforeNCEPermutePass(log));
     if (VPU::isActSparsityEnabled(options.enableActivationSparsity)) {
         VPU::buildActivationSparsityPipeline(pm, VPU::ActivationSparsityOptions(options), log);
         pm.addPass(VPU::createLowerSparsityOpsPass(/*fakeSparsify=*/false, log));
     }
+
+    pm.addPass(VPU::createAddExplicitPaddingBeforeNCEPermutePass(log));
 
     if (options.enableInPlaceEltwise) {
         pm.addPass(VPU::createDetectInPlaceEltwisePass(log));
@@ -124,7 +127,7 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     pm.addPass(VPU::createSplitNCEOpsOntoWorkloadsPass(log));
-    pm.addPass(VPU::arch37xx::createCorrectNCEWorkloadsPass(log));
+    pm.addPass(VPU::createCorrectNCEWorkloadsPass(log));
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
     pm.addPass(VPU::createOutlineEntireMainContentPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -135,15 +138,15 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logg
     pm.addPass(VPU::createDMATaskProfilingReserveMemPass("false", log));
     pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
     pm.addPass(VPU::createDetectionOutputDecompositionPass(log));
-    pm.addPass(VPU::arch37xx::createSplitRealDFTOpsPass(log));
+    pm.addPass(VPU::createSplitRealDFTOpsPass(log));
     pm.addPass(VPU::createSplitGRUSequencePass(log));
-    pm.addPass(VPU::arch37xx::createDecomposeMVNPass(log));
+    pm.addPass(VPU::createDecomposeMVNPass(log));
     pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
 
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
             /*enablePrefetchTiling=*/false, /*enableVPUNNCostForTiling*/ false,
             /*enableShaveDDRAccessOptimization*/ "true", log));
-    pm.addPass(VPU::arch37xx::createApplyTilingMVN1SumPass(/*enablePrefetchTiling=*/false, log));
+    pm.addPass(VPU::createApplyTilingMVN1SumPass(/*enablePrefetchTiling=*/false, log));
     pm.addPass(VPU::createApplyTilingPass(/*enableSCFTiling=*/false, log));
     pm.addPass(VPU::createComputeInterpolateCoordinatesPass(/*enableExplicitDistributionInfoAttr*/ false, log));
 

@@ -5,8 +5,8 @@
 
 #ifdef BACKGROUND_FOLDING_ENABLED
 
+#include <chrono>
 #include "vpux/compiler/dialect/const/dialect.hpp"
-
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
@@ -22,7 +22,6 @@
 #include <thread>
 
 using namespace vpux;
-#include <chrono>
 using namespace std::chrono_literals;
 
 namespace {
@@ -182,8 +181,10 @@ TEST_F(ConstantFoldingInBackgroundUnit, EquivalenceRequest) {
     auto contentAttr = Const::ContentAttr::get(baseAttr);
 
     // `subview` sends folding requests to the background threads
-    auto contentAttr1 =
-            contentAttr.transform().subview(Shape({0}), Shape({50})).subview(Shape({10}), Shape({30})).get();
+    auto contentAttr1 = contentAttr.transform()
+                                .subview(ShapeRef({0}), ShapeRef({50}))
+                                .subview(ShapeRef({10}), ShapeRef({30}))
+                                .get();
 
     // Manually creating a ContentAttr will not sent a folding request, so an equivalence request is manually sent
     auto optimizedSubviewTransformation = Const::SubViewAttr::get(getIntArrayAttr(&ctx, SmallVector<int64_t>({0})),

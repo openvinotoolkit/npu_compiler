@@ -7,8 +7,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -159,6 +163,10 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
                 isSigned = mlir::cast<mlir::IntegerType>(valueElemType).isSigned();
             }
         }
+    }
+
+    if (IE::keepIntTypeForSIWeightsAsInput(origOp)) {
+        isSigned = true;
     }
 
     const auto inQuantizeElemType = getQuantizedType(
@@ -364,9 +372,10 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
 
     auto newInConstAttrSetup = inConstAttr.transform();
     newInConstAttrSetup = newInConstAttrSetup.castElemType(qElemType);
-
+    const auto moduleOp = getModuleOp(origOp.getOperation());
+    const auto isAsymmetricPerChannelZeroPointSupported = VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
     // Fuse dequantize to const directly since it could not convert to HW for multi Zero Point case
-    if (multiZeroPoint) {
+    if (!isAsymmetricPerChannelZeroPointSupported && multiZeroPoint) {
         newInConstAttrSetup = newInConstAttrSetup.dequantize();
         rewriter.replaceOpWithNewOp<Const::DeclareOp>(origOp, origOp.getType(), newInConstAttrSetup.get())
                 ->setLoc(inConst->getLoc());
@@ -400,6 +409,10 @@ void SplitFakeQuantPass::safeRunOnFunc() {
     // per-channel quantization with different zero points is not supported on HW (E#65130)
     // if this is the case, the FQ op will be marked legal and will later be executed as SW op
     target.addDynamicallyLegalOp<IE::FakeQuantizeOp>([](IE::FakeQuantizeOp fqOp) {
+        if (!IE::hasStaticLowAndHighValues(fqOp)) {
+            return true;
+        }
+
         auto maybeConstOp = fqOp.getInput().getDefiningOp<Const::DeclareOp>();
         bool isConstInput = (maybeConstOp != nullptr);
 

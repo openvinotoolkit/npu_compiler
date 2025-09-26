@@ -65,6 +65,8 @@ mlir::IntegerType getUInt32Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getUInt64Type(mlir::MLIRContext* ctx);
 mlir::IntegerType getBool8Type(mlir::MLIRContext* ctx);
 
+mlir::Float16Type getFp16Type(mlir::MLIRContext* ctx);
+
 //
 // TypeSize
 //
@@ -99,8 +101,7 @@ Byte getExpectedBufferSize(mlir::Type type);
 //
 
 mlir::MemRefType getMemRefType(ShapeRef shape, mlir::Type elemType, DimsOrder order, IndexedSymbolAttr memSpace,
-                               StridesRef strides = StridesRef(),
-                               VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
+                               StridesRef strides = {}, VPUIP::SwizzlingSchemeAttr swizzlingSchemeAttr = nullptr,
                                VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr,
                                mlir::IntegerAttr allocSizeAttr = nullptr,
                                VPUIP::CompressionStateAttr compressionState = nullptr);

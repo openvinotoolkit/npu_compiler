@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU40XX/dialect/VPURT/interfaces/enqueue_barrier.hpp"
+#include "vpux/compiler/dialect/VPURT/interfaces/enqueue_barrier.hpp"
 #include "common/utils.hpp"
 #include "vpux/compiler/core/barrier_info.hpp"
 

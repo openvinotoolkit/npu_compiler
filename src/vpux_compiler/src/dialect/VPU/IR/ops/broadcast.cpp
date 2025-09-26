@@ -58,7 +58,7 @@ mlir::LogicalResult vpux::VPU::BroadcastOp::inferReturnTypes(mlir::MLIRContext* 
         outShape = getResultShapeBidirectional(inShape, outShape);
     }
 
-    auto outType = inType.changeShape(Shape(outShape));
+    auto outType = inType.changeShape(ShapeRef(outShape));
     outType = outType.changeDimsOrder(DimsOrder::fromNumDims(outShape.size()));
     inferredReturnTypes.push_back(outType);
 

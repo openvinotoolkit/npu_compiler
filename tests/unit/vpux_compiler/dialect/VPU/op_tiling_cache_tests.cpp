@@ -3,22 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include <mlir/Parser/Parser.h>
+#include <mlir/Pass/PassManager.h>
+#include "common/utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 
-#include "vpux/compiler/interfaces_registry.hpp"
-
-#include "common/utils.hpp"
-
-#include <mlir/IR/MLIRContext.h>
-#include <mlir/Parser/Parser.h>
-#include <mlir/Pass/PassManager.h>
+#include <vpu_layer_strategy.h>
 
 #include <gtest/gtest.h>
 
@@ -110,7 +108,7 @@ TEST_F(MLIR_OpTilingCacheTest, OpDPUCostTest) {
     auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
     ASSERT_TRUE(func != nullptr);
 
-    auto tileOp = vpux::IE::getTileExecutor(module.get());
+    auto tileOp = vpux::config::getTileExecutor(module.get());
     ASSERT_TRUE(tileOp != nullptr);
     auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
     auto numTiles = tileOp.getCount();

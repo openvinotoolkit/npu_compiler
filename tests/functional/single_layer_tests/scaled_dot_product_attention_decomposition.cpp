@@ -22,7 +22,7 @@ PRETTY_PARAM(SourceSeqLen, BoundedDim);          // S
 PRETTY_PARAM(TargetSeqLen, BoundedDim);          // L
 PRETTY_PARAM(QKEmbeddingSize, BoundedDim);       // E
 PRETTY_PARAM(VEmbeddingSize, BoundedDim);        // Ev
-PRETTY_PARAM(IsCasual, bool);
+PRETTY_PARAM(IsCausal, bool);
 PRETTY_PARAM(HasAttentionMask, bool);
 PRETTY_PARAM(HasScale, bool);
 
@@ -107,7 +107,7 @@ public:
 //
 
 using SdpAttentionLayerTestParams = std::tuple<Batches, SourceSeqLen, TargetSeqLen, QKEmbeddingSize, VEmbeddingSize,
-                                               IsCasual, HasAttentionMask, HasScale, InputType>;
+                                               IsCausal, HasAttentionMask, HasScale, InputType>;
 
 class SdpAttentionLayerTest :
         public testing::WithParamInterface<SdpAttentionLayerTestParams>,
@@ -116,7 +116,7 @@ protected:
     void SetUp() override {
         SdpAttentionLayerTestCommon::SetUp();
 
-        const auto& [batches, sourceSeqLen, targetSeqLen, qkEmbeddingSize, vEmbeddingSize, isCasual, hasAttentionMask,
+        const auto& [batches, sourceSeqLen, targetSeqLen, qkEmbeddingSize, vEmbeddingSize, isCausal, hasAttentionMask,
                      hasScale, inputType] = GetParam();
 
         this->hasAttentionMask = hasAttentionMask;
@@ -134,7 +134,7 @@ protected:
             inputs.emplace_back(input);
         }
 
-        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCasual);
+        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCausal);
         sdp->set_friendly_name("sdp");
 
         auto results = ov::ResultVector();
@@ -164,7 +164,7 @@ PRETTY_PARAM(SequenceLength, BoundedDim);  // S == L
 PRETTY_PARAM(EmbeddingSize, BoundedDim);   // E == Ev
 
 using SelfAttentionTestParams =
-        std::tuple<Batches, SequenceLength, EmbeddingSize, IsCasual, HasAttentionMask, HasScale, InputType>;
+        std::tuple<Batches, SequenceLength, EmbeddingSize, IsCausal, HasAttentionMask, HasScale, InputType>;
 
 class SelfAttentionLayerTest :
         public testing::WithParamInterface<SelfAttentionTestParams>,
@@ -173,7 +173,7 @@ protected:
     void SetUp() override {
         SdpAttentionLayerTestCommon::SetUp();
 
-        const auto& [batches, sequenceLength, embeddingSize, isCasual, hasAttentionMask, hasScale, inputType] =
+        const auto& [batches, sequenceLength, embeddingSize, isCausal, hasAttentionMask, hasScale, inputType] =
                 GetParam();
 
         this->hasAttentionMask = hasAttentionMask;
@@ -196,7 +196,7 @@ protected:
             inputs.emplace_back(input);
         }
 
-        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCasual);
+        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCausal);
         sdp->set_friendly_name("sdp");
 
         auto results = ov::ResultVector();
@@ -219,10 +219,10 @@ protected:
 };
 
 //
-// Online Self Attention class
+// Online Self Attention reference subgraph implementation
 //
 
-class OnlineSelfAttentionLayerTest : public SelfAttentionLayerTest {
+class OnlineSelfAttentionDecomposedLayerTest : public SelfAttentionLayerTest {
 public:
     void SetUp() override {
         SelfAttentionLayerTest::SetUp();
@@ -242,6 +242,39 @@ public:
     }
 };
 
+//
+// Online Cross Attention Software kernel
+//
+
+class OnlineCrossAttentionSoftwareKernelLayerTest : public SdpAttentionLayerTest {
+public:
+    void SetUp() override {
+        SdpAttentionLayerTest::SetUp();
+
+        // Disable OpenVINO ScaledDotProductAttentionDecomposition pass
+        vpux::env::setEnvVar("NPU_DECOMPOSE_SDPA", "0");
+
+        // Disable tiling for now
+        vpux::env::setEnvVar("NPU_Q_NUM_BLOCKS", "1");
+        vpux::env::setEnvVar("NPU_KV_NUM_BLOCKS", "1");
+    }
+
+    void TearDown() override {
+        SdpAttentionLayerTest::TearDown();
+
+        vpux::env::unsetEnvVar("NPU_DECOMPOSE_SDPA");
+
+        vpux::env::unsetEnvVar("NPU_Q_NUM_BLOCKS");
+        vpux::env::unsetEnvVar("NPU_KV_NUM_BLOCKS");
+    }
+
+    void configure_model() override {
+        // Enable passes that perform SDPA decomposition, disable IncrementalSDPA decomposition
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "enable-online-sdpa-conversion=true disable-incremental-sdpa-decomposition=true";
+    }
+};
+
 TEST_P(SdpAttentionLayerTest, NPU3720_HW) {
     abs_threshold = 0.01;
     setDefaultHardwareMode();
@@ -254,7 +287,13 @@ TEST_P(SelfAttentionLayerTest, NPU3720_HW) {
     run(Platform::NPU3720);
 }
 
-TEST_P(OnlineSelfAttentionLayerTest, NPU3720_HW) {
+TEST_P(OnlineSelfAttentionDecomposedLayerTest, NPU3720_HW) {
+    abs_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU3720);
+}
+
+TEST_P(OnlineCrossAttentionSoftwareKernelLayerTest, NPU3720_HW) {
     abs_threshold = 0.01;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
@@ -272,7 +311,13 @@ TEST_P(SelfAttentionLayerTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 
-TEST_P(OnlineSelfAttentionLayerTest, NPU4000_HW) {
+TEST_P(OnlineSelfAttentionDecomposedLayerTest, NPU4000_HW) {
+    abs_threshold = 0.01;
+    setDefaultHardwareMode();
+    run(Platform::NPU4000);
+}
+
+TEST_P(OnlineCrossAttentionSoftwareKernelLayerTest, NPU4000_HW) {
     abs_threshold = 0.01;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
@@ -281,28 +326,28 @@ TEST_P(OnlineSelfAttentionLayerTest, NPU4000_HW) {
 const std::vector<InputType> inputPrecision = {ov::element::f16};
 
 //
-// SelfAttentionTests
+// SelfAttentionTest
 //
 
 INSTANTIATE_TEST_SUITE_P(smoke, SelfAttentionLayerTest,
                          ::testing::Combine(::testing::Values(Batches{8}),                            // 12, 16
                                             ::testing::Values(SequenceLength{512}),                   // 1k, 2k, 4k, 8k
                                             ::testing::Values(EmbeddingSize{64}),                     // 128, 256
-                                            ::testing::ValuesIn(std::vector<IsCasual>{true, false}),  //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),  //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
                                             ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
                                             ::testing::ValuesIn(inputPrecision)                               //
                                             ),
                          PrintTestCaseName());
 //
-// OnlineSelfAttentionTests
+// OnlineSelfAttentionSubgraphLayerTest
 //
 
-INSTANTIATE_TEST_SUITE_P(smoke, OnlineSelfAttentionLayerTest,
+INSTANTIATE_TEST_SUITE_P(smoke, OnlineSelfAttentionDecomposedLayerTest,
                          ::testing::Combine(::testing::Values(Batches{8}),                             //
                                             ::testing::Values(SequenceLength{512}),                    //
                                             ::testing::Values(EmbeddingSize{64}),                      //
-                                            ::testing::ValuesIn(std::vector<IsCasual>{false}),         //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{false}),         //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true}),  //
                                             ::testing::ValuesIn(std::vector<HasScale>{false}),         //
                                             ::testing::ValuesIn(inputPrecision)                        //
@@ -310,7 +355,7 @@ INSTANTIATE_TEST_SUITE_P(smoke, OnlineSelfAttentionLayerTest,
                          PrintTestCaseName());
 
 //
-// CrossAttentionTests
+// CrossAttentionTest
 //
 
 INSTANTIATE_TEST_SUITE_P(smoke, SdpAttentionLayerTest,
@@ -319,7 +364,7 @@ INSTANTIATE_TEST_SUITE_P(smoke, SdpAttentionLayerTest,
                                             ::testing::Values(TargetSeqLen{256}),                             //
                                             ::testing::Values(QKEmbeddingSize{64}),                           //
                                             ::testing::Values(VEmbeddingSize{32}),                            //
-                                            ::testing::ValuesIn(std::vector<IsCasual>{true, false}),          //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
                                             ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
                                             ::testing::ValuesIn(inputPrecision)                               //
@@ -327,7 +372,24 @@ INSTANTIATE_TEST_SUITE_P(smoke, SdpAttentionLayerTest,
                          PrintTestCaseName());
 
 //
-// Dynamic SelfAttentionTests
+// OnlineCrossAttentionSoftwareKernelLayerTest
+//
+
+INSTANTIATE_TEST_SUITE_P(smoke, OnlineCrossAttentionSoftwareKernelLayerTest,
+                         ::testing::Combine(::testing::Values(Batches{8}),                                    //
+                                            ::testing::Values(SourceSeqLen{32}),                              //
+                                            ::testing::Values(TargetSeqLen{64}),                              //
+                                            ::testing::Values(QKEmbeddingSize{64}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                           //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
+                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
+                                            ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
+                                            ::testing::ValuesIn(inputPrecision)                               //
+                                            ),
+                         PrintTestCaseName());
+
+//
+// Dynamic SelfAttentionTest
 //
 
 // [Tracking number: E#160081]
@@ -335,7 +397,7 @@ INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_Dynamic, SelfAttentionLayerTest,
                          ::testing::Combine(::testing::Values(Batches{16_Dyn, 12}),                           //
                                             ::testing::Values(SequenceLength{512_Dyn}),                       //
                                             ::testing::Values(EmbeddingSize{64}),                             //
-                                            ::testing::ValuesIn(std::vector<IsCasual>{true, false}),          //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
                                             ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
                                             ::testing::ValuesIn(inputPrecision)                               //

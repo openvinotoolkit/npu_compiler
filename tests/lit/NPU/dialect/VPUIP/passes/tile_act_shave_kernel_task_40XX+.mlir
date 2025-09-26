@@ -8,8 +8,8 @@
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -129,8 +129,8 @@ func.func @TileGather(%arg0: memref<387072x1xf16>, %arg1: memref<1x96768xsi32>)
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -190,8 +190,8 @@ func.func @TileSegmentedShaveWithProperCAlignment(%arg0: memref<1x64x64x32xf16>)
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -250,8 +250,8 @@ func.func @TileDuplicatedShaveWithCAlignment(%arg0: memref<1x32x64x32xf16>) -> m
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -309,8 +309,8 @@ func.func @TileDuplicatedShaveWithProperCAlignment(%arg0: memref<1x16x64x32xf16>
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.300000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 6 of @NCE at 1.300000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -389,8 +389,8 @@ func.func @TileUnevenClusterMVNWithAlignment(%arg0: memref<1x128x16x1xf16>)
 
 // -----
 
-IE.TileResource 4 of @NCE at 1.300000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.300000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -423,8 +423,8 @@ func.func @TileClusterTanHWithDifferentDims(%arg0: memref<1x16x64x128xf16>)
 
 // -----
 
-IE.TileResource 4 of @NCE at 1.300000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.300000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -587,8 +587,8 @@ func.func @TileMVN6OnDimCAndDistributedOnDimH(%arg0: memref<4x10x5x17xf16>) -> m
 
 // -----
 
-IE.TileResource 4 of @NCE at 1.300000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.300000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -664,10 +664,10 @@ func.func @TileMVN6OnDimHAndDistributedOnDimH(%arg0: memref<4x1x10x17xf16>) -> m
     // CHECK-SAME:                          num_tiles = [1, 1, 4, 1],
     // CHECK-SAME:                          num_clusters = 4 : i64,
     // CHECK-SAME:                          uniform_distributed_segments,
-    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]],
-    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]]}>
+    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
+    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>
     // CHECK:       [[COPY_INPUT1:%.+]] = VPUIP.Copy
     // CHECK-SAME:                          inputs([[SUBVIEW1]] : memref<4x1x6x17xf16, {order = #NCHW, strides = [170, 170, 17, 1]}>)
     // CHECK-SAME:                          outputs([[ALLOC_INPUT1]] : !VPUIP.DistributedBuffer<4x1x6x17xf16,
@@ -677,10 +677,10 @@ func.func @TileMVN6OnDimHAndDistributedOnDimH(%arg0: memref<4x1x10x17xf16>) -> m
     // CHECK-SAME:                          num_tiles = [1, 1, 4, 1],
     // CHECK-SAME:                          num_clusters = 4 : i64,
     // CHECK-SAME:                          uniform_distributed_segments,
-    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]],
-    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]]}>
+    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
+    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>
 
     // CHECK:       [[ALLOC_OUTPUT0:%.+]] = VPURT.AllocDistributed ->
     // CHECK-SAME:                        !VPUIP.DistributedBuffer<
@@ -700,10 +700,10 @@ func.func @TileMVN6OnDimHAndDistributedOnDimH(%arg0: memref<4x1x10x17xf16>) -> m
     // CHECK-SAME:                          num_tiles = [1, 1, 4, 1],
     // CHECK-SAME:                          num_clusters = 4 : i64,
     // CHECK-SAME:                          uniform_distributed_segments,
-    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]],
-    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]]}>
+    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
+    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>
 
     // CHECK:       [[MVN:%.+]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_MVN6
     // CHECK-SAME:                          inputs([[COPY_INPUT1]] as [[ARG4:%[^:]+]]: !VPUIP.DistributedBuffer<4x1x6x17xf16,
@@ -716,10 +716,10 @@ func.func @TileMVN6OnDimHAndDistributedOnDimH(%arg0: memref<4x1x10x17xf16>) -> m
     // CHECK-SAME:                          num_tiles = [1, 1, 4, 1],
     // CHECK-SAME:                          num_clusters = 4 : i64,
     // CHECK-SAME:                          uniform_distributed_segments,
-    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]],
-    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 2, 17], [4, 1, 1, 17]],
-    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 3, 0], [0, 0, 5, 0]]}>,
+    // CHECK-SAME{LITERAL}:                 compute_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 compute_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]],
+    // CHECK-SAME{LITERAL}:                 memory_shapes = [[4, 1, 2, 17], [4, 1, 2, 17], [4, 1, 1, 17], [4, 1, 1, 17]],
+    // CHECK-SAME{LITERAL}:                 memory_offsets = [[0, 0, 0, 0], [0, 0, 2, 0], [0, 0, 4, 0], [0, 0, 5, 0]]}>,
     // CHECK-SAME:                        !VPUIP.DistributedBuffer<
     // CHECK-SAME:                          4x1x4x17xf16, #NCHW, @CMX_NN, {
     // CHECK-SAME:                          mode = "SEGMENTED",
@@ -1926,8 +1926,8 @@ func.func @BalanceTileMultiplyForShaveAddressNotAligned(%input0: !origDistType, 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -1999,8 +1999,8 @@ func.func @TileClusterMVN1SumWithSOK() -> !OutDistributed {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -2071,8 +2071,8 @@ func.func @TileClusterMVN1SumWithSOH() -> !OutDistributed {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -2144,8 +2144,8 @@ func.func @TileClusterMVN1SumWithSOHSmallRemVal() -> !OutDistributed {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -2226,8 +2226,8 @@ func.func @TileClusterMVN1SumWithClustering() -> !OutDistributed {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -2997,11 +2997,11 @@ module @VPU.SW {
   func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 }
 
-IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-  IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-  IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-  IE.ExecutorResource 2 of @SHAVE_ACT
-  IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.850000e+03 MHz {
+  config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+  config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.ExecutorResource 2 of @SHAVE_ACT
+  config.ExecutorResource 1 of @DPU
 }
 
 // CHECK-LABEL:   func.func @TileDynamicLSTMSequence(
@@ -3220,8 +3220,8 @@ func.func @TileReverse(%arg0: memref<128x1x5x5xf16>, %arg1: memref<128x1x5x5xf16
 
 // -----
 
-IE.TileResource 6 of @NCE at 1.300000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 6 of @NCE at 1.300000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -3360,8 +3360,8 @@ func.func @TilePReLU(%input0: !origDistType, %input1: !origDistType1)
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -3406,8 +3406,8 @@ func.func @TileMemPermute(%arg0 : memref<1x4x70x2560xui8, #NHWC, [@CMX_NN, 0]>) 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -3436,8 +3436,8 @@ func.func @DontTileMemPermuteDMA(%arg0 : memref<1x4x70x128xui8, #NHWC, [@CMX_NN,
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -3495,8 +3495,8 @@ compute_shapes = [[1, 5, 9, 5], [1, 5, 8, 5], [1, 5, 8, 5]], compute_offsets = [
 
 
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {
@@ -3601,8 +3601,8 @@ func.func @TileMemPermuteMultiClustered(%arg0 : memref<5x5x25x1xf16, #NHWC, [@CM
   compute_shapes = [[36, 2, 23, 128], [36, 2, 23, 128], [36, 2, 22, 128]], compute_offsets = [[0, 0, 0, 0], [0, 0, 23, 0], [0, 0, 46, 0]],
   memory_shapes = [[36, 2, 23, 128], [36, 2, 23, 128], [36, 2, 22, 128]], memory_offsets = [[0, 0, 0, 0], [0, 0, 23, 0], [0, 0, 46, 0]]}>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz {
-    IE.ExecutorResource 1 of @DPU
+config.Resources 4 of @NCE at 1.700000e+03 MHz {
+    config.ExecutorResource 1 of @DPU
 }
 
 module @VPU.SW {

@@ -58,8 +58,11 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
 
     mlir::TypeConverter typeConverter;
     typeConverter.addConversion([&](NDTypeInterface ndType) {
-        auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(ndType);
-        if (boundedType == nullptr) {
+        if (const auto sparseType = mlir::dyn_cast<VPU::SparseTensorType>(ndType)) {
+            if (!mlir::isa<Core::BoundedTensorType>(sparseType.getData())) {
+                return ndType;
+            }
+        } else if (!mlir::isa<Core::BoundedTensorType>(ndType)) {
             return ndType;
         }
 
@@ -68,9 +71,9 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
                                                   return (dim == mlir::ShapedType::kDynamic) ? 1 : 0;
                                               }));
 
-        const auto bounds = boundedType.getBounds().raw();
+        const auto bounds = getBoundedShape(ndType);
         auto typeComponents =
-                vpux::TypeComponents().setShape(Shape(bounds)).setDynamicDimsMask(DynamicDimsMask(dimsMask));
+                vpux::TypeComponents().setShape(ShapeRef(bounds)).setDynamicDimsMask(DynamicDimsMask(dimsMask));
 
         auto outType = ndType.changeTypeComponents(typeComponents);
         return outType;
@@ -118,14 +121,30 @@ void BoundedTensorsToDynamicDimsMask::safeRunOnModule() {
         target.addLegalOp<mlir::tensor::InsertSliceOp>();
     }
 
+    // We lookup the software module directly to avoid creating it.
+    static constexpr StringLiteral vpuSwModuleName{"VPU.SW"};
+    auto swModule = module.lookupSymbol<mlir::ModuleOp>(vpuSwModuleName);
+
     const auto entryFuncOp = vpux::net::findEntryPointFunc(module, _log);
     target.addDynamicallyLegalOp<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
         if (hostCompileMode && (funcOp == entryFuncOp)) {
             _log.trace("Skipping function {0} in HostCompile mode", funcOp.getName());
             return true;
         }
+        if (swModule != nullptr && funcOp->getParentOfType<mlir::ModuleOp>() == swModule && !funcOp.isExternal()) {
+            _log.trace("Skipping ShaveCodeGen function {0}", funcOp.getName());
+            return true;
+        }
         return typeConverter.isSignatureLegal(funcOp.getFunctionType());
     });
+
+    if (swModule != nullptr) {
+        // Recursively mark the software module external as legal to prevent interactions
+        // with outlined ShaveCodeGen functions. All external functions should be ShaveCodeGen-specific.
+        target.markOpRecursivelyLegal<mlir::func::FuncOp>([&](mlir::func::FuncOp funcOp) {
+            return funcOp->getParentOfType<mlir::ModuleOp>() == swModule && !funcOp.isExternal();
+        });
+    }
 
     if (mlir::failed(vpux::IE::runConvertOpTypes(module, typeConverter, target, _log))) {
         signalPassFailure();

@@ -53,27 +53,6 @@ net.NetworkInfo
         DataInfo "output" : memref<1x1000xf32>
     }
 ```
-
-The **IE Dialect** provides separate operations to describe the available and used run-time resources.
-It deals with the following resource types:
-
-* Memory space.
-* Executor (CPU, HW module, DMA).
-
-```MLIR
-IE.TileResource 4 of @NCE {
-    IE.ExecutorResource 5 of @DPU
-    IE.ExecutorResource 5 of @SHAVE_NN
-    IE.ExecutorResource 1 of @SHAVE_ACT
-    IE.MemoryResource 1048576 bytes of @CMX_NN {VPUIP.bandwidth = 32 : i64, VPUIP.derateFactor = 1.000000e+00 : f64}
-}
-IE.ExecutorResource 1 of @DMA_NN
-
-IE.MemoryResource 31457280 bytes of @DDR {VPUIP.bandwidth = 8 : i64, VPUIP.derateFactor = 6.000000e-01 : f64}
-```
-
-The `IE.ExecutorResource` and `IE.MemoryResource` are added by underlying low-level dialect to provide information about HW-specific resources.
-
 [./IE/_ops_interfaces.md]
     }];
 

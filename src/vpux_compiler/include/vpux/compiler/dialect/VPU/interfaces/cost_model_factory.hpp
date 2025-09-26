@@ -6,7 +6,11 @@
 #pragma once
 
 #include <memory>
-#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+
+namespace VPUNN {
+class VPUCostModel;
+class VPULayerCostModel;
+}  // namespace VPUNN
 
 namespace vpux {
 namespace VPU {

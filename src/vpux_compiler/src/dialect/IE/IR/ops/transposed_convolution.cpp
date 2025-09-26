@@ -35,11 +35,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/utils/convolution_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
-
-#include <openvino/core/dimension.hpp>
 
 using namespace vpux;
 
@@ -53,9 +52,14 @@ mlir::LogicalResult vpux::IE::TransposedConvolutionOp::inferReturnTypeComponents
     if (mlir::failed(convBackpropData.verify(loc))) {
         return mlir::failure();
     }
-
     const auto inputShape = mlir::cast<mlir::ShapedType>(convBackpropData.getInput().getType()).getShape();
     const auto featureType = mlir::cast<mlir::ShapedType>(convBackpropData.getInput().getType()).getElementType();
+
+    if (inputShape[Dims4D::Act::N.ind()] == mlir::ShapedType::kDynamic ||
+        inputShape[Dims4D::Act::C.ind()] == mlir::ShapedType::kDynamic) {
+        return errorAt(loc, "TransposedConvolutionOp does not support dynamic N or C dimensions");
+    }
+
     const auto outputShape = convBackpropData.getOutputShape();
     const auto filterShape = mlir::cast<mlir::ShapedType>(convBackpropData.getFilter().getType()).getShape();
 
@@ -66,9 +70,6 @@ mlir::LogicalResult vpux::IE::TransposedConvolutionOp::inferReturnTypeComponents
     const auto outputPadding = parseIntArrayAttr<int64_t>(convBackpropData.getSpatialOutputPadding());
 
     if (outputShape != nullptr) {
-        const SmallVector<ov::Dimension> nDataShape(std::next(inputShape.begin(), 2), inputShape.end());
-        const SmallVector<ov::Dimension> nFilterShape(std::next(filterShape.begin(), 2), filterShape.end());
-
         auto outputShapeConst = outputShape.getDefiningOp<Const::DeclareOp>();
         if (outputShapeConst == nullptr) {
             return errorAt(loc, "Only constant input is supported for output_shape");
@@ -84,10 +85,25 @@ mlir::LogicalResult vpux::IE::TransposedConvolutionOp::inferReturnTypeComponents
 
         inferredReturnShapes.emplace_back(mlirOutputShape, featureType);
     } else {
-        auto mlirOutputShape =
-                inferTransposedConvBackpropOutputShape(inputShape, filterShape, windowStrides, dataPaddingBelow,
-                                                       dataPaddingAbove, windowDilations, outputPadding);
-        inferredReturnShapes.emplace_back(mlirOutputShape, featureType);
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(convBackpropData.getInput().getType());
+        const auto filterType = mlir::cast<vpux::NDTypeInterface>(convBackpropData.getFilter().getType());
+
+        const auto inShapeInfo = ShapeInfo::fromNDType(inputType);
+        const auto filterShapeInfo = ShapeInfo::fromNDType(filterType);
+
+        auto shapeInfo = inferTransposedConvBackpropOutputShapeInfo(inShapeInfo, filterShapeInfo, windowStrides,
+                                                                    dataPaddingBelow, dataPaddingAbove, windowDilations,
+                                                                    outputPadding);
+
+        auto outBounds = ArrayRef<int64_t>();
+        if (!shapeInfo.bounds.empty()) {
+            outBounds = shapeInfo.bounds;
+        }
+
+        const auto outDesc =
+                vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outBounds));
+
+        inferredReturnShapes.emplace_back(shapeInfo.shape, featureType, outDesc);
     }
 
     return mlir::success();

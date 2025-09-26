@@ -30,8 +30,8 @@ public:
 public:
     mlir::AffineMapAttr getOrder() const;
     vpux::IndexedSymbolAttr getMemSpace() const;
-    Bounds getBounds() const;
-    DynamicDimsMask getDynamicDimsMask() const;
+    BoundsRef getBounds() const;
+    DynamicDimsMaskRef getDynamicDimsMask() const;
 };
 
 //
@@ -63,12 +63,12 @@ TensorAttr getTensorAttr(mlir::RankedTensorType type, mlir::AffineMap order, Ind
 
     } else {
         if (mlir::isa<Core::BoundedTensorType>(type)) {
-            return vpux::getTensorAttr(type.getContext(), order, memSpace,
-                                       shape.template toRepresentationOf<BoundedShape>());
+            const auto boundedShape = shape.template toRepresentationOf<BoundedShape>();
+            return vpux::getTensorAttr(type.getContext(), order, memSpace, boundedShape);
         }
         if (mlir::isa<Core::DynamicDimsMaskTensorType>(type)) {
-            return vpux::getTensorAttr(type.getContext(), order, memSpace, Bounds(),
-                                       shape.template toRepresentationOf<DimsMaskedShape>());
+            const auto dimsMaskedShape = shape.template toRepresentationOf<DimsMaskedShape>();
+            return vpux::getTensorAttr(type.getContext(), order, memSpace, /*Bounds=*/{}, dimsMaskedShape);
         }
         VPUX_THROW("Cannot create a static tensor attribute from a dynamic shape, bounds would be discarded: {0}",
                    shape);
@@ -79,7 +79,7 @@ TensorAttr getTensorAttr(mlir::RankedTensorType type);
 
 mlir::AffineMap getOrder(mlir::RankedTensorType type);
 vpux::IndexedSymbolAttr getMemorySpace(mlir::RankedTensorType type);
-Bounds getBounds(mlir::Type type);
-DynamicDimsMask getDynamicDimsMask(mlir::Type type);
+BoundsRef getBounds(mlir::Type type);
+DynamicDimsMaskRef getDynamicDimsMask(mlir::Type type);
 
 }  // namespace vpux

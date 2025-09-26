@@ -10,9 +10,6 @@
 [submodule "thirdparty/vpucostmodel"]
 	path = thirdparty/vpucostmodel
 	url = https://github.com/intel/npu-nn-cost-model.git
-[submodule "thirdparty/yaml-cpp"]
-	path = thirdparty/yaml-cpp
-	url = https://github.com/jbeder/yaml-cpp
 [submodule "thirdparty/gtest-parallel"]
 	path = thirdparty/gtest-parallel
 	url = https://github.com/google/gtest-parallel.git

@@ -197,7 +197,7 @@ mlir::LogicalResult ConvertSubtractToDWConvAdd::matchAndRewrite(IE::SubtractOp s
             broadcastContentSetup = broadcastContentSetup.broadcast(Dims4D::Act::C, outputChannel);
         }
         auto constInput1Type = mlir::cast<vpux::NDTypeInterface>(constInput1Op.getType());
-        auto newInput1Type = constInput1Type.changeShape(Shape(newInput1Shape));
+        auto newInput1Type = constInput1Type.changeShape(ShapeRef(newInput1Shape));
         biasInput = rewriter.create<Const::DeclareOp>(subOpLoc, newInput1Type, broadcastContentSetup.get());
     }
 

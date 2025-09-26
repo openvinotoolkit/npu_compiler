@@ -44,17 +44,63 @@ func.func @ReshapeInputFor1x1ConvWithInputHeightNotDivisibleByFour(%arg0: tensor
 
 // -----
 
-// CHECK-LABEL: @NotReshapeInputFor1x1ConvWithInputHeightBePrimeNumbers
-func.func @NotReshapeInputFor1x1ConvWithInputHeightBePrimeNumbers(%arg0: tensor<1x1280x4091x1xf16>) -> tensor<1x320x4091x1xf16> {
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @ReshapeInputFor1x1ConvWithInputHeightNeedExpand
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x256x151x1xf16, {order = #NHWC}>)
+func.func @ReshapeInputFor1x1ConvWithInputHeightNeedExpand(%arg0: tensor<1x256x151x1xf16, {order = #NHWC}>)
+        -> tensor<1x256x151x1xf16, {order = #NHWC}> {
+    %cst = const.Declare tensor<256x256x1x1xf16, {order = #NHWC}> = dense<1.0>
+        : tensor<256x256x1x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
+    %conv = IE.Convolution(%arg0, %cst) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+        : tensor<1x256x151x1xf16, {order = #NHWC}>,
+        tensor<256x256x1x1xf16, {order = #NHWC}>
+            -> tensor<1x256x151x1xf16, {order = #NHWC}>
+    return %conv : tensor<1x256x151x1xf16, {order = #NHWC}>
+
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<256x256x1x1xf16, {order = #NHWC}>
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 1, 0]}
+    // CHECK-SAME:      : tensor<1x256x151x1xf16, {order = #NHWC}> -> tensor<1x256x152x1xf16, {order = #NHWC}>
+    // CHECK:       [[IN_RESHAPE:%.+]] = IE.AffineReshape([[EXPAND]])
+    // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 256, 38, 4]}
+    // CHECK-SAME:      -> tensor<1x256x38x4xf16, {order = #NHWC}>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[IN_RESHAPE]], [[CST]])
+    // CHECK-SAME:  {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+    // CHECK-SAME:      : tensor<1x256x38x4xf16, {order = #NHWC}>, tensor<256x256x1x1xf16, {order = #NHWC}> -> tensor<1x256x38x4xf16, {order = #NHWC}>
+    // CHECK:       [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[CONV]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 256, 152, 1]}
+    // CHECK-SAME:      : tensor<1x256x38x4xf16, {order = #NHWC}> -> tensor<1x256x152x1xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[OUT_RESHAPE]] [0, 0, 0, 0] [1, 256, 151, 1]
+    // CHECK-SAME:      : tensor<1x256x152x1xf16, {order = #NHWC}> to tensor<1x256x151x1xf16, {order = #NHWC}>
+    // CHECK:       return [[SLICE]] : tensor<1x256x151x1xf16, {order = #NHWC}>
+}
+
+// -----
+
+// CHECK-LABEL: @ReshapeInputFor1x1ConvWithInputHeightBePrimeNumbers
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x1280x4091x1xf16>)
+func.func @ReshapeInputFor1x1ConvWithInputHeightBePrimeNumbers(%arg0: tensor<1x1280x4091x1xf16>) -> tensor<1x320x4091x1xf16> {
     %filter = const.Declare tensor<320x1280x1x1xf16> = dense<1.000000e+00> : tensor<320x1280x1x1xf16>
     %bias = const.Declare tensor<1x320x1x1xf16> = dense<1.000000e+00> : tensor<1x320x1x1xf16>
     %0 = IE.Convolution(%arg0, %filter, %bias) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1280x4091x1xf16>, tensor<320x1280x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x4091x1xf16>
     return %0 : tensor<1x320x4091x1xf16>
 
-    // CHECK-DAG:   [[FILTER:%.+]] = const.Declare tensor<320x1280x1x1xf16> = dense<1.000000e+00> : tensor<320x1280x1x1xf16>
-    // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x320x1x1xf16> = dense<1.000000e+00> : tensor<1x320x1x1xf16>
-    // CHECK:       [[CONV:%.+]] = IE.Convolution(%arg0, [[FILTER]], [[BIAS]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x1280x4091x1xf16>, tensor<320x1280x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x4091x1xf16>
-    // CHECK:       return [[CONV]] : tensor<1x320x4091x1xf16>
+    // CHECK:       [[CST:%.+]] = const.Declare tensor<320x1280x1x1xf16>
+    // CHECK:       [[CST_1:%.+]] = const.Declare tensor<1x320x1x1xf16>
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 1, 0]}
+    // CHECK-SAME:      : tensor<1x1280x4091x1xf16> -> tensor<1x1280x4092x1xf16>
+    // CHECK:       [[IN_RESHAPE:%.+]] = IE.AffineReshape([[EXPAND]])
+    // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 1280, 1023, 4]}
+    // CHECK-SAME:      : tensor<1x1280x4092x1xf16> -> tensor<1x1280x1023x4xf16>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[IN_RESHAPE]], [[CST]], [[CST_1]])
+    // CHECK-SAME:      {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+    // CHECK-SAME:      : tensor<1x1280x1023x4xf16>, tensor<320x1280x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x1023x4xf16>
+    // CHECK:       [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[CONV]])
+    // CHECK-SAME{LITERAL}:     {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 320, 4092, 1]}
+    // CHECK-SAME:      : tensor<1x320x1023x4xf16> -> tensor<1x320x4092x1xf16>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[OUT_RESHAPE]] [0, 0, 0, 0] [1, 320, 4091, 1]
+    // CHECK-SAME:      : tensor<1x320x4092x1xf16> to tensor<1x320x4091x1xf16>
+    // CHECK:       return [[SLICE]] : tensor<1x320x4091x1xf16>
 }
 
 // -----
@@ -123,8 +169,9 @@ func.func @NotReshapeInputForNon1x1GroupConv(%arg0: tensor<1x320x4096x1xf16>) ->
 
 // -----
 
-// CHECK-LABEL: @NotReshapeInputFor1x1GroupConvWithInputHeightBePrimeNumbers
-func.func @NotReshapeInputFor1x1GroupConvWithInputHeightBePrimeNumbers(%arg0: tensor<1x320x4091x1xf16>) -> tensor<1x320x4091x1xf16> {
+// CHECK-LABEL: @ReshapeInputFor1x1GroupConvWithInputHeightBePrimeNumbers
+// CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x320x4091x1xf16>)
+func.func @ReshapeInputFor1x1GroupConvWithInputHeightBePrimeNumbers(%arg0: tensor<1x320x4091x1xf16>) -> tensor<1x320x4091x1xf16> {
     %filter = const.Declare tensor<320x1x1x1xf16> = dense<1.000000e+00> : tensor<320x1x1x1xf16>
     %bias = const.Declare tensor<1x320x1x1xf16> = dense<1.000000e+00> : tensor<1x320x1x1xf16>
     %0 = IE.GroupConvolution(%arg0, %filter, %bias) {dilations = [1, 1], groups = 320 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x320x4091x1xf16>, tensor<320x1x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x4091x1xf16>
@@ -132,8 +179,20 @@ func.func @NotReshapeInputFor1x1GroupConvWithInputHeightBePrimeNumbers(%arg0: te
 
     // CHECK-DAG:   [[FILTER:%.+]] = const.Declare tensor<320x1x1x1xf16> = dense<1.000000e+00> : tensor<320x1x1x1xf16>
     // CHECK-DAG:   [[BIAS:%.+]] = const.Declare tensor<1x320x1x1xf16> = dense<1.000000e+00> : tensor<1x320x1x1xf16>
-    // CHECK:       [[CONV:%.+]] = IE.GroupConvolution(%arg0, [[FILTER]], [[BIAS]]) {dilations = [1, 1], groups = 320 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x320x4091x1xf16>, tensor<320x1x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x4091x1xf16>
-    // CHECK:       return [[CONV]] : tensor<1x320x4091x1xf16>
+    // CHECK:       [[EXPAND:%.+]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 1, 0]}
+    // CHECK-SAME:      : tensor<1x320x4091x1xf16> -> tensor<1x320x4092x1xf16>
+    // CHECK:       [[IN_RESHAPE:%.+]] = IE.AffineReshape([[EXPAND]])
+    // CHECK-SAME{LITERAL}:    {dim_mapping = [[0], [1], [2, 3], [3]], shape_value = [1, 320, 1023, 4]}
+    // CHECK-SAME:      : tensor<1x320x4092x1xf16> -> tensor<1x320x1023x4xf16>
+    // CHECK:       [[CONV:%.+]] = IE.GroupConvolution([[IN_RESHAPE]], [[FILTER]], [[BIAS]])
+    // CHECK-SAME:     {dilations = [1, 1], groups = 320 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]}
+    // CHECK-SAME:      : tensor<1x320x1023x4xf16>, tensor<320x1x1x1xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x1023x4xf16>
+    // CHECK:       [[OUT_RESHAPE:%.+]] = IE.AffineReshape([[CONV]])
+    // CHECK-SAME{LITERAL}:  {dim_mapping = [[0], [1], [2], [2, 3]], shape_value = [1, 320, 4092, 1]}
+    // CHECK-SAME:      : tensor<1x320x1023x4xf16> -> tensor<1x320x4092x1xf16>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[OUT_RESHAPE]] [0, 0, 0, 0] [1, 320, 4091, 1]
+    // CHECK-SAME:      : tensor<1x320x4092x1xf16> to tensor<1x320x4091x1xf16>
+    // CHECK:       return [[SLICE]] : tensor<1x320x4091x1xf16>
 }
 
 // -----

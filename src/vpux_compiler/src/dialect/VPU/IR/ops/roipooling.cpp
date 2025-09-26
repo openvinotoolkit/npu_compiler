@@ -54,7 +54,7 @@ mlir::LogicalResult vpux::VPU::ROIPoolingOp::inferReturnTypes(mlir::MLIRContext*
     outputShape.push_back(outputSize[0]);
     outputShape.push_back(outputSize[1]);
 
-    const auto outType = inTypeFeatureMap.changeShape(Shape(outputShape));
+    const auto outType = inTypeFeatureMap.changeShape(ShapeRef(outputShape));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -10,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
@@ -279,14 +281,19 @@ bool isPotentialScaleShift(mlir::Operation* op) {
     }
     auto actInputs = getActInputs(op);
     auto constInputs = getConstInputs(op);
-    if (actInputs.empty() || constInputs.empty()) {
+    auto secondImputMustBeConst = true;
+    if (actInputs.empty() || (constInputs.empty() && secondImputMustBeConst)) {
         return false;
     }
     auto actInput = actInputs[0];
-    auto constInput = constInputs[0];
+    auto constInput = constInputs.empty() ? actInputs[1] : constInputs[0];
+    if (constInputs.empty() && getShape(constInput).isDynamic()) {
+        return false;
+    }
     auto actInputShape = mlir::cast<vpux::NDTypeInterface>(actInput.getType()).getShape();
     auto constInputShape = mlir::cast<vpux::NDTypeInterface>(constInput.getType()).getShape();
-    if (actInputShape.size() != 4 || constInputShape.size() != 4) {
+    if (actInputShape.size() != 4 || constInputShape.size() != 4 ||
+        (actInputShape == constInputShape && !secondImputMustBeConst)) {
         return false;
     }
     auto oneAndOnlyNonCDimNotOne = [&]() {
@@ -391,8 +398,10 @@ mlir::LogicalResult TransposeEltwiseRewriter<EltwiseOp>::matchAndRewrite(Eltwise
         return mlir::failure();
     }
 
-    auto actInput = getActInputs(origOp.getOperation())[0];
-    auto constInput = getConstInputs(origOp.getOperation())[0];
+    auto actInputs = getActInputs(origOp.getOperation());
+    auto actInput = actInputs[0];
+    auto constInputs = getConstInputs(origOp.getOperation());
+    auto constInput = constInputs.empty() ? actInputs[1] : constInputs[0];
     auto actInputType = mlir::cast<vpux::NDTypeInterface>(actInput.getType());
     auto actInputShape = actInputType.getShape();
     auto constInputType = mlir::cast<vpux::NDTypeInterface>(constInput.getType());

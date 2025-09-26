@@ -16,10 +16,10 @@
 
 // CHECK-LABEL: @Spilling
 module @Spilling {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -177,10 +177,10 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
 
 // CHECK-LABEL: @SpillingOpWith2Outputs
 module @SpillingOpWith2Outputs {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -355,10 +355,10 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
 
 // CHECK-LABEL: @SpillingOfSubViewBuffer
 module @SpillingOfSubViewBuffer {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -648,10 +648,10 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
 
 // CHECK-LABEL: @ControlEdgeOverlapMemory
 module @ControlEdgeOverlapMemory {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -791,10 +791,10 @@ func.func @main(%in: !act_type_DDR, %out0: !act_type_DDR, %out1: !act_type_DDR) 
 
 // CHECK-LABEL: @ControlEdgeOverlapMemoryCheckProdCons
 module @ControlEdgeOverlapMemoryCheckProdCons {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1016,10 +1016,10 @@ func.func @main(%in: !act_type_DDR, %out: !act_type_DDR) -> !act_type_DDR {
 
 // CHECK-LABEL: @SingleConvWithClusteringAndDmaPortDistribution
 module @SingleConvWithClusteringAndDmaPortDistribution {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1170,10 +1170,10 @@ func.func @main(%input: !Input_DDR) -> !Output_DDR {
 
 // CHECK-LABEL: @SpillingWithClustering
 module @SpillingWithClustering {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1364,10 +1364,10 @@ func.func @main(%input: !BufMemrefDDR) -> !BufMemrefDDR {
 
 // CHECK-LABEL: @Prefetching
 module @Prefetching {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1505,10 +1505,10 @@ func.func @main(%in: memref<1x32x16x16xf16, #NHWC>, %out: memref<1x128x4x4xf16, 
 
 // CHECK-LABEL: @PipelineShaveAct
 module @PipelineShaveAct {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1524,10 +1524,10 @@ net.NetworkInfo
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW  {
-    IE.ExecutorResource 2 of @DMA_NN
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 1 of @DPU
+    config.ExecutorResource 2 of @DMA_NN
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 1 of @DPU
     }
 
     func.func private @builtin_TanhOp(memref<*xf16>, memref<*xf16>, i64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
@@ -1698,10 +1698,10 @@ func.func @main(%in0: memref<1x32x48x48xf16, #NHWC>, %in1: memref<1x32x48x48xf16
 
 // CHECK-LABEL: @PrefetchNoActSpillAtEndAndWrongOrder
 module @PrefetchNoActSpillAtEndAndWrongOrder {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1715,10 +1715,10 @@ net.NetworkInfo
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW  {
-    IE.ExecutorResource 2 of @DMA_NN
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 1 of @DPU
+    config.ExecutorResource 2 of @DMA_NN
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 1 of @DPU
     }
 
     func.func private @builtin_TanhOp(memref<*xf16>, memref<*xf16>, i64) attributes {VPU.kernel_code = "activation_tanh.cpp", VPU.kernel_entry = "activation_tanh"}
@@ -1823,10 +1823,10 @@ func.func @main(%arg0: memref<1x1x1x1000xf16, @DDR>, %arg1: memref<1x1x1x1000xf1
 
 // CHECK-LABEL: @MultiBufferSpillingFromOp
 module @MultiBufferSpillingFromOp {
-IE.ExecutorResource 2 of @DMA_NN
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-    IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 1 of @DPU
+config.ExecutorResource 2 of @DMA_NN
+config.Resources 6 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 1 of @DPU
 }
 
 net.NetworkInfo
@@ -1841,10 +1841,10 @@ net.NetworkInfo
 
 VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
 module @VPU.SW  {
-    IE.ExecutorResource 2 of @DMA_NN
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz {
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
-        IE.ExecutorResource 1 of @DPU
+    config.ExecutorResource 2 of @DMA_NN
+    config.Resources 6 of @NCE at 1.700000e+03 MHz {
+        config.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 1 of @DPU
     }
 
     func.func private @builtin_Concat(memref<*xf16>, memref<*xf16>, i64) attributes {VPU.kernel_code = "concat.cpp", VPU.kernel_entry = "concat"}
@@ -1996,10 +1996,10 @@ func.func @main(%arg0: memref<1x1x640x128xf16, @DDR>, %arg1: memref<1x1x640x128x
 // CHECK-LABEL: @InPlaceBufferSpill
 module @InPlaceBufferSpill {
 
-IE.TileResource 1 of @NCE at 1.300000e+03 MHz {
+config.Resources 1 of @NCE at 1.300000e+03 MHz {
     builtin.module @ReservedMemory {
         module @DmaProfilingReservedMemory {
-            IE.MemoryResource 512 bytes of @CMX_NN offset 0
+            config.MemoryResource 512 bytes of @CMX_NN offset 0
         }
     }
 }
@@ -2016,7 +2016,7 @@ net.NetworkInfo
         DataInfo "out1" : tensor<1x384x937x1xf16>
     }
 
-// CHECK:   IE.TileResource {{[0-9]+}} of @NCE
+// CHECK:   config.Resources {{[0-9]+}} of @NCE
 
 func.func @main(%in_0: memref<1x384x1x937xf16, #NHWC, @DDR>, %in_1: memref<1x384x937x1xf16, #NHWC, @DDR>,  %in_2: memref<1x384x937x1xf16, #NHWC, @DDR>, %out_0: memref<1x384x937x1xf16, #NHWC, [@CMX_NN, 0]>,  %out_1: memref<1x384x937x1xf16, #NHWC, [@CMX_NN, 0]>)
    -> (memref<1x384x937x1xf16, #NHWC, [@CMX_NN, 0]>,memref<1x384x937x1xf16, #NHWC, [@CMX_NN, 0]>) {

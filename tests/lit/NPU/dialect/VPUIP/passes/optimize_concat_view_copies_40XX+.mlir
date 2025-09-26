@@ -491,3 +491,115 @@ func.func @NotSplitUnbalancedDDRConcatOnSameAxisWhenNoLeftBranchDataOnTheLastClu
 
     // CHECK:                   return [[COPY_3]], [[COPY_6]]
 }
+
+
+// -----
+//
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+!ResultT = !VPUIP.DistributedBuffer<1x64x40x160xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 64, 14, 160], [1, 64, 13, 160], [1, 64, 13, 160]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 14, 0], [0, 0, 27, 0]],
+    memory_shapes = [[1, 64, 14, 160], [1, 64, 13, 160], [1, 64, 13, 160]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 14, 0], [0, 0, 27, 0]]
+}>
+
+!DistType1 = !VPUIP.DistributedBuffer<1x40x1x64xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {
+    mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    compute_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]],
+    memory_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    memory_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]]
+}>
+
+!DistType2 = !VPUIP.DistributedBuffer<1x40x1x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {
+    mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    compute_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]],
+    memory_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    memory_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]]
+}>
+
+!DistType3 = !VPUIP.DistributedBuffer<1x40x1x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {
+    mode = "SEGMENTED", num_tiles = [1, 3, 1, 1], num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    compute_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]],
+    memory_shapes = [[1, 14, 1, 64], [1, 13, 1, 64], [1, 13, 1, 64]],
+    memory_offsets = [[0, 0, 0, 0], [0, 14, 0, 0], [0, 27, 0, 0]]
+}>
+
+!DistType4 = !VPUIP.DistributedBuffer<1x64x40x160xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @CMX_NN, {
+    mode = "OVERLAPPED", num_tiles = [1, 1, 3, 1], num_clusters = 3 : i64,
+    uniform_distributed_segments,
+    compute_shapes = [[1, 64, 14, 160], [1, 64, 13, 160], [1, 64, 13, 160]],
+    compute_offsets = [[0, 0, 0, 0], [0, 0, 14, 0], [0, 0, 27, 0]],
+    memory_shapes = [[1, 64, 14, 160], [1, 64, 13, 160], [1, 64, 13, 160]],
+    memory_offsets = [[0, 0, 0, 0], [0, 0, 14, 0], [0, 0, 27, 0]]
+}>
+
+!Arg0T = memref<1x40x639x64xf16, @DDR>
+!Arg1T = memref<1x40x1x128xf32, @DDR>
+
+
+// CHECK-LABEL: func.func @NotSplitUnbalancedConcatOnDifferentAxisForStrideInput
+// CHECK-SAME: ([[LEFT_INPUT_ARG:%.+]]: memref<1x40x639x64xf16, @DDR>,
+// CHECK-SAME: [[RIGHT_INPUT_ARG:%.+]]: memref<1x40x1x128xf32, @DDR>
+func.func @NotSplitUnbalancedConcatOnDifferentAxisForStrideInput(%arg0 : !Arg0T, %arg1 : !Arg1T) -> (!ResultT) {
+    %alloc = memref.alloc() : memref<1x64x40x640xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>, @DDR>
+    %alloc_0 = memref.alloc() : memref<1x40x640x64xf16, @DDR>
+    %0 = VPUIP.SubView %arg1 [0, 0, 0, 64] [1, 40, 1, 64]
+         : memref<1x40x1x128xf32, @DDR>
+         to memref<1x40x1x64xf32, {order = #NCHW, strides = [5120, 128, 128, 1]}, @DDR>
+    %1 = VPURT.AllocDistributed -> !DistType1
+    %2 = VPUIP.Copy inputs(%0 : memref<1x40x1x64xf32, {order = #NCHW, strides = [5120, 128, 128, 1]}, @DDR>)
+                  outputs(%1 : !DistType1)
+         -> !DistType1
+    %3 = VPURT.AllocDistributed -> !DistType2
+
+    %4 = VPUIP.ConvertDMA inputs(%2 : !DistType1)
+                        outputs(%3 : !DistType2)
+         -> !DistType3
+    %5 = VPUIP.SubView %alloc_0 [0, 0, 639, 0] [1, 40, 1, 64]
+         : memref<1x40x640x64xf16, @DDR>
+         to memref<1x40x1x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>
+    %6 = VPUIP.Copy inputs(%4 : !DistType3)
+                  outputs(%5 : memref<1x40x1x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>)
+         -> memref<1x40x1x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>
+    %7 = VPUIP.SubView %alloc_0 [0, 0, 0, 0] [1, 40, 639, 64]
+         : memref<1x40x640x64xf16, @DDR>
+         to memref<1x40x639x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>
+    %8 = VPUIP.Copy inputs(%arg0 : memref<1x40x639x64xf16, @DDR>)
+                  outputs(%7 : memref<1x40x639x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>)
+         -> memref<1x40x639x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>
+    %9 = VPUIP.ConcatView inputs(%8, %6 : memref<1x40x639x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>,
+                                   memref<1x40x1x64xf16, {order = #NCHW, strides = [1638400, 40960, 64, 1]}, @DDR>)
+                        outputs(%alloc_0 : memref<1x40x640x64xf16, @DDR>)
+         -> memref<1x40x640x64xf16, @DDR>
+    %10 = VPUIP.PermuteCast {dst_order = #NHWC, mem_perm = #NCHW}
+          inputs(%9 : memref<1x40x640x64xf16, @DDR>)
+          -> memref<1x64x40x640xf16, #NHWC, @DDR>
+    %11 = VPUIP.SubView %10 [0, 0, 0, 480] [1, 64, 40, 160]
+          : memref<1x64x40x640xf16, #NHWC, @DDR>
+          to memref<1x64x40x160xf16, {order = #NHWC, strides = [1638400, 1, 40960, 64]}, @DDR>
+    %12 = VPURT.AllocDistributed -> !DistType4
+    %13 = VPUIP.Copy inputs(%11 : memref<1x64x40x160xf16, {order = #NHWC, strides = [1638400, 1, 40960, 64]}, @DDR>)
+                   outputs(%12 : !DistType4)
+          -> !DistType4
+
+    return %13 : !ResultT
+
+
+    // CHECK:       [[CONCAT_VIEW:%.+]] = VPUIP.ConcatView
+    // CHECK:       [[PERMUTE_CAST:%.+]] = VPUIP.PermuteCast
+    // CHECK:       [[SUBVIEW:%.+]] = VPUIP.SubView
+    // CHECK:       [[ALLOC:%.+]] = VPURT.AllocDistributed
+    // CHECK:       [[COPY:%.+]] = VPUIP.Copy
+    // CHECK:       return [[COPY]]
+}

@@ -27,7 +27,7 @@ mlir::LogicalResult VPU::DetectionOutputCollectResultsOp::inferReturnTypes(
     const auto confidenceType = mlir::cast<vpux::NDTypeInterface>(collectResults.getConfidence().getType());
     const auto detectionSize = 7;
     const auto outputShape = SmallVector<int64_t>{1, 1, keepTopK, detectionSize};
-    const auto outputType = confidenceType.changeShape(Shape(outputShape));
+    const auto outputType = confidenceType.changeShape(ShapeRef(outputShape));
 
     inferredReturnTypes.push_back(outputType);
 

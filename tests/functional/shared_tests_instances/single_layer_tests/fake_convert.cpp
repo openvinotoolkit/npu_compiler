@@ -91,7 +91,7 @@ const auto genParams = [](auto input, auto scaleShift) {
                               ::testing::Values(scaleShift),  // scale
                               ::testing::Values(scaleShift),  // shift (must have same shape as scale)
                               ::testing::ValuesIn(data_precisions), ::testing::ValuesIn(destination_precisions),
-                              ::testing::ValuesIn(default_shift), ::testing::Values(DEVICE_NPU));
+                              ::testing::ValuesIn(default_shift), ::testing::Values(test_utils::TARGET_DEVICE));
 };
 
 const auto params1 = genParams(shapes[0], ov::Shape{1});

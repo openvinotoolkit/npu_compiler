@@ -13,9 +13,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/IR/se_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
-#include "vpux/compiler/dialect/VPU/interfaces/nce_op_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -25,9 +23,7 @@
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
-#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
-#include "vpux/compiler/utils/dilated_utils.hpp"
 
 #include <cstdint>
 
@@ -351,8 +347,10 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
             SmallVector<int64_t>{OC, 1, origWeightsShape[Dims4D::Filter::KY], origWeightsShape[Dims4D::Filter::KX]});
     const auto padding = VPU::getPaddingAttr(origOp.getContext(), 0, 0, 0, 0);
     auto dwConv = builder.create<VPU::NCEDepthConvolutionOp>(
-            origOp->getLoc(), outputType, sparseInput, weights, weightsTable, origOp.getStridesAttr(), padding,
-            origOp.getPpeAttr(), rawFilterShape, origOp.getMultiClusterStrategyAttr(), nullptr, nullptr);
+            origOp->getLoc(), outputType, sparseInput, weights, weightsTable, /*dataPointerTensor=*/nullptr,
+            /*sparsityPointerTensor=*/nullptr, /*scaleTensor=*/nullptr, /*biasTensor=*/nullptr,
+            /*zeroPointTensor=*/nullptr, origOp.getStridesAttr(), padding, origOp.getPpeAttr(), rawFilterShape,
+            origOp.getMultiClusterStrategyAttr(), nullptr, nullptr);
 
     nestedLog.trace("Created DWConv with SEP for Interpolate.");
 

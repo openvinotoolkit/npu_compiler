@@ -87,12 +87,12 @@ std::vector<ov::test::scatterNDUpdateSpecParams> combineShapes(const InputMap& i
 const auto params = testing::Combine(testing::ValuesIn(combineShapes(sliceSelectInShape)),
                                      testing::Values(ov::element::f16),  // model
                                      testing::Values(ov::element::i32),  // indices
-                                     testing::Values(ov::test::utils::DEVICE_NPU));
+                                     testing::Values(test_utils::TARGET_DEVICE));
 
 const auto precommit_params = testing::Combine(testing::ValuesIn(combineShapes(precommit_sliceSelectInShape)),
                                                testing::Values(ov::element::f16),  // model
                                                testing::Values(ov::element::i32),  // indices
-                                               testing::Values(ov::test::utils::DEVICE_NPU));
+                                               testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_ScatterNDUpdate, ScatterNDUpdateLayerTestMTLHW, params,
                          ScatterNDUpdateLayerTestMTLHW::getTestCaseName);

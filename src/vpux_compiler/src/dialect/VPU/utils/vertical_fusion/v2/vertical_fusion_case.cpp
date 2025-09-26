@@ -5,8 +5,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
@@ -223,7 +221,7 @@ void VFCase::addCMXReadSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costFu
         if (user->hasAttr(tilingStrategy)) {
             auto nextOpStrategy =
                     parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(user->getAttr(tilingStrategy)));
-            auto tiles = fillDividedTiles(nextOp, Shape(nextOpStrategy), getShape(nextOp->getResult(0)));
+            auto tiles = fillDividedTiles(nextOp, ShapeRef(nextOpStrategy), getShape(nextOp->getResult(0)));
             VPUX_THROW_WHEN(mlir::failed(tiles) || tiles.value().empty(),
                             "Cannot get tiles {0} for the operation in VF {1}", nextOpStrategy, user);
             auto tilingInfoNextOp = mlir::dyn_cast<VPU::TilingInfoOpInterface>(nextOp);
@@ -286,8 +284,8 @@ void VFCase::addCMXWriteSpills(const std::unique_ptr<VPU::LayerVPUNNCost>& costF
                     if (prevOpStrategyAttr != nullptr) {
                         auto prevOpStrategy =
                                 parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(prevOpStrategyAttr));
-                        auto tiles =
-                                fillDividedTiles(previousOp, Shape(prevOpStrategy), getShape(previousOp->getResult(0)));
+                        auto tiles = fillDividedTiles(previousOp, ShapeRef(prevOpStrategy),
+                                                      getShape(previousOp->getResult(0)));
                         VPUX_THROW_WHEN(mlir::failed(tiles) || tiles.value().empty(),
                                         "Cannot get tiles {0} for the operation in VF {1}", prevOpStrategy, previousOp);
                         prevOpTiling = tiles.value();

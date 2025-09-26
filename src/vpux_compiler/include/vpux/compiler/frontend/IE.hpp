@@ -22,6 +22,7 @@
 #include <openvino/opsets/opset12.hpp>
 #include <openvino/opsets/opset13.hpp>
 #include <openvino/opsets/opset14.hpp>
+#include <openvino/opsets/opset16.hpp>
 #include <openvino/opsets/opset2.hpp>
 #include <openvino/opsets/opset3.hpp>
 #include <openvino/opsets/opset4.hpp>
@@ -113,8 +114,10 @@ private:
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::ConvolutionBackpropData>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::GroupConvolutionBackpropData>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::AvgPool>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset16::AvgPool>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::MaxPool>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::MaxPool>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset14::MaxPool>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::AdaptiveAvgPool>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::AdaptiveMaxPool>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::ShuffleChannels>& origNode);

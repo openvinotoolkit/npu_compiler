@@ -18,15 +18,15 @@ module @OneInputOneOutput attributes {config.arch = #config.arch_kind<NPU37XX>, 
     config.Option @VPU.BarrierMaxVariantCount : 256
     config.Option @VPU.MaxKernelSize : 11
   }
-  IE.TileResource 2 of @NCE at 1.300000e+03 MHz {
-    IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-    IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-    IE.ExecutorResource 2 of @SHAVE_ACT
-    IE.ExecutorResource 1 of @SHAVE_NN
-    IE.ExecutorResource 1 of @DPU
+  config.Resources 2 of @NCE at 1.300000e+03 MHz {
+    config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+    config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+    config.ExecutorResource 2 of @SHAVE_ACT
+    config.ExecutorResource 1 of @SHAVE_NN
+    config.ExecutorResource 1 of @DPU
   }
-  IE.ExecutorResource 2 of @DMA_NN
-  IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
+  config.ExecutorResource 2 of @DMA_NN
+  config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
   net.NetworkInfo entryPoint : @main inputsInfo : {
     DataInfo "input" : tensor<1x3x60x60xf16>
   } outputsInfo : {
@@ -135,12 +135,12 @@ module @OneInputOneOutput attributes {config.arch = #config.arch_kind<NPU37XX>, 
       }
       return %arg1 : memref<1x3x60x60xf16, @DDR>
     }
-    IE.TileResource {activity_factor = 0.000000e+00 : f64} 2 of @NCE at 1.300000e+03 MHz {
-      IE.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
-      IE.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
-      IE.ExecutorResource 2 of @SHAVE_ACT
-      IE.ExecutorResource 1 of @SHAVE_NN
-      IE.ExecutorResource 1 of @DPU
+    config.Resources {activity_factor = 0.000000e+00 : f64} 2 of @NCE at 1.300000e+03 MHz {
+      config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
+      config.MemoryResource 1982464 bytes of @CMX_NN {config.bandwidth = 32 : i64, config.derateFactor = 1.000000e+00 : f64}
+      config.ExecutorResource 2 of @SHAVE_ACT
+      config.ExecutorResource 1 of @SHAVE_NN
+      config.ExecutorResource 1 of @DPU
     }
     config.PipelineOptions @Options {
       config.Option @VPU.FP16CompressedConv : false
@@ -152,8 +152,8 @@ module @OneInputOneOutput attributes {config.arch = #config.arch_kind<NPU37XX>, 
       config.Option @VPU.BarrierMaxVariantCount : 256
       config.Option @VPU.MaxKernelSize : 11
     }
-    IE.ExecutorResource 2 of @DMA_NN
-    IE.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
+    config.ExecutorResource 2 of @DMA_NN
+    config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}
   }
   func.func @main(%arg0: memref<1x3x60x60xf16, @DDR>, %arg1: memref<1x3x60x60xf16>) -> memref<1x3x60x60xf16> {
     %alloc = memref.alloc() : memref<1x3x60x60xf16, @DDR>

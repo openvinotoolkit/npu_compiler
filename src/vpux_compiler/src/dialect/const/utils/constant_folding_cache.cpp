@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
 #include "vpux/utils/core/disable_warning.hpp"
 
+#include <mutex>
+
 using namespace vpux;
 
 //

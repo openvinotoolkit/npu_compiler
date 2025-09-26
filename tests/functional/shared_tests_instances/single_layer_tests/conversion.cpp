@@ -13,7 +13,11 @@ namespace test {
 class ConversionLayerTestCommon : public ConversionLayerTest, virtual public VpuOv2LayerTest {};
 class ConversionLayerTestCommon_HW : public ConversionLayerTest, virtual public VpuOv2LayerTest {};
 
-class ShaveCodeGenConversionLayerTest : public ConversionLayerTestCommon {};
+class ShaveCodeGenConversionLayerTest : public ConversionLayerTestCommon {
+    void configure_model() override {
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-shave-code-gen=true";
+    }
+};
 
 TEST_P(ConversionLayerTestCommon_HW, NPU3720_HW) {
     setDefaultHardwareMode();
@@ -26,7 +30,7 @@ TEST_P(ConversionLayerTestCommon_HW, NPU4000_HW) {
 }
 
 TEST_P(ShaveCodeGenConversionLayerTest, NPU4000) {
-    setShaveCodeGenMode();
+    setReferenceSoftwareMode();
     setMLIRCompilerType();
     run(Platform::NPU4000);
 }
@@ -60,48 +64,69 @@ const auto configParamsBF16ToF16 =
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
                            ::testing::Values(ov::element::bf16),                                // Input type
                            ::testing::Values(ov::element::f16),                                 // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 const auto configParams =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
                            ::testing::ValuesIn(netPrecisions),                                  // Input type
                            ::testing::ValuesIn(netPrecisions),                                  // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto configParamsF64ToI64 =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
                            ::testing::Values(ov::element::f64),                                 // Input type
                            ::testing::Values(ov::element::i64),                                 // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto configParamsI64ToF64 =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
                            ::testing::Values(ov::element::i64),                                 // Input type
                            ::testing::Values(ov::element::f64),                                 // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto configParamsU4Tiling =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                    // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
                            ::testing::Values(ov::element::u4),                                        // Input type
                            ::testing::ValuesIn({ov::element::f16, ov::element::u8, ov::element::i8}),  // Convert type
-                           ::testing::Values(DEVICE_NPU));                                             // Device name
+                           ::testing::Values(test_utils::TARGET_DEVICE));                              // Device name
+
+const auto configParamsU2Tiling =
+        ::testing::Combine(::testing::Values(ConversionTypes::CONVERT),                               // Conversion type
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
+                           ::testing::Values(ov::element::u2),                                        // Input type
+                           ::testing::ValuesIn({ov::element::f16}),                                   // Convert type
+                           ::testing::Values(test_utils::TARGET_DEVICE));                             // Device name
 
 const auto configParamsI4Tiling =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                    // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
                            ::testing::Values(ov::element::i4),                                        // Input type
                            ::testing::ValuesIn({ov::element::i8, ov::element::f16}),                  // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto configParamsU4OddShape =
         ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
                            ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
                            ::testing::Values(ov::element::u4),                                     // Input type
                            ::testing::ValuesIn({ov::element::f16, ov::element::u8, ov::element::i8}),  // Convert type
-                           ::testing::Values(DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto configParamsU16ToF16 =
+        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
+                           ::testing::Values(ov::element::u16),                                    // Input type
+                           ::testing::Values(ov::element::f16),                                    // Convert type
+                           ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto configParamsF16ToU16 =
+        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
+                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
+                           ::testing::Values(ov::element::f16),                                    // Input type
+                           ::testing::Values(ov::element::u16),                                    // Convert type
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 // ------ HW ------
 
@@ -114,6 +139,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_precommit_i4_Conversion, ConversionLayerTestCommo
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_u4_Conversion, ConversionLayerTestCommon_HW, configParamsU4Tiling,
                          ConversionLayerTest::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_u2_Conversion, ConversionLayerTestCommon_HW, configParamsU2Tiling,
+                         ConversionLayerTest::getTestCaseName);
+
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_bf16_Conversion, ConversionLayerTestCommon_HW, configParamsBF16ToF16,
                          ConversionLayerTest::getTestCaseName);
 
@@ -121,6 +149,12 @@ INSTANTIATE_TEST_SUITE_P(smoke_f64_i64_Conversion, ConversionLayerTestCommon_HW,
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_i64_f64_Conversion, ConversionLayerTestCommon_HW, configParamsI64ToF64,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_u16_f16_Conversion, ConversionLayerTestCommon_HW, configParamsU16ToF16,
+                         ConversionLayerTest::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_f16_u16_Conversion, ConversionLayerTestCommon_HW, configParamsF16ToU16,
                          ConversionLayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_ShaveCodeGen_Conversion, ShaveCodeGenConversionLayerTest, configParams,

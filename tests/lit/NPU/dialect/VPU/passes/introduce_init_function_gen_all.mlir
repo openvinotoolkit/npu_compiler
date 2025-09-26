@@ -32,7 +32,7 @@ module @CommonSubexpressionElimination {
     func.func @main() -> (tensor<4x4xf32>, tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<8x4xf16>, tensor<4x4xf32>, tensor<4x4xf32>) {
         %cst_t1 = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_1> : tensor<4x4xf32>, [#const.Add<1.0 : f32>]
         %cst_t2 = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>, [#const.Add<1.0 : f32>]
-        %cst_t2_t3_t4 = const.Declare tensor<8x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>, [#const.Add<1.0 : f32>, #const.PadWithZero<[0, 0], [4, 0]>, #const.Rescale<5.0 : f32>]
+        %cst_t2_t3_t4 = const.Declare tensor<8x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>, [#const.Add<1.0 : f32>, #const.PadWithZero<[0, 0], [4, 0]>, #const.Rescale<5.0>]
         %cst_t2_t3_t5 = const.Declare tensor<8x4xf16> = dense_resource<vpux_ow_2> : tensor<4x4xf32>, [#const.Add<1.0 : f32>, #const.PadWithZero<[0, 0], [4, 0]>, #const.ConvertElemType<f16>]
         %cst_t2_t3_t5_copy = const.Declare tensor<8x4xf16> = dense_resource<vpux_ow_2> : tensor<4x4xf32>, [#const.Add<1.0 : f32>, #const.PadWithZero<[0, 0], [4, 0]>, #const.ConvertElemType<f16>]
         %cst_empty_1 = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>
@@ -45,22 +45,23 @@ module @CommonSubexpressionElimination {
     // CHECK:           DataInfo "output1" : tensor<4x4xf32>
 
     // CHECK:       func.func private @init([[NGRAPH_1:%.+]]: tensor<4x4xf32>, [[NGRAPH_2:%.+]]: tensor<4x4xf32>)
-    // CHECK-SAME:          -> (tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<4x4xf32>)
+    // CHECK-SAME:          -> (tensor<4x4xf32>, tensor<8x4xf16>, tensor<8x4xf32>, tensor<4x4xf32>)
     // CHECK:           [[CST_0:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1xf32>
     // CHECK:           [[CST_T1:%.+]] = IE.Add([[NGRAPH_1]], [[CST_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4xf32>, tensor<1xf32> -> tensor<4x4xf32>
     // CHECK:           [[CST_1:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1xf32>
     // CHECK:           [[CST_T2:%.+]] = IE.Add([[NGRAPH_2]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<4x4xf32>, tensor<1xf32> -> tensor<4x4xf32>
     // CHECK:           [[CST_T2_T3:%.+]] = IE.Pad([[CST_T2]]) {mode = #IE.pad_mode<CONSTANT>, pad_value_attr = 0.000000e+00 : f64, pads_begin_attr = [0, 0], pads_end_attr = [4, 0]} : tensor<4x4xf32> -> tensor<8x4xf32>
+    // CHECK:           [[CST_T2_T3_T5:%.+]] = IE.Convert([[CST_T2_T3]]) {dstElemType = f16} : tensor<8x4xf32> -> tensor<8x4xf16>
     // CHECK:           [[CST_2:%.+]] = const.Declare tensor<1xf32> = dense<5.000000e+00> : tensor<1xf32>
     // CHECK:           [[CST_T2_T3_T4:%.+]] = IE.Multiply([[CST_T2_T3]], [[CST_2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<8x4xf32>, tensor<1xf32> -> tensor<8x4xf32>
-    // CHECK:           [[CST_T2_T3_T5:%.+]] = IE.Convert([[CST_T2_T3]]) {dstElemType = f16} : tensor<8x4xf32> -> tensor<8x4xf16>
-    // CHECK:           return [[CST_T1]], [[CST_T2_T3_T4]], [[CST_T2_T3_T5]], [[CST_T2]]
+    // CHECK:           return [[CST_T1]], [[CST_T2_T3_T5]], [[CST_T2_T3_T4]], [[CST_T2]] : tensor<4x4xf32>, tensor<8x4xf16>, tensor<8x4xf32>, tensor<4x4xf32>
 
-    // CHECK:       func.func private @main([[ARG0:%.+]]: tensor<4x4xf32>, [[ARG2:%.+]]: tensor<8x4xf32>, [[ARG3:%.+]]: tensor<8x4xf16>, [[ARG1:%.+]]: tensor<4x4xf32>)
+    // CHECK:       func.func private @main([[ARG0:%.+]]: tensor<4x4xf32>, [[ARG1:%.+]]: tensor<8x4xf16>, [[ARG2:%.+]]: tensor<8x4xf32>, [[ARG3:%.+]]: tensor<4x4xf32>)
     // CHECK-SAME:          -> (tensor<4x4xf32>, tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<8x4xf16>, tensor<4x4xf32>, tensor<4x4xf32>)
-    // CHECK:           [[CST2:%.+]] = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>
-    // CHECK:           [[CST3:%.+]] = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>
-    // CHECK:           return [[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]], [[ARG3]], [[CST2]], [[CST3]] : tensor<4x4xf32>, tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<8x4xf16>, tensor<4x4xf32>, tensor<4x4xf32>
+    // CHECK-SAME:          attributes {do_not_nest}
+    // CHECK:           [[CST:%.+]] = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>
+    // CHECK:           [[CST_0:%.+]] = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_2> : tensor<4x4xf32>
+    // CHECK:           return [[ARG0]], [[ARG3]], [[ARG2]], [[ARG1]], [[ARG1]], [[CST]], [[CST_0]] : tensor<4x4xf32>, tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<8x4xf16>, tensor<4x4xf32>, tensor<4x4xf32>
 
     // CHECK:       func.func @wrapper_main() -> (tensor<4x4xf32>, tensor<4x4xf32>, tensor<8x4xf32>, tensor<8x4xf16>, tensor<8x4xf16>, tensor<4x4xf32>, tensor<4x4xf32>)
     // CHECK:           [[CST0:%.+]] = const.Declare tensor<4x4xf32> = dense_resource<vpux_ow_1> : tensor<4x4xf32>
@@ -414,16 +415,15 @@ module @Convolution {
     // CHECK:     DataInfo "output_2" : tensor<1x2x1x1xf16>
 
     func.func @main(%arg0: tensor<1x3x62x62xf16>) -> (tensor<1x16x60x60xf16>, tensor<2x1x1x1xf16, {order = #NHWC}>,  tensor<1x2x1x1xf16>) {
-        %cst = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
         %cst_0 = const.Declare tensor<16x16x3x3xf16, {order = #NHWC}>
                       = dense_resource<vpux_ow_0> : tensor<16x3x3x3xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>, #const.PadWithZero<[0, 0, 0, 0], [0, 13, 0, 0]>]
 
         %0 = VPU.Expand(%arg0) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 2]} : tensor<1x3x62x62xf16> -> tensor<1x3x62x64xf16>
         %1 = VPU.NCE.Permute(%0) {dstElemType = f16, dstOrder = #NHWC, expandedChannels = 16 : i64, ppe = #VPU.PPEStub<>} -> tensor<1x16x62x64xf16, {order = #NHWC}>
         %2 = VPU.Slice %1 [0, 0, 0, 0] [1, 16, 62, 62] : tensor<1x16x62x64xf16, {order = #NHWC}> to tensor<1x16x62x62xf16, {order = #NHWC}>
-        %3 = VPU.NCE.Convolution(%2, %cst_0, %cst) {
+        %3 = VPU.NCE.Convolution(%2, %cst_0) {
               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, rawFilterShape = [16, 16, 3, 3], strides = [1, 1], ppe = #VPU.PPEStub<>}
-                  : tensor<1x16x62x62xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x60x60xf16>
+                  : tensor<1x16x62x62xf16, {order = #NHWC}>, tensor<16x16x3x3xf16, {order = #NHWC}> -> tensor<1x16x60x60xf16>
 
         %cst_1 = const.Declare tensor<2x1x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1> : tensor<1x2x1x1xf16>, [#const.Reshape<[2, 1, 1, 1]>, #const.Reorder<#NHWC>]
         %cst_2 = const.Declare tensor<1x2x1x1xf16> = dense_resource<vpux_ow_1> : tensor<1x2x1x1xf16>, [#const.Add<1.0>]
@@ -443,11 +443,10 @@ module @Convolution {
 
     // CHECK:       func.func private @main([[ARG0:%.+]]: tensor<1x3x62x62xf16>, [[INIT_OUT0:%.+]]: tensor<16x16x3x3xf16, {order = #NHWC}>,
     // CHECK-SAME:                      [[INIT_OUT2:%.+]]: tensor<1x2x1x1xf16>)
-    // CHECK:           [[CST:%.+]] = const.Declare tensor<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
     // CHECK:           [[EXPAND0:%.+]] = VPU.Expand([[ARG0]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 2]} : tensor<1x3x62x62xf16> -> tensor<1x3x62x64xf16>
     // CHECK:           [[PERMUTE0:%.+]] = VPU.NCE.Permute([[EXPAND0]])
     // CHECK:           [[SLICE0:%.+]] = VPU.Slice [[PERMUTE0]] [0, 0, 0, 0] [1, 16, 62, 62] : tensor<1x16x62x64xf16, {order = #NHWC}> to tensor<1x16x62x62xf16, {order = #NHWC}>
-    // CHECK:           [[CONVOLUTION0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[INIT_OUT0]], [[CST]])
+    // CHECK:           [[CONVOLUTION0:%.+]] = VPU.NCE.Convolution([[SLICE0]], [[INIT_OUT0]])
     // CHECK:           [[CST2:%.+]] = const.Declare tensor<2x1x1x1xf16, {order = #NHWC}> = dense_resource<vpux_ow_1>
     // CHECK-SAME:          [#const.Reshape<[2, 1, 1, 1]>, #const.Reorder<#NHWC>]
     // CHECK:           return [[CONVOLUTION0]], [[CST2]], [[INIT_OUT2]]
@@ -599,8 +598,9 @@ module @OutlinedConstants {
         return %cst1, %cst2 : tensor<4x1xf16>, tensor<2x2xf16>
     }
 
-    // CHECK:   func.func private @main_bar([[CST1:%.+]]: tensor<4x1xf16>, [[CST2:%.+]]: tensor<2x2xf16>)
-    // CHECK:       return [[CST1]], [[CST2]]
+    // CHECK:   func.func private @main_bar([[CST1:%.+]]: tensor<2x2xf16>, [[CST2:%.+]]: tensor<2x2xf16>)
+    // CHECK:       [[RESHAPE:%.+]] = VPU.Reshape([[CST1]]) {shape_value = [4, 1]} : tensor<2x2xf16> -> tensor<4x1xf16>
+    // CHECK:       return [[RESHAPE]], [[CST2]]
 
     func.func private @main_foo2(%dummy: tensor<2x2xf16>) -> (tensor<2x2xf16>, tensor<4x1xf16>, tensor<2x2xf16>) {
         %cst = const.Declare tensor<2x2xf16> = dense_resource<vpux_ow_0> : tensor<2x2xf16>, [#const.Add<10.0>]
@@ -615,7 +615,7 @@ module @OutlinedConstants {
         return %dummy, %call#0, %call#1 : tensor<2x2xf16>, tensor<4x1xf16>, tensor<2x2xf16>
     }
 
-    // CHECK:   func.func private @main_foo2([[DUMMY:%.+]]: tensor<2x2xf16>, [[CST_BAR_DUPLICATE:%.+]]: tensor<2x2xf16>, [[CST:%.+]]: tensor<2x2xf16>, [[BAR_CST1:%.+]]: tensor<4x1xf16>)
+    // CHECK:   func.func private @main_foo2([[DUMMY:%.+]]: tensor<2x2xf16>, [[CST_BAR_DUPLICATE:%.+]]: tensor<2x2xf16>, [[CST:%.+]]: tensor<2x2xf16>, [[BAR_CST1:%.+]]: tensor<2x2xf16>)
     // CHECK:       [[USER_CST:%.+]] = VPU.Convert([[CST]]) {dstElemType = f32}
     // CHECK:       [[USER_CST_BAR_DUPLICATE:%.+]] = VPU.Convert([[CST_BAR_DUPLICATE]]) {dstElemType = f32}
     // CHECK:       [[CALL:%.+]]:2 = call @main_bar([[BAR_CST1]], [[CST_BAR_DUPLICATE]])
@@ -623,7 +623,7 @@ module @OutlinedConstants {
 
 
     // CHECK:   func.func private @init([[OV_CONST0:%.+]]: tensor<2x2xf16>)
-    // CHECK-SAME:  -> (tensor<2x2xf16>, tensor<2x2xf16>, tensor<2x2xf16>, tensor<4x1xf16>)
+    // CHECK-SAME:  -> (tensor<2x2xf16>, tensor<2x2xf16>, tensor<2x2xf16>)
 
     // foo2 && main: dense_resource<vpux_ow_0> : tensor<2x2xf16>, [#const.Add<10.0>]
 
@@ -643,9 +643,7 @@ module @OutlinedConstants {
 
     // bar:  dense_resource<vpux_ow_0> : tensor<2x2xf16>, [#const.Add<15.0>, #const.Reshape<[4, 1]>]
 
-    // CHECK:       [[CST_RESHAPE_4_1:%.+]] = IE.Reshape([[CST_ADD15]]) {shape_value = [4, 1]}
-
-    // CHECK:       return [[CST_ADD10]], [[CST_ADD15]], [[CST_RESCALE2]], [[CST_RESHAPE_4_1]]
+    // CHECK:       return [[CST_ADD10]], [[CST_ADD15]], [[CST_RESCALE2]]
 
 
     func.func @main(%dummy: tensor<2x2xf16>) -> tensor<2x2xf16> {
@@ -664,10 +662,10 @@ module @OutlinedConstants {
         return %dummy : tensor<2x2xf16>
     }
 
-    // CHECK:   func.func private @main([[DUMMY:%.+]]: tensor<2x2xf16>, [[CST_ADD10:%.+]]: tensor<2x2xf16>, [[CST_ADD15:%.+]]: tensor<2x2xf16>, [[CST_RESCALE2:%.+]]: tensor<2x2xf16>, [[CST_RESHAPE_4_1:%.+]]: tensor<4x1xf16>)
+    // CHECK:   func.func private @main([[DUMMY:%.+]]: tensor<2x2xf16>, [[CST_ADD10:%.+]]: tensor<2x2xf16>, [[CST_ADD15:%.+]]: tensor<2x2xf16>, [[CST_RESCALE2:%.+]]: tensor<2x2xf16>)
     // CHECK:       [[USER_CST0:%.+]] = VPU.Convert([[CST_ADD10]]) {dstElemType = f32}
     // CHECK:       [[CALL_FOO1:%.+]] = call @main_foo1([[DUMMY]], [[CST_ADD15]], [[CST_RESCALE2]])
-    // CHECK:       [[CALL_FOO2:%.+]]:3 = call @main_foo2([[DUMMY]], [[CST_RESCALE2]], [[CST_ADD10]], [[CST_RESHAPE_4_1]])
+    // CHECK:       [[CALL_FOO2:%.+]]:3 = call @main_foo2([[DUMMY]], [[CST_RESCALE2]], [[CST_ADD10]], [[CST_ADD15]])
     // CHECK:       [[USER_CALL_FOO1:%.+]] = VPU.Convert([[CALL_FOO1]]) {dstElemType = f32}
     // CHECK:       [[USER_CALL_FOO2_0:%.+]] = VPU.Convert([[CALL_FOO2]]#0) {dstElemType = f32}
     // CHECK:       [[USER_CALL_FOO2_1:%.+]] = VPU.Convert([[CALL_FOO2]]#1) {dstElemType = f32}
@@ -677,8 +675,8 @@ module @OutlinedConstants {
 
     // CHECK:   func.func @wrapper_main([[DUMMY:%.+]]: tensor<2x2xf16>)
     // CHECK:       [[OV_0:%.+]] = const.Declare {{.*}} dense_resource<vpux_ow_0>
-    // CHECK:       [[INIT:%.+]]:4 = call @init([[OV_0]])
-    // CHECK:       [[MAIN:%.+]] = call @main([[DUMMY]], [[INIT]]#0, [[INIT]]#1, [[INIT]]#2, [[INIT]]#3)
+    // CHECK:       [[INIT:%.+]]:3 = call @init([[OV_0]])
+    // CHECK:       [[MAIN:%.+]] = call @main([[DUMMY]], [[INIT]]#0, [[INIT]]#1, [[INIT]]#2)
     // CHECK:       return [[MAIN]]
 }
 

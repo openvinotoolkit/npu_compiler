@@ -37,6 +37,7 @@ std::unique_ptr<mlir::Pass> createRemoveEmptyELFSectionsPass(Logger log = Logger
 std::unique_ptr<mlir::Pass> createHandleAlignmentRequirementsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAddABIVersionPass(Logger log = Logger::global(), uint32_t versionMajor = 0,
                                                     uint32_t versionMinor = 0, uint32_t versionPatch = 0);
+std::unique_ptr<mlir::Pass> createAddCompilerHashPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSetCMXSymbolValuePass(Logger log = Logger::global(),
                                                         std::optional<uint32_t> workspaceAddr = std::nullopt,
                                                         std::optional<uint32_t> workspaceSize = std::nullopt,

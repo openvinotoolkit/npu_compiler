@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --memory-allocation %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values" --memory-allocation %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -363,10 +363,12 @@ module @ThreeFunctionsReservedMem {
         func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
     }
 
-    builtin.module @ReservedMemory {
-      module @CustomReservedMemory {
-        IE.MemoryResource 512 bytes of @DDR offset 0
-      }
+    config.Resources 1 of @global {
+        builtin.module @ReservedMemory {
+            module @CustomReservedMemory {
+                config.MemoryResource 512 bytes of @DDR offset 0
+            }
+        }
     }
 
     net.NetworkInfo entryPoint : @main

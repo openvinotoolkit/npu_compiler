@@ -10,11 +10,11 @@
 
 func.func @OrderBarriers() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
     // Input order follows barrier production order
-    %bar0 = VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+    %bar0 = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
     %bar1 = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     %bar2 = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
     %bar3 = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
-    %bar4 = VPURT.ConfigureBarrier<4> {isFinalBarrier} -> !VPURT.Barrier
+    %bar4 = VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
 
     // dummy buffer
     %buf0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x8x32xf16, #NHWC, [@CMX_NN, 0]>
@@ -90,9 +90,9 @@ func.func @OrderBarriers() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
 
     // Result order follows barrier consumption order
 
-    // CHECK:   VPURT.ConfigureBarrier<0> {isStartBarrier} -> !VPURT.Barrier
+    // CHECK:   VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
     // CHECK:   VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
     // CHECK:   VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
     // CHECK:   VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
-    // CHECK:   VPURT.ConfigureBarrier<4> {isFinalBarrier} -> !VPURT.Barrier
+    // CHECK:   VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
 }

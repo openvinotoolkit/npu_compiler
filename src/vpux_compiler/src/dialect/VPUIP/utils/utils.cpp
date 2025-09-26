@@ -7,7 +7,6 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
@@ -16,6 +15,7 @@
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
@@ -34,6 +34,16 @@
 #include <mlir/Support/LLVM.h>
 
 using namespace vpux;
+
+uint32_t vpux::VPUIP::getDPUProfMaxBufferSize(config::ArchKind arch) {
+    switch (arch) {
+    case config::ArchKind::NPU37XX:
+    case config::ArchKind::NPU40XX:
+        return HW_DPU_PROFILING_MAX_BUFFER_SIZE;  // Up to 64 DPU Tasks in single CMX DPU profiling buffer instance
+    default:
+        VPUX_THROW("Unable to get DPUProfMaxBufferSize for arch {0}", arch);
+    }
+}
 
 uint16_t vpux::VPUIP::getProfWorkloadSize(mlir::ModuleOp module) {
     uint16_t profilingWorkloadSize;
@@ -64,7 +74,7 @@ int64_t vpux::VPUIP::getMaxKernelSize(mlir::Operation* op) {
 // Run-time info
 //
 
-double vpux::VPUIP::getMemoryDerateFactor(IE::MemoryResourceOp mem) {
+double vpux::VPUIP::getMemoryDerateFactor(config::MemoryResourceOp mem) {
     VPUX_THROW_UNLESS(mem.getKind() != nullptr, "Got empty memory resource kind");
     VPUX_THROW_UNLESS(mlir::isa<vpux::VPU::MemoryKindAttr>(mem.getKind()), "Unsupported memory resource kind '{0}'",
                       mem.getKind());
@@ -78,7 +88,7 @@ double vpux::VPUIP::getMemoryDerateFactor(IE::MemoryResourceOp mem) {
     return mlir::cast<mlir::FloatAttr>(attr).getValueAsDouble();
 }
 
-uint32_t vpux::VPUIP::getMemoryBandwidth(IE::MemoryResourceOp mem) {
+uint32_t vpux::VPUIP::getMemoryBandwidth(config::MemoryResourceOp mem) {
     VPUX_THROW_UNLESS(mem.getKind() != nullptr, "Got empty memory resource kind");
     VPUX_THROW_UNLESS(mlir::isa<vpux::VPU::MemoryKindAttr>(mem.getKind()), "Unsupported memory resource kind '{0}'",
                       mem.getKind());
@@ -93,7 +103,7 @@ uint32_t vpux::VPUIP::getMemoryBandwidth(IE::MemoryResourceOp mem) {
 }
 
 int64_t vpux::VPUIP::getNumTilesUsed(mlir::ModuleOp module) {
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     VPUX_THROW_UNLESS(tileOp != nullptr, "Failed to get NCE Executor information");
 
     return tileOp.getCount();
@@ -114,7 +124,7 @@ int64_t getMaxBarriersPerInference(config::ArchKind arch) {
 int64_t vpux::VPUIP::getNumAvailableBarriers(mlir::Operation* parentOp) {
     const auto arch = config::getArch(parentOp);
 
-    auto module = parentOp->getParentOfType<mlir::ModuleOp>();
+    auto module = getModuleOp(parentOp);
 
     const auto tileCount = VPUIP::getNumTilesUsed(module);
 
@@ -161,7 +171,7 @@ size_t vpux::VPUIP::getAvailableSlots(size_t maxSlotsSum, size_t maxAvailableSlo
 
 int64_t vpux::VPUIP::getNumberOfIndependentDmaQueues(mlir::Operation* parentOp) {
     auto module = parentOp->getParentOfType<mlir::ModuleOp>();
-    auto dmaPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
+    auto dmaPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN);
     VPUX_THROW_UNLESS(dmaPorts != nullptr, "Failed to get DMA information");
     auto dmaCount = dmaPorts.getCount();
 
@@ -410,12 +420,12 @@ SmallVector<mlir::Value> getPerClusterBuffers(mlir::MLIRContext* ctx, mlir::Loca
         distributionMode == VPU::DistributionMode::OVERLAPPED) {
         auto insertionPoint = declBuff.getOperation();
         for (int64_t clusterId = 0; clusterId < tileCount; ++clusterId) {
-            auto cmxBuffType =
-                    (allowDiscontinuousBuffers && isDiscontinuousBufferType(compactTypeND))
-                            ? changeShapeLeaveStrides(compactTypeND, compactTypeND.getStrides(),
-                                                      perClusterShapes[clusterId], perClusterShapeOffsets[clusterId])
-                            : changeShape(compactTypeND, perClusterShapes[clusterId],
-                                          perClusterShapeOffsets[clusterId]);
+            const auto strides = compactTypeND.getStrides();
+            auto cmxBuffType = (allowDiscontinuousBuffers && isDiscontinuousBufferType(compactTypeND))
+                                       ? changeShapeLeaveStrides(compactTypeND, strides, perClusterShapes[clusterId],
+                                                                 perClusterShapeOffsets[clusterId])
+                                       : changeShape(compactTypeND, perClusterShapes[clusterId],
+                                                     perClusterShapeOffsets[clusterId]);
 
             const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, clusterId)});
             cmxBuffType = vpux::updateSwizzlingSchemeBasedOnDistributedType(distributedType, cmxBuffType);
@@ -841,9 +851,10 @@ std::pair<outputBuffers, outputItiBuffers> VPUIP::getPerClusterOutputHaloBuffers
         }
 
         for (int64_t clusterId = 0; clusterId < tileCount; ++clusterId) {
+            const auto strides = operandType.getStrides();
             auto cmxBuffType = isDiscontinuousBufferType(operandType)
-                                       ? changeShapeLeaveStrides(operandType, operandType.getStrides(),
-                                                                 memoryShapes[clusterId], memoryOffsets[clusterId])
+                                       ? changeShapeLeaveStrides(operandType, strides, memoryShapes[clusterId],
+                                                                 memoryOffsets[clusterId])
                                        : changeShape(operandType, memoryShapes[clusterId], memoryOffsets[clusterId]);
             const auto symbolAttr = vpux::IndexedSymbolAttr::get(ctx, {cmxNameAttr, vpux::getIntAttr(ctx, clusterId)});
 
@@ -851,7 +862,7 @@ std::pair<outputBuffers, outputItiBuffers> VPUIP::getPerClusterOutputHaloBuffers
             if (!inwardHalosPerCluster[clusterId].empty() || !outwardHalosPerCluster[clusterId].empty()) {
                 const auto orderAttr = mlir::AffineMapAttr::get(operandType.getDimsOrder().toAffineMap(ctx));
                 const auto elemStrides =
-                        to_small_vector(operandType.getStrides() | transformed([&](Bit stride) {
+                        to_small_vector(strides | transformed([&](Bit stride) {
                                             return stride.count() / operandType.getElemTypeSize().count();
                                         }));
                 const auto stridesAttr =
@@ -2287,6 +2298,20 @@ VPURT::TaskOp VPUIP::createBarProgDMA(mlir::OpBuilder& builder, mlir::Value inpu
     return barProgDmaOp->getParentOfType<VPURT::TaskOp>();
 }
 
+VPURT::TaskOp VPUIP::createEnqueueDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::Value output, int port,
+                                      mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
+                                      VPUIP::EnqueueDMAAttr enqueueDMAAttr, llvm::StringLiteral opName) {
+    auto ctx = builder.getContext();
+    auto enqDmaLoc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, opName));
+    auto portAttr = vpux::getIntAttr(ctx, port);
+
+    auto enqueueDMAOp = VPURT::wrapIntoTaskOp<VPUIP::EnqueueDMAOp>(
+            builder, waitBarriers, updateBarriers, enqDmaLoc, input, output, portAttr,
+            /*isOutOfOrder*/ nullptr, /*isCritical*/ nullptr, /*dmaHwpId*/ nullptr,
+            /*dmaProfilingMetaData*/ nullptr, enqueueDMAAttr);
+    return enqueueDMAOp->getParentOfType<VPURT::TaskOp>();
+}
+
 int64_t vpux::VPUIP::getSOHMinimalHeightAlignment(vpux::ShapeRef shape, int64_t numClusters, bool isInputSparse,
                                                   config::ArchKind arch) {
     return VPU::getSOHMinimalHeightAlignment(shape, numClusters, isInputSparse, arch);
@@ -2301,10 +2326,10 @@ int64_t vpux::VPUIP::getMaximalSWKernelPrefetchDataSize(mlir::ModuleOp module) {
     switch (arch) {
     case config::ArchKind::NPU37XX:
         return VPUIP::MAX_SW_KERNEL_PREFETCH_DATA_SIZE_37XX;
-    case config::ArchKind::NPU40XX:
-        return VPUIP::MAX_SW_KERNEL_PREFETCH_DATA_SIZE_40XX;
     default:
-        VPUX_THROW("Unable to get MaximalSWKernelPrefetchDataSize for arch {0}", arch);
+        // From NPU40XX 1kB prefetch buffer is located outside of CMX workspace
+        // and coincides with RT reserved range
+        return 0;
     }
 }
 
@@ -2751,18 +2776,4 @@ bool vpux::VPUIP::isSubViewCompatibleWithDistributedBuffer(VPUIP::SubViewOp subV
 
     // Be compatible if SubView does not shrink segmented axis
     return origShape[Dim(tileIndexVal)] == subShape[Dim(tileIndexVal)];
-}
-
-VPURT::TaskOp VPUIP::createEnqueueDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::Value output, int port,
-                                      mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
-                                      VPUIP::EnqueueDMAAttr enqueueDMAAttr, llvm::StringLiteral opName) {
-    auto ctx = builder.getContext();
-    auto syncDmaLoc = mlir::NameLoc::get(mlir::StringAttr::get(ctx, opName));
-    auto portAttr = vpux::getIntAttr(ctx, port);
-
-    auto enqueueDMAOp = VPURT::wrapIntoTaskOp<VPUIP::EnqueueDMAOp>(
-            builder, waitBarriers, updateBarriers, syncDmaLoc, input, output, portAttr,
-            /*isOutOfOrder*/ nullptr, /*isCritical*/ nullptr, /*dmaHwpId*/ nullptr,
-            /*dmaProfilingMetaData*/ nullptr, enqueueDMAAttr);
-    return enqueueDMAOp->getParentOfType<VPURT::TaskOp>();
 }

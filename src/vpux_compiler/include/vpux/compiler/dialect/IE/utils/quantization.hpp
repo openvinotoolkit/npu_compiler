@@ -24,6 +24,7 @@ bool areAllUsersQuantized(mlir::Operation* op);
 bool isPerAxisQuant(mlir::Value val);
 bool checkQuantApproximation(mlir::Operation* op);
 bool isPerTensorFQ(ArrayRef<IE::FakeQuantizeOp> fqOps);
+bool hasStaticLowAndHighValues(IE::FakeQuantizeOp fakeQuantizeOp);
 IE::FakeQuantizeOp createFQ(mlir::PatternRewriter& rewriter, mlir::Value inputOp, IE::FakeQuantizeOp fq,
                             mlir::Location loc);
 Const::DeclareOp createFQConst(mlir::MLIRContext* ctx, mlir::Location loc, float val, mlir::RankedTensorType argType,
@@ -86,5 +87,8 @@ mlir::LogicalResult checkRescaledBiasRange(ConcreteOp op) {
 
 // Parses the IR upwards looking for a possibly quantized splat constant and returns its folded dequantized value.
 mlir::FailureOr<double> getQuantizedSplatConstant(mlir::Value input);
+
+bool isNCEOpCandidatesWithWeights(mlir::Operation* op);
+bool keepIntTypeForSIWeightsAsInput(mlir::Operation* op);
 }  // namespace IE
 }  // namespace vpux

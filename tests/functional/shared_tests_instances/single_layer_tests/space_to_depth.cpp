@@ -53,13 +53,13 @@ const auto SpaceToDepthBS2_PRECOMMIT =
         ::testing::Combine(::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 2, 3 * 4, 3 * 4}}}))),
                            ::testing::ValuesIn(inputTypes), ::testing::ValuesIn(modes), ::testing::Values(2),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto SpaceToDepthBS3_PRECOMMIT =
         ::testing::Combine(::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
                                    std::vector<std::vector<ov::Shape>>({{{1, 2, 3 * 3, 3 * 3}}}))),
                            ::testing::ValuesIn(inputTypes), ::testing::ValuesIn(modes), ::testing::Values(3),
-                           ::testing::Values(ov::test::utils::DEVICE_NPU));
+                           ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_SpaceToDepthBS2, SpaceToDepthLayerTestCommon, SpaceToDepthBS2_PRECOMMIT,
                          SpaceToDepthLayerTestCommon::getTestCaseName);

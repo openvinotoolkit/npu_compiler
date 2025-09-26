@@ -15,6 +15,8 @@
 #include <utility>
 
 extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBinaryResourcesMap;
+extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveBitcodeResourcesMap;
+extern std::unordered_map<std::string, const std::pair<const uint8_t*, size_t>> shaveAsmArchiveResourcesMap;
 
 namespace vpux {
 
@@ -52,8 +54,11 @@ public:
 
     llvm::ArrayRef<uint8_t> getElf(llvm::StringRef kernelPath) const;
 
-    void addCompiledElf(llvm::StringRef funcName, std::vector<uint8_t>& binary, llvm::StringRef cpu,
+    void addCompiledElf(llvm::StringRef funcName, llvm::ArrayRef<uint8_t> binary, config::ArchKind archKind,
                         bool overwrite = false);
+
+    void addCompiledElf(llvm::StringRef funcName, std::unique_ptr<uint8_t[]> binary, size_t size,
+                        config::ArchKind archKind, bool overwrite = false);
 
     static void loadElfData(mlir::ModuleOp module);
 

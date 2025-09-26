@@ -7,6 +7,8 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 
+#include <deque>
+
 namespace vpux {
 namespace VPU {
 

@@ -423,18 +423,26 @@ def Const_QuantizeAttr : Const_Attr<"Quantize",
 //
 
 def Const_RescaleAttr : Const_Attr<"Rescale",
-        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
-    let summary = "Rescale constant content";
+    [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+  let summary = "Rescale constant content";
 
-    let parameters = (ins
-        "mlir::FloatAttr":$scale
-    );
+  let parameters = (ins
+    "vpux::Const::ContentAttr":$scale
+  );
 
     let builders = [
         AttrBuilderWithInferredContext<
             (ins "mlir::FloatAttr":$scale), [{
-                return $_get(scale.getContext(), scale);
-            }]
+                    auto tensorType = mlir::RankedTensorType::get({1}, scale.getType());
+                    auto denseAttr = mlir::DenseElementsAttr::get(tensorType, scale);
+                    auto contentAttr = vpux::Const::ContentAttr::get(denseAttr);
+                    return vpux::Const::RescaleAttr::get(contentAttr);
+                }]
+        >,
+        AttrBuilderWithInferredContext<
+                (ins "vpux::Const::ContentAttr":$scale), [{
+                    return $_get(scale.getContext(), scale);
+                }]
         >
     ];
 
@@ -629,32 +637,6 @@ def Const_BroadcastAttr : Const_Attr<"Broadcast",
     ];
 
     let storageNamespace = "details";
-    let skipDefaultBuilders = 1;
-    let hasCustomAssemblyFormat = 1;
-}
-
-//
-// BitPackAttr
-//
-
-def Const_BitPackAttr : Const_Attr<"BitPack",
-        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface, ["getPositionRequirement"]>]> {
-    let summary = "Pack sub-byte constant content";
-
-    let parameters = (ins
-        "mlir::IntegerAttr":$width
-    );
-
-    let builders = [
-        AttrBuilderWithInferredContext<
-            (ins "mlir::IntegerAttr":$width), [{
-                return $_get(width.getContext(), width);
-            }]
-        >
-    ];
-
-    let storageNamespace = "details";
-    let genVerifyDecl = 1;
     let skipDefaultBuilders = 1;
     let hasCustomAssemblyFormat = 1;
 }
@@ -1075,6 +1057,80 @@ def Const_AffineReshapeAttr : Const_Attr<"AffineReshape",
     let genVerifyDecl = 1;
     let skipDefaultBuilders = 1;
     // #const.AffineReshape<$dimMapping, $shapeValue>
+    let hasCustomAssemblyFormat = 1;
+}
+
+//
+// InterpolateAttr
+//
+
+def Const_InterpolateAttr : Const_Attr<"Interpolate",
+        [DeclareAttrInterfaceMethods<Const_TransformAttrInterface>]> {
+    let summary = "An attribute for specifying interpolation operations with configurable parameters";
+
+    let description = [{
+        This attribute is used to define interpolation operations, which are commonly used in image processing and other domains
+        where resizing or resampling of data is required. The attribute allows specifying the interpolation method and other
+        relevant parameters.
+
+        'axes' is an array of integers that specifies the axes along which interpolation is applied.
+
+        'sizes' is an array of integers that specify the target sizes for each dimension.
+
+        'mode' is a string attribute that specifies the interpolation method (e.g., CUBIC, NEAREST).
+
+        'coordMode' is a string attribute that specifies how to transform the coordinate (e.g. HALF_PIXEL).
+
+        'nearestMode' is a string attribute that specifies the nearest neighbor rounding mode (e.g. ROUND_PREFER_FLOOR).
+
+        'antialias' is a boolean attribute that indicates whether antialiasing should be applied.
+
+        'padsBegin' and 'padsEnd' are arrays of integers that specify the padding at the beginning and end of each dimension.
+
+        'cubeCoeff' is a floating-point attribute that specifies the coefficient for cubic interpolation.
+
+        Examples
+
+        ```MLIR
+            const.Declare tensor<1x384x27x27xf32> = dense<...> : tensor<1x384x37x37xf32>, [#const.Interpolate<[2, 3], [27, 27], "CUBIC", "HALF_PIXEL", "FLOOR", false, [0, 0, 0, 0], [0, 0, 0, 0], -7.500000e-01 : f64>]
+            // This specifies a CUBIC interpolation operation on axes 2 and 3, resizing to 27x27, with half pixel coordinate mode,
+        ```
+    }];
+
+    let parameters = (ins
+        // array of IntegerAttrs (int64_t) for axes
+        "mlir::ArrayAttr":$axes,
+        // array of IntegerAttrs (int64_t) for sizes
+        "mlir::ArrayAttr":$sizes,
+        // string attribute for interpolation mode
+        "mlir::StringAttr":$mode,
+        // string attribute for coordinate mode
+        "mlir::StringAttr":$coordMode,
+        // string attribute for nearest mode
+        "mlir::StringAttr":$nearestMode,
+        // boolean attribute for antialiasing
+        "mlir::BoolAttr":$antialias,
+        // array of IntegerAttrs (int64_t) for padding at the beginning
+        "mlir::ArrayAttr":$padsBegin,
+        // array of IntegerAttrs (int64_t) for padding at the end
+        "mlir::ArrayAttr":$padsEnd,
+        // float attribute for cubic coefficient
+        "mlir::FloatAttr":$cubeCoeff
+    );
+
+    let builders = [
+        AttrBuilderWithInferredContext<
+            (ins "mlir::ArrayAttr":$axes, "mlir::ArrayAttr":$sizes, "mlir::StringAttr":$mode, 
+                 "mlir::StringAttr":$coordMode, "mlir::StringAttr":$nearestMode, "mlir::BoolAttr":$antialias, "mlir::ArrayAttr":$padsBegin, "mlir::ArrayAttr":$padsEnd, "mlir::FloatAttr":$cubeCoeff), [{
+                return $_get(mode.getContext(), axes, sizes, mode, coordMode, nearestMode, antialias, padsBegin, padsEnd, cubeCoeff);
+            }]
+        >
+    ];
+
+    let storageNamespace = "details";
+    let genVerifyDecl = 1;
+    let skipDefaultBuilders = 1;
+    // #const.Interpolate<$axes, $sizes, $mode, $coordMode, $nearestMode, $antialias, $padsBegin, $padsEnd, $cubeCoeff>
     let hasCustomAssemblyFormat = 1;
 }
 

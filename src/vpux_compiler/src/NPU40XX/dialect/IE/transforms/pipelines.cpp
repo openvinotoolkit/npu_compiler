@@ -32,23 +32,21 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         pm.addPass(IE::createAdjustNonZeroFakeQuantPass(log));
     }
     if (options.enableConvolutionMixedPrecisionDecomposition) {
-        pm.addPass(IE::arch37xx::createProcessAsymmetricZeroPointsForConvolutionPass(log));
+        pm.addPass(IE::createProcessAsymmetricZeroPointsForConvolutionPass(log));
     }
     if (options.enableMatmulMixedPrecisionDecomposition) {
-        pm.addPass(IE::arch37xx::createProcessAsymmetricZeroPointsForMatmulPass(
+        pm.addPass(IE::createProcessAsymmetricZeroPointsForMatmulPass(
                 options.matmulMixedPrecisionDecompositionRatio.getValue(), log));
     }
 
     pm.addPass(IE::createSplitFakeQuantPass(log));
-    if (options.enablePropagateQuantDequant) {
-        pm.addPass(IE::createPropagateQuantizeDequantizePass(isOptionEnabled(options.enableSEPtrsOperations), log));
-    }
-    pm.addPass(IE::createFuseOpWithQuantizePass(log));
     pm.addPass(IE::createConvertToDequantizePass(options, log));
     if (options.enablePropagateQuantDequant) {
         pm.addPass(mlir::createCanonicalizerPass(grc));
-        pm.addPass(IE::createPropagateQuantizeDequantizePass(isOptionEnabled(options.enableSEPtrsOperations), log));
+        pm.addPass(
+                IE::createPropagateAndFuseQuantizeDequantizePass(isOptionEnabled(options.enableSEPtrsOperations), log));
     }
+    pm.addPass(IE::createFuseConvertWithQDQPass(log));
     if (options.enableSwapTransposeWithFQ) {
         pm.addPass(IE::createSwapTransposeWithFQPass(log));
     }
@@ -56,18 +54,23 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createFuseQuantizedOpsPass(
             /*seOpsEnabled=*/isOptionEnabled(options.enableSEPtrsOperations),
             /*seExperimentalOpsEnabled=*/isOptionEnabled(options.enableExperimentalSEPtrsOperations), log));
+
+    // Enable sequence FuseQuantizedOps->FuseActivationOps->FuseOutstandingDequant->ConvertToMixedPrecision->
+    // ConvertQuantizeOpsToNceOps. The sequence allows Conv->Quantize->Dequantize->LeakyReLU->Quantize->Dequantize
+    // fused into a single Conv.
+    pm.addPass(IE::createFuseActivationOpsPass(options.enableFuseClampOperations, log));
+
     if (options.enableFP16ToU8MixedMode) {
-        pm.addPass(IE::arch37xx::createOptimizeNetworkInputConvertPass(log));
+        pm.addPass(IE::createOptimizeNetworkInputConvertPass(log));
     }
 
     if (options.enableConvertWeightsToU8I4) {
-        pm.addPass(IE::arch37xx::createConvertWeightsToI8Pass(log));
+        pm.addPass(IE::createConvertWeightsToI8Pass(log));
     }
     if (options.enableConvertToPalletizationLUT) {
         pm.addPass(IE::createConvertToPalletizationLUT(log));
     }
-    pm.addPass(IE::arch37xx::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode),
-                                                           log));
+    pm.addPass(IE::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode), log));
     if (options.enableQuantDequantRemoval) {
         pm.addPass(IE::createRemoveQuantDequantSeqPass(log));
     }
@@ -83,10 +86,9 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createFuseQuantizedOpsPass(
             /*seOpsEnabled=*/isOptionEnabled(options.enableSEPtrsOperations),
             /*seExperimentalOpsEnabled=*/isOptionEnabled(options.enableExperimentalSEPtrsOperations), log));
-    pm.addPass(IE::arch37xx::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode),
-                                                           log));
+    pm.addPass(IE::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode), log));
     if (options.enableFuseOutstandingDequant) {
-        pm.addPass(IE::arch37xx::createFuseOutstandingDequant(log));
+        pm.addPass(IE::createFuseOutstandingDequant(log));
 
         // This is a short term solution when we have
         //     Original subgraph
@@ -94,8 +96,7 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
         //     At this point
         //        (Conv-Q1-DQ1) -> Q2 -> (DQ2-Conv)
         // In long term need to consider a new pass to fuse FQs with different params
-        pm.addPass(IE::arch37xx::createConvertToMixedPrecision(
-                isOptionEnabled(options.enableFloatInQuantWeightsMixedMode), log));
+        pm.addPass(IE::createConvertToMixedPrecision(isOptionEnabled(options.enableFloatInQuantWeightsMixedMode), log));
     }
     if (options.enableFuseOutstandingQuant) {
         pm.addPass(IE::createFuseOutstandingQuantPass(log));
@@ -104,10 +105,15 @@ void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(IE::createDequantizeConstPass(options.runtimeDequantizationLimit,
                                              isOptionEnabled(options.enableRuntimeDequant), log));
     if (options.enableDynamicQuant) {
-        pm.addPass(IE::arch37xx::createWeightsQuantFusedIntoTaskPass(log));
+        pm.addPass(IE::createWeightsQuantFusedIntoTaskPass(log));
     }
     pm.addPass(IE::createOptimizePrecisionAcrossFunctionCallsPass(log));
-    pm.addPass(IE::createConvertQuantizeOpsToNceOpsPass(log));
+
+    // E#176434: remove option
+    if (options.enableConvertQuantizeOpsToNceOps) {
+        pm.addPass(IE::createConvertQuantizeOpsToNceOpsPass(log));
+    }
+
     pm.addPass(IE::createMergeFakeQuantPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
 }
@@ -154,11 +160,11 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(IE::createInputQuantizationRestorationPass(log));
 
     // No passes should be run before this pipeline, with very few exceptions.
-    IE::buildPostImportPipeline(pm, log);
+    IE::buildPostImportPipeline(pm, IE::PostImportOptions(options), log);
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     if (options.enableReduceNumTilesForSmallModelsPass) {
-        pm.addPass(IE::arch40xx::createReduceNumTilesForSmallModelsPass(log));
+        pm.addPass(IE::createReduceNumTilesForSmallModelsPass(log));
     }
 
     // Level 3 : Topology
@@ -167,12 +173,15 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     if (options.enableOnlineSDPAConversion) {
-        pm.addPass(IE::createConvertSDPAToOnlineSDPAPass());
-        pm.addPass(IE::createTileOnlineSDPAPass());
-        pm.addPass(IE::createDecomposeOnlineSDPAPass());
-        pm.addPass(IE::createTileIncrementalSDPAPass());
-        pm.addPass(IE::createDecomposeIncrementalSDPAPass());
+        pm.addPass(IE::createConvertSDPAToOnlineSDPAPass(log));
+        pm.addPass(IE::createTileOnlineSDPAPass(log));
+        pm.addPass(IE::createDecomposeOnlineSDPAPass(options.disableIncrementalSDPADecomposition, log));
+        pm.addPass(IE::createTileIncrementalSDPAPass(log));
+        if (!options.disableIncrementalSDPADecomposition) {
+            pm.addPass(IE::createDecomposeIncrementalSDPAPass(log));
+        }
     }
+
     if (options.enableDynamicShapeTransformationsPipeline) {
         IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     }
@@ -225,7 +234,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(IE::createSwapPadLayerPass(log));
     // Note: apply FuseStaticScale after ConvertDivideToMultiply to increase
     // the applicability
-    pm.addPass(IE::arch37xx::createFuseStaticScalePass(log));
+    pm.addPass(IE::createFuseStaticScalePass(log));
     pm.addPass(IE::createSwapOperationsPass(isOptionEnabled(options.enableSEPtrsOperations) ||
                                                     isOptionEnabled(options.enableExperimentalSEPtrsOperations),
                                             log));
@@ -347,7 +356,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(mlir::createCanonicalizerPass(grc));
         pm.addPass(IE::createPropagateAffineReshapePass(log));
         if (options.enableOptimizeSliceExpand) {
-            pm.addPass(IE::arch37xx::createOptimizeSliceExpandPass(log));
+            pm.addPass(IE::createOptimizeSliceExpandPass(log));
         }
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
@@ -369,6 +378,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
     pm.addPass(IE::createLoadExternalKernelResourcesPass(log));
+
+    if (options.enableShaveCodeGen) {
+        IE::buildShaveCodeGenPipeline(pm, log);
+    }
 }
 
 void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
@@ -376,7 +389,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     const auto grc = getDefaultGreedyRewriteConfig();
 
     // No passes should be run before this pipeline, with very few exceptions.
-    IE::buildPostImportPipeline(pm, log);
+    IE::buildPostImportPipeline(pm, IE::PostImportOptions(options), log);
 
     // Level 3 : Topology
 
@@ -422,6 +435,10 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(IE::createConvertToMemPermutePass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
+
+    if (options.enableShaveCodeGen) {
+        IE::buildShaveCodeGenPipeline(pm, log);
+    }
 }
 
 //

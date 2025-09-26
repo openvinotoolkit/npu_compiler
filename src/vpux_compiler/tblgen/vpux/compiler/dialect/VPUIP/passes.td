@@ -1882,4 +1882,75 @@ def DispatchedInliner : PassBase<"dispatched-inliner", "vpux::ModulePass"> {
     ];
 }
 
+//
+// UnrollDepthToSpaceDMA
+//
+
+def UnrollDepthToSpaceDMA : PassBase<"unroll-depth-to-space-dma", "vpux::FunctionPass"> {
+    let summary = "Unroll DepthToSpaceDMA tasks";
+
+    let description = [{
+        This pass unrolls DepthToSpaceDMA tasks to multiple new DepthToSpaceDMA tasks, where applicable.
+
+        Main considerations when deciding to unroll a task to multiple new tasks are:
+         - respecting HW restrictions, like maximum number of dimensions, maximum size of a dimension etc.
+         - improving performance by distributing a task to all available HW ports.
+
+        This pass makes use of per-architecture strategies.
+        Currently, multi-cluster unrolling is common for all architectures and single-cluster unrolling
+        is defined separately for NPU37XX and NPU40XX.
+
+        For NPU37XX single-cluster unrolling:
+        1. if input/output layout is NHWC with model block_first, number of sub DepthToSpaceDMA is same as block_size.
+        2. if input/output layout is NHWC with model depth_first, number of sub DepthToSpaceDMA is OH * OW / block_size.
+        block_size is the size as the spatial block. It is an attribute of DepthToSpace.
+    }];
+
+    let constructor = "vpux::VPUIP::createUnrollDepthToSpaceDMAPass()";
+}
+
+//
+// UnrollSpaceToDepthDMA
+//
+
+def UnrollSpaceToDepthDMA : PassBase<"unroll-space-to-depth-dma", "vpux::FunctionPass"> {
+    let summary = "Unroll SpaceToDepthDMA tasks";
+
+    let description = [{
+        This pass unrolls SpaceToDepthDMA tasks to multiple new SpaceToDepthDMA tasks, where applicable.
+
+        Main considerations when deciding to unroll a task to multiple new tasks are:
+         - respecting HW restrictions, like maximum number of dimensions, maximum size of a dimension etc.
+         - improving performance by distributing a task to all available HW ports.
+
+        This pass makes use of per-architecture strategies.
+        Currently, multi-cluster unrolling is common for all architectures and single-cluster unrolling
+        is defined separately for NPU37XX and NPU40XX.
+    }];
+
+    let constructor = "vpux::VPUIP::createUnrollSpaceToDepthDMAPass()";
+}
+
+//
+// UnrollPermuteDMA
+//
+
+def UnrollPermuteDMA : PassBase<"unroll-permute-dma", "vpux::FunctionPass"> {
+    let summary = "Unroll PermuteDMA tasks";
+
+    let description = [{
+        This pass unrolls PermuteDMA tasks to multiple new PermuteDMA tasks, where applicable.
+
+        Main considerations when deciding to unroll a task to multiple new tasks are:
+         - respecting HW restrictions, like maximum number of dimensions, maximum size of a dimension etc.
+         - improving performance by distributing a task to all available HW ports.
+
+        This pass makes use of per-architecture strategies.
+        Currently, multi-cluster unrolling is common for all architectures and single-cluster unrolling
+        is defined separately for NPU37XX and NPU40XX.
+    }];
+
+    let constructor = "vpux::VPUIP::createUnrollPermuteDMAPass()";
+}
+
 #endif

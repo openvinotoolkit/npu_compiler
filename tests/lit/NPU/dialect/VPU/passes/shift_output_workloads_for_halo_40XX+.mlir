@@ -57,20 +57,16 @@
 // CHECK-LABEL: @ConvSOHOverlapped
 func.func @ConvSOHOverlapped(%arg0: !Input_DDR) -> !Output_DDR {
     %weights = const.Declare tensor<16x16x1x1xf16, {mem_space = @DDR, order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16, {mem_space = @DDR}>, [#const.Reorder<#NHWC>]
-    %wt = const.Declare tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>
-
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputDistributed
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %wt_cmx = VPU.Copy(%wt) { out_mem_space = @CMX_NN } : !WeightsTableStub_CMX -> !WeightsTableDistributed
-
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx, %wt_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 rawFilterShape = [16, 16, 1, 1],
                 strides = [1, 1]
-            } : !InputDistributed, !WeightsDistributed, !WeightsTableDistributed -> !OutputDistributed {
+            } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 8, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 16, 0] outSizes [1, 16, 7, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 2 : i64}
@@ -188,20 +184,16 @@ func.func @ConvSOHOverlapped(%arg0: !Input_DDR) -> !Output_DDR {
 // CHECK-LABEL: @SparseConvSOHOverlapped
 func.func @SparseConvSOHOverlapped(%arg0: !InputDataDistributed, %arg1: !InputSMDistributed) -> !Output_CMX {
     %weights = const.Declare tensor<16x16x1x1xf16, {mem_space = @DDR, order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16, {mem_space = @DDR}>, [#const.Reorder<#NHWC>]
-    %wt = const.Declare tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>
-
     %input_sparse = VPU.GroupSparseTensor(%arg0, %arg1) -> !Input_CMX
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %wt_cmx = VPU.Copy(%wt) { out_mem_space = @CMX_NN } : !WeightsTableStub_CMX -> !WeightsTableDistributed
-
-    %output_cmx = VPU.NCE.Convolution(%input_sparse, %weights_cmx, %wt_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_sparse, %weights_cmx) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 rawFilterShape = [16, 16, 1, 1],
                 strides = [1, 1]
-            } : !Input_CMX, !WeightsDistributed, !WeightsTableDistributed -> !Output_CMX {
+            } : !Input_CMX, !WeightsDistributed -> !Output_CMX {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 8, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 16, 0] outSizes [1, 16, 7, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 2 : i64}
@@ -283,20 +275,16 @@ func.func @SparseConvSOHOverlapped(%arg0: !InputDataDistributed, %arg1: !InputSM
 // CHECK-LABEL: @ConvSOHOverlappedMultipleWorkloads
 func.func @ConvSOHOverlappedMultipleWorkloads(%arg0: !Input_DDR) -> !Output_DDR {
     %weights = const.Declare tensor<16x16x1x1xf16, {mem_space = @DDR, order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x1x1xf16, {mem_space = @DDR}>, [#const.Reorder<#NHWC>]
-    %wt = const.Declare tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>
-
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputDistributed
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %wt_cmx = VPU.Copy(%wt) { out_mem_space = @CMX_NN } : !WeightsTableStub_CMX -> !WeightsTableDistributed
-
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx, %wt_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 rawFilterShape = [16, 16, 1, 1],
                 strides = [1, 1]
-            } : !InputDistributed, !WeightsDistributed, !WeightsTableDistributed -> !OutputDistributed {
+            } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 8, 0] outSizes [1, 16, 7, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 15, 0] outSizes [1, 16, 8, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
@@ -380,20 +368,16 @@ func.func @ConvSOHOverlappedMultipleWorkloads(%arg0: !Input_DDR) -> !Output_DDR 
 // CHECK-LABEL: @ConvSOHOverlappedNoOverlapAtStart
 func.func @ConvSOHOverlappedNoOverlapAtStart(%arg0: !Input_DDR) -> !Output_DDR {
     %weights = const.Declare tensor<16x16x3x3xf16, {mem_space = @DDR, order = #NHWC}> = dense<1.000000e+00> : tensor<16x16x3x3xf16, {mem_space = @DDR}>, [#const.Reorder<#NHWC>]
-    %wt = const.Declare tensor<16x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<10> : tensor<16x1x1x4xsi32, {mem_space = @CMX_NN}>
-
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputDistributed
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %wt_cmx = VPU.Copy(%wt) { out_mem_space = @CMX_NN } : !WeightsTableStub_CMX -> !WeightsTableDistributed
-
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx, %wt_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
                 rawFilterShape = [16, 16, 3, 3],
                 strides = [1, 1]
-            } : !InputDistributed, !WeightsDistributed, !WeightsTableDistributed -> !OutputDistributed {
+            } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 11, 33] <left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 11, 0] outSizes [1, 16, 11, 33] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
                 VPU.DPU.Workload outOffsets [0, 0, 22, 0] outSizes [1, 16, 11, 33] <left = 1 : i64, right = 1 : i64, top = 0 : i64, bottom = 1 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 2 : i64}
@@ -470,20 +454,16 @@ func.func @ConvSOHOverlappedNoOverlapAtStart(%arg0: !Input_DDR) -> !Output_DDR {
 // CHECK-LABEL: @ConvSOKNoChange
 func.func @ConvSOKNoChange(%arg0: !Input_DDR) -> !Output_DDR {
     %weights = const.Declare tensor<32x16x1x1xf16, {mem_space = @DDR, order = #NHWC}> = dense<1.000000e+00> : tensor<32x16x1x1xf16, {mem_space = @DDR}>, [#const.Reorder<#NHWC>]
-    %wt = const.Declare tensor<32x1x1x4xsi32, {mem_space = @CMX_NN, order = #NCHW}> = dense<10> : tensor<32x1x1x4xsi32, {mem_space = @CMX_NN}>
-
     %input_cmx = VPU.Copy(%arg0) { out_mem_space = @CMX_NN } : !Input_DDR -> !InputDistributed
 
     %weights_cmx = VPU.Copy(%weights) { out_mem_space = @CMX_NN } : !Weights_DDR -> !WeightsDistributed
 
-    %wt_cmx = VPU.Copy(%wt) { out_mem_space = @CMX_NN } : !WeightsTableStub_CMX -> !WeightsTableDistributed
-
-    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx, %wt_cmx) {
+    %output_cmx = VPU.NCE.Convolution(%input_cmx, %weights_cmx) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 rawFilterShape = [32, 16, 1, 1],
                 strides = [1, 1]
-            } : !InputDistributed, !WeightsDistributed, !WeightsTableDistributed -> !OutputDistributed {
+            } : !InputDistributed, !WeightsDistributed -> !OutputDistributed {
                 VPU.DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 16, 30, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 0 : i64}
                 VPU.DPU.Workload outOffsets [0, 16, 0, 0] outSizes [1, 16, 30, 33] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> #VPU.mpe_mode<CUBOID_16x16> attributes {cluster_id = 1 : i64}
             }

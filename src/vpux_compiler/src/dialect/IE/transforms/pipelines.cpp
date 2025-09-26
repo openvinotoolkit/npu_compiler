@@ -3,9 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/ShaveCodeGen/passes.hpp"
+#include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/core/public_options.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/Linalg/Passes.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
 
@@ -15,9 +19,21 @@ using namespace vpux;
 // PostImport
 //
 
-void vpux::IE::buildPostImportPipeline(mlir::OpPassManager& pm, Logger log) {
-    pm.addPass(IE::createPropagateFQPass(log));
-    pm.addPass(IE::createCleanupFQPass(log));
+void vpux::IE::buildPostImportPipeline(mlir::OpPassManager& pm, const PostImportOptions& options, Logger log) {
+    // moved HandleU16FakeQuantize in the beginning of the pipeline, it needed for u16->u8 lowering + the other passes
+    // before it are needed for fixing the pipeline passes are under the flag enableQDQOptimizationAggressive not to
+    // affect other models; issues are tracked here #E-181373
+    if (options.enableQDQOptimizationAggressive) {
+        const auto grc = getDefaultGreedyRewriteConfig();
+        pm.addPass(mlir::createCanonicalizerPass(grc));
+        pm.addPass(IE::createReshapeMatMulInputsPass(false, log));
+        pm.addPass(IE::createConvertScalarToTensorPass(log));
+        pm.addPass(IE::createAdjustFakeQuantizeParamsPass(log));
+        pm.addPass(IE::createAdjustFakeQdqParamsPass(log));
+        pm.addPass(IE::createFuseFQAndMulPass(options.fuseFQAndMulWithNonConstInput, log));
+        pm.addPass(IE::createHandleU16FakeQuantizePass(log));
+    }
+    pm.addPass(IE::createPropagateAndCleanUpFQPass(log));
     pm.addPass(IE::createConvertVariadicSplitToStridedSlicePass(log));
 }
 
@@ -126,17 +142,35 @@ void vpux::IE::buildOperationConversionPipeline(mlir::OpPassManager& pm, const I
 }
 
 //
+// ShaveCodeGen specific passes included in DefaultHW and ReferenceSW
+//
+
+void vpux::IE::buildShaveCodeGenPipeline(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(ShaveCodeGen::createEncapsulateCodeGenOpsPass());
+    pm.addPass(ShaveCodeGen::createEarlyCodeGenCapsuleFusionPass());
+
+    ShaveCodeGen::buildLowerSwLayers2LinalgPipeline(pm, log);
+    pm.addPass(mlir::createLinalgElementwiseOpFusionPass());
+    pm.addPass(mlir::createCanonicalizerPass());
+
+    pm.addPass(ShaveCodeGen::createOutlineCodeGenCapsulesPass());
+    pm.addPass(ShaveCodeGen::createFlattenEltwiseKernelPass());
+    pm.addPass(ShaveCodeGen::createLinalgTileAndFuseSwLayersPass());
+    pm.addPass(mlir::createLinalgGeneralizeNamedOpsPass());
+}
+
+//
 // registerIEPipelines
 //
 
 void vpux::IE::registerIEPipelines() {
-    mlir::PassPipelineRegistration<mlir::EmptyPipelineOptions>(
+    mlir::PassPipelineRegistration<PostImportOptions>(
             "post-import",
             "[LEGALIZATION] The post import pipeline contains passes that were historically ngraph passes. It's "
             "considered a legalization step because it converts the imported IR into an IR format that is supported by "
             "the other passes. No other passes should be run before it (with very few exceptions).",
-            [](mlir::OpPassManager& pm) {
-                IE::buildPostImportPipeline(pm);
+            [](mlir::OpPassManager& pm, const PostImportOptions& options) {
+                IE::buildPostImportPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<AdjustPrecisionOptions>(
@@ -167,4 +201,8 @@ void vpux::IE::registerIEPipelines() {
             [](mlir::OpPassManager& pm, const OperationConversionOptions& options) {
                 IE::buildOperationConversionPipeline(pm, options);
             });
+
+    mlir::PassPipelineRegistration<>("shavecodegen-ie", "Shavecodegen specific passes", [](mlir::OpPassManager& pm) {
+        IE::buildShaveCodeGenPipeline(pm);
+    });
 }

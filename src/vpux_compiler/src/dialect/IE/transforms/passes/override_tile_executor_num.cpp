@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/batch.hpp"
 
 namespace vpux::IE {
@@ -67,9 +67,9 @@ void OverrideTileExecutorNumPass::safeRunOnModule() {
 
     auto module = getOperation();
 
-    VPUX_THROW_UNLESS(IE::hasTileExecutor(module), "Expected module to have 'IE::TileResourceOp'.");
+    VPUX_THROW_UNLESS(config::hasTileExecutor(module), "Expected module to have 'IE::TileResourceOp'.");
 
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     const auto origTileCount = static_cast<DebatchedCallOpData::ValueType>(tileOp.getCount());
 
     std::vector<DebatchedCallOpData::ValueType> valuesToCheck;

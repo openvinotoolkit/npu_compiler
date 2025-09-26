@@ -15,6 +15,8 @@
 #include <mlir/Parser/Parser.h>
 #include <mlir/Pass/PassManager.h>
 
+#include <vpu_layer_cost_model.h>
+
 #include <gtest/gtest.h>
 
 using namespace vpux;

@@ -14,7 +14,7 @@ NDTypeInterface Const::FuseAttr::inferOutputType(NDTypeInterface input) const {
     return getFusedType();
 }
 
-bool vpux::Const::FuseAttr::inferOutputSplat(bool, vpux::NDTypeInterface) {
+bool vpux::Const::FuseAttr::inferOutputSplat(bool, vpux::NDTypeInterface) const {
     return false;
 }
 

@@ -89,9 +89,14 @@ mlir::LogicalResult VPUIP::ExtractFlatSliceOp::inferReturnTypes(mlir::MLIRContex
             break;
         }
     }
-
+    auto tilingDimLength = extractOp.getLength();
+    auto perClusterShapes = distributedType.getPerClusterMemoryShapes();
+    if (tilingDimLength + tilingDimOffset >
+        perClusterOffsets[clusterId][tileDim] + perClusterShapes[clusterId][tileDim]) {
+        return errorAt(loc, "Destination is not inside single cluster");
+    }
     auto newShape = shape.toValues();
-    newShape[tileDim] = 1;
+    newShape[tileDim] = tilingDimLength;
 
     const auto memSpaceCMX =
             vpux::IndexedSymbolAttr::get(loc.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), clusterId);

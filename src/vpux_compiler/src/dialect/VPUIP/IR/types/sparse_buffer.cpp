@@ -548,7 +548,8 @@ NDTypeInterface VPUIP::SparseBufferType::pad(ShapeRef padBefore, ShapeRef padAft
     Shape paddedOutputShape(data.getShape().toValues());
     if (auto seAttr = getSeAttr()) {
         paddedOutputShape = Shape(ndData.changeShape(getShape()).pad(padBefore, padAfter).getShape().raw());
-        data = data.changeShape(seAttr.backInferInputShape(paddedOutputShape));
+        const auto inferredShape = seAttr.backInferInputShape(paddedOutputShape);
+        data = data.changeShape(inferredShape);
     }
 
     auto sparsityMap = getSparsityMap();

@@ -390,3 +390,213 @@ func.func @EliminateSiblingConcatWithMultiConst(%arg0: tensor<1x12x128x128xf16, 
     // CHECK:    tensor<1x24x128x1xf16, {order = #NHWC}>, tensor<1x24x1x130xf16, {order = #NHWC}> -> tensor<1x24x130x130xf16, {order = #NHWC}>
     // CHECK:    return [[CONCAT]], [[CONCAT]] : tensor<1x24x130x130xf16, {order = #NHWC}>, tensor<1x24x130x130xf16, {order = #NHWC}>
 }
+
+// -----
+
+// CHECK-LABEL: OptimizeMultipleReshapeConcatAroundGatherDMA
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:  [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:  [[INDICES_1:%.+]]: tensor<1024x1xi64>
+func.func @OptimizeMultipleReshapeConcatAroundGatherDMA(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> tensor<1x1024x4096xf16> {
+    %0 = VPU.Slice %input [0, 0] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %1 = VPU.GatherDMA(%0, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %2 = VPU.Slice %input [0, 683] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %3 = VPU.GatherDMA(%2, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %4 = VPU.Slice %input [0, 1366] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    %5 = VPU.GatherDMA(%4, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %6 = VPU.Concat(%1, %3, %5) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %7 = VPU.AffineReshape(%6) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 2048]} : tensor<1024x2048xf16> -> tensor<1x1024x2048xf16>
+    %8 = VPU.Slice %input [0, 2048] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %9 = VPU.GatherDMA(%8, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %10 = VPU.Slice %input [0, 2731] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %11 = VPU.GatherDMA(%10, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %12 = VPU.Slice %input [0, 3414] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    %13 = VPU.GatherDMA(%12, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %14 = VPU.Concat(%9, %11, %13) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %15 = VPU.AffineReshape(%14) {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 2048]} : tensor<1024x2048xf16> -> tensor<1x1024x2048xf16>
+    %16 = VPU.Concat(%7, %15) {static_offsets = [[0, 0, 0], [0, 0, 2048]]} : tensor<1x1024x2048xf16>, tensor<1x1024x2048xf16> -> tensor<1x1024x4096xf16>
+    return %16 : tensor<1x1024x4096xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 683] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[SLICE_1]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_2:%.+]] = VPU.Slice [[INPUT]] [0, 1366] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_2:%.+]] = VPU.GatherDMA([[SLICE_2]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    // CHECK:   [[SLICE_3:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_3:%.+]] = VPU.GatherDMA([[SLICE_3]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_4:%.+]] = VPU.Slice [[INPUT]] [0, 2731] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_4:%.+]] = VPU.GatherDMA([[SLICE_4]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_5:%.+]] = VPU.Slice [[INPUT]] [0, 3414] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_5:%.+]] = VPU.GatherDMA([[SLICE_5]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+
+    // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[GATHER_DMA_0]], [[GATHER_DMA_1]], [[GATHER_DMA_2]], [[GATHER_DMA_3]], [[GATHER_DMA_4]], [[GATHER_DMA_5]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0], [0, 683], [0, 1366], [0, 2048], [0, 2731], [0, 3414]]}
+    // CHECK-SAME:              : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16>, tensor<1024x683xf16>,
+    // CHECK-SAME:              tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x4096xf16>
+
+    // CHECK:   [[RESHAPE:%.+]] = VPU.AffineReshape([[CONCAT]])
+    // CHECK-SAME{LITERAL}:      {dim_mapping = [[0, 1], [2]], shape_value = [1, 1024, 4096]} : tensor<1024x4096xf16> -> tensor<1x1024x4096xf16>
+    // CHECK:   return [[RESHAPE]] : tensor<1x1024x4096xf16>
+}
+
+// -----
+
+// CHECK-LABEL: OptimizeMultipleConcatAroundGatherDMACase1
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<128256x6144xf16>,
+// CHECK-SAME:  [[INDICES_0:%.+]]: tensor<1024x1xi64>, [[INDICES_1:%.+]]: tensor<1024x1xi64>, [[INDICES_2:%.+]]: tensor<1024x1xi64>)
+func.func @OptimizeMultipleConcatAroundGatherDMACase1(%input: tensor<128256x6144xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>, %indices2: tensor<1024x1xi64>) -> tensor<3072x6144xf16> {
+    %0 = VPU.Slice %input [0, 0] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %1 = VPU.GatherDMA(%0, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %2 = VPU.Slice %input [0, 683] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %3 = VPU.GatherDMA(%2, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %4 = VPU.Slice %input [0, 1366] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    %5 = VPU.GatherDMA(%4, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %6 = VPU.Concat(%1, %3, %5) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %7 = VPU.Slice %input [0, 2048] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %8 = VPU.GatherDMA(%7, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %9 = VPU.Slice %input [0, 2731] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %10 = VPU.GatherDMA(%9, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %11 = VPU.Slice %input [0, 3414] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    %12 = VPU.GatherDMA(%11, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %13 = VPU.Concat(%8, %10, %12) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %14 = VPU.Slice %input [0, 4096] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %15 = VPU.GatherDMA(%14, %indices2) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %16 = VPU.Slice %input [0, 4779] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    %17 = VPU.GatherDMA(%16, %indices2) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %18 = VPU.Slice %input [0, 5462] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    %19 = VPU.GatherDMA(%18, %indices2) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %20 = VPU.Concat(%15, %17, %19) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %21 = VPU.Concat(%6, %13, %20) {static_offsets = [[0, 0], [1024, 2048], [2048, 4096]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<3072x6144xf16>
+    return %21 : tensor<3072x6144xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 683] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[SLICE_1]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_2:%.+]] = VPU.Slice [[INPUT]] [0, 1366] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_2:%.+]] = VPU.GatherDMA([[SLICE_2]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    // CHECK:   [[SLICE_3:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_3:%.+]] = VPU.GatherDMA([[SLICE_3]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_4:%.+]] = VPU.Slice [[INPUT]] [0, 2731] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_4:%.+]] = VPU.GatherDMA([[SLICE_4]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_5:%.+]] = VPU.Slice [[INPUT]] [0, 3414] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_5:%.+]] = VPU.GatherDMA([[SLICE_5]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    // CHECK:   [[SLICE_6:%.+]] = VPU.Slice [[INPUT]] [0, 4096] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_6:%.+]] = VPU.GatherDMA([[SLICE_6]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_7:%.+]] = VPU.Slice [[INPUT]] [0, 4779] [128256, 683] : tensor<128256x6144xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_7:%.+]] = VPU.GatherDMA([[SLICE_7]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_8:%.+]] = VPU.Slice [[INPUT]] [0, 5462] [128256, 682] : tensor<128256x6144xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_8:%.+]] = VPU.GatherDMA([[SLICE_8]], [[INDICES_2]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+
+    // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[GATHER_DMA_0]], [[GATHER_DMA_1]], [[GATHER_DMA_2]], [[GATHER_DMA_3]], [[GATHER_DMA_4]], [[GATHER_DMA_5]], [[GATHER_DMA_6]], [[GATHER_DMA_7]], [[GATHER_DMA_8]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0], [0, 683], [0, 1366], [1024, 2048], [1024, 2731], [1024, 3414], [2048, 4096], [2048, 4779], [2048, 5462]]}
+    // CHECK-SAME:              : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16>, tensor<1024x683xf16>,
+    // CHECK-SAME:              tensor<1024x683xf16>, tensor<1024x682xf16>, tensor<1024x683xf16>,
+    // CHECK-SAME:              tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<3072x6144xf16>
+
+    // CHECK:   return [[CONCAT]] : tensor<3072x6144xf16>
+}
+
+// -----
+
+// CHECK-LABEL: OptimizeMultipleConcatAroundGatherDMACase2
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<128256x4096xf16>,
+// CHECK-SAME:  [[INDICES_0:%.+]]: tensor<1024x1xi64>,
+// CHECK-SAME:  [[INDICES_1:%.+]]: tensor<1024x1xi64>
+func.func @OptimizeMultipleConcatAroundGatherDMACase2(%input: tensor<128256x4096xf16>, %indices0: tensor<1024x1xi64>, %indices1: tensor<1024x1xi64>) -> tensor<1024x4096xf16> {
+    %0 = VPU.Slice %input [0, 0] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %1 = VPU.GatherDMA(%0, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %2 = VPU.Slice %input [0, 683] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %3 = VPU.GatherDMA(%2, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %4 = VPU.Slice %input [0, 1366] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    %5 = VPU.GatherDMA(%4, %indices0) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %6 = VPU.Concat(%1, %3, %5) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %7 = VPU.Slice %input [0, 2048] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %8 = VPU.GatherDMA(%7, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %9 = VPU.Slice %input [0, 2731] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    %10 = VPU.GatherDMA(%9, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    %11 = VPU.Slice %input [0, 3414] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    %12 = VPU.GatherDMA(%11, %indices1) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    %13 = VPU.Concat(%8, %10, %12) {static_offsets = [[0, 0], [0, 683], [0, 1366]]} : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x2048xf16>
+    %16 = VPU.Concat(%13, %6) {static_offsets = [[0, 0], [0, 2048]]} : tensor<1024x2048xf16>, tensor<1024x2048xf16> -> tensor<1024x4096xf16>
+    return %16 : tensor<1024x4096xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[SLICE_0]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 683] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[SLICE_1]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_2:%.+]] = VPU.Slice [[INPUT]] [0, 1366] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_2:%.+]] = VPU.GatherDMA([[SLICE_2]], [[INDICES_0]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+    // CHECK:   [[SLICE_3:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_3:%.+]] = VPU.GatherDMA([[SLICE_3]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_4:%.+]] = VPU.Slice [[INPUT]] [0, 2731] [128256, 683] : tensor<128256x4096xf16> to tensor<128256x683xf16>
+    // CHECK:   [[GATHER_DMA_4:%.+]] = VPU.GatherDMA([[SLICE_4]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x683xf16>, tensor<1024x1xi64> -> tensor<1024x683xf16>
+    // CHECK:   [[SLICE_5:%.+]] = VPU.Slice [[INPUT]] [0, 3414] [128256, 682] : tensor<128256x4096xf16> to tensor<128256x682xf16>
+    // CHECK:   [[GATHER_DMA_5:%.+]] = VPU.GatherDMA([[SLICE_5]], [[INDICES_1]]) {axis_value = 0 : i64, batch_dims = 0 : i64}
+    // CHECK-SAME:      : tensor<128256x682xf16>, tensor<1024x1xi64> -> tensor<1024x682xf16>
+
+    // CHECK:   [[CONCAT:%.+]] = VPU.Concat([[GATHER_DMA_3]], [[GATHER_DMA_4]], [[GATHER_DMA_5]], [[GATHER_DMA_0]], [[GATHER_DMA_1]], [[GATHER_DMA_2]])
+    // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0], [0, 683], [0, 1366], [0, 2048], [0, 2731], [0, 3414]]}
+    // CHECK-SAME:              : tensor<1024x683xf16>, tensor<1024x683xf16>, tensor<1024x682xf16>, tensor<1024x683xf16>,
+    // CHECK-SAME:              tensor<1024x683xf16>, tensor<1024x682xf16> -> tensor<1024x4096xf16>
+
+    // CHECK:   return [[CONCAT]] : tensor<1024x4096xf16>
+}
+
+// -----
+
+// CHECK-LABEL: NotOptimizeMultipleReshapeConcatAroundGatherDMA
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<4x8192xf16>,
+// CHECK-SAME:  [[INDICES:%.+]]: tensor<1x1xi64>
+func.func @NotOptimizeMultipleReshapeConcatAroundGatherDMA(%input: tensor<4x8192xf16>, %indices: tensor<1x1xi64>) -> tensor<1x1x128x256xf16> {
+    %0 = VPU.Slice %input [0, 0] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    %1 = VPU.GatherDMA(%0, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    %2 = VPU.Slice %input [0, 2048] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    %3 = VPU.GatherDMA(%2, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    %4 = VPU.Slice %input [0, 4096] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    %5 = VPU.GatherDMA(%4, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    %6 = VPU.Slice %input [0, 6144] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    %7 = VPU.GatherDMA(%6, %indices) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    %8 = VPU.Concat(%1, %3, %5, %7) {static_offsets = [[0, 0], [0, 2048], [0, 4096], [0, 6144]]} : tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16> -> tensor<1x8192xf16>
+    %9 = VPU.AffineReshape(%8) {dim_mapping = [[0, 1], [2, 3]], shape_value = [1, 1, 32, 256]} : tensor<1x8192xf16> -> tensor<1x1x32x256xf16>
+    %10 = VPU.Concat(%9, %9, %9, %9) {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 4 : i64>} : tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16> -> tensor<1x1x128x256xf16>
+    return %10 : tensor<1x1x128x256xf16>
+
+    // CHECK:   [[SLICE_0:%.+]] = VPU.Slice [[INPUT]] [0, 0] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    // CHECK:   [[GATHER_DMA_0:%.+]] = VPU.GatherDMA([[SLICE_0]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    // CHECK:   [[SLICE_1:%.+]] = VPU.Slice [[INPUT]] [0, 2048] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    // CHECK:   [[GATHER_DMA_1:%.+]] = VPU.GatherDMA([[SLICE_1]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    // CHECK:   [[SLICE_2:%.+]] = VPU.Slice [[INPUT]] [0, 4096] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    // CHECK:   [[GATHER_DMA_2:%.+]] = VPU.GatherDMA([[SLICE_2]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    // CHECK:   [[SLICE_3:%.+]] = VPU.Slice [[INPUT]] [0, 6144] [4, 2048] : tensor<4x8192xf16> to tensor<4x2048xf16>
+    // CHECK:   [[GATHER_DMA_3:%.+]] = VPU.GatherDMA([[SLICE_3]], [[INDICES]]) {axis_value = 0 : i64, batch_dims = 0 : i64} : tensor<4x2048xf16>, tensor<1x1xi64> -> tensor<1x2048xf16>
+    // CHECK:   [[CONCAT_0:%.+]] = VPU.Concat([[GATHER_DMA_0]], [[GATHER_DMA_1]], [[GATHER_DMA_2]], [[GATHER_DMA_3]])
+    // CHECK-SAME{LITERAL}:   {static_offsets = [[0, 0], [0, 2048], [0, 4096], [0, 6144]]}
+    // CHECK-SAME:            : tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16>, tensor<1x2048xf16> -> tensor<1x8192xf16>
+    // CHECK:   [[RESHAPE:%.+]] = VPU.AffineReshape([[CONCAT_0]])
+    // CHECK-SAME{LITERAL}:   {dim_mapping = [[0, 1], [2, 3]], shape_value = [1, 1, 32, 256]}
+    // CHECK-SAME:            : tensor<1x8192xf16> -> tensor<1x1x32x256xf16>
+    // CHECK:   [[CONCAT_1:%.+]] = VPU.Concat([[RESHAPE]], [[RESHAPE]], [[RESHAPE]], [[RESHAPE]]) {per_axis = #IE.Concat<axis = 2 : i64, offset = 1 : i64, stride = 4 : i64>} : tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16>, tensor<1x1x32x256xf16> -> tensor<1x1x128x256xf16>
+    // CHECK:   return [[CONCAT_1]] : tensor<1x1x128x256xf16>
+}

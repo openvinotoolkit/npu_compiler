@@ -65,7 +65,7 @@ func.func @ConvMulticlusterSOHOverlapped(%arg0: tensor<1x64x28x28xf16, {order = 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @DepthConvDistributedTensorSOHOverlapped
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>
@@ -122,7 +122,7 @@ func.func @DepthConvDistributedTensorSOHOverlapped(%arg0: tensor<1x32x112x112xf1
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @MaxPoolMulticlusterSOHOverlapped
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>
@@ -166,7 +166,7 @@ func.func @MaxPoolMulticlusterSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {ord
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @MaxPoolMulticlusterHKSwitch
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>)
@@ -208,7 +208,7 @@ func.func @MaxPoolMulticlusterHKSwitch(%arg0: tensor<1x32x112x112xf16, {order = 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @EltwiseAddMulticlusterSOHOverlapped
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>,
@@ -253,7 +253,7 @@ func.func @EltwiseAddMulticlusterSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @AvgPoolMulticlusterSOHOverlapped
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>
@@ -295,7 +295,7 @@ func.func @AvgPoolMulticlusterSOHOverlapped(%arg0: tensor<1x32x112x112xf16, {ord
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @SparseConvMulticlusterSOHOverlapped
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x64x28x28xf16, {order = #NHWC}>,
@@ -402,7 +402,7 @@ func.func @SparseConvMulticlusterSOHOverlapped(%arg0 : tensor<1x64x28x28xf16, {o
 // CHECK-LABEL: @MVN6SOK4
 module @MVN6SOK4 {
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: func.func @MVN6SOK
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x32x15x64xf16>)
@@ -444,7 +444,7 @@ func.func @MVN6SOK(%arg0: tensor<1x32x15x64xf16>) -> tensor<1x32x15x64xf16> {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @UnrollSOKConvOutputSegmented
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x64x64x64xf16, {order = #NHWC}>
@@ -533,7 +533,7 @@ func.func @UnrollSOKConvOutputSegmented(%input: tensor<1x64x64x64xf16, {order = 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @UnrollSOKDWConvInputOutputDuplicated
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x1x320x1xf16>
@@ -656,7 +656,7 @@ func.func @UnrollSOKDWConvInputOutputDuplicated(%input: tensor<1x1x320x1xf16>) -
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @NCEInterpolateMulticlusterClustering
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x16x1x1xf16, {order = #NHWC}>
@@ -764,7 +764,7 @@ func.func @NCEInterpolateMulticlusterClustering(%arg0: tensor<1x16x1x1xf16, {ord
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 
 module @Permute {
-IE.TileResource 2 of @NCE at 1.300000e+03 MHz
+config.Resources 2 of @NCE at 1.300000e+03 MHz
 
 // CHECK-LABEL: @NCEPermuteCompressConv
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x3x224x224xf16>
@@ -857,7 +857,7 @@ func.func @NCEPermuteCompressConv(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x16
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   @SubtractSWSOHTileAtBroadcastAxis
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x32x44x44xf16>, [[INPUT_1:%.+]]: tensor<1x1x1x44xf16>
@@ -913,7 +913,7 @@ func.func @SubtractSWSOHTileAtBroadcastAxis(%arg0: tensor<1x32x44x44xf16>,
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   @AddSWSOHTileNotAtBroadcastAxis
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x32x44x44xf16>, [[INPUT_1:%.+]]: tensor<1x1x44x44xf16>
@@ -969,7 +969,7 @@ func.func @AddSWSOHTileNotAtBroadcastAxis(%arg0: tensor<1x32x44x44xf16>,
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL:   @AddSWSOHTileAtBroadcastAxis
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x32x44x44xf16>, [[INPUT_1:%.+]]: tensor<1x1x1x44xf16>
@@ -1024,7 +1024,7 @@ func.func @AddSWSOHTileAtBroadcastAxis(%arg0: tensor<1x32x44x44xf16>,
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: func.func @FloorSWSOH
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x16x16x512xf16>)
@@ -1066,7 +1066,7 @@ func.func @FloorSWSOH(%arg0: tensor<1x16x16x512xf16>) -> tensor<1x16x16x512xf16>
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: func.func @FloorSWClustering
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x1x1x513xf16>)
@@ -1195,7 +1195,7 @@ func.func @AccumulateClustering(
 // CHECK-LABEL: @PadSOH4
 module @PadSOH4 {
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: func.func @PadSwSOH
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x16x32x50xf16>)
 func.func @PadSwSOH(%arg0: tensor<1x16x32x50xf16>) -> tensor<1x17x32x60xf16> {
@@ -1237,7 +1237,7 @@ func.func @PadSwSOH(%arg0: tensor<1x16x32x50xf16>) -> tensor<1x17x32x60xf16> {
 // CHECK-LABEL: @PadSOK4
 module @PadSOK4 {
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: func.func @PadSwSOK
 // CHECK-SAME:    ([[INPUT_DATA:%.+]]: tensor<1x16x30x50xf16>)
 func.func @PadSwSOK(%arg0: tensor<1x16x30x50xf16>) -> tensor<1x16x33x53xf16> {
@@ -1277,7 +1277,7 @@ func.func @PadSwSOK(%arg0: tensor<1x16x30x50xf16>) -> tensor<1x16x33x53xf16> {
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @EltwiseInputsSameOffsets
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x128x72x72xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x128x72x72xf16, {order = #NHWC}>)
@@ -1403,7 +1403,7 @@ func.func @EltwiseInputsSameOffsets(%arg0: tensor<1x128x72x72xf16, {order = #NHW
 // CHECK-LABEL: @GatherSOH4
 module @GatherSOH4 {
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: func.func @GatherSwSOH
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x1x64x72xf16>
 // CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x16x1x1xsi32>
@@ -1449,7 +1449,7 @@ func.func @GatherSwSOH(%arg0: tensor<1x1x64x72xf16>, %arg1: tensor<1x16x1x1xsi32
 // CHECK-LABEL: @GatherSOK4
 module @GatherSOK4 {
 
-IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+config.Resources 4 of @NCE at 1.700000e+03 MHz
 // CHECK-LABEL: func.func @GatherSwSOK
 // CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x128x64x72xf16>
 // CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x16x1x1xsi32>
@@ -1492,7 +1492,7 @@ func.func @GatherSwSOK(%arg0: tensor<1x128x64x72xf16>, %arg1: tensor<1x16x1x1xsi
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @SubgraphWithInplaceEltwise
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x64x208x208xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x128x104x104xf16, {order = #NHWC}>, [[ARG2:%.+]]: tensor<1x128x104x104xf16, {order = #NHWC}>)
@@ -1720,7 +1720,7 @@ func.func @SubgraphWithInplaceEltwise(%arg0: tensor<1x64x208x208xf16, {order = #
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @SwOpOperand0IsCst
 // CHECK-SAME:    ([[INPUT:%.+]]: tensor<1x64x4x4xf16, {order = #NHWC}>)
@@ -1838,7 +1838,7 @@ func.func @SwOpOperand0IsCst(%arg0: tensor<1x64x4x4xf16, {order = #NHWC}>) -> te
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+config.Resources 6 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @SubgraphWithMaxPoolAndEltwise
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x32x112x112xf16, {order = #NHWC}>)
@@ -2049,7 +2049,7 @@ func.func @RMSNormClustering(%arg0: tensor<1x32x1x6xf16>) -> tensor<1x32x1x6xf16
 !qElemType = !quant.uniform<u8:f16, 1.000000e+00>
 
 module @executors {
-IE.TileResource 3 of @NCE at 1.700000e+03 MHz
+config.Resources 3 of @NCE at 1.700000e+03 MHz
 
 // CHECK-LABEL: @UnrollSOKDequantConv
 // CHECK-SAME:   ([[ARG0:%.+]]: tensor<1x512x5x5xf16, {order = #NHWC}>
@@ -2208,7 +2208,7 @@ func.func @GatherNDClustering(%arg0: tensor<1x1x1792x16xf16>, %arg1: tensor<1x1x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @DWConvWithSEP {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DWConvWithSEPSOK
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x160x1x1xf16, {order = #NHWC}>)
@@ -2319,7 +2319,7 @@ func.func @DWConvWithSEPSOK(%arg0: tensor<1x160x1x1xf16, {order = #NHWC}>) -> te
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @DynamicQuantize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 // CHECK-LABEL: @DynamicQuantizeSOH
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
 func.func @DynamicQuantizeSOH(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x1x1xf32>, %arg2: tensor<1x1x1x1xf32>)
@@ -2428,7 +2428,7 @@ func.func @DynamicQuantizeSOH(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @DynamicQuantize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DynamicQuantizeSOW
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x1x667x400xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
@@ -2539,7 +2539,7 @@ func.func @DynamicQuantizeSOW(%arg0: tensor<1x1x667x400xf32>, %arg1: tensor<1x1x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @DynamicQuantize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DynamicQuantizeSOC
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x667x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>
@@ -2649,7 +2649,7 @@ func.func @DynamicQuantizeSOC(%arg0: tensor<1x667x400x1xf32>, %arg1: tensor<1x1x
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @DynamicQuantize {
-    IE.TileResource 4 of @NCE at 6.000000e+02 MHz
+    config.Resources 4 of @NCE at 6.000000e+02 MHz
 
 // CHECK-LABEL: @DynamicQuantizeClustering
 // CHECK-SAME:  [[INPUT0:%.+]]: tensor<1x6x400x1xf32>, [[INPUT1:%.+]]: tensor<1x1x1x1xf32>, [[INPUT2:%.+]]: tensor<1x1x1x1xf32>

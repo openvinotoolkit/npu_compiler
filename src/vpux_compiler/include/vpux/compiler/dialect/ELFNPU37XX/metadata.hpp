@@ -20,6 +20,7 @@ namespace vpux {
 namespace ELFNPU37XX {
 
 std::unique_ptr<elf::NetworkMetadata> constructMetadata(mlir::ModuleOp module, Logger log);
+void setResourceRequirement(mlir::ModuleOp moduleOp, elf::NetworkMetadata& metadata);
 
 elf::TensorRef createTensorRef(mlir::Value val, StringRef name);
 elf::TensorRef createTensorRef(vpux::NDTypeInterface type, StringRef name);

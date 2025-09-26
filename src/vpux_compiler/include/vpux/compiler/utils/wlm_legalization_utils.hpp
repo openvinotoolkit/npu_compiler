@@ -82,4 +82,6 @@ VPURT::TaskOp createFetchDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::
                              mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                              VPUIP::FetchDMAAttr fetchDMAAttr, llvm::StringLiteral opName = "fetch_dma");
 
+VPUIP::FetchDMAAttr getFetchDMAAttr(int64_t groupIdx, BarrierInfo& barrierInfo, size_t taskIndex);
+
 }  // namespace vpux

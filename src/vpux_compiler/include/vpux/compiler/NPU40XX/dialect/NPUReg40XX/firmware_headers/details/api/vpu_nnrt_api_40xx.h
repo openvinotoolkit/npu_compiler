@@ -35,6 +35,9 @@
  *
  * API changelog
  * -------------
+ * 11.10.3:
+ *   - update Field name from reserved_1 to noc_clk_en in DPU Descriptor.
+ *
  * 11.10:
  *   - Increase the minor version number to uniquely identify the UD24 release from earlier versions
  *
@@ -65,7 +68,7 @@
  */
 #define VPU_NNRT_40XX_API_VER_MAJOR 11
 #define VPU_NNRT_40XX_API_VER_MINOR 10
-#define VPU_NNRT_40XX_API_VER_PATCH 0
+#define VPU_NNRT_40XX_API_VER_PATCH 3
 #define VPU_NNRT_40XX_API_VER ((VPU_NNRT_40XX_API_VER_MAJOR << 16) | VPU_NNRT_40XX_API_VER_MINOR)
 
 /* Index in the API version table, same for all HW generations */

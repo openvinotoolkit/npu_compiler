@@ -45,7 +45,7 @@ const std::vector<std::vector<ov::Shape>> inShapes = {{{1, 8, 24, 64}}, {{3, 16,
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_GRN, GRNLayerTestCommon,
                          testing::Combine(testing::ValuesIn(modelTypes),
                                           testing::ValuesIn(static_shapes_to_test_representation(inShapes)),
-                                          testing::ValuesIn(biases), testing::Values(DEVICE_NPU)),
+                                          testing::ValuesIn(biases), testing::Values(test_utils::TARGET_DEVICE)),
                          GRNLayerTestCommon::getTestCaseName);
 
 }  // namespace

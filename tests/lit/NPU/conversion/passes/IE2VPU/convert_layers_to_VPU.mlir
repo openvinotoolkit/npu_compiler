@@ -317,6 +317,18 @@ func.func @NormalizeL2(%arg0: tensor<1x128x50x85xf16>) -> tensor<1x128x50x85xf16
     // CHECK: return [[VAR0]] : tensor<1x128x50x85xf16>
 }
 
+
+// -----
+
+// CHECK-LABEL: @NormalizeL2FixSmallEpsilon
+func.func @NormalizeL2FixSmallEpsilon(%arg0: tensor<1x1x40x64xf16>) -> tensor<1x1x40x64xf16> {
+    %0 = IE.NormalizeL2(%arg0) {axes_value = [3], eps = 9.999999960041972E-13 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x40x64xf16> -> tensor<1x1x40x64xf16>
+    return %0 : tensor<1x1x40x64xf16>
+
+    // CHECK: [[VAR0:%.+]] = VPU.NormalizeL2(%arg0) {axes_value = [3], eps = 9.9999997171806853E-10 : f64, eps_mode = #IE.eps_mode<MAX>} : tensor<1x1x40x64xf16> -> tensor<1x1x40x64xf16>
+    // CHECK: return [[VAR0]] : tensor<1x1x40x64xf16>
+}
+
 // -----
 
 // CHECK-LABEL: @GRUCell
@@ -1207,7 +1219,7 @@ func.func @DynamicQuantize(%arg0: tensor<1x1x6000x400xf32>, %arg1: tensor<1x1x1x
 // CHECK-LABEL: @SDPA
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x32x1x96xf16>, [[ARG1:%.+]]: tensor<1x32x1024x96xf16>, [[ARG2:%.+]]: tensor<1x32x96x1024xf16>, [[ARG3:%.+]]: tensor<1x1x1x1024xf16>)
 func.func @SDPA(%arg0: tensor<1x32x1x96xf16>, %arg1: tensor<1x32x1024x96xf16>, %arg2: tensor<1x32x96x1024xf16>, %arg3: tensor<1x1x1x1024xf16>) -> (tensor<1x32x1x96xf16>){
-    %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
+    %0 = IE.SDPA(%arg0, %arg1, %arg2, %arg3) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>
     return %0 : tensor<1x32x1x96xf16>
 
     // CHECK:   [[SDPA:%.+]] = VPU.SDPA([[ARG0]], [[ARG1]], [[ARG2]], [[ARG3]]) {operandSegmentSizes = array<i32: 1, 1, 1, 1, 0, 0, 0>} : tensor<1x32x1x96xf16>, tensor<1x32x1024x96xf16>, tensor<1x32x96x1024xf16>, tensor<1x1x1x1024xf16> -> tensor<1x32x1x96xf16>

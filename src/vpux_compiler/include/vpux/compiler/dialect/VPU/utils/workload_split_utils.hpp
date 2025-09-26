@@ -5,8 +5,16 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+
+#include <vpu/dpu_types.h>
+#include <vpu/layer_split_info.h>
+
+namespace VPUNN {
+class VPUCostModel;
+}  // namespace VPUNN
 
 namespace vpux::VPU {
 /**

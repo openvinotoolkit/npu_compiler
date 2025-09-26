@@ -5,8 +5,10 @@
 
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/matmul.hpp"
@@ -267,6 +269,73 @@ void To4D(IE::MatMulOp origOp) {
     origOp.erase();
 }
 
+void SoftMaxTo4D(IE::SoftMaxOp origOp) {
+    // To maintain SDP(MatMul-SoftMax-MatMul) fusion, we need to reshape SoftMax to 4D aligned with reshaped MatMul.
+    auto skipFakeQuantizeIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
+        if (!mlir::isa_and_nonnull<IE::FakeQuantizeOp>(op)) {
+            return op;
+        }
+        if (!op->hasOneUse()) {
+            return nullptr;
+        }
+        return op->getOperand(0).getDefiningOp();
+    };
+    auto inputReshapeOp =
+            mlir::dyn_cast_or_null<IE::ReshapeOp>(skipFakeQuantizeIfPresent(origOp->getOperand(0).getDefiningOp()));
+    if (inputReshapeOp == nullptr) {
+        return;
+    }
+    if (!mlir::isa_and_nonnull<IE::MatMulOp>(inputReshapeOp.getInput().getDefiningOp())) {
+        return;
+    }
+
+    const auto input = origOp.getInput();
+    const auto out = origOp.getOutput();
+    const auto inShape = getShape(input);
+    const auto outShape = getShape(out);
+    // Convert
+    // IE.SoftMax(%arg0) : [batch1, batch2, ..., rows, columns]
+    // into
+    // IE.SoftMax(%arg0) : [1, batch1 * batch2 * ..., rows, columns]
+    const auto inputRank = inShape.size();
+    const auto outRank = outShape.size();
+    if (inputRank == 4 && outRank == 4 && outShape[Dims4D::Act::N] == 1) {
+        return;
+    }
+    if (inputRank < 2) {
+        return;
+    }
+    auto axisValue = origOp.getAxisInd();
+    axisValue = axisValue < 0 ? axisValue + inputRank : axisValue;
+    if (axisValue < int64_t(inputRank - 2)) {
+        return;
+    }
+    const auto inOrder = DimsOrder::fromValue(input);
+    const auto outOrder = DimsOrder::fromValue(out);
+    if (!inOrder.isIdentity() || !outOrder.isIdentity()) {
+        return;
+    }
+    // Exclude row and column dimensions from the list, multiply only batches.
+    const auto inBatch = std::accumulate(inShape.begin(), inShape.end() - 2, 1, std::multiplies<int64_t>());
+    const Shape newInShape = {1, inBatch, inShape[Dim(inputRank - 2)], inShape[Dim(inputRank - 1)]};
+    axisValue += int64_t(newInShape.size() - inputRank);
+
+    auto ctx = origOp.getContext();
+    mlir::OpBuilder builder(origOp);
+    auto reshapeInput = builder.createOrFold<IE::ReshapeOp>(appendLoc(input.getLoc(), "reshape_in"), input,
+                                                            /*shape=*/nullptr, /*special_zero=*/false,
+                                                            /*shape_value=*/getIntArrayAttr(ctx, newInShape));
+    auto newSoftMax = builder.create<IE::SoftMaxOp>(origOp->getLoc(), reshapeInput, getIntAttr(ctx, axisValue),
+                                                    origOp.getPadSizeAttr());
+    auto reshapeOut =
+            builder.createOrFold<IE::ReshapeOp>(appendLoc(out.getLoc(), "reshape_out"), newSoftMax.getOutput(),
+                                                /*shape=*/nullptr, /*special_zero=*/false,
+                                                /*shape_value=*/getIntArrayAttr(ctx, outShape));
+
+    origOp.getOutput().replaceAllUsesWith(reshapeOut);
+    origOp.erase();
+}
+
 class ReshapeMatMulInputsPass final : public IE::impl::ReshapeMatMulInputsBase<ReshapeMatMulInputsPass> {
 public:
     explicit ReshapeMatMulInputsPass(const bool enableGroupedMatMul, Logger log)
@@ -301,6 +370,7 @@ void ReshapeMatMulInputsPass::safeRunOnFunc() {
         func.walk(CollapseBatch);
         func.walk(To4D);
     }
+    func.walk(SoftMaxTo4D);
 }
 
 }  // namespace

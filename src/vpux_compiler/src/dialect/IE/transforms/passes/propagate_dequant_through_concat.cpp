@@ -91,6 +91,18 @@ mlir::LogicalResult PropagateDequantThroughConcat::ConcatOpConverter::matchAndRe
         return mlir::failure();
     }
 
+    auto hasAnyConstInputs = [&]() {
+        return llvm::any_of(origConcatOp.getInputs(), [&](mlir::Value buff) {
+            return mlir::isa_and_nonnull<Const::DeclareOp>(buff.getDefiningOp());
+        });
+    };
+
+    // If there are no constant inputs, the propagation is not efficient.
+    if (!hasAnyConstInputs()) {
+        _log.nest().trace("ConcatOp has no constant inputs, skipping dequant propagation");
+        return mlir::failure();
+    }
+
     auto dequantizeElemType = mlir::cast<vpux::NDTypeInterface>(dequantOp.getInput().getType()).getElementType();
     SmallVector<mlir::Value> newConcatInputs;
     for (const auto& concatInput : concatInputList) {

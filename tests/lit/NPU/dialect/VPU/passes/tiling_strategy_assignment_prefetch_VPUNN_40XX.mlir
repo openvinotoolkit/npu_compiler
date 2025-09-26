@@ -119,7 +119,7 @@ func.func @DontPrefetchToNonComputeParentOp(%arg: tensor<2x1x1024xf16>) -> tenso
 !qElemType1 = !quant.uniform<u8:f16, 0.023529411764705882>
 
 module @executors {
-    IE.TileResource 4 of @NCE at 1.700000e+03 MHz
+    config.Resources 4 of @NCE at 1.700000e+03 MHz
     // CHECK-LABEL: @DWConvTileOverCPipelining
     func.func @DWConvTileOverCPipelining(%arg0: tensor<1x160x65x65x!qElemType1, {order = #NHWC}>) -> tensor<1x960x65x65x!qElemType1, {order = #NHWC}> {
         %weights = const.Declare tensor<960x96x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<960x96x1x1xf16>,
@@ -154,7 +154,7 @@ module @executors {
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-    IE.TileResource 6 of @NCE at 1.700000e+03 MHz
+    config.Resources 6 of @NCE at 1.700000e+03 MHz
     // CHECK-LABEL: @AvoidExcessiveTiling
     func.func @AvoidExcessiveTiling(%arg0: tensor<1x6304x256x4xf16, {order = #NHWC}>, %arg1: tensor<6304x16x1x1xf16, {order = #NHWC}>) -> tensor<1x6304x256x4xf16, {order = #NHWC}>  {
         %cst = const.Declare tensor<6304x1x1x4xsi32> = dense<1> : tensor<6304x1x1x4xsi32>
@@ -205,9 +205,9 @@ func.func @SplitNCEMaxPoolOverW(%arg0: tensor<1x128x1024x28xf16, {order = #NHWC}
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 module @executors {
-  IE.TileResource 4 of @NCE at 1.850000e+03 MHz {
-        IE.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
-        IE.MemoryResource 1474560 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  config.Resources 4 of @NCE at 1.850000e+03 MHz {
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
   }
 
   // CHECK-LABEL: @pipeliningTilingForBigFilter

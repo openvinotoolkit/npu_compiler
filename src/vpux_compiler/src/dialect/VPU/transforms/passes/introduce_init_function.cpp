@@ -15,7 +15,6 @@
 #include "vpux/compiler/utils/ir_modification.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/net/network_info_utils.hpp"
-#include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/Hashing.h>
@@ -176,7 +175,7 @@ void InitSpecificMetaInfoLogger::analyzeInitFunction(mlir::func::FuncOp initFunc
 
 void InitSpecificMetaInfoLogger::print(const Logger& log) {
     log.info("Summary about constants:");
-    auto generalStats = log.nest("general-statistics", 1);
+    auto generalStats = log.nest(1);
     generalStats.info("All imported unique weights: {0} ({1:F} KB)", _importedWeights->count,
                       toKb(_importedWeights->size));
     generalStats.info("Available unique weights[1]: {0} ({1:F} KB which is {2:P})", _availableWeights->count,
@@ -253,14 +252,16 @@ public:
         Base::initLogger(log, Base::getArgumentName());
     }
 
-    explicit IntroduceInitFunctionPass(const std::string& wsExtractionMode, const Logger& log) {
+    IntroduceInitFunctionPass(StringRef wsExtractionModeString, std::optional<int64_t> initPart,
+                              std::optional<Byte> limit, const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
-        this->wsExtractionMode = wsExtractionMode;
-    }
-
-    explicit IntroduceInitFunctionPass(StringRef wsExtractionModeString, const Logger& log) {
-        Base::initLogger(log, Base::getArgumentName());
-        wsExtractionMode = wsExtractionModeString.str();
+        this->wsExtractionMode = wsExtractionModeString.str();
+        if (initPart.has_value()) {
+            this->initPart = initPart.value();
+        }
+        if (limit.has_value()) {
+            this->memoryLimit = limit.value().count();
+        }
     }
 
     using InitResults = std::vector<std::tuple<VPU::ConstArg, mlir::Value>>;
@@ -520,10 +521,10 @@ IntroduceInitFunctionPass::buildInitFunction(mlir::OpBuilder& moduleBuilder, mli
             outByteCount += mlir::cast<NDTypeInterface>(type).getTotalAllocSize().count();
         }
 
-        auto statsLogger = _log.nest("partial init() stats", 1);
+        auto statsLogger = _log.nest(1);
         statsLogger.debug("Constructed init part called {0}", name);
         statsLogger.debug("Argument count: {0}", initFuncType.getNumInputs());
-        statsLogger.debug("Result  count: {0}", initFuncType.getNumResults());
+        statsLogger.debug("Result count: {0}", initFuncType.getNumResults());
         statsLogger.debug("In-byte count: {0}", inByteCount);
         statsLogger.debug("Out-byte count {0}", outByteCount);
         statsLogger.debug("Signature: {0}", initFuncType);
@@ -861,6 +862,7 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
         // Note: erase empty init to avoid issues further in the pipeline (e.g.
         // with feasible allocation)
         if (bool emptyInit = initCallOp->getOperands().empty() && initCallOp->getResults().empty(); emptyInit) {
+            _log.info("[WSMonolithic] when generating init schedule, empty init was produced");
             initFuncOp.erase();
             initCallOp.erase();
             break;
@@ -890,6 +892,7 @@ std::unique_ptr<mlir::Pass> vpux::VPU::createIntroduceInitFunctionPass(const Log
 }
 
 std::unique_ptr<mlir::Pass> vpux::VPU::createIntroduceInitFunctionPass(StringRef wsExtractionModeString,
-                                                                       const Logger& log) {
-    return std::make_unique<IntroduceInitFunctionPass>(wsExtractionModeString, log);
+                                                                       std::optional<int64_t> initPart,
+                                                                       std::optional<Byte> limit, const Logger& log) {
+    return std::make_unique<IntroduceInitFunctionPass>(wsExtractionModeString, initPart, limit, log);
 }

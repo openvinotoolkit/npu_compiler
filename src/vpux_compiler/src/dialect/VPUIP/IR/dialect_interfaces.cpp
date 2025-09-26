@@ -4,11 +4,11 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/IR/dialect_interfaces.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/batch.hpp"
@@ -367,11 +367,11 @@ CallOPPreInliner::FunctionAnalyticBase CallOPPreInliner::FunctionAnalyticBase::c
     size_t tileExecutorCount = 0;
     uint64_t maxDDRBytesAvailable = 0;
     auto module = vpux::getModuleOp(call);
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     if (tileOp) {
         tileExecutorCount = static_cast<size_t>(tileOp.getCount());
     }
-    auto memOp = IE::getAvailableMemory(module, vpux::VPU::MemoryKind::DDR);
+    auto memOp = config::getAvailableMemory(module, vpux::VPU::MemoryKind::DDR);
     if (memOp) {
         maxDDRBytesAvailable = checked_cast<uint64_t>(memOp.getByteSize());
     }

@@ -8,7 +8,7 @@
 #include "vpux/compiler/NPU37XX/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
-#include "vpux/compiler/NPU37XX/dialect/VPURT/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 
 using namespace vpux;
 
@@ -17,9 +17,5 @@ using namespace vpux;
 //
 
 void PassesRegistry37XX::registerPasses() {
-    vpux::arch37xx::registerConversionPasses();
-    vpux::IE::arch37xx::registerPasses();
-    vpux::VPU::arch37xx::registerPasses();
     vpux::VPUIP::arch37xx::registerPasses();
-    vpux::VPURT::arch37xx::registerPasses();
 }

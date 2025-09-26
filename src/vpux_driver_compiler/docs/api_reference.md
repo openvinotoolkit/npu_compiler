@@ -635,27 +635,6 @@ result = vclAllocatedExecutableCreate2(
 // Free the buffer using the custom deallocate function
 allocator.deallocate(&allocator, blobBuffer);
 ```
-<details>
-<summary>How to obtain the `options` field for `desc` struct</summary>
-
->Note: The `options` field is only valid for IR V10 model and to update their layout and precision.
-
-**Options Format**: `"--inputs_precisions=\"input_node_name:fp16\" --inputs_layouts=\"input_node_name:NCHW\" --outputs_precisions=\"output_node_name:fp16\" --outputs_layouts=\"output_node_name:NC\" --config NPU_PLATFORM=\"4000\" [OTHER_OPTIONS]"`
-
-The `options` field corresponds to the configuration of the legacy usage of [compilerTest](./test_and_debug/legacy_test.md). If you pass a config file to compilerTest, the `options` field should match the content of your config file. Alternatively, you can also construct the `options` string directly. To generate the `options` field for `desc` struct is as follows:
- - Use XML file of IR model to get the `options` content (It is recommended to use this method to obtain the input configuration. For output node names, see the next section for a more convenient approach):
-   - Find the input layer with type `Parameter`, e.g.,"<layer id="0" name="image_input" type="Parameter" version="opset1">". Take the name attribute as input node name.
-   - Find the output layer with type `Result`, e.g.,"<layer id="5" name="Y/sink_port_0" type="Result" version="opset1">", then locate its preceding node to determine the output node name. The reason for using the name of the node preceding of the `Result` node in the config file is based on [the code](https://github.com/openvinotoolkit/openvino/blob/master/src/plugins/intel_npu/src/compiler_adapter/src/driver_compiler_adapter.cpp#L398). The final string format of `options` field should be `"--inputs_precisions=\"input:fp16\" --inputs_layouts=\"input:C\" --outputs_precisions=\"output:fp16\" --outputs_layouts=\"output:C\" --config NPU_PLATFORM=\"4000\""`.
-        - For multiple inputs or outputs, separate each entry with a space, e.g., `--inputs_precisions=/"input1:fp16 input2:u8/" --inputs_layouts=/"input1:C input2:C/" --outputs_precisions=/"output1:fp16 output2:fp32/" --outputs_layouts=/"output1:C output2:C/" --config NPU_PLATFORM=/"4000/"`
-    - For config-related content, you can refer to this [README.md](https://github.com/openvinotoolkit/openvino/blob/master/src/plugins/intel_npu/README.md) to see the supported properties.
-
- - Use a visualization tool (such as [Netron](https://netron.app/)) to easily find the output node names:
-   - For example, using Netron:
-        - Enter the URL, click `Open Model...`, then select the model you want to use and click `open`. Wait for the network visualization to load.
-        - Press `Ctrl + F` to search for ‘result’ nodes. Click on these nodes, and the corresponding node will be displayed directly. Click the node preceding the result node to view its attributes in the sidebar. Find the `name` attribute, which is the name of the output node to use in the config.
-
- - Use `benchmark_app` to obtain the `options` field. If you have the `benchmark_app` tool from OpenVINO Project, you can also use this method to generate the content of the `options`. Please refer to the [legacy test method](./test_and_debug/legacy_test.md).
-</details>
 
 #### `vclAllocatedExecutableCreate` (Deprecated)
 

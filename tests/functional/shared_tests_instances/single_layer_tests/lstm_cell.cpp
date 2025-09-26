@@ -44,13 +44,15 @@ const auto lstmCellConfig = ::testing::Combine(
         ::testing::ValuesIn(should_decompose), ::testing::ValuesIn(batch), ::testing::ValuesIn(hidden_size),
         ::testing::ValuesIn(input_size), ::testing::ValuesIn(activations), ::testing::ValuesIn(clip),
         ::testing::Values(InputLayerType::CONSTANT), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 const auto lstmCellPrecommitConfig = ::testing::Combine(
         ::testing::ValuesIn(should_decompose), ::testing::ValuesIn(batch), ::testing::ValuesIn(hidden_size_precommit),
         ::testing::ValuesIn(input_size_precommit), ::testing::ValuesIn(activations), ::testing::ValuesIn(clip),
         ::testing::Values(InputLayerType::CONSTANT), ::testing::Values(InputLayerType::CONSTANT),
-        ::testing::Values(InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes), ::testing::Values(DEVICE_NPU));
+        ::testing::Values(InputLayerType::CONSTANT), ::testing::ValuesIn(modelTypes),
+        ::testing::Values(test_utils::TARGET_DEVICE));
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_LSTMCellCommon, LSTMCellLayerTestCommon, lstmCellPrecommitConfig,
                          LSTMCellTest::getTestCaseName);

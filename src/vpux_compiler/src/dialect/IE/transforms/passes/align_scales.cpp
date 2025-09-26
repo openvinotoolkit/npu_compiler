@@ -11,6 +11,7 @@
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -119,7 +120,7 @@ void AlignConcatScalesRewriter::gatherFQs(mlir::Operation* currentOp, SmallVecto
             gatherFQs(operand.getDefiningOp(), fqOpsToAlign, visitedFQAgnosticOps);
             continue;
         }
-        if (!fqOpToAlign.getLevels().has_value()) {
+        if (!fqOpToAlign.getLevels().has_value() || !IE::hasStaticLowAndHighValues(fqOpToAlign)) {
             return;
         }
         if (llvm::find(fqOpsToAlign, fqOpToAlign) != fqOpsToAlign.end()) {
@@ -155,6 +156,10 @@ void AlignConcatScalesRewriter::gatherFQs(mlir::Operation* currentOp, SmallVecto
                 }
                 gatherFQs(user, fqOpsToAlign, visitedFQAgnosticOps);
                 continue;
+            }
+
+            if (!fqOpToAlign.getLevels().has_value() || !IE::hasStaticLowAndHighValues(fqOpToAlign)) {
+                return;
             }
 
             if (llvm::find(fqOpsToAlign, fqOpToAlign) != fqOpsToAlign.end()) {
@@ -422,7 +427,7 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     _log.trace("Got '{1}' at '{2}'", fqOp->getName(), fqOp->getLoc());
     mlir::MLIRContext* ctx = fqOp->getContext();
 
-    if (!fqOp.getLevels().has_value()) {
+    if (!fqOp.getLevels().has_value() || !IE::hasStaticLowAndHighValues(fqOp)) {
         return mlir::failure();
     }
     auto sliceOp = fqOp.getInput().getDefiningOp<IE::SliceOp>();
@@ -431,6 +436,11 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     }
     auto parentFqOp = sliceOp->getOperand(0).getDefiningOp<IE::FakeQuantizeOp>();
     if (parentFqOp == nullptr) {
+        return mlir::failure();
+    }
+
+    if (!IE::hasStaticLowAndHighValues(parentFqOp)) {
+        _log.trace("Failed to align slice due to dynamic FQ");
         return mlir::failure();
     }
 

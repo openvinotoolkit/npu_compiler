@@ -6,15 +6,16 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/core/layers.hpp"
-#include "vpux/compiler/dialect/IE/utils/resources.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
@@ -23,7 +24,9 @@
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/TypeSwitch.h>
+
 #include <vpu/shave/layers.h>
+#include <vpu_layer_cost_model.h>
 
 using namespace vpux;
 using namespace VPU;
@@ -270,7 +273,7 @@ LayerCostModel::LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTilin
           _siblingsOpsAnalysis(siblingsOpsAnalysis) {
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    if (auto tileOp = IE::getTileExecutor(module)) {
+    if (auto tileOp = config::getTileExecutor(module)) {
         auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
         _NCEFrequency = tileOp.getProcessorFrequency().getValueAsDouble();
         _numTiles = tileOp.getCount();
@@ -281,7 +284,7 @@ LayerCostModel::LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTilin
             _numShaveActs = shaveActExec.getCount();
         }
     }
-    _numDMAPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    _numDMAPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     _arch = config::getArch(module);
     _vpuDeviceType = VPU::getVPUDeviceType(_arch);
     _layerCostModel = VPU::CostModelConfig::createLayerCostModel(_arch);
@@ -297,7 +300,7 @@ LayerCostModel::LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTilin
           _siblingsOpsAnalysis(siblingsOpsAnalysis) {
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    if (auto tileOp = IE::getTileExecutor(module)) {
+    if (auto tileOp = config::getTileExecutor(module)) {
         auto dpuExec = tileOp.getSubExecutor(VPU::ExecutorKind::DPU);
         _NCEFrequency = tileOp.getProcessorFrequency().getValueAsDouble();
         _numTiles = tileOp.getCount();
@@ -308,7 +311,7 @@ LayerCostModel::LayerCostModel(mlir::func::FuncOp func, bool enablePrefetchTilin
             _numShaveActs = shaveActExec.getCount();
         }
     }
-    _numDMAPorts = IE::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
+    _numDMAPorts = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     _arch = config::getArch(module);
     _vpuDeviceType = VPU::getVPUDeviceType(_arch);
 }
@@ -873,6 +876,12 @@ double LayerCostModel::getSWLayerCost(VPU::SWOpInterface swOp, VPU::MultiCluster
             })
             .Case<VPU::NotEqualOp>([&](VPU::NotEqualOp) {
                 vpunnLayer = std::make_shared<VPUNN::SHVNotEqual>(device, inputTensors, outputTensors.front());
+            })
+            .Case<VPU::LessEqualOp>([&](VPU::LessEqualOp) {
+                vpunnLayer = std::make_shared<VPUNN::SHVNotEqual>(device, inputTensors, outputTensors.front());
+            })
+            .Case<VPU::SoftPlusOp>([&](VPU::SoftPlusOp) {
+                vpunnLayer = std::make_shared<VPUNN::SHVSoftPlus>(device, inputTensors.front(), outputTensors.front());
             })
             .Case<VPU::AndOp>([&](VPU::AndOp) {
                 vpunnLayer = std::make_shared<VPUNN::SHVAnd>(device, inputTensors, outputTensors.front());
@@ -1572,37 +1581,13 @@ bool vpux::VPU::isStrategySOXCompatible(VPU::ClusteredOpInterface clusteredOp, V
 
 // For a clustered op which doesn't support cycle cost calculation the priority for strategies is parent strategy >
 // SOH/SOHOverlapped > SOK > SOW > Clustering
+// Note: parent strategy will take precedence, but it is delayed just before subgraph optimization to allow
+// multi-threading of this pass in the future
 std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU::ClusteredOpInterface clusteredOp) {
     auto module = clusteredOp->getParentOfType<mlir::ModuleOp>();
-    auto tileOp = IE::getTileExecutor(module);
+    auto tileOp = config::getTileExecutor(module);
     const auto numTiles = tileOp.getCount();
-    // Try parent's strategy first for ops that do not support cycle cost calculation
-    auto parent = clusteredOp->getOperand(0);
-    auto swOp = mlir::dyn_cast_or_null<VPU::SWOpInterface>(clusteredOp.getOperation());
-    bool useParentStrategy =
-            mlir::isa<VPU::ConcatOp>(clusteredOp.getOperation()) || !swOp.supportCycleCostCalculation();
-    if (parent != nullptr && useParentStrategy) {
-        if (auto parentClusterOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(parent.getDefiningOp())) {
-            auto strategyAttr = parentClusterOp.getMultiClusterStrategy();
-            if (strategyAttr.has_value()) {
-                auto strategy = strategyAttr.value();
-                if (isStrategySOXCompatible(clusteredOp, strategy, numTiles)) {
-                    // Check if the strategy is supported by the user clustered op. If the strategy is also supported by
-                    // the user op, which means that there should be no spilling between parent/current op and
-                    // current/user op. Otherwise we should not use the parent strategy.
-                    if (VPU::hasMultiBranches(clusteredOp.getOperation()) ||
-                        clusteredOp->getResult(0).getUsers().empty()) {
-                        return strategy;
-                    }
-                    auto userClusterOp = mlir::dyn_cast_or_null<VPU::ClusteredOpInterface>(
-                            *clusteredOp->getResult(0).getUsers().begin());
-                    if ((userClusterOp == nullptr) || isStrategySOXCompatible(userClusterOp, strategy, numTiles)) {
-                        return strategy;
-                    }
-                }
-            }
-        }
-    }
+
     // Only the highest dimension is prioritized
     // Need to investigate if the complete layout order could be optimal
     // Track E#124146
@@ -1611,10 +1596,9 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
              VPU::MultiClusterStrategy::SplitOverBatch, VPU::MultiClusterStrategy::SplitOverKernel,
              VPU::MultiClusterStrategy::SplitOverWidth});
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
-    const auto outputShape = outputType.getShape();
-    const auto highestDim =
-            vpux::getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
-    const auto numActShaves = IE::getTotalNumOfEngines(clusteredOp, VPU::ExecutorKind::SHAVE_ACT);
+    const auto outputShape = getBoundedShape(outputType);
+    const auto highestDim = vpux::getHighestNonTrivialDim(outputShape, outputType.getDimsOrder()).value_or(Dim(0));
+    const auto numActShaves = config::getTotalNumOfEngines(clusteredOp, VPU::ExecutorKind::SHAVE_ACT);
 
     DenseMap<int64_t, SmallVector<VPU::MultiClusterStrategy>> dimToStrategyMap{
             {Dims4D::Act::N.ind(), {VPU::MultiClusterStrategy::SplitOverBatch}},
@@ -1684,7 +1668,7 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
         // supposed to be same one in TileActShaveKernelTaskPass.
         if (auto sigmoidOp = mlir::dyn_cast<VPU::SigmoidOp>(clusteredOp.getOperation())) {
             // E#92211: Measurements for the performance profiling, see this ticket for details.
-            auto tileOp = IE::getTileExecutor(clusteredOp->getParentOfType<mlir::ModuleOp>());
+            auto tileOp = config::getTileExecutor(clusteredOp->getParentOfType<mlir::ModuleOp>());
             auto dpuCount = tileOp.getCount();
             VPUX_THROW_WHEN(dpuCount <= 0, "Invalid number of clusters: {0}", dpuCount);
             auto outType = mlir::cast<vpux::NDTypeInterface>(sigmoidOp.getOutput().getType());
@@ -1704,6 +1688,9 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
         // greater than the loss of stride DMA.
         updateStrategyOrder(shaveTilingDim.value());
     }
+
+    // #E179535: Experimental results show SOW may bring regression for EqualOp with small width
+    const int64_t MIN_WIDTH_FOR_SOW_EQUAL = 256;
 
     for (auto strategy : strategyOrder) {
         if (!clusteredOp.checkStrategyCompatibility(strategy, numTiles)) {
@@ -1729,7 +1716,13 @@ std::optional<VPU::MultiClusterStrategy> vpux::VPU::getDefaultLayerStrategy(VPU:
         if (strategy == VPU::MultiClusterStrategy::SplitOverWidth) {
             if (mlir::isa<VPU::SoftMaxOp, VPU::DepthToSpaceOp, VPU::PadOp, VPU::MVN1NormalizeOp, VPU::SwishOp,
                           VPU::MultiplyOp, VPU::SelectOp, VPU::DynamicDequantizeOp, VPU::DynamicQuantizeOp,
-                          VPU::GreaterEqualOp>(clusteredOp.getOperation()) &&
+                          VPU::GreaterEqualOp, VPU::MaximumOp>(clusteredOp.getOperation()) &&
+                clusteredOp.isOperationSplitOverWidthCompatible(/*outputShape=*/ShapeRef(), /*offset=*/ShapeRef(),
+                                                                /*axis=*/ShapeRef())) {
+                return strategy;
+            }
+            if (mlir::isa<VPU::EqualOp>(clusteredOp.getOperation()) &&
+                outputShape[Dims4D::Act::W] > MIN_WIDTH_FOR_SOW_EQUAL &&
                 clusteredOp.isOperationSplitOverWidthCompatible(/*outputShape=*/ShapeRef(), /*offset=*/ShapeRef(),
                                                                 /*axis=*/ShapeRef())) {
                 return strategy;
@@ -2084,8 +2077,9 @@ SmallVector<uint32_t> vpux::VPU::getPerTileWeightsDMACosts(
         return SmallVector<uint32_t>(std::max<size_t>(tilesTypes.size(), 1), 0);
     }
 
-    const auto inferredTileTypes = std::vector<std::vector<std::pair<NDTypeInterface, TensorDistributionMap>>>{
-            getTileDistributions(nceOp.getOperation(), siblingsAnalysis, TileInfo(getShape(nceOp->getResult(0))))};
+    const auto inferredTileTypes =
+            std::vector<std::vector<std::pair<NDTypeInterface, TensorDistributionMap>>>{getTileDistributions(
+                    nceOp.getOperation(), siblingsAnalysis, TileInfo(getBoundedShape(nceOp->getResult(0))))};
     ArrayRef<std::vector<std::pair<NDTypeInterface, TensorDistributionMap>>> inferredTileTypesRef{inferredTileTypes};
     const auto typesList = tilesTypes.empty() ? inferredTileTypesRef : tilesTypes;
 

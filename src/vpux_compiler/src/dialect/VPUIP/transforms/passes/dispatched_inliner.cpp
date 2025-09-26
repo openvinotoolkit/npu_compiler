@@ -28,7 +28,19 @@ private:
     void safeRunOnModule() final;
 };
 
+bool doesIRContainCallOps(mlir::ModuleOp moduleOp) {
+    const auto walkResult = moduleOp.walk([](mlir::CallOpInterface) {
+        return mlir::WalkResult::interrupt();
+    });
+    return walkResult.wasInterrupted();
+}
+
 void DispatchedInlinerPass::safeRunOnModule() {
+    // MLIR's inliner pass is very expensive. We can return early if there are no call operations in the IR.
+    if (!doesIRContainCallOps(getOperation())) {
+        return;
+    }
+
     Core::setInlinerDispatchAttr(getOperation(), VPUIP::VPUIPInlinerDispatchAttr::get(&getContext()));
 
     mlir::PassManager pm(&getContext());

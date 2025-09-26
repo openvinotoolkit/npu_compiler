@@ -97,8 +97,9 @@ TEST_F(MLIR_ExplicitDistributionAndSparseTypesUtils, getExplicitDistrAttrForSpar
             &ctx, modeAttr, coordTransformModeAttr, scaleAttr, nearestModeAttr, offsetsAttr, sizesAttr,
             /*initialInputShapeAttr=*/nullptr, /*initialOutputShapeAttr=*/nullptr);
 
-    auto dataExplicitDistributedAttr = VPU::getExplicitDistrAttrForSparseData(
-            distributedAttr, SEInterpolateAttr.backInferInputShape(shape), SEInterpolateAttr, &ctx);
+    const auto inferredShape = SEInterpolateAttr.backInferInputShape(shape);
+    auto dataExplicitDistributedAttr =
+            VPU::getExplicitDistrAttrForSparseData(distributedAttr, inferredShape, SEInterpolateAttr, &ctx);
 
     const PerClusterShapesOffsetsVec expectedPerClusterMemoryShapes(
             {SmallVector<int64_t>{1, 64, 4, 6}, SmallVector<int64_t>{1, 64, 4, 6}});
@@ -166,8 +167,9 @@ TEST_F(MLIR_ExplicitDistributionAndSparseTypesUtils, getExplicitDistrAttrForSpar
             &ctx, modeAttr, coordTransformModeAttr, scaleAttr, nearestModeAttr, offsetsAttr, sizesAttr,
             /*initialInputShapeAttr=*/nullptr, /*initialOutputShapeAttr=*/nullptr);
 
-    auto dataExplicitDistributedAttr = VPU::getExplicitDistrAttrForSparseData(
-            distributedAttr, SEInterpolateAttr.backInferInputShape(shape), SEInterpolateAttr, &ctx);
+    const auto inferredShape = SEInterpolateAttr.backInferInputShape(shape);
+    auto dataExplicitDistributedAttr =
+            VPU::getExplicitDistrAttrForSparseData(distributedAttr, inferredShape, SEInterpolateAttr, &ctx);
 
     const PerClusterShapesOffsetsVec expectedPerClusterMemoryShapes(
             {SmallVector<int64_t>{1, 64, 7, 9}, SmallVector<int64_t>{1, 64, 5, 9}});

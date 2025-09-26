@@ -97,4 +97,16 @@ TEST_F(MLIR_QuantizationUtilsTest, TileScalesAndZp) {
         auto noTilingTypeOnQuantAxisType = tileScalesAndZP(quantType, shape, offsets, strides);
         checkScalesAndZps(noTilingTypeOnQuantAxisType, scales, zeroPoints);
     }
+
+    {
+        // Test case 4: multiple tiles on quantization axis
+        //   [Tile0]   [Tile1  ]
+        // 0,[1,2,3],4,[5,6,7,8], ...
+        SmallVector<int64_t> offsets = {1, 5};
+        SmallVector<int64_t> sizes = {3, 4};
+        const SmallVector<double> expectedScales = {0.01, 0.02, 0.03, 0.05, 0.06, 0.07, 0.08};
+        const SmallVector<int64_t> expectedZPs = {1, 2, 3, 5, 6, 7, 8};
+        auto multiTilingTypeOnQuantAxisType = tileScalesAndZP(quantType, offsets, sizes);
+        checkScalesAndZps(multiTilingTypeOnQuantAxisType, expectedScales, expectedZPs);
+    }
 }

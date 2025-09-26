@@ -1007,8 +1007,9 @@ mlir::LogicalResult CMXToCMXCopy::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::Pa
             if (distributedCast != nullptr) {
                 rewriter.setInsertionPointAfter(copySubView);
                 auto ndTypeIfValue = mlir::cast<vpux::NDTypeInterface>(copySubView.getType());
+                const auto strides = ndTypeIfValue.getStrides();
                 auto distributedCastType = mlir::cast<vpux::NDTypeInterface>(distributedCast->getOperand(0).getType())
-                                                   .changeStrides(ndTypeIfValue.getStrides());
+                                                   .changeStrides(strides);
 
                 nestedLogger.trace("Creating DistributedCastOp with input = {0} and output type = {1}.", copySubView,
                                    distributedCastType);
@@ -2197,7 +2198,7 @@ public:
 
 public:
     mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const final;
-    mlir::Value getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp origOp, vpux::Logger log) const;
+    mlir::Value getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const;
     bool checkCMXFit(mlir::Value topBuffer) const;
 
 private:
@@ -2221,7 +2222,7 @@ bool SubViewWithDistributedCopy::checkCMXFit(mlir::Value topBuffer) const {
 mlir::LogicalResult SubViewWithDistributedCopy::matchAndRewrite(VPUIP::CopyOp origOp,
                                                                 mlir::PatternRewriter& rewriter) const {
     auto nestedLogger = log.nest();
-    auto topBuffer = getSuitableSubViewPatternSourceBuffer(origOp, nestedLogger);
+    auto topBuffer = getSuitableSubViewPattern(origOp, nestedLogger);
     if (topBuffer == nullptr) {
         return mlir::failure();
     }
@@ -2319,8 +2320,7 @@ mlir::LogicalResult SubViewWithDistributedCopy::matchAndRewrite(VPUIP::CopyOp or
     DistrCopy(Segmented on dim N)
 */
 
-mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp origOp,
-                                                                              vpux::Logger log) const {
+mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const {
     auto isDistributedCopyOpSegmentedOnN = [&log](VPUIP::CopyOp copyOp) {
         if (copyOp == nullptr) {
             log.trace("Not distributed Copy");
@@ -2639,7 +2639,7 @@ private:
     bool hasTrivialStrides(vpux::NDTypeInterface ndType) const;
     SmallVector<int64_t> trimTrivialDims(vpux::NDTypeInterface ndType) const;
     bool isTrivialCopy(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType) const;
-    mlir::Value getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp origOp, vpux::Logger log) const;
+    mlir::Value getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const;
 
     Logger log;
 };
@@ -2682,10 +2682,10 @@ bool SubViewWithCopy::isTrivialCopy(vpux::NDTypeInterface inType, vpux::NDTypeIn
     return hasTrivialStrides(inType) && hasTrivialStrides(outType);
 }
 
-mlir::Value SubViewWithCopy::getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp copyOp, vpux::Logger log) const {
+mlir::Value SubViewWithCopy::getSuitableSubViewPattern(VPUIP::CopyOp copyOp, vpux::Logger log) const {
     auto maybeSubView = copyOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
     if (maybeSubView == nullptr) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPatternSourceBuffer: input producer is not a SubView.");
+        log.trace("SubViewWithCopy::getSuitableSubViewPattern: input producer is not a SubView.");
         return nullptr;
     }
 
@@ -2697,7 +2697,7 @@ mlir::Value SubViewWithCopy::getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp
     // The root cause is unclear.
     // [Track number: E#139988]
     if (!isTrivialCopy(inType, outType)) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPatternSourceBuffer: strided copies cannot be replaced with a "
+        log.trace("SubViewWithCopy::getSuitableSubViewPattern: strided copies cannot be replaced with a "
                   "ViewOp.");
         return nullptr;
     }
@@ -2705,29 +2705,21 @@ mlir::Value SubViewWithCopy::getSuitableSubViewPatternSourceBuffer(VPUIP::CopyOp
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(copyOp.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(copyOp.getOutput().getType());
     if (inputType.getMemSpace() != outputType.getMemSpace()) {
-        log.trace("SubViewWithCopy::getSuitableSubViewPatternSourceBuffer: CMX <-> DRAM transfers cannot be replaced "
+        log.trace("SubViewWithCopy::getSuitableSubViewPattern: CMX <-> DRAM transfers cannot be replaced "
                   "with a ViewOp.");
         return nullptr;
     }
 
-    const auto staticOffsets = parseIntArrayAttr<int64_t>(maybeSubView.getStaticOffsets());
-    const auto hasNonZeroOffsets = llvm::any_of(staticOffsets, [](const int64_t offset) {
-        return offset != 0;
-    });
-    if (hasNonZeroOffsets) {
-        return nullptr;
-    }
-
-    return maybeSubView.getSource();
+    return maybeSubView.getResult();
 }
 
 mlir::LogicalResult SubViewWithCopy::matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const {
     auto nestedLogger = log.nest();
-    auto subviewInput = getSuitableSubViewPatternSourceBuffer(origOp, nestedLogger);
-    if (subviewInput == nullptr) {
+    auto value = getSuitableSubViewPattern(origOp, nestedLogger);
+    if (value == nullptr) {
         return mlir::failure();
     }
-    rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(origOp, origOp.getType(), subviewInput);
+    rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(origOp, origOp.getType(), value);
 
     return mlir::success();
 }

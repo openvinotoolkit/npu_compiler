@@ -7,8 +7,8 @@
 // REQUIRES: arch-NPU40XX
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 6 of @NCE at 6.000000e+02 MHz
 net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "inputCNN" : tensor<1x1x2x1000xf16>
 } outputsInfo :  {
@@ -489,8 +489,8 @@ func.func @main(%arg0: memref<1x1x2x1000xf16>, %arg1: memref<1x1x2x1000xf16>) ->
 // -----
 
 module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 6 of @NCE at 6.000000e+02 MHz
 net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "inputCNN" : tensor<1x1x2x1000xf16>
 } outputsInfo :  {
@@ -531,8 +531,8 @@ func.func @main(%arg0: memref<1x1x2x1000xf16>, %arg1: memref<1x1x2x1000xf16>) ->
 // -----
 
 module @TestCleanAfterSettingInCaseMultUpdBars attributes {config.arch = #config.arch_kind<NPU40XX>} {
-IE.ExecutorResource 1 of @DMA_NN
-IE.TileResource 6 of @NCE at 6.000000e+02 MHz
+config.ExecutorResource 1 of @DMA_NN
+config.Resources 6 of @NCE at 6.000000e+02 MHz
 net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "inputCNN" : tensor<1x1x2x1000xf16>
 } outputsInfo :  {

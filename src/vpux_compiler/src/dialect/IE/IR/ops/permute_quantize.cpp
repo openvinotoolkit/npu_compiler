@@ -3,14 +3,14 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/IR/PatternMatch.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/core/IR/dynamic_attrs.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
-#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
-
-#include <mlir/IR/PatternMatch.h>
 
 using namespace vpux;
 
@@ -36,24 +36,15 @@ mlir::LogicalResult vpux::IE::PermuteQuantizeOp::inferReturnTypeComponents(
 
     const auto padBegin = parseIntArrayAttr<int64_t>(permute_quantize.getPadsBegin());
     const auto padEnd = parseIntArrayAttr<int64_t>(permute_quantize.getPadsEnd());
-
     const auto inType = mlir::cast<vpux::NDTypeInterface>(permute_quantize.getInput().getType());
-
-    const auto inOrder = DimsOrder::fromValue(input);
+    auto inOrder = DimsOrder::fromValue(input);
     const auto outOrder = DimsOrder::fromAffineMap(dstOrder);
-
     const auto newType = inType.pad(ShapeRef(padBegin), ShapeRef(padEnd));
-    const auto inShapeExpanded = newType.getShape();
+    auto newOutShape = inferPermuteQuantizeOutputShapeInfo(input, inOrder, newType, outOrder, memPerm);
 
-    const auto inMemShape = inOrder.toMemoryOrder(inShapeExpanded);
-    const auto outMemShape = applyPerm(inMemShape, memPerm);
-    const auto outShape = outOrder.toLogicalOrder(outMemShape);
+    const auto outDesc = vpux::getTensorAttr(ctx, dstOrder, /*memSpace=*/nullptr, BoundsRef(newOutShape.bounds));
 
-    VPUX_THROW_UNLESS(!mlir::isa<Core::BoundedTensorType>(inType), "{0} doesn't support dynamic shapes",
-                      IE::PermuteQuantizeOp::getOperationName());
-    const auto outDesc = vpux::getTensorAttr(ctx, dstOrder, nullptr);
-
-    inferredReturnShapes.emplace_back(outShape.raw(), dstElemType, outDesc);
+    inferredReturnShapes.emplace_back(newOutShape.shape, dstElemType, outDesc);
 
     return mlir::success();
 }
@@ -104,4 +95,10 @@ mlir::OpFoldResult vpux::IE::PermuteQuantizeOp::fold(FoldAdaptor) {
     }
 
     return nullptr;
+}
+
+mlir::LogicalResult vpux::IE::PermuteQuantizeOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    reifiedReturnShapes.emplace_back(reifyTrivialTensor(builder, getInput(), getLoc()));
+    return mlir::success();
 }
