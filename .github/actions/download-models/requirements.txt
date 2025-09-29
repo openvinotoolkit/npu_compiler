@@ -122,9 +122,9 @@ hf-xet==1.1.5 \
     # via
     #   -r requirements.in
     #   huggingface-hub
-huggingface-hub==0.33.2 \
-    --hash=sha256:3749498bfa91e8cde2ddc2c1db92c79981f40e66434c20133b39e5928ac9bcc5 \
-    --hash=sha256:84221defaec8fa09c090390cd68c78b88e3c4c2b7befba68d3dc5aacbc3c2c5f
+huggingface-hub==0.35.3 \
+    --hash=sha256:0e3a01829c19d86d03793e4577816fe3bdfc1602ac62c7fb220d593d351224ba \
+    --hash=sha256:350932eaa5cc6a4747efae85126ee220e4ef1b54e29d31c3b45c5612ddf0b32a
     # via -r requirements.in
 idna==3.10 \
     --hash=sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9 \
