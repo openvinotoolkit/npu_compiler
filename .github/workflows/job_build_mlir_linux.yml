@@ -146,7 +146,7 @@ jobs:
 
       - name: Initialize CodeQL
         if: ${{ !steps.cache-restore.outputs.cache-hit && inputs.with-codeql }}
-        uses: github/codeql-action/init@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        uses: github/codeql-action/init@3599b3baa15b485a2e49ef411a7a4bb2452e7f93 # v3.30.5
         with:
           languages: c-cpp
           build-mode: manual
@@ -233,7 +233,7 @@ jobs:
       - name: Perform CodeQL Analysis
         id: codeql-analyze
         if: ${{ !steps.cache-restore.outputs.cache-hit && inputs.with-codeql }}
-        uses: github/codeql-action/analyze@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        uses: github/codeql-action/analyze@3599b3baa15b485a2e49ef411a7a4bb2452e7f93 # v3.30.5
         with:
           category: "/language:c-cpp"
           output: ${{ env.CODEQL_OUTPUTS }}
@@ -256,7 +256,7 @@ jobs:
 
       - name: Upload CodeQL SARIF
         if: ${{ !steps.cache-restore.outputs.cache-hit && inputs.with-codeql }}
-        uses: github/codeql-action/upload-sarif@181d5eefc20863364f96762470ba6f862bdef56b # v3.29.2
+        uses: github/codeql-action/upload-sarif@3599b3baa15b485a2e49ef411a7a4bb2452e7f93 # v3.30.5
         with:
           sarif_file: ${{ env.CODEQL_OUTPUTS }}/filtered-results.sarif
           checkout_path: ${{ env.NPU_COMPILER_REPO }}
