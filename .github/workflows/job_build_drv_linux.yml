@@ -64,7 +64,7 @@ jobs:
       - name: Restore Driver package from cache
         if: ${{ inputs.build-cache }}
         id: cache-restore
-        uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           key: ${{ steps.cache-key.outputs.cache-key }}
           path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
@@ -143,7 +143,7 @@ jobs:
 
       - name: Cache artifacts
         if: ${{ inputs.build-cache && !steps.cache-restore.outputs.cache-hit }}
-        uses: actions/cache/save@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
           key: ${{ steps.cache-key.outputs.cache-key }}
