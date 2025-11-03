@@ -4,10 +4,17 @@
 #
 #    pip-compile --generate-hashes .github/actions/download-models/requirements.in
 #
+anyio==4.11.0 \
+    --hash=sha256:0287e96f4d26d4149305414d4e3bc32f0dcd0862365a4bddea19d7a1ec38c4fc \
+    --hash=sha256:82a8d0b81e318cc5ce71a5f1f8b5c4e63619620b63141ef8c995fa0db95a57c4
+    # via httpx
 certifi==2025.1.31 \
     --hash=sha256:3d5da6925056f6f18f119200434a4780a94263f10d1c21d032a6f6b2baa20651 \
     --hash=sha256:ca78db4565a652026a4db2bcdf68f2fb589ea80d0be70e03929ed730746b84fe
-    # via requests
+    # via
+    #   httpcore
+    #   httpx
+    #   requests
 charset-normalizer==3.4.1 \
     --hash=sha256:0167ddc8ab6508fe81860a57dd472b2ef4060e8d378f0cc555707126830f2537 \
     --hash=sha256:01732659ba9b5b873fc117534143e4feefecf3b2078b0a6a2e925271bb6f4cfa \
@@ -102,10 +109,10 @@ charset-normalizer==3.4.1 \
     --hash=sha256:fd4ec41f914fa74ad1b8304bbc634b3de73d2a0889bd32076342a573e0779e00 \
     --hash=sha256:ffc9202a29ab3920fa812879e95a9e78b2465fd10be7fcbd042899695d75e616
     # via requests
-colorama==0.4.6 \
-    --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
-    --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
-    # via tqdm
+click==8.3.0 \
+    --hash=sha256:9b9f285302c6e3064f4330c05f05b81945b2a39544279343e6e7c5f27a9baddc \
+    --hash=sha256:e7b8232224eba16f4ebe410c25ced9f7875cb5f3263ffc93cc3e8da705e229c4
+    # via typer-slim
 filelock==3.18.0 \
     --hash=sha256:adbc88eabb99d2fec8c9c1b229b171f18afa655400173ddc653d5d01501fb9f2 \
     --hash=sha256:c401f4f8377c4464e6db25fff06205fd89bdd83b65eb0488ed1b160f780e21de
@@ -114,24 +121,55 @@ fsspec==2025.3.2 \
     --hash=sha256:2daf8dc3d1dfa65b6aa37748d112773a7a08416f6c70d96b264c96476ecaf711 \
     --hash=sha256:e52c77ef398680bbd6a98c0e628fbc469491282981209907bbc8aea76a04fdc6
     # via huggingface-hub
-hf-xet==1.1.10 \
-    --hash=sha256:0a0005fd08f002180f7a12d4e13b22be277725bc23ed0529f8add5c7a6309c06 \
-    --hash=sha256:408aef343800a2102374a883f283ff29068055c111f003ff840733d3b715bb97 \
-    --hash=sha256:5f54b19cc347c13235ae7ee98b330c26dd65ef1df47e5316ffb1e87713ca7045 \
-    --hash=sha256:686083aca1a6669bc85c21c0563551cbcdaa5cf7876a91f3d074a030b577231d \
-    --hash=sha256:6b6bceb6361c80c1cc42b5a7b4e3efd90e64630bcf11224dcac50ef30a47e435 \
-    --hash=sha256:71081925383b66b24eedff3013f8e6bbd41215c3338be4b94ba75fd75b21513b \
-    --hash=sha256:eae7c1fc8a664e54753ffc235e11427ca61f4b0477d757cc4eb9ae374b69f09c \
-    --hash=sha256:f900481cf6e362a6c549c61ff77468bd59d6dd082f3170a36acfef2eb6a6793f
-    # via -r .github/actions/download-models/requirements.in
-huggingface-hub==0.35.3 \
-    --hash=sha256:0e3a01829c19d86d03793e4577816fe3bdfc1602ac62c7fb220d593d351224ba \
-    --hash=sha256:350932eaa5cc6a4747efae85126ee220e4ef1b54e29d31c3b45c5612ddf0b32a
-    # via -r .github/actions/download-models/requirements.in
+h11==0.16.0 \
+    --hash=sha256:4e35b956cf45792e4caa5885e69fba00bdbc6ffafbfa020300e549b208ee5ff1 \
+    --hash=sha256:63cf8bbe7522de3bf65932fda1d9c2772064ffb3dae62d55932da54b31cb6c86
+    # via httpcore
+hf-xet==1.2.0 \
+    --hash=sha256:10bfab528b968c70e062607f663e21e34e2bba349e8038db546646875495179e \
+    --hash=sha256:210d577732b519ac6ede149d2f2f34049d44e8622bf14eb3d63bbcd2d4b332dc \
+    --hash=sha256:27df617a076420d8845bea087f59303da8be17ed7ec0cd7ee3b9b9f579dff0e4 \
+    --hash=sha256:293a7a3787e5c95d7be1857358a9130694a9c6021de3f27fa233f37267174382 \
+    --hash=sha256:29c8fc913a529ec0a91867ce3d119ac1aac966e098cf49501800c870328cc090 \
+    --hash=sha256:2a212e842647b02eb6a911187dc878e79c4aa0aa397e88dd3b26761676e8c1f8 \
+    --hash=sha256:30e06daccb3a7d4c065f34fc26c14c74f4653069bb2b194e7f18f17cbe9939c0 \
+    --hash=sha256:3651fd5bfe0281951b988c0facbe726aa5e347b103a675f49a3fa8144c7968fd \
+    --hash=sha256:46740d4ac024a7ca9b22bebf77460ff43332868b661186a8e46c227fdae01848 \
+    --hash=sha256:4c1428c9ae73ec0939410ec73023c4f842927f39db09b063b9482dac5a3bb737 \
+    --hash=sha256:66e159cbfcfbb29f920db2c09ed8b660eb894640d284f102ada929b6e3dc410a \
+    --hash=sha256:6de1fc44f58f6dd937956c8d304d8c2dea264c80680bcfa61ca4a15e7b76780f \
+    --hash=sha256:7d40b18769bb9a8bc82a9ede575ce1a44c75eb80e7375a01d76259089529b5dc \
+    --hash=sha256:9c91d5ae931510107f148874e9e2de8a16052b6f1b3ca3c1b12f15ccb491390f \
+    --hash=sha256:a55558084c16b09b5ed32ab9ed38421e2d87cf3f1f89815764d1177081b99865 \
+    --hash=sha256:a8c27070ca547293b6890c4bf389f713f80e8c478631432962bb7f4bc0bd7d7f \
+    --hash=sha256:b70218dd548e9840224df5638fdc94bd033552963cfa97f9170829381179c813 \
+    --hash=sha256:cd3a6027d59cfb60177c12d6424e31f4b5ff13d8e3a1247b3a584bf8977e6df5 \
+    --hash=sha256:ceeefcd1b7aed4956ae8499e2199607765fbd1c60510752003b6cc0b8413b649 \
+    --hash=sha256:d06fa97c8562fb3ee7a378dd9b51e343bc5bc8190254202c9771029152f5e08c \
+    --hash=sha256:e6584a52253f72c9f52f9e549d5895ca7a471608495c4ecaa6cc73dba2b24d69 \
+    --hash=sha256:f182f264ed2acd566c514e45da9f2119110e48a87a327ca271027904c70c5832
+    # via
+    #   -r requirements.in
+    #   huggingface-hub
+httpcore==1.0.9 \
+    --hash=sha256:2d400746a40668fc9dec9810239072b40b4484b640a8c38fd654a024c7a1bf55 \
+    --hash=sha256:6e34463af53fd2ab5d807f399a9b45ea31c3dfa2276f15a2c3f00afff6e176e8
+    # via httpx
+httpx==0.28.1 \
+    --hash=sha256:75e98c5f16b0f35b567856f597f06ff2270a374470a5c2392242528e3e3e42fc \
+    --hash=sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad
+    # via huggingface-hub
+huggingface-hub==1.0.1 \
+    --hash=sha256:7e255cd9b3432287a34a86933057abb1b341d20b97fb01c40cbd4e053764ae13 \
+    --hash=sha256:87b506d5b45f0d1af58df7cf8bab993ded25d6077c2e959af58444df8b9589f3
+    # via -r requirements.in
 idna==3.10 \
     --hash=sha256:12f65c9b470abda6dc35cf8e63cc574b1c52b11df2c86030af0ac09b01b13ea9 \
     --hash=sha256:946d195a0d259cbba61165e88e65941f16e9b36ea6ddb97f00452bae8b1287d3
-    # via requests
+    # via
+    #   anyio
+    #   httpx
+    #   requests
 packaging==24.2 \
     --hash=sha256:09abb1bccd265c01f4a3aa3f7a7db064b36514d2cba19a2f694fe6150451a759 \
     --hash=sha256:c228a6dc5e932d346bc5739379109d49e8853dd8223571c7c5b55260edc0b97f
@@ -194,17 +232,29 @@ pyyaml==6.0.2 \
 requests==2.32.5 \
     --hash=sha256:2462f94637a34fd532264295e186976db0f5d453d1cdd31473c85a6a161affb6 \
     --hash=sha256:dbba0bac56e100853db0ea71b82b4dfd5fe2bf6d3754a8893c3af500cec7d7cf
-    # via
-    #   -r .github/actions/download-models/requirements.in
-    #   huggingface-hub
+    # via -r requirements.in
+shellingham==1.5.4 \
+    --hash=sha256:7ecfff8f2fd72616f7481040475a65b2bf8af90a56c89140852d1120324e8686 \
+    --hash=sha256:8dbca0739d487e5bd35ab3ca4b36e11c4078f3a234bfce294b0a0291363404de
+    # via huggingface-hub
+sniffio==1.3.1 \
+    --hash=sha256:2f6da418d1f1e0fddd844478f41680e794e6051915791a034ff65e5f100525a2 \
+    --hash=sha256:f4324edc670a0f49750a81b895f35c3adb843cca46f0530f79fc1babb23789dc
+    # via anyio
 tqdm==4.67.1 \
     --hash=sha256:26445eca388f82e72884e0d580d5464cd801a3ea01e63e5601bdff9ba6a48de2 \
     --hash=sha256:f8aef9c52c08c13a65f30ea34f4e5aac3fd1a34959879d7e59e63027286627f2
     # via huggingface-hub
+typer-slim==0.20.0 \
+    --hash=sha256:9fc6607b3c6c20f5c33ea9590cbeb17848667c51feee27d9e314a579ab07d1a3 \
+    --hash=sha256:f42a9b7571a12b97dddf364745d29f12221865acef7a2680065f9bb29c7dc89d
+    # via huggingface-hub
 typing-extensions==4.13.2 \
     --hash=sha256:a439e7c04b49fec3e5d3e2beaa21755cadbbdc391694e28ccdd36ca4a1408f8c \
     --hash=sha256:e6c81219bd689f51865d9e372991c540bda33a0379d5573cddb9a3a23f7caaef
-    # via huggingface-hub
+    # via
+    #   huggingface-hub
+    #   typer-slim
 urllib3==2.5.0 \
     --hash=sha256:3fc47733c7e419d4bc3f6b3dc2b4f890bb743906a30d56ba4a5bfa4bbff92760 \
     --hash=sha256:e6b01673c0fa6a13e374b50871808eb3bf7046c4b125b216f6bf1cc604cff0dc
