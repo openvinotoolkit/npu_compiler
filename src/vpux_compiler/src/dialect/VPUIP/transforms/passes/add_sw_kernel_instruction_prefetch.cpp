@@ -31,7 +31,6 @@ using namespace vpux;
 
 namespace {
 
-// static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {"convert", "softmax"};
 static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {"activation_swish", "eltwise_mul", "softmax", "convert", "rms_norm", "activation_swish", "activation_sin", "eltwise_equal", "activation_cos", "eltwise_select"};
 
 //
@@ -512,14 +511,14 @@ std::optional<GapCandidate> findBestInsertionGap(
         }
 
         bool isT3Task = false;
-        if (auto swOp = mlir::dyn_cast<VPUIP::SwKernelOp>(currentTaskConfig.taskOp.getInnerTaskOp())) {
+        if (auto swOp = mlir::dyn_cast<VPUIP::SwKernelOp>(currentTaskConfig.taskOp.getInnerTaskOp()); swOp != nullptr) {
             isT3Task = (swOp.getTileIndexAttr().getInt() == targetInsertTile);
         }
 
         if (previousT3TaskIndex != -1 && isT3Task) {
             
             auto& insertionPointTask = allTasks[previousT3TaskIndex];
-            uint64_t insertionPointStartTime = static_cast<uint64_t>(insertionPointTask.cycleStart);
+            auto insertionPointStartTime = static_cast<uint64_t>(insertionPointTask.cycleStart);
 
             size_t simultaneousSwKernels = getSwKernelCountAtTime(insertionPointStartTime, allTasks);
             
@@ -577,7 +576,7 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
              continue;
         }
 
-        uint64_t targetKernelGroupStartTime = static_cast<uint64_t>(allTasks[firstAppearanceIndex].cycleStart);
+        auto targetKernelGroupStartTime = static_cast<uint64_t>(allTasks[firstAppearanceIndex].cycleStart);
 
         auto bestGapOpt = findBestInsertionGap(kernelName, targetKernelGroupStartTime,
                                                allTasks, numClusters, _log);
@@ -590,9 +589,6 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
         GapCandidate bestGap = bestGapOpt.value();
         _log.trace("Kernel '{0}': Found best gap of {1} cycles. Inserting relative to task {2}.",
                    kernelName, bestGap.lookaheadGap, bestGap.insertionPointTaskIndex);
-        std::cout << "[Prefetch DEBUG] Kernel: " << kernelName
-              << " Found best gap of  " << bestGap.lookaheadGap 
-              << " cycles. Inserting relative to task  " << bestGap.insertionPointTaskIndex << std::endl;
 
         if (bestGap.insertionPointTaskIndex < 0 || static_cast<size_t>(bestGap.insertionPointTaskIndex) >= allTasks.size()) {
              _log.error("Kernel '{0}': Invalid insertionPointTaskIndex {1}. Skipping insertion.", 
@@ -663,12 +659,9 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
     }
     _log.trace("insertPoint: {0}, bestReleaseCycle: {1}", *firstShaveTaskInIR, bestReleaseCycle);
 
-    std::vector<VPUIP::SwKernelOp> newPrefetchKernels;
-    if (firstShaveTaskInIR == nullptr){
-        newPrefetchKernels = insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks);
-    } else {
-        newPrefetchKernels = insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
-    }
+    auto newPrefetchKernels = (firstShaveTaskInIR == nullptr)
+        ? insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks)
+        : insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
 
     // Update dependencies for cache handling operations to meet requirements of control graph split.
     auto& barrierInfo = getAnalysis<BarrierInfo>();
