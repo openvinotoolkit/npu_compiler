@@ -31,7 +31,7 @@ using namespace vpux;
 
 namespace {
 
-static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {"activation_swish", "eltwise_mul", "softmax", "convert", "rms_norm", "activation_swish", "activation_sin", "eltwise_equal", "activation_cos", "eltwise_select"};
+static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {"activation_swish", "eltwise_mul", "softmax", "convert", "rms_norm", "activation_swish", "activation_sin", "eltwise_equal", "activation_cos", "eltwise_select", "topk"};
 
 //
 // AddSwKernelInstructionPrefetch
@@ -491,7 +491,7 @@ std::optional<GapCandidate> findBestInsertionGap(
         size_t numClusters,
         Logger& log) {
 
-    const int64_t targetInsertTile = 3;
+    const int64_t targetInsertTile = 1;
     const uint64_t GAP_THRESHOLD = 50000;
     const size_t saturationThreshold = numClusters * 2;
 
@@ -499,8 +499,8 @@ std::optional<GapCandidate> findBestInsertionGap(
     std::map<uint64_t, GapCandidate, std::greater<uint64_t>> validGaps;
     std::map<uint64_t, size_t> swKernelCountsCache; // local cache
 
-    int64_t previousT3TaskIndex = -1;
-    uint64_t previousT3TaskEndTime = 0;
+    int64_t previousT1TaskIndex = -1;
+    uint64_t previousT1TaskStartTime = 0;
 
     // find the largest gap between a non-saturated SW task and a saturated SW task / the kernel to be prefetched
     for (size_t i = 0; i < allTasks.size(); ++i) {
@@ -510,38 +510,38 @@ std::optional<GapCandidate> findBestInsertionGap(
             break;
         }
 
-        bool isT3Task = false;
+        bool isT1Task = false;
         if (auto swOp = mlir::dyn_cast<VPUIP::SwKernelOp>(currentTaskConfig.taskOp.getInnerTaskOp()); swOp != nullptr) {
-            isT3Task = (swOp.getTileIndexAttr().getInt() == targetInsertTile);
+            isT1Task = (swOp.getTileIndexAttr().getInt() == targetInsertTile);
         }
 
-        if (previousT3TaskIndex != -1 && isT3Task) {
+        if (previousT1TaskIndex != -1 && isT1Task) {
             
-            auto& insertionPointTask = allTasks[previousT3TaskIndex];
+            auto& insertionPointTask = allTasks[previousT1TaskIndex];
             auto insertionPointStartTime = static_cast<uint64_t>(insertionPointTask.cycleStart);
 
             size_t simultaneousSwKernels = getSwKernelCountAtTime(insertionPointStartTime, allTasks);
             
             if (simultaneousSwKernels < saturationThreshold) {
-                uint64_t nextSaturationStart = findNextSaturationStart(previousT3TaskIndex, allTasks, numClusters, swKernelCountsCache);
+                uint64_t nextSaturationStart = findNextSaturationStart(previousT1TaskIndex, allTasks, numClusters, swKernelCountsCache);
                 uint64_t gapEnd = std::min(nextSaturationStart, targetKernelGroupStartTime);
                 uint64_t lookaheadGap = 0;
-                if (gapEnd > previousT3TaskEndTime) {
-                    lookaheadGap = gapEnd - previousT3TaskEndTime;
+                if (gapEnd > previousT1TaskStartTime) {
+                    lookaheadGap = gapEnd - previousT1TaskStartTime;
                 }
 
                 if (lookaheadGap >= GAP_THRESHOLD) {
                     GapCandidate gap;
                     gap.lookaheadGap = lookaheadGap;
-                    gap.insertionPointTaskIndex = previousT3TaskIndex;
+                    gap.insertionPointTaskIndex = previousT1TaskIndex;
                     validGaps[lookaheadGap] = gap;
                 }
             }
         }
 
-        if (isT3Task) {
-            previousT3TaskIndex = static_cast<int64_t>(i);
-            previousT3TaskEndTime = currentTaskStartTime + static_cast<uint64_t>(allTasks[i].cycleCost);
+        if (isT1Task) {
+            previousT1TaskIndex = static_cast<int64_t>(i);
+            previousT1TaskStartTime = currentTaskStartTime;
         }
     }
 
