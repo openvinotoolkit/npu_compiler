@@ -22,7 +22,7 @@ repos:
     rev: v5.0.0
     hooks:
     -   id: check-json
-        exclude: .*tests/lit/.*
+        exclude: 'docs/.*|.*tests/lit/.*'
     -   id: trailing-whitespace
         exclude: 'docs/.*|thirdparty/.*|sw_runtime_kernels/.*|.*.md'
     -   id: end-of-file-fixer
