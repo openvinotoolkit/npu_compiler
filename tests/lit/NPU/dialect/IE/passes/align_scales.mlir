@@ -726,7 +726,7 @@ func.func @AlignAllFQ(%arg0: tensor<1x2x3x4xf16>, %arg1: tensor<1x2x3x4xf16>, %a
 // CHECK-LABEL: @AlignSliceWithClampAdaptiveStrippingFalse
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : false
+    config.Option @config.EnableAdaptiveStripping : false
 }
 
 func.func @AlignSliceWithClampAdaptiveStrippingFalse(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x10x8x8xf16> {
@@ -755,7 +755,7 @@ func.func @AlignSliceWithClampAdaptiveStrippingFalse(%arg0: tensor<1x16x8x8xf16>
 // CHECK-LABEL: @NotAlignSliceWithClampAdaptiveStrippingTrue
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @NotAlignSliceWithClampAdaptiveStrippingTrue(%arg0: tensor<1x16x8x8xf16>) -> tensor<1x10x8x8xf16> {

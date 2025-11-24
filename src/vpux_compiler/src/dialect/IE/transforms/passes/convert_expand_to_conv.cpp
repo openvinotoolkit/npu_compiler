@@ -96,8 +96,8 @@ IE::AffineReshapeOp padHReshapeInput(mlir::Location loc, mlir::Value input, Shap
     auto padEnd = mlir::SmallVector<int64_t>(origShape.size(), 0);
     padEnd[vpux::Dims4D::Act::H.ind()] = totalPaddedElemSize - totalElemSize;
     const auto ctx = rewriter.getContext();
-    auto padExpand = rewriter.create<IE::ExpandOp>(loc, linearReshapeOp.getOutput(), getIntArrayAttr(ctx, padBegin),
-                                                   getIntArrayAttr(ctx, padEnd));
+    auto padExpand = rewriter.create<IE::ExpandOp>(appendLoc(loc, "_pad"), linearReshapeOp.getOutput(),
+                                                   getIntArrayAttr(ctx, padBegin), getIntArrayAttr(ctx, padEnd));
 
     const SmallVector<int64_t> targetPaddedShape = {origBatch, origChannels, origHeight, origWidthPadded};
     return reshapeInput(loc, padExpand.getOutput(), ShapeRef(targetPaddedShape), channelAlignment, rewriter);
@@ -110,9 +110,9 @@ IE::AffineReshapeOp padWReshapeInput(mlir::Location loc, mlir::Value input, Shap
     SmallVector<int64_t> padEnd(origShape.size(), 0);
     padEnd[Dims4D::Act::W.ind()] = channelAlignment - origShape[Dims4D::Act::W] % channelAlignment;
 
-    auto expandOp =
-            rewriter.create<IE::ExpandOp>(loc, input, getIntArrayAttr(rewriter.getContext(), ArrayRef(padBegin)),
-                                          getIntArrayAttr(rewriter.getContext(), ArrayRef(padEnd)));
+    auto expandOp = rewriter.create<IE::ExpandOp>(appendLoc(loc, "_input_pad"), input,
+                                                  getIntArrayAttr(rewriter.getContext(), ArrayRef(padBegin)),
+                                                  getIntArrayAttr(rewriter.getContext(), ArrayRef(padEnd)));
 
     return reshapeInput(loc, expandOp, getShape(expandOp), channelAlignment, rewriter);
 }
@@ -147,8 +147,8 @@ IE::AffineReshapeOp unpadHReshapeOutput(mlir::Location loc, ShapeRef origOutShap
     auto staticSizes = mlir::SmallVector<int64_t>(origOutShape.size(), 1);
     staticSizes[vpux::Dims4D::Act::H.ind()] = totalElemSize;
     const auto ctx = rewriter.getContext();
-    auto sliceOp = rewriter.create<IE::SliceOp>(loc, linearReshapeOp.getOutput(), getIntArrayAttr(ctx, staticOffsets),
-                                                getIntArrayAttr(ctx, staticSizes));
+    auto sliceOp = rewriter.create<IE::SliceOp>(appendLoc(loc, "_slice_out"), linearReshapeOp.getOutput(),
+                                                getIntArrayAttr(ctx, staticOffsets), getIntArrayAttr(ctx, staticSizes));
 
     return reshapeOutput(loc, sliceOp.getResult(), origOutShape, rewriter);
 }
@@ -283,7 +283,7 @@ IE::ConvolutionOp buildConvolution(IE::ExpandOp expandOp, mlir::Value activation
     const Shape convOutShape = {convInShape[Dims4D::Act::N], outChannels, convInShape[Dims4D::Act::H],
                                 convInShape[Dims4D::Act::W]};
     const auto convOutType = origOutType.changeShape(convOutShape).changeElemType(convOutElemType);
-    return rewriter.create<IE::ConvolutionOp>(expandOp.getLoc(), convOutType, activation, weights,
+    return rewriter.create<IE::ConvolutionOp>(takeOpLoc(expandOp, "_as_convolution"), convOutType, activation, weights,
                                               /*bias=*/nullptr, strides, kernelPadsBegin, kernelPadsEnd, dilations,
                                               /*postOp=*/nullptr, /*clamp=*/nullptr, /*staticScale=*/nullptr,
                                               /*outputPadding=*/nullptr, /*inputPadding=*/nullptr);
@@ -707,15 +707,12 @@ mlir::LogicalResult DPUExpandRewriter::matchAndRewrite(IE::ExpandOp origOp, mlir
 
 class ConvertExpandToConvPass final : public IE::impl::ConvertExpandToConvPassBase<ConvertExpandToConvPass> {
 public:
-    explicit ConvertExpandToConvPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertExpandToConvPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ConvertExpandToConvPass::safeRunOnFunc() {

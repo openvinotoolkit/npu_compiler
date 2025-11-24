@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/common_utils/layer_permute_ie.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
@@ -49,5 +50,6 @@ void vpux::VPU::arch37xx::registerLayerWithPermuteInterfaceForIE(mlir::DialectRe
         IE::MaxPoolOp::attachInterface<LayerWithPermuteInterface<IE::MaxPoolOp>>(*ctx);
         IE::AvgPoolOp::attachInterface<LayerWithPermuteInterface<IE::AvgPoolOp>>(*ctx);
         IE::AddOp::attachInterface<LayerWithPermuteInterface<IE::AddOp>>(*ctx);
+        IE::InterpolateOp::attachInterface<LayerWithPermuteInterface<IE::InterpolateOp>>(*ctx);
     });
 }

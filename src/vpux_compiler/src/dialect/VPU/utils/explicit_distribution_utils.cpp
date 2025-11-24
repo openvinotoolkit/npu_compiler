@@ -7,6 +7,8 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sw_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/core/range.hpp"

@@ -51,17 +51,6 @@ void PipelineRegistry37XX::registerPipelines() {
                 factory.buildPipeline(pm);
             });
 
-    mlir::PassPipelineRegistration<DefaultHWOptions37XX>(
-            "ws-monolithic", "Compile IE Network in Weights separation Monolithic mode for NPU37XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions37XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU37XX,
-                                                             config::CompilationMode::WSMonolithic, options};
-                auto createPipelineStartegy = [&](config::CompilationMode) {
-                    return createDialectPipelineStrategy37XX<DefaultHWOptions37XX>(&initCompilerOptions, &options);
-                };
-                WSMonolithicStrategy factory(createPipelineStartegy, Logger::global());
-                factory.buildPipeline(pm);
-            });
     vpux::IE::arch37xx::registerIEPipelines();
     vpux::VPU::arch37xx::registerVPUPipelines();
     vpux::VPUIP::arch37xx::registerVPUIPPipelines();

@@ -163,6 +163,9 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
             *this, "outline-entire-main-content",
             llvm::cl::desc("Enable outlining of all non-call ops in the main function"), llvm::cl::init(true)};
 
+    BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
+                                     ::llvm::cl::init(vpux::isDeveloperBuild())};
+
     BoolOption fuseScalesToAccumulate{
             *this, "fuse-scales-to-accumulate",
             llvm::cl::desc("Enable scales fusing to following Accumulate op from GPTQ Matmul unrolling"),
@@ -222,9 +225,6 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
                                                llvm::cl::desc("Enable FP16 Compressed convolution op"),
                                                llvm::cl::init(false)};
 
-    BoolOption enableWeightsDynamicDequantization{*this, "enable-weights-dynamic-dequantization",
-                                                  llvm::cl::desc("Enable weights dequantization for weights as input"),
-                                                  llvm::cl::init(false)};
     BoolOption enableInPlaceBufferization{
             *this, "enable-in-place-bufferization",
             llvm::cl::desc("Enable in-place bufferization. Might eliminate some redundant buffer allocations at the "
@@ -263,6 +263,16 @@ struct DefaultHWOptionsBase : mlir::PassPipelineOptions<DefaultHWOptionsBase>, p
     BoolOption enableShaveCodeGen{*this, "enable-shave-code-gen",
                                   llvm::cl::desc("Enable Shave Code Generation - JIT kernels compilation"),
                                   llvm::cl::init(false)};
+
+    BoolOption enableFuseD2SExpand{*this, "enable-fuse-d2s-expand", llvm::cl::desc("Enable Fuse D2S Expand pass"),
+                                   llvm::cl::init(false)};
+
+    BoolOption enablePropagateMemPermuteThroughEltwise{
+            *this, "enable-propagate-mem-permute-through-eltwise",
+            llvm::cl::desc("Enable propagation of MemPermute through Eltwise."), llvm::cl::init(true)};
+    BoolOption enableAdjustMemPermuteAroundOp{*this, "enable-adjust-mem-permute-around-op",
+                                              llvm::cl::desc("Enable adjustment of MemPermute around operations."),
+                                              llvm::cl::init(true)};
 };
 
 //
@@ -332,9 +342,17 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
     BoolOption enableScfComputeOpsOutlining{*this, "scf-compute-ops-outlining",
                                             llvm::cl::desc("Outline SCF compute ops"), llvm::cl::init(false)};
 
+    BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
+                                     ::llvm::cl::init(vpux::isDeveloperBuild())};
+
     StrOption enableShaveDDRAccessOptimization{
             *this, "enable-shave-ddr-access-optimization",
             llvm::cl::desc("SHAVE DDR access optimization option. (true, false or auto)"), llvm::cl::init("true")};
+
+    BoolOption enableReorderConcatBranches{
+            *this, "enable-reorder-concat-branches",
+            llvm::cl::desc("Reorder branches of concat to make sure it is executed branch by branch"),
+            llvm::cl::init(false)};
 
     BoolOption enableExplicitDistributionInfoAttr{
             *this, "enable-explicit-distributed-attr",
@@ -371,6 +389,7 @@ struct MCAndTilingOptionsBase : mlir::PassPipelineOptions<MCAndTilingOptionsBase
         enableProfilingWithOutlining = options.enableProfilingWithOutlining;
         enableOutputPipelining = options.enableOutputPipelining;
         enableShaveDDRAccessOptimization = options.enableShaveDDRAccessOptimization;
+        enableReorderConcatBranches = options.enableReorderConcatBranches;
         readStrategyFromJson = options.readStrategyFromJson;
         writeStrategyToJson = options.writeStrategyToJson;
         dumpStrategyToLog = options.dumpStrategyToLog;
@@ -519,5 +538,20 @@ struct BatchUnrollOptions : mlir::PassPipelineOptions<BatchUnrollOptions> {
     static bool isAvailable(const BatchCompileOptionsAdapter& options);
     static std::string getDefaultOptions();
 };
+
+template <class OptionsType>
+bool canOutlineFromProfilingPerspective(const OptionsType& options) {
+    // TODO: E#140041 enable profiling unconditionally
+    return !options.enableProfiling || options.enableProfilingWithOutlining;
+}
+
+template <class OptionsType>
+bool isOutliningEnabled(const OptionsType& options) {
+    bool isAnyTypeOfOutliningEnabled = options.functionOutlining.hasValue() || DebatcherOptions::isAvailable(options) ||
+                                       options.enableVerticalFusionOutlining ||
+                                       options.enableConcatRepeatingBlockOutlining ||
+                                       options.enableEntireMainContentOutlining || options.enableAsyncRegionOutlining;
+    return isAnyTypeOfOutliningEnabled && canOutlineFromProfilingPerspective(options);
+}
 
 }  // namespace vpux

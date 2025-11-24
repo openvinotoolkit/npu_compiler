@@ -598,13 +598,13 @@ func.func @ConvertTileToDMAWithThreeAxisExpansion(%arg0: memref<1x2x3x4xf16, #NH
     // CHECK:   [[PERAXISTILE_0:%.*]] = VPUIP.PerAxisTileDMA {axis = 1 : i64, tiles = 2 : i64}
     // CHECK:       inputs([[VAR2]] : memref<1x2x3x4xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER_0]] : memref<1x4x3x4xf16, #NHWC, [@CMX_NN, 0]>)
 
-    // CHECK:   [[OUTBUFFER_1:%.*]] = memref.alloc() : memref<1x4x9x4xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[PERAXISTILE_1:%.*]] = VPUIP.PerAxisTileDMA {axis = 2 : i64, tiles = 3 : i64}
-    // CHECK:       inputs([[PERAXISTILE_0]] : memref<1x4x3x4xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER_1]] : memref<1x4x9x4xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   [[OUTBUFFER_1:%.*]] = memref.alloc() : memref<1x4x3x16xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:   [[PERAXISTILE_1:%.*]] = VPUIP.PerAxisTileDMA {axis = 3 : i64, tiles = 4 : i64}
+    // CHECK:       inputs([[PERAXISTILE_0]] : memref<1x4x3x4xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER_1]] : memref<1x4x3x16xf16, #NHWC, [@CMX_NN, 0]>)
 
     // CHECK:   [[OUTBUFFER_2:%.*]] = memref.alloc() : memref<1x4x9x16xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[PERAXISTILE_2:%.*]] = VPUIP.PerAxisTileDMA {axis = 3 : i64, tiles = 4 : i64}
-    // CHECK:       inputs([[PERAXISTILE_1]] : memref<1x4x9x4xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER_2]] : memref<1x4x9x16xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:   [[PERAXISTILE_2:%.*]] = VPUIP.PerAxisTileDMA {axis = 2 : i64, tiles = 3 : i64}
+    // CHECK:       inputs([[PERAXISTILE_1]] : memref<1x4x3x16xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER_2]] : memref<1x4x9x16xf16, #NHWC, [@CMX_NN, 0]>)
 
     // CHECK:   [[OUTBUFFER:%.*]] = memref.alloc() : memref<1x4x9x16xf16, #NHWC, @DDR>
     // CHECK:   [[OUTCOPY:%.*]] = VPUIP.Copy inputs([[PERAXISTILE_2]] : memref<1x4x9x16xf16, #NHWC, [@CMX_NN, 0]>) outputs([[OUTBUFFER]] : memref<1x4x9x16xf16, #NHWC, @DDR>)

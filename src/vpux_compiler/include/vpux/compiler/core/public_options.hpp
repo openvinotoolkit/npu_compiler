@@ -44,6 +44,15 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
 
     StrOption enableActivationSparsity{*this, "enable-activation-sparsity",
                                        llvm::cl::desc("Enable activation sparsity"), llvm::cl::init("auto")};
+    static std::string getDefaultEnableActivationSparsity(config::ArchKind arch) {
+        switch (arch) {
+        case config::ArchKind::NPU37XX:
+        case config::ArchKind::NPU40XX:
+            return "auto";
+        default:
+            return "false";
+        }
+    }
 
     BoolOption enableWeightsSparsity{*this, "enable-weights-sparsity", llvm::cl::desc("Enable weights sparsity"),
                                      llvm::cl::init(true)};
@@ -147,12 +156,12 @@ struct PublicOptions : mlir::PassPipelineOptions<PublicOptions> {
 
     PublicOptions() = default;
     PublicOptions(config::ArchKind arch) {
-        enableSEPtrsOperations = getDefaultEnableSEPtrsOperations(arch);
+        enableActivationSparsity.setValue(getDefaultEnableActivationSparsity(arch));
+        enableSEPtrsOperations.setValue(getDefaultEnableSEPtrsOperations(arch));
         if (arch != config::ArchKind::NPU40XX) {
             workloadManagementMode.setValue(getDefaultWorkloadManagementMode(arch));
         }
-
-        enableDMAProfiling = getDefaultEnableDMAProfiling(arch);
+        enableDMAProfiling.setValue(getDefaultEnableDMAProfiling(arch));
     }
 
     static std::unique_ptr<PublicOptions> createFromString(StringRef options, config::ArchKind arch) {

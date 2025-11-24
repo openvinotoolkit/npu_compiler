@@ -19,11 +19,4 @@ def VPUASM_IndexTypeAttr
     let constBuilderCall = "::mlir::TypeAttr::get($0)";
 }
 
-def KernelParamsProp: Property<"vpux::VPUASM::KernelParamsProperty">{
-    let hashProperty = "hash_value($_storage)";
-    let storageType = "vpux::VPUASM::KernelParamsProperty";
-    let writeToMlirBytecode = writeMlirBytecodeWithConvertToAttribute;
-    let readFromMlirBytecode = readMlirBytecodeUsingConvertFromAttribute;
-}
-
 #endif

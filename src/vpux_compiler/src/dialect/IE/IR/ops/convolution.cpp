@@ -265,7 +265,7 @@ mlir::LogicalResult vpux::IE::ConvolutionOp::reifyResultShapes(mlir::OpBuilder& 
     auto kernelShape = mlir::cast<vpux::NDTypeInterface>(getFilter().getType()).getShape();
     SmallVector<int64_t> kernelSize{kernelShape[Dims4D::Filter::KY], kernelShape[Dims4D::Filter::KX]};
     auto outShape = reifyConvPoolTensors(builder, getInput(), getOutput(), getFilter(), kernelSize, strides, padBegin,
-                                         padEnd, getLoc());
+                                         padEnd, appendLoc(getLoc(), "conv"));
 
     if (mlir::failed(outShape)) {
         return outShape;

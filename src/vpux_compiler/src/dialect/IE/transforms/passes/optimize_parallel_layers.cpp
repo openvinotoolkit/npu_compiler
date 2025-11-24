@@ -209,7 +209,7 @@ mlir::LogicalResult MoveLayerBeforeSlice<ConcreteOp>::matchAndRewrite(ConcreteOp
 
         auto currLayerOp = mlir::dyn_cast<ConcreteOp>(*sliceOp.getResult().getUsers().begin());
         auto newOffsets = getNewOffsets(sliceOp, sliceAxes, currLayerOp);
-        auto newSlice = rewriter.create<IE::SliceOp>(currLayerOp->getLoc(), newLayerOp->getResult(0),
+        auto newSlice = rewriter.create<IE::SliceOp>(takeOpLoc(currLayerOp, "as_slice"), newLayerOp->getResult(0),
                                                      getIntArrayAttr(newLayerOp->getContext(), newOffsets),
                                                      getIntArrayAttr(newLayerOp->getContext(), newSizes));
         _log.trace("Create new Slice: {0}", newSlice);
@@ -234,6 +234,7 @@ mlir::Operation* MoveLayerBeforeSlice<ConcreteOp>::createNewLayerOp(ArrayRef<Con
 
     rewriter.setInsertionPointAfterValue(sliceOp.getSource());
     auto* newLayerOp = rewriter.clone(*layerOp.getOperation(), mapper);
+    extendOpLoc(newLayerOp, "new_layer");
     vpux::inferReturnTypes(newLayerOp, vpux::InferShapedTypeMode::ALL);
     return newLayerOp;
 }
@@ -567,7 +568,7 @@ mlir::Operation* MoveReshapeBeforeSlice::createNewLayerOp(ArrayRef<IE::ReshapeOp
     }
 
     rewriter.setInsertionPointAfterValue(sliceOp.getSource());
-    return rewriter.create<IE::ReshapeOp>(layerOp.getLoc(), sliceOp.getSource(), nullptr, false,
+    return rewriter.create<IE::ReshapeOp>(takeOpLoc(layerOp, "as_reshape"), sliceOp.getSource(), nullptr, false,
                                           vpux::getIntArrayAttr(rewriter, targetShape));
 }
 
@@ -681,8 +682,8 @@ mlir::Operation* MoveFCBeforeSlice::createNewLayerOp(ArrayRef<IE::FullyConnected
         newWeights = weightsSource;
     }
 
-    auto newFullyConnected = rewriter.create<IE::FullyConnectedOp>(
-            appendLoc(siblingLayerOps.front()->getLoc(), "_merged"), inputSource, newWeights, fcOp.getBias());
+    auto newFullyConnected =
+            rewriter.create<IE::FullyConnectedOp>(takeOpLoc(fcOp, "merged"), inputSource, newWeights, fcOp.getBias());
 
     return newFullyConnected;
 }
@@ -854,7 +855,7 @@ void MoveReshapeAfterConcat::createNewSubgraphAndReplace(ArrayRef<IE::ReshapeOp>
     }
     auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), concatInputs, newConcatAxis);
 
-    auto newReshape = rewriter.create<IE::ReshapeOp>(firstReshape->getLoc(), newConcat, nullptr, false,
+    auto newReshape = rewriter.create<IE::ReshapeOp>(takeOpLoc(firstReshape, "new_reshape"), newConcat, nullptr, false,
                                                      getIntArrayAttr(rewriter.getContext(), ShapeRef(targetShape)));
 
     rewriter.replaceOp(origOp, newReshape.getOutput());
@@ -974,7 +975,7 @@ void MoveFCAfterConcat::createNewSubgraphAndReplace(ArrayRef<IE::FullyConnectedO
     auto firstFC = siblingLayerOps.front();
     const auto rhsRoot = firstFC.getWeights();
     auto newFullyConnected =
-            rewriter.create<IE::FullyConnectedOp>(firstFC->getLoc(), newLhs, rhsRoot, firstFC.getBias());
+            rewriter.create<IE::FullyConnectedOp>(takeOpLoc(firstFC, "new_fc"), newLhs, rhsRoot, firstFC.getBias());
 
     auto targetShape = getShape(origOp.getOutput());
     auto outputReshape = rewriter.createOrFold<IE::ReshapeOp>(
@@ -1056,7 +1057,7 @@ void MoveSoftmaxAfterConcat::createNewSubgraphAndReplace(ArrayRef<IE::SoftMaxOp>
     auto firstSoftmaxOp = siblingLayerOps.front();
     auto inputType = mlir::cast<vpux::NDTypeInterface>(firstSoftmaxOp.getInput().getType());
     auto softmaxAxis = vpux::getPositiveAxisInd(firstSoftmaxOp.getAxisIndAttr(), inputType.getRank());
-    auto newSoftmax = rewriter.create<IE::SoftMaxOp>(firstSoftmaxOp->getLoc(), newConcat.getOutput(),
+    auto newSoftmax = rewriter.create<IE::SoftMaxOp>(takeOpLoc(firstSoftmaxOp, "new_softmax"), newConcat.getOutput(),
                                                      getIntAttr(rewriter.getContext(), softmaxAxis),
                                                      firstSoftmaxOp.getPadSizeAttr());
 
@@ -1157,10 +1158,10 @@ void MoveAddAfterConcat::createNewSubgraphAndReplace(ArrayRef<IE::AddOp> sibling
     auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), newConcatInputs, concatAxis.value());
     IE::AddOp newAdd;
     if (shareInput1) {
-        newAdd = rewriter.create<IE::AddOp>(origOp->getLoc(), firstAddOp.getInput1(), newConcat.getOutput(),
+        newAdd = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "as_add"), firstAddOp.getInput1(), newConcat.getOutput(),
                                             firstAddOp.getAutoBroadcast(), nullptr, nullptr, nullptr, nullptr);
     } else {
-        newAdd = rewriter.create<IE::AddOp>(origOp->getLoc(), newConcat.getOutput(), firstAddOp.getInput2(),
+        newAdd = rewriter.create<IE::AddOp>(takeOpLoc(origOp, "as_add"), newConcat.getOutput(), firstAddOp.getInput2(),
                                             firstAddOp.getAutoBroadcast(), nullptr, nullptr, nullptr, nullptr);
     }
 

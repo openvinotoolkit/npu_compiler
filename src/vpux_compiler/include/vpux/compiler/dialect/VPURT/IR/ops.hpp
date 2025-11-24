@@ -7,6 +7,7 @@
 
 #include "vpux/compiler/dialect/ELFNPU37XX/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops_interfaces.hpp"

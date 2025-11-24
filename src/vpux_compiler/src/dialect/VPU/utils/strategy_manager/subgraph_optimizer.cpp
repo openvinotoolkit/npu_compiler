@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/subgraph_optimizer.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
@@ -1420,7 +1423,4 @@ void SubgraphOptimizer::optimizeStrategyAvoidSpillingOnModel() {
         removeClusteringStrategyAvoidSpillingOnSubgraph(clusteredOp);
     };
     _func.walk<mlir::WalkOrder::PostOrder, mlir::ReverseIterator>(clusteringOptimizationCallBack);
-
-    _log.info("[MC Assign / subgraph phase]");
-    _layerCostModel.printNNCacheStatistics();
 }

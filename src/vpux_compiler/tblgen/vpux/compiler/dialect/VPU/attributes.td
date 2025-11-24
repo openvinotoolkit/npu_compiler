@@ -1156,18 +1156,28 @@ def VPU_BoundsRepresentation :
 
 def VPU_BoundsRepresentationAttr : VPU_EnumAttr<VPU_BoundsRepresentation, "bounds_representation">;
 
-def VPU_WorkloadManagementStatus :
-        VPU_I64EnumAttr<
-            "WorkloadManagementStatus",
-            "Workload Management Status",
+//
+// GatherAddressingMode
+//
+
+def VPU_GatherAddressingMode :
+        I64EnumAttr<
+            "GatherAddressingMode",
+            "Gather Addressing Mode",
             [
-                I64EnumAttrCase<"ENABLED",  0>,
-                I64EnumAttrCase<"DISABLED", 1>,
-                I64EnumAttrCase<"FAILED",   2>
+                I64EnumAttrCase<"ABSOLUTE", 0>,
+                I64EnumAttrCase<"INDEXED", 1>
             ]
         > {
-}
+    let cppNamespace = "vpux::VPU";
 
-def VPU_WorkloadManagementStatusAttr : VPU_EnumAttr<VPU_WorkloadManagementStatus, "WorkloadManagementStatus">;
+    let description = [{
+      Gather operation done by DMA engine can have two addressing modes:
+        - Absolute addressing - each element in the indices list represents the raw address value
+                                that is used by the DMA for accessing memory
+        - Indexed addressing - each element in the indices list represents the index
+                                to access into a Virtual Array in memory
+    }];
+}
 
 #endif

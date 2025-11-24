@@ -264,6 +264,29 @@ mlir::LogicalResult FuseShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, mlir
     return mlir::success();
 }
 
+struct Fraction {
+    int64_t numerator;
+    int64_t denominator;
+
+    bool operator==(const Fraction& other) const {
+        return numerator * other.denominator == other.numerator * denominator;
+    }
+    bool operator!=(const Fraction& other) const {
+        return !(operator==(other));
+    }
+
+    friend int64_t operator%(int64_t value, const Fraction& frac) {
+        return (value * frac.denominator) % frac.numerator;
+    }
+
+    friend int64_t operator/(int64_t value, const Fraction& frac) {
+        return (value * frac.denominator) / frac.numerator;
+    }
+    friend int64_t operator*(int64_t value, const Fraction& frac) {
+        return (value * frac.numerator) / frac.denominator;
+    }
+};
+
 class UniquifyShapeCast final : public mlir::OpRewritePattern<VPU::ShapeCastOp> {
 public:
     using mlir::OpRewritePattern<VPU::ShapeCastOp>::OpRewritePattern;
@@ -325,7 +348,8 @@ mlir::LogicalResult UniquifyShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, 
     const auto sliceOnReshapedDims = llvm::find(reshapedDims, sliceDim) != reshapedDims.end();
 
     const auto enlargedDim = inShape[reshapedDims[0]] < outShape[reshapedDims[0]] ? reshapedDims[0] : reshapedDims[1];
-    const auto factor = outShape[enlargedDim] / inShape[enlargedDim];
+
+    Fraction factor{outShape[enlargedDim], inShape[enlargedDim]};
     const auto sliceOnShrinkDim = sliceOnReshapedDims && sliceDim != enlargedDim;
 
     SmallVector<VPU::SliceOp> sliceUsers;
@@ -358,7 +382,7 @@ mlir::LogicalResult UniquifyShapeCast::matchAndRewrite(VPU::ShapeCastOp origOp, 
             return mlir::failure();
         }
 
-        auto curFactor = curOutShape[enlargedDim] / curInShape[enlargedDim];
+        Fraction curFactor{curOutShape[enlargedDim], curInShape[enlargedDim]};
         if (curFactor != factor) {
             return mlir::failure();
         }

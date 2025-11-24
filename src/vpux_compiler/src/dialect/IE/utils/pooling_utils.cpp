@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/pooling_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -38,8 +39,8 @@ mlir::Operation* IE::createIdentityMaxPool(mlir::Value input, mlir::Type outType
     auto ctx = rewriter.getContext();
 
     return rewriter.create<IE::MaxPoolOp>(
-            input.getLoc(), outType, input, getIntArrayAttr(ctx, poolKernels), getIntArrayAttr(ctx, poolStrides),
-            getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
+            appendLoc(input.getLoc(), "_to_maxpool"), outType, input, getIntArrayAttr(ctx, poolKernels),
+            getIntArrayAttr(ctx, poolStrides), getIntArrayAttr(ctx, pads), getIntArrayAttr(ctx, pads),
             IE::RoundingTypeAttr::get(ctx, IE::RoundingType::FLOOR), nullptr, nullptr, nullptr, nullptr);
 }
 

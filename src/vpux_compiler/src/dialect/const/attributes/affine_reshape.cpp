@@ -75,7 +75,8 @@ bool vpux::Const::AffineReshapeAttr::inferOutputSplat(bool inputIsSplat, vpux::N
 }
 
 Const::Content vpux::Const::AffineReshapeAttr::transform(vpux::Const::Content& input) const {
-    return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
+    const auto outputType = inferOutputType(input.getType());
+    return Const::Content::moveBuffer(outputType, std::move(input));
 }
 
 mlir::Attribute vpux::Const::AffineReshapeAttr::parse(mlir::AsmParser& parser, mlir::Type) {

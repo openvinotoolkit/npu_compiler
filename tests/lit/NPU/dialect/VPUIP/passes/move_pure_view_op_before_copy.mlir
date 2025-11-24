@@ -1083,74 +1083,64 @@ func.func @MoveSubViewWithPerAxisQuantization(%arg0: memref<1x8x2x2x!qElemType, 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 func.func @DoNotMoveShapeCastWhenCompressConv(
-        %arg0: memref<1x4x208x416xf16, #NHWC, [@CMX_NN, 0]>,
+        %arg0: memref<1x4x104x208xf16, #NHWC, [@CMX_NN, 0]>,
         %arg1: memref<32x1x1x32xf16, #NHWC>,
         %arg2: memref<32x1x1x4xsi32>)
-        -> memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]> {
+        -> memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]> {
 
     %0 = memref.alloc() : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>
     %1 = VPUIP.Copy inputs(%arg1 : memref<32x1x1x32xf16, #NHWC>) outputs(%0 : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>
     %2 = memref.alloc() : memref<32x1x1x4xsi32, [@CMX_NN, 0]>
     %3 = VPUIP.Copy inputs(%arg2 : memref<32x1x1x4xsi32>) outputs(%2 : memref<32x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
     %4 = VPUIP.ShapeCast {shape = [32, 16, 3, 3]} inputs(%1 : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
-    %5 = memref.alloc() : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>
-    %6 = VPUIP.ShapeCast {shape = [1, 16, 208, 416]} inputs(%arg0 : memref<1x4x208x416xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = memref.alloc() : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>
+    %6 = VPUIP.ShapeCast {shape = [1, 16, 104, 208]} inputs(%arg0 : memref<1x4x104x208xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>
     %7 = VPUIP.NCEClusterTask {cm_sp_pattern = 15 : i64, input_channels_compression,
                                 kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
                                 kernel_size = [3, 3], kernel_strides = [2, 2],
                                 minimumHardwareExecutionCost = 4294967398 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-                input(%6 : memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>)
+                input(%6 : memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>)
                 weights(%4 : memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>)
                 weight_table(%3 : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-                parent_input(%6 : memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>)
-                parent_output(%5 : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>)
-                outputs(%5 : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>)
-                -> memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>
+                parent_input(%6 : memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>)
+                parent_output(%5 : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>)
+                outputs(%5 : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>)
+                -> memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>
     variants : {
-      DPUTask {inEnd = [415, 207, 3], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
-                outEnd = [207, 103, 31], outStart = [0, 0, 0],
+      DPUTask {inEnd = [207, 103, 3], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
+                outEnd = [103, 51, 31], outStart = [0, 0, 0],
                 pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>}
     } PPE : {
       PPETask {ppe = #VPU.PPEStub<>}
     }
 
-    return %7 : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>
+    return %7 : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>
 
     // CHECK:       [[ALLOC_WEIGHTS:%.+]] = memref.alloc() : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:       [[W_CMX:%.+]] = VPUIP.Copy inputs(%arg1 : memref<32x1x1x32xf16, #NHWC>)
-    // CHECK-SAME:      outputs([[ALLOC_WEIGHTS]] : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[W_CMX:%.+]] = VPUIP.Copy inputs(%arg1 : memref<32x1x1x32xf16, #NHWC>) outputs([[ALLOC_WEIGHTS]] : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>
 
     // CHECK:       [[ALLOC_WEIGHTSTABLE:%.+]] = memref.alloc() : memref<32x1x1x4xsi32, [@CMX_NN, 0]>
-    // CHECK:       [[WT_CMX:%.+]] = VPUIP.Copy inputs(%arg2 : memref<32x1x1x4xsi32>)
-    // CHECK-SAME:      outputs([[ALLOC_WEIGHTSTABLE]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
+    // CHECK:       [[WT_CMX:%.+]] = VPUIP.Copy inputs(%arg2 : memref<32x1x1x4xsi32>) outputs([[ALLOC_WEIGHTSTABLE]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<32x1x1x4xsi32, [@CMX_NN, 0]>
 
-    // CHECK:       [[SHAPECAST_WEIGHTS:%.+]] = VPUIP.ShapeCast {shape = [32, 16, 3, 3]}
-    // CHECK-SAME:      inputs([[W_CMX]] : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[SHAPECAST_WEIGHTS:%.+]] = VPUIP.ShapeCast {shape = [32, 16, 3, 3]} inputs([[W_CMX]] : memref<32x1x1x32xf16, #NHWC, [@CMX_NN, 0]>) -> memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>
 
-    // CHECK:       [[ALLOC_OUTPUT:%.+]] = memref.alloc() : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[ALLOC_OUTPUT:%.+]] = memref.alloc() : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>
 
-    // CHECK:       [[SHAPECAST_INPUT:%.+]] = VPUIP.ShapeCast {shape = [1, 16, 208, 416]}
-    // CHECK-SAME:      inputs(%arg0 : memref<1x4x208x416xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>
-
-    // CHECK:       [[COMPRESS_CONV:%.+]] = VPUIP.NCEClusterTask
-    // CHECK-SAME:      {cm_sp_pattern = 15 : i64, input_channels_compression,
-    // CHECK-SAME:      kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
-    // CHECK-SAME:      kernel_size = [3, 3], kernel_strides = [2, 2],
-    // CHECK-SAME:      minimumHardwareExecutionCost = 4294967398 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:  input([[SHAPECAST_INPUT]] : memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:       [[SHAPECAST_INPUT:%.+]] = VPUIP.ShapeCast {shape = [1, 16, 104, 208]} inputs(%arg0 : memref<1x4x104x208xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[COMPRESS_CONV:%.+]] = VPUIP.NCEClusterTask {cm_sp_pattern = 15 : i64, input_channels_compression, kernel_padding = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>,
+    // CHECK-SAME:     kernel_size = [3, 3], kernel_strides = [2, 2], minimumHardwareExecutionCost = 4294967398 : i64, task_type = #VPUIP.nce_task_type<CONV>}
+    // CHECK-SAME:  input([[SHAPECAST_INPUT]] : memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>)
     // CHECK-SAME:  weights([[SHAPECAST_WEIGHTS]] : memref<32x16x3x3xf16, #NHWC, [@CMX_NN, 0]>)
     // CHECK-SAME:  weight_table([[WT_CMX]] : memref<32x1x1x4xsi32, [@CMX_NN, 0]>)
-    // CHECK-SAME:  parent_input([[SHAPECAST_INPUT]] : memref<1x16x208x416xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  parent_output([[ALLOC_OUTPUT]] : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  outputs([[ALLOC_OUTPUT]] : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:  -> memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]> variants : {
-    // CHECK:       DPUTask {inEnd = [415, 207, 3], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>,
-    // CHECK-SAME:      outEnd = [207, 103, 31], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>}
+    // CHECK-SAME:  parent_input([[SHAPECAST_INPUT]] : memref<1x16x104x208xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:  parent_output([[ALLOC_OUTPUT]] : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:  outputs([[ALLOC_OUTPUT]] : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]> variants : {
+    // CHECK:        DPUTask {inEnd = [207, 103, 3], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [103, 51, 31], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 0 : i64, top = 1 : i64, bottom = 0 : i64>}
     // CHECK:       } PPE : {
     // CHECK:       PPETask {ppe = #VPU.PPEStub<>}
     // CHECK:       }
 
-    // CHECK:   return [[COMPRESS_CONV]] : memref<1x32x104x208xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:  return [[COMPRESS_CONV]] : memref<1x32x52x104xf16, #NHWC, [@CMX_NN, 0]>
 }
 
 // -----

@@ -23,7 +23,7 @@ VFConfig::VFConfig(VPU::VerticalFusionOp vfOp, bool enableVFPipelining /*true*/,
 }
 
 VFConfig::VFConfig(const llvm::SetVector<mlir::Operation*>& operations): _subgraph(nullptr), _isPipelineEnabled(true) {
-    _vfOps = std::move(operations);
+    _vfOps = operations;
     _isVFPipelineCandidate = isVFPipelinePattern();
 }
 

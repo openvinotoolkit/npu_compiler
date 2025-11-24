@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 
 namespace vpux {
 namespace IE {

@@ -617,10 +617,15 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origO
     auto log = Logger::global().nest("one-shot-bufferize-VPUGatherDMAOp", 0);
     log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
 
+    const auto addressingMode = (origOp.getAddressingMode().has_value() &&
+                                 (origOp.getAddressingMode().value() == VPU::GatherAddressingMode::ABSOLUTE))
+                                        ? VPUIP::GatherAddressingMode::ABSOLUTE
+                                        : VPUIP::GatherAddressingMode::INDEXED;
+
     if (mlir::isa<VPU::DistributedTensorType>(origOp.getOutput().getType())) {
         auto outputCMXBuffers = allocateBuffers(log, origOp.getLoc(), rewriter, origOp.getOutput(), true);
         auto newOp = rewriter.create<VPUIP::GatherDMAOp>(origOp.getLoc(), newArgs.getInput(), newArgs.getIndices(),
-                                                         outputCMXBuffers[0], 0, 0, 0);
+                                                         outputCMXBuffers[0], 0, 0, 0, addressingMode);
         newOp.setChannelType(VPUIP::DmaChannelType::DDR);
         mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, newOp.getResult());
         return mlir::success();
@@ -636,7 +641,7 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, VPU::GatherDMAOp origO
 
     auto outputCMXBuffers = allocateBuffer(log, origOp.getLoc(), rewriter, origOp.getOutput(), memSpaceCMX);
     auto newOp = rewriter.create<VPUIP::GatherDMAOp>(origOp.getLoc(), newArgs.getInput(), indicesCMXCopy.getOutput(),
-                                                     outputCMXBuffers, 0, 0, 0);
+                                                     outputCMXBuffers, 0, 0, 0, addressingMode);
     newOp.setChannelType(VPUIP::DmaChannelType::DDR);
     auto outputDDRBuffers = allocateBuffers(log, origOp.getLoc(), rewriter, origOp->getOpResults(),
                                             /*individualBuffers =*/false);

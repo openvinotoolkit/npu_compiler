@@ -4,6 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
@@ -21,6 +23,7 @@ mlir::LogicalResult vpux::IE::GatherNDOp::inferReturnTypeComponents(
     }
 
     const auto inType = mlir::cast<mlir::ShapedType>(gatherND.getInput().getType());
+    const auto indicesType = mlir::cast<mlir::ShapedType>(gatherND.getIndices().getType());
     auto originalShapeOptional = gatherND.getOriginalShape();
     vpux::Shape inputShape = originalShapeOptional.has_value()
                                      ? vpux::Shape(parseIntArrayAttr<int64_t>(originalShapeOptional.value()))
@@ -30,13 +33,20 @@ mlir::LogicalResult vpux::IE::GatherNDOp::inferReturnTypeComponents(
     const auto lastIndices = indicesShape.back();
     const auto inputRank = static_cast<int64_t>(inputShape.size());
 
-    SmallVector<int64_t> outShape;
-    outShape.append(indicesShape.begin(), indicesShape.end() - 1);
-    if (batchDims + lastIndices != inputRank) {
-        outShape.append(inputShape.begin() + batchDims + lastIndices, inputShape.end());
-    }
+    auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(indicesType, [&](const auto& indicesShape) {
+        auto outShape = copyShape(indicesShape);
+        outShape.pop_back();
+        if (batchDims + lastIndices != inputRank) {
+            outShape.append(inputShape.begin() + batchDims + lastIndices, inputShape.end());
+        }
+        return splitShapeAndRepresentation(outShape);
+    });
 
-    inferredReturnShapes.emplace_back(outShape, inType.getElementType());
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(gatherND.getInput().getType());
+    SmallVector<int64_t> outputShape(outStaticShape.begin(), outStaticShape.end());
+    const auto outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outputShape.size()), inputType.getMemSpace(),
+                                             outBounds, outDimMask);
+    inferredReturnShapes.emplace_back(outputShape, inputType.getElementType(), outDesc);
 
     return mlir::success();
 }

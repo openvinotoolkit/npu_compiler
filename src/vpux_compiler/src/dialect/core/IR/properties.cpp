@@ -92,3 +92,25 @@ mlir::LogicalResult vpux::readFromMlirBytecode(mlir::DialectBytecodeReader&, std
 void vpux::writeToMlirBytecode(mlir::DialectBytecodeWriter&, const std::optional<bool>& /*prop*/) {
     VPUX_THROW("MLIR bytecode is not supported for std::optional<bool>");
 }
+
+//
+// SmallVector<int64_t> property
+//
+
+mlir::LogicalResult vpux::convertFromAttribute(SmallVector<uint8_t>& storage, mlir::Attribute attr,
+                                               llvm::function_ref<mlir::InFlightDiagnostic()>) {
+    auto arrayAttr = llvm::dyn_cast_if_present<::mlir::ArrayAttr>(attr);
+    if (!arrayAttr) {
+        return mlir::failure();
+    }
+    storage = parseIntArrayAttr<uint8_t>(arrayAttr);
+    return mlir::success();
+}
+
+mlir::Attribute vpux::convertToAttribute(mlir::MLIRContext* ctx, ArrayRef<uint8_t> storage) {
+    return getIntArrayAttr(ctx, storage);
+}
+
+llvm::hash_code vpux::hash_value(ArrayRef<uint8_t> storage) {
+    return llvm::hash_value(storage);
+}

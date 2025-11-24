@@ -4,13 +4,8 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
-#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/utils/core/error.hpp"
-
-#include <llvm/ADT/TypeSwitch.h>
 
 using namespace vpux;
 
@@ -29,10 +24,6 @@ bool vpux::VPU::isNCEReduceSupported(mlir::Operation* op, LogCb logCb) {
                 logCb(formatv("Unknown operation: {0}", op->getName()));
                 return false;
             });
-}
-
-bool vpux::VPU::isReduceOpSupportedOnNCE(mlir::Operation* op) {
-    return VPU::getConstraint<bool>(op, REDUCE_SUPPORTED);
 }
 
 VPUIP::NCETaskType vpux::VPU::configureNCEReduceTaskType(VPU::NCEReduceOp origOp) {

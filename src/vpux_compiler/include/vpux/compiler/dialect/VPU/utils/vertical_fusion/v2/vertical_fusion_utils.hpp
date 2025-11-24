@@ -50,6 +50,13 @@ VFSplit getVFTilingSplit(ArrayRef<int64_t> tilingStrategy);
 // Get number of tiles from split
 int64_t getVFTilesLen(const VFSplit& vfSplit);
 
+// calculate limit for number of tiles for set of operations
+int64_t getTilingLimit(Dim axis, VFConfig& config, bool tilingOnHW = false);
+
 // if the maxTile is too large, return the cbrt of it if it's a valid max tile candidate
 std::optional<int64_t> getCbrtMaxTileCandidate(int64_t minTile, int64_t maxTile);
+
+// Determines if the operand represents shared weights for the operation in Vertical Fusion
+bool isOperandSharedWeightsForTiling(mlir::Operation* op, mlir::Value operand, ShapeRef tiledShape);
+
 }  // namespace vpux::VPU::VF::v2

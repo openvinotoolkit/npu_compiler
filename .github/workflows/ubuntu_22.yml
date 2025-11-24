@@ -22,14 +22,17 @@ jobs:
       packages: read
       statuses: read
       security-events: write
+      id-token: write
+      attestations: write
     with:
       os: ubuntu_22_04
       build-runner: ubuntu-22.04-16-cores
       test-runner: ubuntu-22.04-8-cores
-      build-cache: false
-      build-cache-key-suffix: cache_${{ github.ref_name }}
+      build-cache: true
+      build-cache-key-suffix: ${{ github.sha }}
       build-mlir: true
       build-driver: true
+      build-cid: true
       run-unit-tests: true
       run-lit-tests: true
       run-compilation-tests: true

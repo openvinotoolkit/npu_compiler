@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
@@ -37,6 +38,9 @@ using namespace vpux;
 bool vpux::VPU::NCEDepthConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter,
                                                   vpux::NDTypeInterface output, Byte reservedMem) {
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     const auto OC = output.getShape()[Dims4D::Act::C];
 
     const auto op = getOperation();
@@ -331,10 +335,12 @@ vpux::InputTiling vpux::VPU::NCEDepthConvolutionOp::backInferTileInfo(const vpux
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableScale()) {
-        inputTiling.tiles.push_back(VPU::getScaleTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableBias()) {
-        inputTiling.tiles.push_back(VPU::getBiasTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
 
     return inputTiling;
@@ -445,6 +451,9 @@ bool VPU::NCEDepthConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy s
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis))};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     const auto op = getOperation();
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");

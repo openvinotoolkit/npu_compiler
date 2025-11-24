@@ -45,7 +45,8 @@ void vpux::VPU::arch40xx::buildIncrementalPipeline(mlir::OpPassManager& pm, cons
     pm.addPass(VPU::createMakeOpsWithDistributedTensorPass(options.enableExplicitDistributionInfoAttr, log));
 
     pm.addPass(VPU::createComputeInterpolateCoordinatesPass(options.enableExplicitDistributionInfoAttr, log));
-    pm.addPass(VPU::createRemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass(log));
+    // E#183249 - reintroduce RemoveOutputSparseToAvoidSuboptimalDPUWorkloads pass after perf regression
+    // is investigated
 
     pm.addPass(VPU::createMakeDistributedCopiesPass(log));
     pm.addPass(VPU::createAdjustDistributedTensorAroundOpsPass(log));
@@ -85,12 +86,11 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     }
 
     // TODO: E#140041 enable profiling with outlining
-    if (options.enableConcatRepeatingBlockOutlining && !options.enableProfiling) {
+    if (options.enableConcatRepeatingBlockOutlining && canOutlineFromProfilingPerspective(options)) {
         pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
 
-    pm.addPass(VPU::createTileGatherPass(log));
     pm.addPass(VPU::createConvertOpToDMAForPerformantExecutionPass(log));
     pm.addPass(VPU::createMoveConvertAroundViewLikeOpsPass(log));
     pm.addPass(VPU::createAdjustForOptimizedLayersPass(log));
@@ -157,7 +157,7 @@ void vpux::VPU::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createResolveEltwiseWithZTiledWorkloadsPass(log));
     pm.addPass(VPU::createComputeNCEInputWorkloadsPass(log));
     pm.addPass(VPU::createShiftOutputWorkloadsForHaloPass(log));
-    if (options.enableEntireMainContentOutlining) {
+    if (options.enableEntireMainContentOutlining && canOutlineFromProfilingPerspective(options)) {
         pm.addPass(VPU::createOutlineEntireMainContentPass(log));
     }
     pm.addPass(mlir::createCanonicalizerPass(grc));

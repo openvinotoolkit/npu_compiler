@@ -4,8 +4,7 @@
 #
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
-    string(REPLACE "/sdl" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE "/sdl" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    add_compile_options(/sdl)
     if(ENABLE_PRODUCTION_BUILD)
         add_link_options("/INTEGRITYCHECK")
     endif()

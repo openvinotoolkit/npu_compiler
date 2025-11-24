@@ -9,7 +9,6 @@
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 
-#include <vpu/dpu_types.h>
 #include <vpu/layer_split_info.h>
 
 namespace VPUNN {

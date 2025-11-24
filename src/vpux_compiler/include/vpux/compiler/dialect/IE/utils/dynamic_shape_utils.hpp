@@ -8,12 +8,23 @@
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 
+#include <mlir/IR/Builders.h>
 #include <mlir/IR/Operation.h>
 
 namespace vpux {
 namespace IE {
 
+class DynamicDimOpBuilder final : public mlir::OpBuilder, public mlir::OpBuilder::Listener {
+public:
+    explicit DynamicDimOpBuilder(mlir::Operation* op): OpBuilder(op, this) {
+    }
+
+public:
+    void notifyOperationInserted(mlir::Operation* op, mlir::OpBuilder::InsertPoint) final;
+};
+
 bool hasDynamicShapeAttr(mlir::Value value);
+bool hasDynamicShape(mlir::Value value);
 bool hasDynamicTensors(mlir::Operation* op);
 bool needsStaticShape(mlir::Operation* op);
 bool isDynamicDataContiguous(vpux::ShapeRef shape, vpux::DimsOrder order);

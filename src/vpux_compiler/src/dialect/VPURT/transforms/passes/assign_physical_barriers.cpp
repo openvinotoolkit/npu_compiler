@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 
 #include "vpux/compiler/core/barrier_info.hpp"
@@ -12,6 +11,7 @@
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/color_bin_barrier_assignment.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/options.hpp"
 
 #include <llvm/ADT/SetOperations.h>
@@ -124,7 +124,7 @@ void AssignPhysicalBarriersPass::safeRunOnFunc() {
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
 
-    auto wlmFlag = VPU::getWorkloadManagementStatus(module) == VPU::WorkloadManagementStatus::ENABLED;
+    auto wlmFlag = config::getWorkloadManagementStatus(module) == WorkloadManagementStatus::ENABLED;
 
     const auto barrierColorBinFlag =
             colorBinEnableOpt.hasValue() ? static_cast<bool>(colorBinEnableOpt.getValue()) : _barrierColorBinFlag;
@@ -145,7 +145,7 @@ void AssignPhysicalBarriersPass::safeRunOnFunc() {
         _log.trace("WLM flag turned off because number of barrier is above threshold {0} > {1}", numVirtualBarriers,
                    virtualBarrierThresholdForWlm.value());
         wlmFlag = false;
-        VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
     }
 
     if (!barrierSim.isDynamicBarriers()) {

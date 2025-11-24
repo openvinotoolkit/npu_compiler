@@ -819,8 +819,7 @@ void ConvertVPUMI37XX2ELFPass::createKernelParamsRelocs(mlir::func::FuncOp func,
 }
 
 mlir::Value ConvertVPUMI37XX2ELFPass::lookupELFSymbol(mlir::Value symtabValue, mlir::Value sym_input_value) {
-    auto& symbolTableCacheEntry = symbolCache.FindAndConstruct(symtabValue);
-    auto& symbolTableCache = symbolTableCacheEntry.second;
+    auto& symbolTableCache = symbolCache[symtabValue];
     if (symbolTableCache.empty()) {
         auto symtabOp = llvm::dyn_cast<vpux::ELFNPU37XX::CreateSymbolTableSectionOp>(symtabValue.getDefiningOp());
 

@@ -477,7 +477,7 @@ mlir::Value MergeFullyConnectedWithWeightsAsConstant::buildNewMatMulWeights(Arra
                                                                             size_t batchSize,
                                                                             mlir::PatternRewriter& rewriter) const {
     auto ctx = rewriter.getContext();
-    auto insertTransposeReshapeBeforeFQ = [&](ArrayRef<mlir::Value> values, const int64_t subBatchId) -> mlir::Value {
+    auto insertTransposeReshapeBeforeFQ = [&](ArrayRef<mlir::Value> values, mlir::Location baseLoc) -> mlir::Value {
         auto origInShape = getShape(values.front());
         VPUX_THROW_WHEN(origInShape.size() != 3, "Input shape must have 3 dimensions");
         mlir::Value newInput = values.front();
@@ -486,26 +486,25 @@ mlir::Value MergeFullyConnectedWithWeightsAsConstant::buildNewMatMulWeights(Arra
         if (!shapeEqualsToOne(origInShape)) {
             // Create new input
             rewriter.setInsertionPointAfterValue(values.back());
-            newInput = rewriter.create<IE::ConcatOp>(appendLoc(values.front().getLoc(), "_concat_{0}", subBatchId),
-                                                     values, Dim(0))
+            newInput = rewriter.create<IE::ConcatOp>(appendLoc(baseLoc, "concat_{0}", batchIdx), values, Dim(0))
                                .getResult();
         }
+        auto newInputLoc = newInput.getLoc();
 
         // Create transpose
         rewriter.setInsertionPointAfterValue(newInput);
         auto perm = SmallVector<uint32_t>{0, 2, 1};
         const auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, ctx));
-        auto transpose = rewriter.createOrFold<IE::TransposeOp>(
-                appendLoc(newInput.getLoc(), "transpose_{0}", subBatchId), newInput, nullptr, orderAttr);
+        auto transpose = rewriter.createOrFold<IE::TransposeOp>(appendLoc(newInputLoc, "transpose_{0}", batchIdx),
+                                                                newInput, nullptr, orderAttr);
 
         // create affineReshape
         auto inShape = getShape(transpose).raw();
         auto reshapeOutShape = SmallVector<int64_t>{inShape[0] * inShape[1], inShape[2]};
         const auto reshapeOutShapeAttr = getIntArrayAttr(ctx, reshapeOutShape);
         SmallVector<SmallVector<int64_t>> inDimMapping{{0}, {0}, {1}};
-        return rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(newInput.getLoc(), "reshape_{0}", subBatchId),
-                                                          transpose, getIntArrayOfArray(ctx, inDimMapping),
-                                                          reshapeOutShapeAttr);
+        return rewriter.createOrFold<IE::AffineReshapeOp>(appendLoc(newInputLoc, "reshape_{0}", batchIdx), transpose,
+                                                          getIntArrayOfArray(ctx, inDimMapping), reshapeOutShapeAttr);
     };
 
     SmallVector<mlir::Value> fqInputs, inLows, inHighs, outLows, outHighs;
@@ -518,14 +517,15 @@ mlir::Value MergeFullyConnectedWithWeightsAsConstant::buildNewMatMulWeights(Arra
         outHighs.push_back(fq.getOutputHigh());
     }
 
-    auto newFQInput = insertTransposeReshapeBeforeFQ(fqInputs, batchIdx);
-    auto newInLow = insertTransposeReshapeBeforeFQ(inLows, batchIdx);
-    auto newInHigh = insertTransposeReshapeBeforeFQ(inHighs, batchIdx);
-    auto newOutLow = insertTransposeReshapeBeforeFQ(outLows, batchIdx);
-    auto newOutHigh = insertTransposeReshapeBeforeFQ(outHighs, batchIdx);
+    auto firstFq = mlir::dyn_cast<IE::FakeQuantizeOp>(branches[batchIdx].weights);
+
+    auto newFQInput = insertTransposeReshapeBeforeFQ(fqInputs, takeOpLoc(firstFq, "fq_in"));
+    auto newInLow = insertTransposeReshapeBeforeFQ(inLows, takeOpLoc(firstFq, "in_low"));
+    auto newInHigh = insertTransposeReshapeBeforeFQ(inHighs, takeOpLoc(firstFq, "in_high"));
+    auto newOutLow = insertTransposeReshapeBeforeFQ(outLows, takeOpLoc(firstFq, "out_low"));
+    auto newOutHigh = insertTransposeReshapeBeforeFQ(outHighs, takeOpLoc(firstFq, "out_high"));
 
     mlir::OpBuilder::InsertionGuard guard(rewriter);
-    auto firstFq = mlir::dyn_cast<IE::FakeQuantizeOp>(branches[batchIdx].weights);
     rewriter.setInsertionPointAfterValue(firstFq);
     auto newFakeQuantizedLoc = appendLoc(firstFq.getLoc(), "_fused_{0}", batchIdx);
     auto newFakeQuantizedOp = rewriter.create<IE::FakeQuantizeOp>(

@@ -4,6 +4,8 @@
 //
 
 #include <vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp>
+#include <vpux/compiler/conversion/passes/VPU2VPUIP/bufferize_call_ops_interface.hpp>
+
 #include <vpux/compiler/dialect/core/IR/dialect.hpp>
 #include <vpux/compiler/dialect/core/IR/ops.hpp>
 #include <vpux/compiler/dialect/core/interfaces/type_interfaces.hpp>
@@ -52,15 +54,13 @@ mlir::LogicalResult vpux::Core::NestedCallOp::verifySymbolUses(mlir::SymbolTable
         return mlir::success();
     }
 
-    auto hostCompileMode = config::getCompilationMode(*this) == config::CompilationMode::HostCompile;
-    if (!hostCompileMode) {  // E#172432 disable this check after fixing setMemorySpace in hostCompile Pipeline
-        if (getOperandTypes() != funcOpType.getInputs()) {
-            return emitOpError(formatv("{0} operand types do not match", calleeAttr));
-        }
-        if (getResultTypes() != funcOpType.getResults()) {
-            return emitOpError(formatv("{0} result types do not match", calleeAttr));
-        }
+    if (getOperandTypes() != funcOpType.getInputs()) {
+        return emitOpError(formatv("{0} operand types do not match", calleeAttr));
     }
+    if (getResultTypes() != funcOpType.getResults()) {
+        return emitOpError(formatv("{0} result types do not match", calleeAttr));
+    }
+
     return mlir::success();
 }
 
@@ -113,5 +113,6 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext*, Core::ReinterpretCastO
 void vpux::registerCoreBufferizableOpInterfaces(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, vpux::Core::CoreDialect*) {
         Core::ReinterpretCastOp::attachInterface<VpuGenericOneShotBufferizeModel<Core::ReinterpretCastOp>>(*ctx);
+        Core::NestedCallOp::attachInterface<CallOpBufferizeModel<Core::NestedCallOp>>(*ctx);
     });
 }

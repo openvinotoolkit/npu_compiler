@@ -3,6 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+npu_embed_bin_file(
+    TARGET cost_model_data_4_0
+    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_40_159_strict.vpunn"
+    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_4_0.hpp.inc"
+    VARIABLE_NAME "COST_MODEL_4_0")
+npu_embed_bin_file(
+    TARGET cost_model_data_4_0_fast
+    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_40_159_strict.fast.vpunn"
+    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_4_0_fast.hpp.inc"
+    VARIABLE_NAME "COST_MODEL_4_0_FAST")
+
 file(GLOB_RECURSE SRC_FILES *.cpp)
 add_npu_library(npu_compiler_npu40xx
     ${SRC_FILES}
@@ -20,6 +31,7 @@ add_npu_library(npu_compiler_npu40xx
         npu_compiler_core
         npu_compiler_dialect_const
         npu_compiler_dialect_elf
+        npu_compiler_dialect_elf_transforms
         npu_compiler_dialect_vpu_interfaces
         npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuasm
@@ -32,33 +44,15 @@ add_npu_library(npu_compiler_npu40xx
         npu_llvm_utils
         npu_ov_utils
         npu_profiling_utils
-        flatbuffers
         npu_elf
         npu_40xx_firmware_headers
         MLIRFuncDialect
+        npu_costmodel
+    DEPENDS
+        cost_model_data_4_0
+        cost_model_data_4_0_fast
     SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS}
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/sw_runtime_kernels>
     INCLUDES
         $<TARGET_PROPERTY:openvino::npu_al,INTERFACE_INCLUDE_DIRECTORIES>)
-
-#
-# Embed VPUNN models for NPU40XX
-#
-
-find_package(Git REQUIRED)
-
-execute_process(
-    COMMAND ${GIT_EXECUTABLE} lfs pull
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel")
-
-# Embed NPU40XX VPUNN models
-vpux_embed_bin_file(
-    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_40_159_strict.vpunn"
-    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_4_0.hpp.inc"
-    VARIABLE_NAME "COST_MODEL_4_0")
-vpux_embed_bin_file(
-    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_40_159_strict.fast.vpunn"
-    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_4_0_fast.hpp.inc"
-    VARIABLE_NAME "COST_MODEL_4_0_FAST")

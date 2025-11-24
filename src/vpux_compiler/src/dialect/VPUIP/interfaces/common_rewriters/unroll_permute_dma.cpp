@@ -262,10 +262,11 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
                         distributionAttr.getUniformDistributedSegments(), ctx);
             }
 
-            // We now convert to identity logical to memory mapping
             const auto layout = mlir::AffineMapAttr::get(origType.getDimsOrder().toAffineMap(ctx));
-            return VPUIP::DistributedBufferType::get(ctx, newShape, newElementType, layout, origType.getMemSpace(),
-                                                     distributionAttr);
+            return mlir::cast<NDTypeInterface>(VPUIP::DistributedBufferType::get(ctx, newShape, newElementType, layout,
+                                                                                 origType.getMemSpace(),
+                                                                                 distributionAttr))
+                    .changeStrides(newStrides);
         }
 
         return getMemRefType(newShape, newElementType, origType.getDimsOrder(), origType.getMemSpace(), newStrides);

@@ -28,7 +28,8 @@ module @AndILayer {
 // CHECK-NOT:     IE.And
 // CHECK-DAG:     [[LHS_BC:%.+]] = tensor.bitcast [[LHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
 // CHECK-DAG:     [[RHS_BC:%.+]] = tensor.bitcast [[RHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[LHS_BC]] : tensor<1x1x1x1000xi32>) {
+// CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: i32, [[RHS:%.+]]: i32, {{%.+}}: i32):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpi ne, [[LHS]], [[ZLHS]] : i32
@@ -63,7 +64,8 @@ module @AndFPLayer {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.And
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS:%.+]], [[RHS:%.+]] : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[LHS]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}}, {{%.+}} : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: f16, [[RHS:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpf one, [[LHS]], [[ZLHS]] fastmath<nnan,nsz> : f16
@@ -100,7 +102,8 @@ module @LogicalXorILayer {
 // CHECK-NOT:     IE.LogicalXor
 // CHECK-DAG:     [[LHS_BC:%.+]] = tensor.bitcast [[LHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
 // CHECK-DAG:     [[RHS_BC:%.+]] = tensor.bitcast [[RHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[LHS_BC]] : tensor<1x1x1x1000xi32>) {
+// CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: i32, [[RHS:%.+]]: i32, {{%.+}}: i32):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpi ne, [[LHS]], [[ZLHS]] : i32
@@ -135,7 +138,8 @@ module @LogicalXorFPLayer {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.LogicalXor
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS:%.+]], [[RHS:%.+]] : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[LHS]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}}, {{%.+}} : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: f16, [[RHS:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpf one, [[LHS]], [[ZLHS]] fastmath<nnan,nsz> : f16
@@ -172,7 +176,8 @@ module @LogicalOrILayer {
 // CHECK-NOT:     IE.LogicalOr
 // CHECK-DAG:     [[LHS_BC:%.+]] = tensor.bitcast [[LHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
 // CHECK-DAG:     [[RHS_BC:%.+]] = tensor.bitcast [[RHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[LHS_BC]] : tensor<1x1x1x1000xi32>) {
+// CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: i32, [[RHS:%.+]]: i32, {{%.+}}: i32):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpi ne, [[LHS]], [[ZLHS]] : i32
@@ -207,7 +212,8 @@ module @LogicalOrFPLayer {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.LogicalOr
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS:%.+]], [[RHS:%.+]] : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[LHS]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}}, {{%.+}} : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: f16, [[RHS:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpf one, [[LHS]], [[ZLHS]] fastmath<nnan,nsz> : f16
@@ -242,7 +248,8 @@ module @LogicalNotILayer {
 
 // CHECK-NOT:     IE.LogicalNot
 // CHECK-DAG:     [[LHS_BC:%.+]] = tensor.bitcast [[LHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]] : tensor<1x1x1x1000xi32>) outs([[LHS_BC]] : tensor<1x1x1x1000xi32>) {
+// CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS_BC]] : tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: i32, {{%.+}}: i32):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpi ne, [[LHS]], [[ZLHS]] : i32
@@ -275,7 +282,8 @@ module @LogicalNotFPLayer {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.LogicalNot
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[LHS:%.+]] : tensor<1x1x1x1000xf16>) outs([[LHS]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[LHS:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZLHS:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[BLHS:%.+]] = arith.cmpf one, [[LHS]], [[ZLHS]] fastmath<nnan,nsz> : f16
@@ -313,7 +321,8 @@ module @SelectILayer {
 // CHECK-DAG:     [[COND_BC:%.+]] = tensor.bitcast [[COND:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
 // CHECK-DAG:     [[LHS_BC:%.+]] = tensor.bitcast [[LHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
 // CHECK-DAG:     [[RHS_BC:%.+]] = tensor.bitcast [[RHS:%.+]] : tensor<1x1x1x1000xsi32> to tensor<1x1x1x1000xi32>
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[COND_BC]], [[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[COND_BC]] : tensor<1x1x1x1000xi32>) {
+// CHECK-DAG:     [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi32>
+// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[COND_BC]], [[LHS_BC]], [[RHS_BC]] : tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>, tensor<1x1x1x1000xi32>) outs([[EMPTY]] : tensor<1x1x1x1000xi32>) {
 // CHECK-NEXT:    ^bb0([[COND:%.+]]: i32, [[LHS:%.+]]: i32, [[RHS:%.+]]: i32, {{%.+}}: i32):
 // CHECK-NEXT:      [[ZCOND:%.+]] = arith.constant 0 : i32
 // CHECK-NEXT:      [[BCOND:%.+]] = arith.cmpi ne, [[COND]], [[ZCOND]] : i32
@@ -346,7 +355,8 @@ module @SelectFPLayer {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.Select
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[COND:%.+]], [[LHS:%.+]], [[RHS:%.+]] : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[COND]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]], [[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}}, {{%.+}}, {{%.+}} : tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>, tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[COND:%.+]]: f16, [[LHS:%.+]]: f16, [[RHS:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZCOND:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[BCOND:%.+]] = arith.cmpf one, [[COND]], [[ZCOND]] fastmath<nnan,nsz> : f16

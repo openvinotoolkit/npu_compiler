@@ -18,7 +18,7 @@ namespace vpux {
 //! @brief Allocates buffers for the results of the funcOps.
 //! Only pass in the funcOp and callOp that need buffer allocation.
 template <typename CopyOp = VPUIP::CopyOp>
-void allocateBuffersForNetResults(ArrayRef<mlir::func::CallOp> callOps, ArrayRef<mlir::func::FuncOp> funcOps,
+void allocateBuffersForNetResults(ArrayRef<mlir::CallOpInterface> callOps, ArrayRef<mlir::func::FuncOp> funcOps,
                                   Logger& log);
 
 }  // namespace vpux

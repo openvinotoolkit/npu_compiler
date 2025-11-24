@@ -38,7 +38,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
       // CHECK-NOT:   dma_descriptor
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -73,7 +72,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
          outputs(%2 : memref<1x320x3x103xf16, #NHWC, [@CMX_NN, 0]>) start_after(1) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
 
     // CHECK:       ELF.CreateSection @task.dma.0.0

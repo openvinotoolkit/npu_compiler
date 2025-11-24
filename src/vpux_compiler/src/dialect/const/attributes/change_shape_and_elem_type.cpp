@@ -99,7 +99,8 @@ bool vpux::Const::ChangeShapeAndElemTypeAttr::inferOutputSplat(bool inputIsSplat
 //
 
 Const::Content vpux::Const::ChangeShapeAndElemTypeAttr::transform(vpux::Const::Content& input) const {
-    return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
+    const auto outputType = inferOutputType(input.getType());
+    return Const::Content::moveBuffer(outputType, std::move(input));
 }
 
 //

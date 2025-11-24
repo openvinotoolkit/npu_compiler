@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -60,18 +61,21 @@ mlir::LogicalResult SwapTransposeWithFQ::TransposeOpConverter::matchAndRewrite(I
                                                                                mlir::PatternRewriter& rewriter) const {
     const auto transposeIn = origOp.getInput();
     if (auto origQuantOp = transposeIn.getDefiningOp<IE::QuantizeOp>()) {
-        auto transposeOp = rewriter.create<IE::TransposeOp>(origOp->getLoc(), origQuantOp.getInput(), nullptr,
-                                                            origOp.getOrderValueAttr());
+        auto transposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), origQuantOp.getInput(),
+                                                            nullptr, origOp.getOrderValueAttr());
 
-        rewriter.replaceOpWithNewOp<IE::QuantizeOp>(origOp, transposeOp.getOutput(), origQuantOp.getDstElemType());
+        auto newOp = rewriter.replaceOpWithNewOp<IE::QuantizeOp>(origOp, transposeOp.getOutput(),
+                                                                 origQuantOp.getDstElemType());
+        extendOpLoc(newOp, "as_quant");
     } else if (auto origFqOp = transposeIn.getDefiningOp<IE::FakeQuantizeOp>()) {
-        auto transposeOp = rewriter.create<IE::TransposeOp>(origOp->getLoc(), origFqOp.getInput(), nullptr,
-                                                            origOp.getOrderValueAttr());
+        auto transposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), origFqOp.getInput(),
+                                                            nullptr, origOp.getOrderValueAttr());
 
-        rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, transposeOp.getOutput(), origFqOp.getInputLow(),
-                                                        origFqOp.getInputHigh(), origFqOp.getOutputLow(),
-                                                        origFqOp.getOutputHigh(), origFqOp.getLevelsAttr(),
-                                                        origFqOp.getLowFpTypeAttr(), origFqOp.getAutoBroadcast());
+        auto newOp = rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(
+                origOp, transposeOp.getOutput(), origFqOp.getInputLow(), origFqOp.getInputHigh(),
+                origFqOp.getOutputLow(), origFqOp.getOutputHigh(), origFqOp.getLevelsAttr(),
+                origFqOp.getLowFpTypeAttr(), origFqOp.getAutoBroadcast());
+        extendOpLoc(newOp, "as_fq");
     }
 
     return mlir::success();

@@ -339,7 +339,8 @@ void ConvertNCEInterpolateToDWPass::convertToDWConv(VPU::NCEInterpolateOp origOp
     const auto weightsTableVec =
             VPU::createWeightsTableData(sparseInput, adaptedOutElemType, weights, {}, OC, ppeConverter, biasConverter,
                                         nullptr, VPU::canAutopadOutput(origOp));
-    const auto weightsTable = VPU::createWeightsTableTensor(builder, origOp->getLoc(), weightsTableVec);
+    const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC);
+    const auto weightsTable = VPU::createWeightsTableTensor(builder, origOp->getLoc(), weightsTableVec, wtShape);
 
     const auto origWeightsShape = getShape(origWeights);
     const auto rawFilterShape = getIntArrayAttr(

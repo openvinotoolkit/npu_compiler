@@ -600,3 +600,39 @@ func.func @ConvertConvToGroupConvWithPostOp(%arg0: tensor<128x1x64x64xf16>) -> t
     // CHECK: [[OUTPUT_RESHAPE:%.+]] = IE.ShapeCast {shape = [128, 1, 62, 62]} inputs([[GROUP_CONV]] : tensor<1x128x62x62xf16>) -> tensor<128x1x62x62xf16>
     // CHECK: return [[OUTPUT_RESHAPE]] : tensor<128x1x62x62xf16>
 }
+
+// -----
+
+#map = affine_map<(d0, d1, d2, d3) -> (d2, d1, d0, d3)>
+
+// CHECK-LABEL: @ConvertPowerOpWithTranspose
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<5x16x1x1xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<1x1x1x1xf16>
+func.func @ConvertPowerOpWithTranspose(%arg0: tensor<5x16x1x1xf16>, %arg1: tensor<1x1x1x1xf16>) -> tensor<5x16x1x1xf16> {
+    %0 = IE.Power(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<5x16x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<5x16x1x1xf16>
+    return %0 : tensor<5x16x1x1xf16>
+
+    // CHECK: [[IN_TRANSPOSE1:%.+]] = IE.Transpose([[INPUT0]]) {order_value = #map} : tensor<5x16x1x1xf16> -> tensor<1x16x5x1xf16>
+    // CHECK: [[IN_TRANSPOSE2:%.+]] = IE.Transpose([[INPUT1]]) {order_value = #map} : tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
+    // CHECK: [[POWER:%.+]] = IE.Power([[IN_TRANSPOSE1]], [[IN_TRANSPOSE2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x16x5x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x16x5x1xf16>
+    // CHECK: [[OUT_TRANSPOSE:%.+]] = IE.Transpose([[POWER]]) {order_value = #map} : tensor<1x16x5x1xf16> -> tensor<5x16x1x1xf16>
+
+    // CHECK: return [[OUT_TRANSPOSE]] : tensor<5x16x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ConvertPowerOpWithShapeCast
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<50x16x10x10xf16>,
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<1x1x1x1xf16>
+func.func @ConvertPowerOpWithShapeCast(%arg0: tensor<50x16x10x10xf16>, %arg1: tensor<1x1x1x1xf16>) -> tensor<50x16x10x10xf16> {
+    %0 = IE.Power(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<50x16x10x10xf16>, tensor<1x1x1x1xf16> -> tensor<50x16x10x10xf16>
+    return %0 : tensor<50x16x10x10xf16>
+
+    // CHECK: [[INPUT0_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 800, 10, 10]} inputs([[INPUT0]] : tensor<50x16x10x10xf16>) -> tensor<1x800x10x10xf16>
+    // CHECK: [[INPUT1_SHAPECAST:%.+]] = IE.ShapeCast {shape = [1, 1, 1, 1]} inputs([[INPUT1]] : tensor<1x1x1x1xf16>) -> tensor<1x1x1x1xf16>
+    // CHECK: [[POWER:%.+]] = IE.Power([[INPUT0_SHAPECAST]], [[INPUT1_SHAPECAST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x800x10x10xf16>, tensor<1x1x1x1xf16> -> tensor<1x800x10x10xf16>
+    // CHECK: [[OUTPUT_SHAPECAST:%.+]] = IE.ShapeCast {shape = [50, 16, 10, 10]} inputs([[POWER]] : tensor<1x800x10x10xf16>) -> tensor<50x16x10x10xf16>
+
+    // CHECK: return [[OUTPUT_SHAPECAST]] : tensor<50x16x10x10xf16>
+}

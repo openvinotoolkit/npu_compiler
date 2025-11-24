@@ -12,10 +12,12 @@
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
@@ -69,8 +71,8 @@ SmallVector<int64_t> extractMeaningfulOutput(mlir::Operation* origOp, ShapeRef o
     return offsets;
 }
 
-mlir::Value expandWithOffset(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, IE::SliceOp sliceOp,
-                             mlir::Value expandValue, ShapeRef inPadsEnd, size_t expandDim) {
+mlir::Value expandWithOffset(mlir::Location loc, mlir::PatternRewriter& rewriter, mlir::Operation* origOp,
+                             IE::SliceOp sliceOp, mlir::Value expandValue, ShapeRef inPadsEnd, size_t expandDim) {
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
     const auto inputShape = inputType.getShape();
 
@@ -89,8 +91,7 @@ mlir::Value expandWithOffset(mlir::PatternRewriter& rewriter, mlir::Operation* o
         padBegin[expandDim] = inPadsEnd[Dim(expandDim)];
     }
 
-    return rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), expandValue,
-                                               getIntArrayAttr(rewriter, ArrayRef(padBegin)),
+    return rewriter.createOrFold<IE::ExpandOp>(loc, expandValue, getIntArrayAttr(rewriter, ArrayRef(padBegin)),
                                                getIntArrayAttr(rewriter, ArrayRef(padEnd)));
 }
 
@@ -98,22 +99,27 @@ mlir::Value paddingChannel(mlir::Operation* origOp, mlir::PatternRewriter& rewri
                            ShapeRef padsEnd, size_t expandDim) {
     auto sliceOp = origOp->getOperand(0).getDefiningOp<IE::SliceOp>();
     if (sliceOp == nullptr) {
-        return rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), expandValue, std::nullopt, padsEnd);
+        return rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), llvm::formatv("_pad_{0}", padsEnd)),
+                                                   expandValue, std::nullopt, padsEnd);
     }
 
-    return expandWithOffset(rewriter, origOp, sliceOp, expandValue, padsEnd, expandDim);
+    return expandWithOffset(takeOpLoc(origOp, "expand_input"), rewriter, origOp, sliceOp, expandValue, padsEnd,
+                            expandDim);
 }
 
 mlir::Value paddingFilter(mlir::Operation* origOp, mlir::PatternRewriter& rewriter, mlir::Value expandValue,
                           Shape padsEnd) {
     auto sliceOp = origOp->getOperand(0).getDefiningOp<IE::SliceOp>();
     if (sliceOp == nullptr) {
-        return rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), expandValue, std::nullopt, ShapeRef(padsEnd));
+        return rewriter.createOrFold<IE::ExpandOp>(appendLoc(expandValue.getLoc(), "_pad_filter"), expandValue,
+                                                   std::nullopt, ShapeRef(padsEnd));
     }
-    auto firstExpand = expandWithOffset(rewriter, origOp, sliceOp, expandValue, padsEnd, Dims4D::Act::C.ind());
+    auto firstExpand = expandWithOffset(takeOpLoc(origOp, "expand_filter"), rewriter, origOp, sliceOp, expandValue,
+                                        padsEnd, Dims4D::Act::C.ind());
 
     padsEnd[Dims4D::Filter::IC] = 0;
-    return rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), firstExpand, std::nullopt, ShapeRef(padsEnd));
+    return rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "_pad_filter"), firstExpand, std::nullopt,
+                                               ShapeRef(padsEnd));
 }
 
 mlir::Value generateZeroConst(mlir::Location loc, vpux::NDTypeInterface inType, ShapeRef padShape,
@@ -225,8 +231,9 @@ mlir::Value padConvFilter(mlir::PatternRewriter& rewriter, mlir::Operation* orig
 
         Shape filterPadsEnd2(filterShape.size(), 0);
         filterPadsEnd2[Dims4D::Filter::OC] = outChanPadEnd;
-        paddedFilter = rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), paddedFilter1, std::nullopt,
-                                                           ShapeRef(filterPadsEnd2));
+        paddedFilter = rewriter.createOrFold<IE::ExpandOp>(
+                appendLoc(origOp->getLoc(), llvm::formatv("_{0}_{1}", filterPadsEnd1, filterPadsEnd2)), paddedFilter1,
+                std::nullopt, ShapeRef(filterPadsEnd2));
     } else {
         // Const filter expand or expand on OC only
         paddedFilter = paddingFilter(origOp, rewriter, filterOperand, std::move(filterPadsEnd));
@@ -470,7 +477,7 @@ bool isEligibleConvertToConv(IE::ExpandOp expandOp, Logger log, StringRef debugN
         return false;
     }
 
-    if (VPU::inputCompatibleWithAutoPad(expandInType) && VPU::hasAutoPaddingIDU(getModuleOp(expandOp))) {
+    if (VPU::inputCompatibleWithAutoPad(expandInType) && config::hasAutoPaddingIDU(getModuleOp(expandOp))) {
         const auto hasConvUser = llvm::any_of(expandOp.getOutput().getUsers(), [](mlir::Operation* userOp) {
             return mlir::isa<IE::ConvolutionOp>(userOp);
         });

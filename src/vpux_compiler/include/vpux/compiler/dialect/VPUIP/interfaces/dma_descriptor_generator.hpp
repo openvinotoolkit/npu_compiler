@@ -6,11 +6,10 @@
 #pragma once
 
 #include "vpux/compiler/core/attributes/shape.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-
-#include <set>
-#include <tuple>
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 namespace vpux {
 namespace VPUIP {

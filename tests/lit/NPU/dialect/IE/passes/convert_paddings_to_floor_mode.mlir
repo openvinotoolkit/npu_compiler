@@ -111,3 +111,29 @@ func.func @AvgPoolExcludePadEnabled(%arg0: tensor<1x16x30x30xf32>) -> tensor<1x1
     // CHECK:        tensor<1x16x30x30xf32> -> tensor<1x16x15x15xf32>
     // CHECK:        return [[AVG_POOL]]  : tensor<1x16x15x15xf32>
 }
+
+// -----
+
+// CHECK-LABEL: @AvgPool16ExcludePadEnabled
+func.func @AvgPool16ExcludePadEnabled(%arg0: tensor<1x3x300x30xf16>) -> tensor<1x3x149x26xf16> {
+    %0 = IE.AvgPool16(%arg0) {
+        dilations = [2, 2],
+        kernel_size = [3, 5],
+        pads_begin = [0, 2],
+        pads_end = [0, 2],
+        rounding_type = #IE.rounding_type<CEIL>,
+        strides = [2, 1]
+    } : tensor<1x3x300x30xf16> -> tensor<1x3x149x26xf16>
+    return %0 : tensor<1x3x149x26xf16>
+
+    // CHECK:        [[AVG_POOL:%.+]] = IE.AvgPool16(%arg0) {
+    // CHECK-SAME:       dilations = [2, 2],
+    // CHECK-SAME:       kernel_size = [3, 5],
+    // CHECK-SAME:       pads_begin = [0, 2],
+    // CHECK-SAME:       pads_end = [1, 2],
+    // CHECK-SAME:       rounding_type = #IE.rounding_type<FLOOR>,
+    // CHECK-SAME:       strides = [2, 1]
+    // CHECK-SAME:   } :
+    // CHECK:        tensor<1x3x300x30xf16> -> tensor<1x3x149x26xf16>
+    // CHECK:        return [[AVG_POOL]]  : tensor<1x3x149x26xf16>
+}

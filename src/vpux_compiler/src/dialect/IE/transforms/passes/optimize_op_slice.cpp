@@ -200,6 +200,19 @@ mlir::LogicalResult ConcatSliceRewriter::matchAndRewrite(IE::SliceOp origOp, mli
             return mlir::failure();
         }
 
+        const auto sliceAxis = IE::getSingleDiffAxis(getShape(origOp.getSource()), sliceOutShape);
+        if (!sliceAxis.has_value()) {
+            return matchFailed(rewriter, origOp, "Not a single axis slice operation");
+        }
+
+        const auto concatAxis = *getConcatAxes(concatOp).begin();
+        const auto concatOutShape = getShape(concatOp.getResult());
+        for (auto i = sliceAxis.value().ind(); i < concatAxis; i++) {
+            if (concatOutShape[Dim(i)] != 1) {
+                return matchFailed(rewriter, origOp, "Slice shape is not one on the front of Concat axis");
+            }
+        }
+
         for (const auto& vector : newInputShapesVec) {
             newInputShapes.emplace_back(ShapeRef(vector));
         }
@@ -413,7 +426,8 @@ mlir::LogicalResult SliceConcatRewriter::matchAndRewrite(IE::SliceOp origOp, mli
         }
     }
 
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), mlir::ValueRange(concatInput), concatAxis.value());
+    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "_concat"), mlir::ValueRange(concatInput),
+                                                   concatAxis.value());
     for (auto operand : newConcat->getOperands()) {
         auto parentOp = operand.getDefiningOp();
         if (parentOp && newConcat->isBeforeInBlock(parentOp)) {

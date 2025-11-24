@@ -21,7 +21,6 @@ func.func @oneDma() {
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
   VPUMI40XX.MappedInference dmas((%3) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[1, 0]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -74,7 +73,6 @@ func.func @twoDma() {
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
   VPUMI40XX.MappedInference dmas((%13, %16) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) barriers(%11: !VPURegMapped.Index<0:0:0>) dmaCount([[3, 3]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>)-> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 

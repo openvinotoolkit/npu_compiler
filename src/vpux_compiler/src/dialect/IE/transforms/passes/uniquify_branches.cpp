@@ -161,7 +161,7 @@ mlir::LogicalResult MoveLayerBeforeSlice<ConcreteOp>::matchAndRewrite(ConcreteOp
 
         auto currLayerOp = mlir::dyn_cast<ConcreteOp>(*sliceOp.getResult().getUsers().begin());
         auto newOffsets = getNewOffsets(sliceOp, sliceAxes, currLayerOp);
-        auto newSlice = rewriter.create<IE::SliceOp>(currLayerOp->getLoc(), newLayerOp->getResult(0),
+        auto newSlice = rewriter.create<IE::SliceOp>(sliceOp->getLoc(), newLayerOp->getResult(0),
                                                      getIntArrayAttr(newLayerOp->getContext(), newOffsets),
                                                      getIntArrayAttr(newLayerOp->getContext(), newSizes));
         _log.trace("Create new Slice: {0}", newSlice);

@@ -36,3 +36,17 @@ VPU::NCESparsity::BiasConverterCb VPU::NCESparsity::getBiasConverterCb(config::A
     }
     }
 }
+
+VPU::NCESparsity::ScaleRetrieveCb VPU::NCESparsity::getScaleRetrieveCb(config::ArchKind arch,
+                                                                       [[maybe_unused]] bool isNewWeightTableFormat) {
+    switch (arch) {
+    case config::ArchKind::NPU37XX:
+    case config::ArchKind::NPU40XX: {
+        return VPU::arch37xx::retrieveScaleFromTable;
+    }
+    case config::ArchKind::UNKNOWN:
+    default: {
+        VPUX_THROW("Unexpected architecture {0}", arch);
+    }
+    }
+}

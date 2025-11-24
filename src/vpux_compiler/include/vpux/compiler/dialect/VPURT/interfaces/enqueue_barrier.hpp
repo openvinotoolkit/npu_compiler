@@ -24,8 +24,8 @@ public:
     EnqueueBarrierHandler(BarrierInfoTest& barrierInfoTest,
                           std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap,
                           SmallVector<size_t>& barrierToPidVec, size_t _barrierFifoDepth = 1, size_t dmaFifoDepth = 64,
-                          bool optimizeAndMergeEnqFlag = true, const SmallVector<size_t>& shvTasksWithDpu = {},
-                          Logger log = Logger::global());
+                          bool optimizeAndMergeEnqFlag = true, size_t numClusters = 1,
+                          const SmallVector<size_t>& shvTasksWithDpu = {}, Logger log = Logger::global());
 
     mlir::LogicalResult calculateEnqueueBarriers(
             const mlir::DenseSet<vpux::VPU::ExecutorKind>& executorEnqAtBootstrap = {});
@@ -35,7 +35,7 @@ public:
 private:
     void initPrevPhysBarrierData(mlir::func::FuncOp func);
     void initPrevPhysBarrierData(SmallVector<size_t>& barrierToPidVec, size_t nPhysBars);
-    void findShvTasksWithDpu();
+    void findShvTasksWithDpu(size_t numClusters);
     std::optional<size_t> getStartBarrierIndex(mlir::func::FuncOp func);
     std::optional<size_t> getInitialEnqueueBarrier(size_t taskInd);
 

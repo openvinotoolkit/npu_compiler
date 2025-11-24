@@ -6,12 +6,22 @@
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 
+namespace vpux::VPU {
+class Concat;
+class PermuteCastOp;
+class StridedSliceOp;
+}  // namespace vpux::VPU
+
 namespace vpux {
 
 mlir::LogicalResult bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir::ModuleOp module, mlir::Operation* op,
                                        ArrayRef<mlir::Value> newOperands, Logger log);
 mlir::LogicalResult bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewriter, mlir::ModuleOp module,
                                                   mlir::Operation* op, ArrayRef<mlir::Value> newOperands, Logger log);
+
+bool canBeBufferizedToCopies(VPU::ConcatOp concatOp);
+bool canBeBufferizedToCopies(VPU::StridedSliceOp stridedSliceOp);
+bool canBeBufferizedToCast(VPU::PermuteCastOp op);
 
 //
 // SoftwareLayerOpBufferizeModel

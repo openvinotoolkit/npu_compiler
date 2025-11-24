@@ -691,7 +691,7 @@ std::tuple<BarrierInfoMaps, SmallVector<size_t>, SmallVector<size_t>> graphDelay
 
     const VPURT::TaskQueueType dmaType{VPU::ExecutorKind::DMA_NN, 0};
     const VPURT::TaskQueueType dpuType{VPU::ExecutorKind::DPU, 0};
-    const VPURT::TaskQueueType shvType{VPU::ExecutorKind::SHAVE_NN, 0};
+    const VPURT::TaskQueueType shvType{VPU::ExecutorKind::SHAVE_NN, 1};  // SHV tile 0 list 1
 
     barrierMapsConfig.taskQueueTypeMap[dmaType] = {0, 1, 4, 6};
     barrierMapsConfig.taskQueueTypeMap[dpuType] = {2, 5};
@@ -712,7 +712,8 @@ TEST_F(EnqueueBarrierTests, CheckDelayDpuEnqueueBasedOnShvWithDpu) {
     BarrierInfoTest barrierInfoTest(barrierMapsConfig);
     VPURT::EnqueueBarrierHandler enqueueBarrierHandlerTest(barrierInfoTest, barrierMapsConfig.taskQueueTypeMap,
                                                            barrierToPidVec, /*barrierFifoDepth*/ 1, /*dmaFifoDepth*/ 64,
-                                                           /*optimizeAndMergeEnqFlag*/ true, shvTasksWithDpu);
+                                                           /*optimizeAndMergeEnqFlag*/ true, /*numClusters*/ 1,
+                                                           shvTasksWithDpu);
 
     const auto res = enqueueBarrierHandlerTest.calculateEnqueueBarriers();
     ASSERT_TRUE(mlir::succeeded(res));

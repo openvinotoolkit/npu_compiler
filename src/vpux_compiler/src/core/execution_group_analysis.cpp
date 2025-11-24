@@ -1,29 +1,42 @@
-
 //
 // Copyright (C) 2025 Intel Corporation.
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "vpux/compiler/core/execution_group_analysis.hpp"
-#include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <mlir/Pass/AnalysisManager.h>
 
 namespace vpux {
 
 ExecutionGroupAnalysis::ExecutionGroupAnalysis(mlir::func::FuncOp func)
+        : ExecutionGroupAnalysis(func, /* ignoreVariantLimit */ false, /* ignoreInvariantLimit */ false) {
+}
+
+ExecutionGroupAnalysis::ExecutionGroupAnalysis(mlir::func::FuncOp func, bool ignoreVariantLimit,
+                                               bool ignoreInvariantLimit)
         : _log(Logger::global().nest("execution-group-analysis", 0)),
           _func(func),
           _barrierInfo(std::make_shared<BarrierInfo>(func)) {
     _taskQueueTypeMap = VPURT::getTaskOpQueues(_func, *_barrierInfo);
     _tilesCount = static_cast<size_t>(config::getTileExecutor(_func).getCount());
 
-    _maxKernelInvocationCount = VPU::getConstraint(_func, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2;
-    _maxKernelRangeCount = VPU::getConstraint(_func, VPU::METADATA_MAX_KERNEL_RANGE_COUNT) / 2;
-    _maxVariantCount = VPU::getConstraint(_func, VPU::METADATA_MAX_VARIANT_COUNT) / 2;
-    _maxInvariantCount = VPU::getConstraint(_func, VPU::METADATA_MAX_INVARIANT_COUNT) / 2;
+    _maxKernelInvocationCount = config::getConstraint(_func, config::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2;
+    _maxKernelRangeCount = config::getConstraint(_func, config::METADATA_MAX_KERNEL_RANGE_COUNT) / 2;
+    // In case of non-WLM legalization variants and invariants limits are considered independently
+    if (ignoreVariantLimit) {
+        _maxVariantCount = std::numeric_limits<size_t>::max();
+    } else {
+        _maxVariantCount = config::getConstraint(_func, config::METADATA_MAX_VARIANT_COUNT) / 2;
+    }
+    if (ignoreInvariantLimit) {
+        _maxInvariantCount = std::numeric_limits<size_t>::max();
+    } else {
+        _maxInvariantCount = config::getConstraint(_func, config::METADATA_MAX_INVARIANT_COUNT) / 2;
+    }
 
     createSWTaskExecutionGroups();
     createDPUTaskExecutionGroups();

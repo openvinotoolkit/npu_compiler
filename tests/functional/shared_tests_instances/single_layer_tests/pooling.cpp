@@ -3,7 +3,9 @@
 //
 
 #include "single_op_tests/pooling.hpp"
+
 #include <common_test_utils/ov_tensor_utils.hpp>
+#include "pretty_test_arguments.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 using namespace ov::test::utils;
@@ -269,6 +271,18 @@ TEST_P(AvgPoolingV16LayerTestCommon, NPU4000_SW) {
     run(Platform::NPU4000);
 }
 
+class PoolingLayerTest_HostCompile : public PoolingLayerTest, virtual public VpuOv2LayerTest {};
+
+TEST_P(PoolingLayerTest_HostCompile, NPU4000_HC) {
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU4000);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -350,7 +364,7 @@ const auto pool_LargeSize1 = ::testing::Combine(
                            ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padEnds
                            ::testing::Values(ov::op::RoundingType::FLOOR),      //
                            ::testing::Values(ov::op::PadType::VALID),           //
-                           ::testing::Values(false)),                           // excludePad, //
+                           ::testing::Values(false)),                           // excludePad
         ::testing::Values(ov::element::f16),                                    // netPrc
         ::testing::Values(
                 static_shapes_to_test_representation(std::vector<ov::Shape>{{1, 64, 128, 128}})),  // inputShapes
@@ -1190,5 +1204,26 @@ INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameUpperPad_CeilRounding5D, AvgPooling
 
 INSTANTIATE_TEST_SUITE_P(smoke_AvgPool16_SameLowerPad_CeilRounding5D, AvgPoolingV16LayerTestCommon,
                          avgPool16_SameLowerPad_CeilRounding_5Dinput_Params, AvgPoolingV16LayerTest::getTestCaseName);
+
+/* ============= HostCompile ============= */
+
+const std::vector<std::vector<ov::test::InputShape>> inShapes = {{
+        generateTestShape(1, 16, 1280_Dyn, 1280),
+}};
+
+const auto DynamicShapesHostCompile_Params =
+        ::testing::Combine(::testing::Combine(::testing::Values(PoolingTypes::MAX),                //
+                                              ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),  // kernels
+                                              ::testing::ValuesIn<ov::Strides>({{1, 1}}),          // strides
+                                              ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padBegins
+                                              ::testing::ValuesIn<std::vector<size_t>>({{0, 0}}),  // padEnds
+                                              ::testing::Values(ov::op::RoundingType::FLOOR),      //
+                                              ::testing::Values(ov::op::PadType::VALID),           //
+                                              ::testing::Values(false)),                           // excludePad
+                           ::testing::Values(ov::element::f16),                                    // netPrc
+                           ::testing::ValuesIn(inShapes), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, PoolingLayerTest_HostCompile, DynamicShapesHostCompile_Params,
+                         PoolingLayerTest_HostCompile::getTestCaseName);
 
 }  // namespace

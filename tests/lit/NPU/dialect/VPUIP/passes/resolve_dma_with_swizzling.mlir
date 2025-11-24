@@ -204,7 +204,7 @@ func.func @DmaDuplicatedOutputWithExplicitDistributedAttr(%input: !BufferDdr, %o
   // CHECK:          VPURT.Task
   // CHECK:          VPUIP.NNDMA
   // CHECK-SAME:       inputs([[CST]] : memref<1024x1x1x1xui8,
-  // CHESK-SAME:        {order = #NHWC, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, @DDR>)
+  // CHECK-SAME:        {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}>)
   // CHECK-SAME:       outputs([[BUF1]] : !VPUIP.DistributedBuffer<1024x1x1x1xui8,
   // CHECK-SAME:        {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 1024 : i64>}, @CMX_NN,
   // CHECK-SAME:            {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments

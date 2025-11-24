@@ -16,6 +16,24 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/ops/activation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/arithmetic.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/bitwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/comparison.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/logical.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
+
 #include <mlir/IR/IRMapping.h>
 #include <mlir/IR/PatternMatch.h>
 
@@ -455,17 +473,16 @@ private:
 };
 
 //
-// IncrementalSDPARewrite
+// FlashSDPARewrite
 //
 
-class IncrementalSDPARewrite final : public mlir::OpRewritePattern<IE::IncrementalSDPAOp> {
+class FlashSDPARewrite final : public mlir::OpRewritePattern<IE::FlashSDPAOp> {
 public:
-    IncrementalSDPARewrite(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpRewritePattern<IE::IncrementalSDPAOp>(ctx), _log(log) {
+    FlashSDPARewrite(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::FlashSDPAOp>(ctx), _log(log) {
     }
 
 public:
-    mlir::LogicalResult matchAndRewrite(IE::IncrementalSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
+    mlir::LogicalResult matchAndRewrite(IE::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

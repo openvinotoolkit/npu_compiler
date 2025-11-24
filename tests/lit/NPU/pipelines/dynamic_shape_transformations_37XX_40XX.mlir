@@ -64,9 +64,9 @@ func.func @DynamicConvAddTranpose(%arg0: !BoundedInType) -> !BoundedTransposeTyp
     // CHECK:       [[CONV:%.+]] = IE.Convolution([[DYN_EXPAND]], {{%.+}})
     // CHECK-SAME:       : tensor<1x512x4x320xf32>, tensor<16x512x1x1xf32> -> tensor<1x16x4x320xf32>
     // CHECK:       [[ADD:%.+]] = IE.Add([[CONV]], {{%.+}})
-    // CHECk-SAME:       : tensor<1x16x4x320xf32>, tensor<1x16x1x1xf32> -> tensor<1x16x4x320xf32>
+    // CHECK-SAME:       : tensor<1x16x4x320xf32>, tensor<1x16x1x1xf32> -> tensor<1x16x4x320xf32>
     // CHECK:       [[TR:%.+]] = IE.Transpose([[ADD]])
-    // CHECk-SAME:       : tensor<1x16x4x320xf32> -> tensor<320x1x16x4xf32>
+    // CHECK-SAME:       : tensor<1x16x4x320xf32> -> tensor<320x1x16x4xf32>
 
     // CHECK:       [[SHAPE_OF:%.+]] = IE.ShapeOf([[IN]])
     // CHECK-SAME:      -> tensor<4xsi64>

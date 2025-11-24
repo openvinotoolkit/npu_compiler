@@ -149,7 +149,7 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
 
     const auto ctx = rewriter.getContext();
     auto u8Type = getUInt8Type(ctx);
-    auto f16Type = mlir::FloatType::getF16(ctx);
+    auto f16Type = mlir::Float16Type::get(ctx);
     auto newDstType = outputType;
     mlir::MemRefType newSrcType;
     mlir::DenseElementsAttr newSrcContentAttr;
@@ -168,7 +168,7 @@ mlir::LogicalResult NNDMAOpConverter::matchAndRewrite(VPUIP::NNDMAOp origOp, mli
         const auto newSrcStorageType = mlir::RankedTensorType::get(compressedDataShape.raw(), u8Type);
         newSrcContentAttr = Const::createConstContent(newSrcStorageType, ArrayRef(compressedData));
     } else if (compressionMode == ICodec::CompressionMode::FP16) {
-        unsigned f16TypeSizeBytes = f16Type.getWidth() / CHAR_BIT;
+        unsigned f16TypeSizeBytes = f16Type.getIntOrFloatBitWidth() / CHAR_BIT;
         const Shape newDstShape{totalInputSize.count() / f16TypeSizeBytes, 1, 1, 1};
         newDstType = mlir::isa<VPUIP::DistributedBufferType>(newDstType)
                              ? VPU::changeShapeElemTypeForDuplicatedDistributedBuffers(newDstType, newDstShape, f16Type)

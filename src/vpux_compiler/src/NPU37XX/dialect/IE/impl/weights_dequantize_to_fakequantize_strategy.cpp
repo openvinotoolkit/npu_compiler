@@ -4,7 +4,6 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/IE/impl/weights_dequantize_to_fakequantize_strategy.hpp"
-#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -31,18 +30,25 @@ mlir::LogicalResult commonMatchAndRewrite(OriginalOp origOp, IE::WeightsDequanti
     auto inHigh = 0.0f;
     mlir::IntegerAttr levelsAttr = nullptr;
     mlir::TypeAttr lowFpTypeAttr = nullptr;
-    if (mlir::isa<mlir::IntegerType>(inputElemType)) {
-        // Integer case
-        const auto levels = IE::getQuantizationLevels(inputElemType);
-        levelsAttr = getIntAttr(ctx, levels);
-        inLow = (inputElemType.isSignedInteger() ? -(levels / 2) : 0);
-        inHigh = (levels + inLow - 1);
-    } else if (auto quantileFloatType = mlir::dyn_cast<vpux::type::QuantileFloatType>(inputElemType)) {
+    auto quantileFloatType = [&]() -> vpux::type::QuantileFloatType {
+        if (mlir::isa<vpux::type::QuantileFloatType>(inputElemType)) {
+            return mlir::cast<vpux::type::QuantileFloatType>(inputElemType);
+        }
+        return IE::tryParsingNF4(origOp);
+    }();
+
+    if (quantileFloatType) {
         // Quantile float case
         auto quantileTable = quantileFloatType.getQuantiles();
         inLow = quantileTable.front();
         inHigh = quantileTable.back();
         lowFpTypeAttr = mlir::TypeAttr::get(quantileFloatType);
+    } else if (mlir::isa<mlir::IntegerType>(inputElemType)) {
+        // Integer case
+        const auto levels = IE::getQuantizationLevels(inputElemType);
+        levelsAttr = getIntAttr(ctx, levels);
+        inLow = (inputElemType.isSignedInteger() ? -(levels / 2) : 0);
+        inHigh = (levels + inLow - 1);
     }
 
     const auto [inLowConst, inHighConst] =

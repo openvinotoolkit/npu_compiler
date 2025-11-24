@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/conversion/passes/IE2VPU/convert_layers_to_VPU.hpp"
+#include <mlir/IR/BuiltinTypes.h>
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
@@ -15,12 +16,24 @@
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/normalization.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/recurrent.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/ops.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/type/float16.hpp"
 
 // Generated
+#include <type_traits>
 #include <vpux/compiler/conversion/convert_layers_to_VPU.hpp.inc>
 
 namespace vpux {
@@ -561,16 +574,59 @@ mlir::LogicalResult ExternalKernelRewrite::matchAndRewrite(IE::ExternalKernelOp 
 }
 
 //
-// IncrementalSDPARewrite
+// FlashSDPARewrite
 //
 
-mlir::LogicalResult IncrementalSDPARewrite::matchAndRewrite(IE::IncrementalSDPAOp origOp,
-                                                            mlir::PatternRewriter& rewriter) const {
-    _log.trace("Found IncrementalSDPA Operation '{0}'", origOp->getLoc());
+namespace {
 
-    rewriter.replaceOpWithNewOp<VPU::IncrementalSDPAOp>(
-            origOp, origOp.getQuery(), origOp.getKey(), origOp.getValue(), origOp.getInputPartialOutput(),
-            origOp.getInputRunningMax(), origOp.getInputRunningSum(), origOp.getAttentionMask(), origOp.getScale());
+// Helper template to print unsupported type in the static_assert
+template <class>
+[[maybe_unused]] inline constexpr bool UNSUPPORTED_TYPE = false;
+
+template <typename T>
+Const::DeclareOp createDenseConstant(mlir::Location loc, mlir::PatternRewriter& rewriter, ShapeRef shape, T value) {
+    auto floatType = mlir::FloatType();
+    if constexpr (std::is_same_v<T, float>) {
+        floatType = rewriter.getF32Type();
+    } else if constexpr (std::is_same_v<T, type::float16>) {
+        floatType = rewriter.getF16Type();
+    } else {
+        static_assert(UNSUPPORTED_TYPE<T>, "Unsupported float data type");
+    }
+
+    const auto runningMaxType = mlir::RankedTensorType::get(shape.raw(), floatType);
+    const auto values = SmallVector<T>(shape.totalSize(), value);
+    auto content = Const::ContentAttr::get(Const::createConstContent(runningMaxType, ArrayRef<T>(values)));
+
+    return rewriter.create<Const::DeclareOp>(loc, content.getType(), content);
+}
+
+}  // namespace
+
+mlir::LogicalResult FlashSDPARewrite::matchAndRewrite(IE::FlashSDPAOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Found FlashSDPA Operation '{0}'", origOp->getLoc());
+
+    const auto outputShape = getShape(origOp.getOutput());
+
+    auto bufferShape = Shape(outputShape);
+
+    // Tensors for Max and Sum tensors reduce the last dimension.
+    // Preserve dimensions in the same place to work around the limitation of
+    // cluster tiling algorithm that will apply the same strategy for all the outputs
+    bufferShape.back() = 1;
+
+    auto loc = origOp->getLoc();
+    const auto minusInf = -std::numeric_limits<float>::infinity();
+    auto initialRunningOutput =
+            createDenseConstant<type::float16>(appendLoc(loc, "running_output"), rewriter, outputShape, 0.0f);
+    auto initialRunningMax = createDenseConstant<float>(appendLoc(loc, "running_max"), rewriter, bufferShape, minusInf);
+    auto initialRunningSum = createDenseConstant<float>(appendLoc(loc, "running_sum"), rewriter, bufferShape, 0.0f);
+
+    auto newOp = rewriter.create<VPU::FlashSDPAOp>(origOp->getLoc(), origOp.getQuery(), origOp.getKey(),
+                                                   origOp.getValue(), initialRunningOutput, initialRunningMax,
+                                                   initialRunningSum, origOp.getAttentionMask(), origOp.getScale());
+
+    rewriter.replaceOp(origOp, newOp.getResultRunningOutput());
 
     return mlir::success();
 }
@@ -632,7 +688,7 @@ void ConvertLayers2VPUPass::safeRunOnFunc() {
     patterns.add<DynamicQuantizeRewrite>(&ctx, _log);
     patterns.add<AddRewrite>(&ctx, _log);
     patterns.add<ExternalKernelRewrite>(&ctx, _log);
-    patterns.add<IncrementalSDPARewrite>(&ctx, _log);
+    patterns.add<FlashSDPARewrite>(&ctx, _log);
     populateWithGenerated(patterns);
 
     if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {

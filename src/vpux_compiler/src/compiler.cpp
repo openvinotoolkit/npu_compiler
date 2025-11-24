@@ -21,13 +21,13 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI37XX/network_description.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_in_background.hpp"
 #include "vpux/compiler/dialect/net/IR/dialect.hpp"
@@ -245,8 +245,8 @@ void backendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& vpuipModule, const De
     devConf.setup(elfPm, config);
 
     mlir::LogicalResult compileResult = mlir::failure();
-    auto wlmStatus = VPU::getWorkloadManagementStatus(vpuipModule.get());
-    auto wlmStillEnabled = wlmStatus == VPU::WorkloadManagementStatus::ENABLED;
+    auto wlmStatus = config::getWorkloadManagementStatus(vpuipModule.get());
+    auto wlmStillEnabled = wlmStatus == WorkloadManagementStatus::ENABLED;
     auto backendPipelineStrategy = createBackendPipelineStrategy(getArchKind(config));
     backendPipelineStrategy->buildELFPipeline(elfPm, config, elfTiming, log, wlmStillEnabled);
     if (getWlmRollback(config).value_or(false)) {
@@ -256,8 +256,8 @@ void backendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& vpuipModule, const De
         // compile time stats. Now we rely on the PassManager::run result and WLM status attribute to decide if we need
         // to rollback. This allows MLIR to run the pass instrumentation and set the context to the correct state.
         compileResult = compileNetwork(vpuipModule.get(), elfPm, elfTiming);
-        wlmStatus = VPU::getWorkloadManagementStatus(vpuipModule.get());
-        if (mlir::failed(compileResult) && wlmStatus == VPU::WorkloadManagementStatus::FAILED) {
+        wlmStatus = config::getWorkloadManagementStatus(vpuipModule.get());
+        if (mlir::failed(compileResult) && wlmStatus == WorkloadManagementStatus::FAILED) {
             log.warning("Failed to export to ELF with current config, reverting to simple ELF pipeline");
             vpuipModule.get()->replaceAllUsesWith(backupModule.get()->getResults());
             vpuipModule = std::move(backupModule);
@@ -265,7 +265,7 @@ void backendCompilation(mlir::OwningOpRef<mlir::ModuleOp>& vpuipModule, const De
             devConf.setup(simpleElfPm, config, /*isSubPipeline=*/true);
             backendPipelineStrategy->buildELFPipeline(simpleElfPm, config, elfTiming, log,
                                                       /*useWlm=*/false);
-            VPU::setWorkloadManagementStatus(vpuipModule.get(), VPU::WorkloadManagementStatus::DISABLED);
+            config::setWorkloadManagementStatus(vpuipModule.get(), WorkloadManagementStatus::DISABLED);
             VPUX_THROW_UNLESS(mlir::succeeded(compileNetwork(vpuipModule.get(), simpleElfPm, elfTiming)),
                               "Compilation failed");
         } else {
@@ -509,15 +509,14 @@ bool isTypeSupported(config::ArchKind arch, ov::element::Type_t elemType) {
 };
 
 void checkDataTypes(const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config) {
+    const auto archKind = getArchKind(config);
     for (auto& input : model->inputs()) {
         auto elemType = input.get_element_type();
-        VPUX_THROW_UNLESS(isTypeSupported(getArchKind(config), elemType), "Unsupported data type '{0}'",
-                          elemType.get_type_name());
+        VPUX_THROW_UNLESS(isTypeSupported(archKind, elemType), "Unsupported data type '{0}'", elemType.get_type_name());
     }
     for (auto& op : model->get_ops()) {
         auto elemType = op->get_output_element_type(0);
-        VPUX_THROW_UNLESS(isTypeSupported(getArchKind(config), elemType), "Unsupported data type '{0}'",
-                          elemType.get_type_name());
+        VPUX_THROW_UNLESS(isTypeSupported(archKind, elemType), "Unsupported data type '{0}'", elemType.get_type_name());
     }
 }
 
@@ -532,11 +531,9 @@ mlir::OwningOpRef<mlir::ModuleOp> compileModel(mlir::MLIRContext& ctx, const std
 
     checkDataTypes(model, config);
 
-    // This will allow preserving as many original constants in the model as possible after nGraph passes, making the
-    // pipeline close to WS "Init" mode.
-    const auto isWSMonolithic = getCompilationMode(config) == config::CompilationMode::WSMonolithic;
-    mlir::OwningOpRef<mlir::ModuleOp> module = importNetwork(&ctx, model, originalParameters, originalResults, config,
-                                                             devConf, rootTiming, log, isWSMonolithic);
+    mlir::OwningOpRef<mlir::ModuleOp> module =
+            importNetwork(&ctx, model, originalParameters, originalResults, config, devConf, rootTiming, log,
+                          /*enableWeightsSeparationPath=*/false);
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "PassManager");
 
@@ -648,6 +645,37 @@ CompilerSetup::CompilerSetup(const intel_npu::Config& config) {
     }
 }
 
+std::tuple<std::shared_ptr<ov::Model>, const intel_npu::Config> debatchModel(const std::shared_ptr<ov::Model>& model,
+                                                                             const intel_npu::Config& config,
+                                                                             size_t partitionCount, Logger& log) {
+    log.info("A batched model with batch: {0} is about to be processed by the plugin",
+             partitionCount == ov::Interval::s_max ? "<Inf>" : std::to_string(partitionCount));
+    // When batching is handled by the plugin we need to modify performance_mode property to Throughput mode
+    auto configPerformanceMode = config;
+    if (configPerformanceMode.get<intel_npu::PERFORMANCE_HINT>() == ov::hint::PerformanceMode::LATENCY) {
+        log.info("Override performance mode to THROUGHPUT");
+        std::stringstream strStream;
+        strStream << ov::hint::PerformanceMode::THROUGHPUT;
+        configPerformanceMode.update({{ov::hint::performance_mode.name(), strStream.str()}});
+    }
+
+    // If fallback and handle batching on the compiler is needed we will use the original model
+    auto batchModel = model->clone();
+    try {
+        ov::set_batch(batchModel, 1);
+    } catch (const std::exception& ex) {
+        log.warning("The plugin couldn't resize a batched model due to exception: {0}.\nProbably, the "
+                    "model is a dynamic model and layout hasn't been specified. Trying to debatch it...",
+                    ex.what());
+        batchModel = debatchDynamicModel(batchModel, log);
+        if (!batchModel) {
+            VPUX_THROW("Cannot debatch a model");
+        }
+        log.info("The model has been debatched successfully");
+    }
+    return make_tuple(batchModel, configPerformanceMode);
+}
+
 // leave reference to const std::shared_ptr<ov::Model> instead of taking std::shared_ptr<ov::Model> by value
 // as in case of batching we don't copy pointer to ov::Model, we clone it and use clone afterwards
 // taking by-value would mean extra copy of std::shared_ptr for no reason in this case, even though
@@ -675,32 +703,7 @@ CompilationResult compileImpl(std::unique_ptr<CompilerSetup>& setup, const std::
         auto partitionCount = getModelBatchPartitionIfPossible(model, config);
         if (partitionCount.has_value()) {
             if (*partitionCount > 1) {
-                log.info("A batched model with batch: {0} is about to be processed by the plugin",
-                         *partitionCount == ov::Interval::s_max ? "<Inf>" : std::to_string(*partitionCount));
-                // When batching is handled by the plugin we need to modify performance_mode property to Throughput mode
-                auto configPerformanceMode = config;
-                if (configPerformanceMode.get<intel_npu::PERFORMANCE_HINT>() == ov::hint::PerformanceMode::LATENCY) {
-                    log.info("Override performance mode to THROUGHPUT");
-                    std::stringstream strStream;
-                    strStream << ov::hint::PerformanceMode::THROUGHPUT;
-                    configPerformanceMode.update({{ov::hint::performance_mode.name(), strStream.str()}});
-                }
-
-                // If fallback and handle batching on the compiler is needed we will use the original model
-                auto batchModel = model->clone();
-                try {
-                    ov::set_batch(batchModel, 1);
-                } catch (const std::exception& ex) {
-                    log.warning("The plugin couldn't resize a batched model due to exception: {0}.\nProbably, the "
-                                "model is a dynamic model and layout hasn't been specified. Trying to debatch it...",
-                                ex.what());
-                    batchModel = debatchDynamicModel(batchModel, log);
-                    if (!batchModel) {
-                        VPUX_THROW("Cannot debatch a model");
-                    }
-                    log.info("The model has been debatched successfully");
-                }
-
+                auto [batchModel, configPerformanceMode] = debatchModel(model, config, *partitionCount, log);
                 auto moduleOp = compileModel(*setup->ctx, batchModel, originalParameters, originalResults, devConf,
                                              rootTiming, configPerformanceMode, log);
                 return CompilationResult{std::move(moduleOp), std::move(batchModel)};
@@ -847,15 +850,6 @@ NetworkDescription CompilerImpl::compile(const std::shared_ptr<const ov::Model>&
 
 namespace ws {
 
-auto importNetwork(mlir::MLIRContext* ctx, const std::shared_ptr<ov::Model>& originModel,
-                   const DeveloperConfig& devConf, const intel_npu::Config& config, mlir::TimingScope& rootTiming,
-                   Logger log) {
-    const auto originalParameters = IE::buildOVParams(originModel);
-    const auto originalResults = IE::buildOVResults(originModel);
-    return ::importNetwork(ctx, originModel, originalParameters, originalResults, config, devConf, rootTiming, log,
-                           /*enableWeightsSeparationPath=*/true);
-}
-
 void compileIEtoVPU(mlir::OwningOpRef<mlir::ModuleOp>& moduleOp,
                     std::unique_ptr<IDialectPipelineStrategy>& pipelineStrategy, const DeveloperConfig& devConf,
                     const intel_npu::Config& config, const std::optional<std::string>& wsExtractionMode,
@@ -921,9 +915,10 @@ void compileVPUIP(mlir::OwningOpRef<mlir::ModuleOp>& vpuModule,
     VPUX_THROW_WHEN(mlir::failed(compileNetwork(vpuModule.get(), vpuipPM, nestTiming)), "Compilation failed");
 }
 
-std::vector<CompilationResult> compileImplWsOneShot(std::unique_ptr<CompilerSetup>& setup,
-                                                    const std::shared_ptr<ov::Model>& model,
-                                                    const intel_npu::Config& config, Logger& log) {
+std::vector<CompilationResult> compileImplWsOneShot(
+        std::unique_ptr<CompilerSetup>& setup, const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+        const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const std::shared_ptr<ov::Model>& model,
+        const intel_npu::Config& config, Logger& log) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot",
                       "ws::compileImplWsOneShot");
 
@@ -940,7 +935,9 @@ std::vector<CompilationResult> compileImplWsOneShot(std::unique_ptr<CompilerSetu
     auto rootTiming = tm.getRootScope();
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "importNetwork");
-    mlir::OwningOpRef<mlir::ModuleOp> moduleMain = ws::importNetwork(ctx, model, devConf, config, rootTiming, log);
+    mlir::OwningOpRef<mlir::ModuleOp> moduleMain =
+            importNetwork(ctx, model, originalParameters, originalResults, config, devConf, rootTiming, log,
+                          /*enableWeightsSeparationPath=*/true);
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "compile");
     auto factoryMethod = createDialectPipelineStrategyFn(config);
@@ -951,7 +948,7 @@ std::vector<CompilationResult> compileImplWsOneShot(std::unique_ptr<CompilerSetu
     auto hardcodedMemoryLimit = vpux::Byte(800_MB);
     log.info("Init pipelining memory limit: {0}", hardcodedMemoryLimit);
 
-    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMonolithic);
+    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMain);
     ws::compileIEtoVPU(moduleMain, mainPipelineStrategy, devConf, config, /* wsExtractionMode = */ std::nullopt,
                        /* initPart = */ std::nullopt, hardcodedMemoryLimit, rootTiming, log);
 
@@ -1030,7 +1027,7 @@ void compileModelWsIterative(DeveloperConfig& devConf, mlir::TimingScope& rootTi
     }
 
     log.info("Compile Main");
-    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMonolithic);
+    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMain);
 
     {
         auto mainVPUIPTiming = rootTiming.nest("VPUIP pipeline for Main");
@@ -1041,10 +1038,10 @@ void compileModelWsIterative(DeveloperConfig& devConf, mlir::TimingScope& rootTi
     backendCompilation(moduleOp, devConf, config, rootTiming, log);
 }
 
-std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(std::unique_ptr<CompilerSetup>& setup,
-                                                                           const std::shared_ptr<ov::Model>& model,
-                                                                           const intel_npu::Config& config,
-                                                                           size_t callIdx, Logger& log) {
+std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(
+        std::unique_ptr<CompilerSetup>& setup, const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+        const std::vector<std::shared_ptr<const ov::Node>>& originalResults, const std::shared_ptr<ov::Model>& model,
+        const intel_npu::Config& config, size_t callIdx, Logger& log) {
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileImplWsIterative",
                       "ws::compileImplWsIterative");
 
@@ -1059,10 +1056,11 @@ std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(std::
     addLogging(*ctx, log);
 
     OV_ITT_TASK_NEXT(COMPILER_IMPLEMENTATION, "importNetwork");
-    auto moduleOp = ws::importNetwork(ctx, model, devConf, config, rootTiming, log);
+    auto moduleOp = importNetwork(ctx, model, originalParameters, originalResults, config, devConf, rootTiming, log,
+                                  /*enableWeightsSeparationPath=*/true);
 
     auto factoryMethod = createDialectPipelineStrategyFn(config);
-    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMonolithic);
+    auto mainPipelineStrategy = factoryMethod(config::CompilationMode::WSMain);
 
     // This value determines how many Init schedules will be generated to enable the Init pipelining feature.
     // For more details, please refer to weights_separation.md.
@@ -1095,6 +1093,54 @@ std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool> compileImplWsIterative(std::
 
 }  // namespace ws
 
+template <typename CompiledT>
+std::tuple<CompiledT, intel_npu::Config> tryCompileDebatchedModel(
+        const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config, vpux::Logger& log,
+        FuncRef<CompiledT(const std::shared_ptr<ov::Model>&, const std::vector<std::shared_ptr<const ov::Node>>&,
+                          const std::vector<std::shared_ptr<const ov::Node>>&, const intel_npu::Config&)>
+                callCompilation) {
+    const auto originalParameters = IE::buildOVParams(model);
+    const auto originalResults = IE::buildOVResults(model);
+
+    auto isCompatibleWithWSPipeline = [&](ov::intel_npu::BatchMode batchType) {
+        // Debatch method is not supported for the WS pipeline. Continue compilation only for unroll one.
+        auto [newConfig, needsDebatchingInCompiler] = autoDetectBatchedModelIfPossible(model, config);
+        if (!needsDebatchingInCompiler && batchType != ov::intel_npu::BatchMode::PLUGIN) {
+            return true;
+        }
+        return false;
+    };
+    try {
+        auto partitionCount = getModelBatchPartitionIfPossible(model, config);
+        if (partitionCount.has_value()) {
+            if (*partitionCount > 1) {
+                auto [batchModel, configPerformanceMode] = debatchModel(model, config, *partitionCount, log);
+                return std::make_tuple(
+                        callCompilation(batchModel, originalParameters, originalResults, configPerformanceMode),
+                        configPerformanceMode);
+            }
+        } else {
+            const auto& batchType = config.get<intel_npu::BATCH_MODE>();
+            if (isCompatibleWithWSPipeline(batchType)) {
+                log.info("Batching doesn't need handling. Flag is not found or batch dimension if 1.");
+            } else {
+                VPUX_THROW("This model is not supported when handling batching.");
+            }
+        }
+    } catch (const std::exception& ex) {
+        const auto& batchType = config.get<intel_npu::BATCH_MODE>();
+        if (isCompatibleWithWSPipeline(batchType)) {
+            log.info("An error occurred during network compilation so fallback on compiler batch mode {0}. Batching in "
+                     "compiler can be handled.",
+                     ex.what());
+        } else {
+            VPUX_THROW(ex.what());
+        }
+    }
+
+    return std::make_tuple(callCompilation(model, originalParameters, originalResults, config), config);
+}
+
 std::vector<std::shared_ptr<intel_npu::NetworkDescription>> CompilerImpl::compileWsOneShot(
         const std::shared_ptr<ov::Model>& model, const intel_npu::Config& config) const {
     OV_ITT_SCOPED_TASK(itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot");
@@ -1104,15 +1150,25 @@ std::vector<std::shared_ptr<intel_npu::NetworkDescription>> CompilerImpl::compil
     log.info("Start oneshot WS compilation");
 
     auto setup = CompilerSetup::create(config);
-    auto compilationResults = ws::compileImplWsOneShot(setup, model, config, log);
+
+    using CompilationReturnType = std::vector<CompilationResult>;
+    auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
+                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+        return ws::compileImplWsOneShot(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
+                                        log);
+    };
+    auto [compilationResults, compiledConfig] =
+            tryCompileDebatchedModel<CompilationReturnType>(model, config, log, getCompilationResult);
 
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsOneShot",
                       "exportNetwork");
     std::vector<std::shared_ptr<intel_npu::NetworkDescription>> networkDescrs;
     networkDescrs.reserve(compilationResults.size());
     for (const auto& result : compilationResults) {
-        networkDescrs.emplace_back(
-                std::make_shared<intel_npu::NetworkDescription>(exportNetwork(result.moduleOp.get(), config, log)));
+        networkDescrs.emplace_back(std::make_shared<intel_npu::NetworkDescription>(
+                exportNetwork(result.moduleOp.get(), compiledConfig, log)));
     }
     OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
 
@@ -1128,11 +1184,22 @@ intel_npu::NetworkDescription CompilerImpl::compileWsIterative(const std::shared
     Logger log("vpux-compiler", getLogLevel(config));
 
     auto setup = CompilerSetup::create(config);
-    auto [compilationResult, compileInit] = ws::compileImplWsIterative(setup, model, config, callIdx, log);
+
+    using CompilationReturnType = std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool>;
+    auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
+                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+        return ws::compileImplWsIterative(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
+                                          callIdx, log);
+    };
+    auto [compilationResult, compiledConfig] =
+            tryCompileDebatchedModel<CompilationReturnType>(model, config, log, getCompilationResult);
 
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsIterative",
                       "exportNetwork");
-    auto dscr = exportNetwork(compilationResult.get(), config, log);
+    auto compiledModel = std::get<0>(compilationResult).get();
+    auto dscr = exportNetwork(compiledModel, compiledConfig, log);
     OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
 
     // Plugin will collect the compilation memory usage
@@ -1148,11 +1215,22 @@ NetworkDescriptionView CompilerImpl::compileWsIterative(const std::shared_ptr<ov
     Logger log("vpux-compiler", getLogLevel(config));
 
     auto setup = CompilerSetup::create(config);
-    auto [compilationResult, compileInit] = ws::compileImplWsIterative(setup, originModel, config, callIdx, log);
+
+    using CompilationReturnType = std::tuple<mlir::OwningOpRef<mlir::ModuleOp>, bool>;
+    auto getCompilationResult = [&](const std::shared_ptr<ov::Model>& debatchedModel,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalParameters,
+                                    const std::vector<std::shared_ptr<const ov::Node>>& originalResults,
+                                    const intel_npu::Config& debatchedConfig) -> CompilationReturnType {
+        return ws::compileImplWsIterative(setup, originalParameters, originalResults, debatchedModel, debatchedConfig,
+                                          callIdx, log);
+    };
+    auto [compilationResult, compiledConfig] =
+            tryCompileDebatchedModel<CompilationReturnType>(originModel, config, log, getCompilationResult);
 
     OV_ITT_TASK_CHAIN(COMPILER_IMPLEMENTATION, itt::domains::VPUXPlugin, "CompilerImpl::compileWsIterative",
                       "exportNetwork");
-    auto dscr = exportNetwork(compilationResult.get(), config, log, allocator);
+    auto compiledModel = std::get<0>(compilationResult).get();
+    auto dscr = exportNetwork(compiledModel, compiledConfig, log, allocator);
     OV_ITT_TASK_SKIP(COMPILER_IMPLEMENTATION);
 
     // Plugin will collect the compilation memory usage

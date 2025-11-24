@@ -213,51 +213,60 @@ void OutputPipelineTilingPass::safeRunOnFunc() {
 
         // Set attribute to find a valid tiling strategy for output pipelining
         origOp->setAttr(outputPipelining, mlir::BoolAttr::get(origOp->getContext(), true));
-        auto prefetchableTilesOnDim = origTilingStrategy;
-        auto targetDim = *nonOneDims.begin();
-        _log.trace(" Target dimension for output pipelining: {0} from {1}", targetDim, origTilingStrategy);
-        mlir::FailureOr<OutputTiling> findSupportedTileSize;
-        do {
-            findSupportedTileSize = isSupportedTileSize(origOp, prefetchableTilesOnDim, tilingMode, _log);
-            if (!mlir::failed(findSupportedTileSize)) {
-                _log.trace(" Skip as current strategy is already pipelining");
-                break;
-            }
+        const auto adjustTiling = [&]() {
+            mlir::FailureOr<OutputTiling> findSupportedTileSize;
+            auto prefetchableTilesOnDim = origTilingStrategy;
+            auto targetDim = *nonOneDims.begin();
+            _log.trace(" Target dimension for output pipelining: {0} from {1}", targetDim, origTilingStrategy);
+            do {
+                findSupportedTileSize = isSupportedTileSize(origOp, prefetchableTilesOnDim, tilingMode, _log);
+                if (!mlir::failed(findSupportedTileSize)) {
+                    _log.trace(" Skip as current strategy is already pipelining");
+                    break;
+                }
 
-            if (!isDimLeftToTile(prefetchableTilesOnDim, maxNumTiles, targetDim)) {
-                break;
-            }
+                if (!isDimLeftToTile(prefetchableTilesOnDim, maxNumTiles, targetDim)) {
+                    break;
+                }
 
-            auto nextTileSearchResult = getNextTiling(targetDim, dimToAlign, dimAlignment, prefetchableTilesOnDim,
-                                                      maxNumTiles, outputShape);
-            if (mlir::failed(nextTileSearchResult)) {
-                break;
-            }
-            prefetchableTilesOnDim = nextTileSearchResult.value();
-        } while (
-                mlir::failed(findSupportedTileSize) &&
-                (prefetchableTilesOnDim[targetDim] <= MAX_OUTPUT_PIPELINE_TILING_TIME * origTilingStrategy[targetDim]));
+                auto nextTileSearchResult = getNextTiling(targetDim, dimToAlign, dimAlignment, prefetchableTilesOnDim,
+                                                          maxNumTiles, outputShape);
+                if (mlir::failed(nextTileSearchResult)) {
+                    break;
+                }
+                prefetchableTilesOnDim = nextTileSearchResult.value();
+            } while (mlir::failed(findSupportedTileSize) &&
+                     (prefetchableTilesOnDim[targetDim] <=
+                      MAX_OUTPUT_PIPELINE_TILING_TIME * origTilingStrategy[targetDim]));
 
-        _log.trace("New candidate tiling strategy for output pipelining: {0} at {1}", prefetchableTilesOnDim,
-                   origOp->getLoc());
-        if (!mlir::failed(findSupportedTileSize) && prefetchableTilesOnDim != origTilingStrategy) {
-            // find an available tiling strategy for output pipelining
-            auto curTiles = findSupportedTileSize.value();
-            _log.debug("Found output pipelining tiling strategy: {0} at {1}", curTiles, origOp->getLoc());
-            if (isTilingAdjustmentBeneficial(nceOp, origTiles.value(), curTiles, costModel)) {
-                origOp->setAttr(tilingStrategy, getIntArrayAttr(origOp->getContext(), curTiles[0].axis));
-                _log.debug("Overwrite original tiling strategy: {0} with output pipelining tiling strategy: {1} at "
-                           "{2}",
-                           origTilingStrategy, prefetchableTilesOnDim, origOp->getLoc());
+            _log.trace("New candidate tiling strategy for output pipelining: {0} at {1}", prefetchableTilesOnDim,
+                       origOp->getLoc());
+            if (!mlir::failed(findSupportedTileSize) && prefetchableTilesOnDim != origTilingStrategy) {
+                // find an available tiling strategy for output pipelining
+                auto curTiles = findSupportedTileSize.value();
+                _log.debug("Found output pipelining tiling strategy: {0} at {1}", curTiles, origOp->getLoc());
+                if (isTilingAdjustmentBeneficial(nceOp, origTiles.value(), curTiles, costModel)) {
+                    origOp->setAttr(tilingStrategy, getIntArrayAttr(origOp->getContext(), curTiles[0].axis));
+                    _log.debug("Overwrite original tiling strategy: {0} with output pipelining tiling strategy: {1} at "
+                               "{2}",
+                               origTilingStrategy, prefetchableTilesOnDim, origOp->getLoc());
+                    return true;
+                }
             }
-        }
+            return false;
+        };
 
-        // Remove output pipelining attribute
+        auto tilingAdjusted = adjustTiling();
         origOp->removeAttr(outputPipelining);
+        // Due to some scheduling problem, we need to set a CMX fragment threshold for better pipelining. Currently if
+        // it can not be pipelined, we can adjust the threshold to try it again. We only support tiling on H or W now.
+        // #E187660 remove the attribute and pass the fragment threshold as a parameter
+        if (!tilingAdjusted) {
+            origOp->setAttr(outputPipeliningMinFragmentation, mlir::BoolAttr::get(origOp->getContext(), true));
+            adjustTiling();
+            origOp->removeAttr(outputPipeliningMinFragmentation);
+        }
     });
-
-    _log.info("[OutputPipelineTiling phase]");
-    costModel->printNNCacheStatistics();
 }
 
 }  // namespace

@@ -84,4 +84,7 @@ VPURT::TaskOp createFetchDMA(mlir::OpBuilder& builder, mlir::Value input, mlir::
 
 VPUIP::FetchDMAAttr getFetchDMAAttr(int64_t groupIdx, BarrierInfo& barrierInfo, size_t taskIndex);
 
+void legalizeScheduleForNonWlm(mlir::func::FuncOp netFunc, BarrierInfo& barrierInfo, Logger log);
+bool verifyBarriersForTaskDescriptorFetch(BarrierInfo& barrierInfo, mlir::func::FuncOp func, bool wlmFlag,
+                                          std::optional<WorkloadManagementMode> wlmMode);
 }  // namespace vpux

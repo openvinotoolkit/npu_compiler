@@ -34,6 +34,7 @@ Driver Compiler provides `npu_driver_compiler`, `compilerTest`, `profilingTest` 
 - (Recommended) Build using CMake Presets, requiring CMake version 3.19 or higher.
     - [Linux](./docs/build/build_with_cmake_presets_linux.md)
     - [Windows](./docs/build/build_with_cmake_presets_windows.md)
+    - [Android](./docs/build/build_with_cmake_presets_android.md)
 
 - Build with cmake options
     - [Linux](./docs/build/build_linux.md)

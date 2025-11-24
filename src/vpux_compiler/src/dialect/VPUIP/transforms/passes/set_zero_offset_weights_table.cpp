@@ -3,11 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/weights_table_reuse_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -30,22 +30,19 @@ namespace {
 class SetZeroOffsetWeightsTablePass final :
         public VPUIP::impl::SetZeroOffsetWeightsTableBase<SetZeroOffsetWeightsTablePass> {
 public:
-    explicit SetZeroOffsetWeightsTablePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit SetZeroOffsetWeightsTablePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void SetZeroOffsetWeightsTablePass::safeRunOnFunc() {
     auto func = getOperation();
 
     func.walk([&](VPUIP::NCEClusterTaskOp nceOp) {
-        if (!VPU::isWeightsTableReuseEnabled(nceOp)) {
+        if (!config::isWeightsTableReuseEnabled(nceOp)) {
             _log.trace("Skipping relocation of weights table for reuse because the function is not supported {0}",
                        func->getLoc());
             return;

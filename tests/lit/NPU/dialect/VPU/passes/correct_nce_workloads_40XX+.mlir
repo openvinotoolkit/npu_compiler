@@ -144,7 +144,7 @@ func.func @NCEPermuteClustered(%arg0: !Input_DDR) -> !Output_CMX {
 
 module @NCEPermuteODUAutopadRemoveChannelPadding {
     config.PipelineOptions @Options {
-        config.Option @VPU.AutoPaddingODU : true
+        config.Option @config.AutoPaddingODU : true
     }
 
     func.func @main(%input: !InputType) -> !OutputType {

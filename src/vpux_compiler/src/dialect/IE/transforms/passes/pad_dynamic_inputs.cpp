@@ -35,31 +35,30 @@ void padInput(mlir::Operation* firstOp) {
 }
 
 SmallVector<mlir::Operation*> getDynamicOperations(mlir::Operation* op, Logger log) {
-    mlir::Operation* next = op;
     SmallVector<mlir::Operation*> dynamicOps;
-    while (IE::needsStaticShape(next)) {
-        if (!mlir::isa<Core::BoundedTensorType>(next->getResult(0).getType())) {
-            log.trace("Op {0} at loc {1} does not have output bounds.", next->getName(), next->getLoc());
-            return {};
-        }
-
-        log.nest().trace("Adding Op {0} at loc {1} to dynamic ops vec.", next->getName(), next->getLoc());
-        dynamicOps.push_back(next);
-        // Only data operand (operand 0) must be dynamic. Other operands must be static.
-        // FIXME generalize this approach to cover any combination of static and dynamic operands.
-        if (getShape(next->getOperand(0)).isStatic()) {
-            return mlir::isa<IE::DynamicDataMaskOp>(next) ? dynamicOps : SmallVector<mlir::Operation*>{};
-        }
-        for (unsigned idx = 1; idx < next->getNumOperands(); idx++) {
-            if (getShape(next->getOperand(idx)).isDynamic()) {
-                log.trace("Op {0} of type {1} has dynamic shapes on inputs that are not the first one.", next->getLoc(),
-                          next->getName());
-                auto dynamicOpsOperand = getDynamicOperations(next->getOperand(idx).getDefiningOp(), log.nest(4));
-                dynamicOps.reserve(dynamicOps.size() + dynamicOpsOperand.size());
-                std::copy(dynamicOpsOperand.begin(), dynamicOpsOperand.end(), std::back_inserter(dynamicOps));
+    SmallVector<mlir::Operation*> current = {op};
+    while (!current.empty()) {
+        SmallVector<mlir::Operation*> next;
+        for (const auto opIdx : irange(current.size())) {
+            if (!IE::needsStaticShape(current[opIdx])) {
+                continue;
+            }
+            auto origType = mlir::cast<NDTypeInterface>(op->getResult(0).getType());
+            auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(origType);
+            if (boundedType == nullptr) {
+                log.trace("Op {0} at loc {1} does not have output bounds.", current[opIdx]->getName(),
+                          current[opIdx]->getLoc());
+                return {};
+            }
+            dynamicOps.push_back(current[opIdx]);
+            for (const auto operandIdx : irange(current[opIdx]->getNumOperands())) {
+                auto currentOp = current[opIdx]->getOperand(operandIdx);
+                if (getShape(currentOp).isDynamic()) {
+                    next.push_back(currentOp.getDefiningOp());
+                }
             }
         }
-        next = next->getOperand(0).getDefiningOp();
+        current = std::move(next);
     }
     return dynamicOps;
 }
@@ -109,15 +108,12 @@ void traverseDynamicSubgraph(IE::DynamicReshapeOp dynReshape, Logger log) {
 
 class PadDynamicInputsPass final : public IE::impl::PadDynamicInputsBase<PadDynamicInputsPass> {
 public:
-    explicit PadDynamicInputsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PadDynamicInputsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PadDynamicInputsPass::safeRunOnFunc() {

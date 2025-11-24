@@ -16,12 +16,10 @@ add_npu_library(${TARGET_NAME}
         npu_llvm_utils
         npu_ov_utils
         npu_profiling_utils
-        flatbuffers
         npu_elf
         openvino::npu_al
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_vpuip
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)
 
 ov_add_version_defines(${VPUX_COMPILER_VERSION_FILE} ${TARGET_NAME})

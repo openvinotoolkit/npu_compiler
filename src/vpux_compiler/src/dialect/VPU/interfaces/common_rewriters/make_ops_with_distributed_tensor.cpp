@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/interfaces/common_rewriters/make_ops_with_distributed_tensor.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
 using namespace vpux;

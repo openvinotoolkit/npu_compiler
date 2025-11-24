@@ -13,6 +13,13 @@ namespace vpux::IE::arch40xx {
 
 void MapBilinearInterpolateOnDPUStrategy::prepareInterpolate(mlir::ConversionTarget& target, LogCb logCb) const {
     target.addDynamicallyLegalOp<IE::InterpolateOp>([this, logCb](IE::InterpolateOp op) {
+        auto inputElemType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType()).getElementType();
+        auto outputElemType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType()).getElementType();
+        if (inputElemType != outputElemType && !mlir::isa<mlir::quant::QuantizedType>(inputElemType) &&
+            !mlir::isa<mlir::quant::QuantizedType>(outputElemType)) {
+            // There has been IE.Convert fused into this IE.InterpolateOp.
+            return false;
+        }
         const auto inputShape = getShape(op.getInput());
         const auto outputShape = getShape(op.getOutput());
 

@@ -7,15 +7,18 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/Quant/QuantTypes.h>
@@ -24,10 +27,6 @@
 #include <vpu_layer_strategy.h>
 
 using namespace vpux;
-
-bool vpux::VPU::hasVPUNNPreSplit(mlir::Operation* op) {
-    return VPU::getConstraint<bool>(op, VPU::VPUNN_PRE_SPLIT);
-}
 
 ///@brief Validate vpunn cost. If cost is not the defined error code then return it
 /// Else print and return error code (an uint32 value in [max-100, max]) to user.
@@ -64,6 +63,13 @@ void vpux::VPU::printVPUNNLayers(ArrayRef<VPUNN::DPULayer> layers, vpux::Logger 
         log.warning("[VPUNN LOG] Layer config: {0}", layerStream.str());
     }
 }
+void vpux::VPU::printVPUNNLayers(ArrayRef<VPUNN::SHAVEWorkload> layers, vpux::Logger log) {
+    for (auto& layer : layers) {
+        std::ostringstream layerStream;
+        layerStream << layer;
+        log.warning("[VPUNN LOG] Layer config: {0}", layerStream.str());
+    }
+}
 
 /// @brief Print vpunn dpu workload for debug
 /// @warning Default logCb is Trace level
@@ -71,6 +77,14 @@ void vpux::VPU::printVPUNNWorkloadConfig(const VPUNN::DPUWorkload& wl, LogCb log
     std::ostringstream wlStream;
     wlStream << wl;
     logCb(formatv("[VPUNN LOG] DPU workload config: {0}", wlStream.str()));
+}
+
+/// @brief Print vpunn shave workload for debug
+/// @warning Default logCb is Trace level
+void vpux::VPU::printVPUNNWorkloadConfig(const VPUNN::SHAVEWorkload& wl, LogCb logCb) {
+    std::ostringstream wlStream;
+    wlStream << wl;
+    logCb(formatv("[VPUNN LOG] SHAVE workload config: {0}", wlStream.str()));
 }
 
 ///@brief Print vpunn workload split info
@@ -173,9 +187,9 @@ bool vpux::VPU::isVPUNNSupportedElementType(mlir::Type type) {
             // Temporary enablement; follow up E#103211
             return true;
         }
-    } else if (type.isFloat8E5M2()) {  // FP8
+    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {  // FP8
         return true;
-    } else if (type.isFloat8E4M3FN()) {  // HF8
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {  // HF8
         return true;
     }
     return false;
@@ -192,9 +206,9 @@ std::optional<VPUNN::DataType> vpux::VPU::getVPUNNElementType(mlir::Type type) {
         return VPUNN::DataType::UINT8;
     } else if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
         auto storageType = qType.getStorageType();
-        if (storageType.isFloat8E5M2()) {
+        if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
             return VPUNN::DataType::BF8;
-        } else if (storageType.isFloat8E4M3FN()) {
+        } else if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
             return VPUNN::DataType::HF8;
         }
 
@@ -210,10 +224,17 @@ std::optional<VPUNN::DataType> vpux::VPU::getVPUNNElementType(mlir::Type type) {
         }
     } else if (type.isF32()) {
         return VPUNN::DataType::FLOAT32;
-    } else if (type.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
         return VPUNN::DataType::BF8;
-    } else if (type.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return VPUNN::DataType::HF8;
+    }
+
+    // Specifics needed for Shave
+    else if (type.isInteger(4)) {
+        return VPUNN::DataType::INT4;
+    } else if (type.isInteger(CHAR_BIT * sizeof(int32_t))) {
+        return VPUNN::DataType::INT32;
     }
 
     return std::nullopt;
@@ -639,6 +660,109 @@ std::vector<VPUNN::DPULayer> vpux::VPU::getPerClusterDPULayers(VPU::NCEOpInterfa
     return vpunnLayers;
 }
 
+std::vector<VPUNN::SHAVEWorkload> vpux::VPU::getPerClusterShaveWorkloads(VPU::SWOpInterface swOp,
+                                                                         const VPUIP::ShaveWorkloadCostParams& params,
+                                                                         Logger log, bool isShave2APIused) {
+    const auto getPerClusterShapes = [&](VPU::DistributedTensorType distributedType, int input_index,
+                                         bool isOutput = false) -> SmallVector<Shape> {
+        if (distributedType != nullptr) {
+            // For output tensor, compute shape is required to get correct shapes for computation
+            // For input tensor, memory shape is required to ignore HALO region
+            return isOutput ? distributedType.getPerClusterComputeShapes()
+                            : distributedType.getPerClusterMemoryShapes();
+        }
+        return isOutput ? SmallVector({params.outputShapes[0]}) : SmallVector({params.inputShapes[input_index]});
+    };
+
+    const auto getPerClusterShape = [&](VPU::DistributedTensorType distributedType,
+                                        bool isOutput = false) -> SmallVector<Shape> {
+        return getPerClusterShapes(distributedType, 0, isOutput);
+    };
+
+    // OutputTensors and InputTensors
+    auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(swOp.getOperation());
+    if (clusteredOp == nullptr) {
+        std::vector<VPUNN::SHAVEWorkload> workloads;
+        auto workloadPtr = getVPUNNSWKernelOp(swOp, isShave2APIused);
+        if (workloadPtr) {
+            workloads.push_back(std::move(*workloadPtr));
+        }
+        return workloads;
+    }
+
+    auto strategy = params.layerStrategy;
+    auto numClusters = params.numTiles;
+    const auto offsets = Shape(params.outputShapes[0].size(), 0);
+
+    auto outputDistributedType = getDistributedTensor(clusteredOp->getResult(0));
+    if (outputDistributedType == nullptr) {
+        // When the distributedTypes are not created, generate distributedTypes from strategy
+
+        auto outType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
+
+        outType = outType.extractDenseTile(offsets, params.outputShapes[0]);
+        outputDistributedType = mlir::cast<VPU::DistributedTensorType>(
+                getDistributedOutputTypeFromOp(clusteredOp, outType, numClusters, strategy));
+    }
+
+    SmallVector<VPU::DistributedTensorType> actInputDistributedTypes;
+    for (size_t i = 0; i < params.inputShapes.size(); i++) {
+        auto operand = clusteredOp->getOperand(i);
+        auto distributedType = getDistributedTensor(operand);
+        if (distributedType == nullptr) {
+            auto inType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+            inType = inType.extractDenseTile(offsets, params.inputShapes[i]);
+            distributedType = mlir::cast<VPU::DistributedTensorType>(
+                    getDistributedActivationTypeFromOp(clusteredOp, operand, inType, numClusters, strategy));
+        }
+        actInputDistributedTypes.push_back(distributedType);
+    }
+    // For now, use the first input distributed type for per-cluster shape calculation.
+    // If you need to handle all inputs, further logic is needed below.
+    log.trace("Number of input distributed types: {0}", actInputDistributedTypes.size());
+    auto outputPerClusterShapes = getPerClusterShape(outputDistributedType, true);
+    std::vector<SmallVector<Shape>> actInputPerClusterShapes;
+
+    for (size_t i = 0; i < actInputDistributedTypes.size(); i++) {
+        auto inputPerClusterShapes = getPerClusterShapes(actInputDistributedTypes[i], i);
+        actInputPerClusterShapes.push_back(std::move(inputPerClusterShapes));
+    }
+
+    log.trace("Split op {0} into {1} clusters", swOp->getName(), numClusters);
+
+    std::vector<VPUNN::VPUTensor> outputTensors;
+    std::vector<VPUNN::VPUTensor> actInputTensors;
+    outputTensors.reserve(numClusters);
+    actInputTensors.reserve(numClusters * actInputPerClusterShapes.size());
+
+    for (auto index : irange(numClusters)) {
+        const auto outputOneClusterShape = outputPerClusterShapes[index];
+        outputTensors.push_back(VPU::getVPUTensor(outputOneClusterShape, params.outDataTypes[0], params.outOrders[0]));
+
+        for (size_t i = 0; i < (actInputPerClusterShapes.size()); i++) {
+            const auto& inType = actInputPerClusterShapes[i][index];
+            actInputTensors.push_back(VPU::getVPUTensor(inType, params.inDataTypes[i], params.inOrders[i]));
+        }
+    }
+
+    std::vector<VPUNN::SHAVEWorkload> vpunnLayers;
+    vpunnLayers.reserve(numClusters);
+
+    for (auto index : irange(numClusters)) {
+        std::vector<VPUNN::VPUTensor> inputsVector;
+
+        for (size_t i = 0; i < actInputPerClusterShapes.size(); i++) {
+            inputsVector.push_back(actInputTensors[index * actInputPerClusterShapes.size() + i]);
+        }
+
+        auto vpunnLayer = getVPUNNSWKernelOp(swOp, {outputTensors[index]}, std::move(inputsVector), isShave2APIused);
+        if (vpunnLayer) {
+            vpunnLayers.push_back(std::move(*vpunnLayer));
+        }
+    }
+    return vpunnLayers;
+}
+
 /// @brief Build VPUNN DPUWorkload
 /// @param tileParams WorkloadCostParams inputShape & outputShape items are per tile.
 /// @param wl A workload
@@ -904,6 +1028,76 @@ VPUIP::WorkloadCostParams vpux::VPU::getWorkloadCostParam(VPU::NCEOpInterface nc
             .Default([](mlir::Operation* op) {
                 VPUX_THROW("Unsupported NCE operation '{0}' at '{1}'", op->getName(), op->getLoc());
             });
+    return params;
+}
+
+VPUIP::ShaveWorkloadCostParams vpux::VPU::getShaveWorkloadCostParam(VPU::SWOpInterface swOp, config::ArchKind arch,
+                                                                    int64_t numSHV, int64_t numTiles) {
+    VPUIP::ShaveWorkloadCostParams params{};
+    params.arch = arch;
+    params.numSHV = numSHV;
+    params.numTiles = numTiles;
+    for (const auto& input : swOp->getOperands()) {
+        const auto inType = mlir::dyn_cast<vpux::NDTypeInterface>(input.getType());
+        params.inDataTypes.push_back(inType.getElementType());
+        params.inOrders.push_back(inType.getDimsOrder());
+        params.inputShapes.push_back(inType.getShape().raw());
+    }
+
+    for (const auto& output : swOp->getResults()) {
+        const auto outType = mlir::dyn_cast<vpux::NDTypeInterface>(output.getType());
+        params.outDataTypes.push_back(outType.getElementType());
+        params.outOrders.push_back(outType.getDimsOrder());
+        params.outputShapes.push_back(outType.getShape().raw());
+    }
+    auto op = swOp.getOperation();
+    if (auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(op)) {
+        auto strategy = clusteredOp.getMultiClusterStrategy();
+
+        if (strategy.has_value()) {
+            params.layerStrategy = strategy.value();
+        } else if (hasDistributedTypesIO(op)) {
+            // It shows this is a cluster tiling op and its MC strategy attribute has been removed
+            // We need judge it from the input/ output distributed mode
+            auto inputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getOperands().begin()).getType());
+            auto outputType = mlir::cast<vpux::VPU::DistributedTypeInterface>((*op->getResults().begin()).getType());
+            auto distributedInput =
+                    mlir::cast<vpux::VPU::DistributedTensorType>(inputType.getDistributedTypes().front());
+            auto distributedOutput =
+                    mlir::cast<vpux::VPU::DistributedTensorType>(outputType.getDistributedTypes().front());
+            VPUX_THROW_WHEN(distributedInput == nullptr || distributedOutput == nullptr,
+                            "Input or output type should be DistributedTensorType but got input type - {0}, output "
+                            "type - {1}",
+                            inputType, outputType);
+            auto distributionInAttr = distributedInput.getDistribution();
+            auto distributionOutAttr = distributedOutput.getDistribution();
+            SmallVector<int64_t> numTilesIn = {1, 1, 1, 1}, numTilesOut = {1, 1, 1, 1};
+            // DUPLICATED tensor has no numTiles item
+            if (distributionInAttr.getNumTiles() != nullptr) {
+                numTilesIn = vpux::parseIntArrayAttr<int64_t>(distributionInAttr.getNumTiles());
+            }
+            if (distributionOutAttr.getNumTiles() != nullptr) {
+                numTilesOut = vpux::parseIntArrayAttr<int64_t>(distributionOutAttr.getNumTiles());
+            }
+            auto modeIn = distributionInAttr.getMode().getValue();
+            auto modeOut = distributionOutAttr.getMode().getValue();
+
+            // Consider SOK on DW conv ops, the modes may also be SEGMENTED
+            // We need distinguish it with numTiles.
+            if (modeIn == VPU::DistributionMode::SEGMENTED && modeOut == VPU::DistributionMode::SEGMENTED &&
+                (numTilesIn[Dims4D::Act::H.ind()] > 1)) {
+                params.layerStrategy = VPU::MultiClusterStrategy::SplitOverHeight;
+            } else if (modeIn == VPU::DistributionMode::OVERLAPPED) {
+                // Set SplitOverHeightOverlapped to be different from SplitOverHeight for VPUNN even on VPUX40XX
+                params.layerStrategy = VPU::MultiClusterStrategy::SplitOverHeightOverlapped;
+            } else if (modeOut == (VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::MULTICASTED)) {
+                params.layerStrategy = VPU::MultiClusterStrategy::HKSwitch;
+            } else if (modeOut == (VPU::DistributionMode::SEGMENTED | VPU::DistributionMode::DUPLICATED) ||
+                       (numTilesOut[Dims4D::Act::C.ind()] > 1)) {
+                params.layerStrategy = VPU::MultiClusterStrategy::SplitOverKernel;
+            }
+        }
+    }
     return params;
 }
 

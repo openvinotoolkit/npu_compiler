@@ -439,35 +439,6 @@ def ABIVersionOp :
         ];
 }
 
-//
-// CompilerHashOp
-//
-
-def CompilerHashOp :
-        ELF_Op<"CompilerHash",
-            [
-                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize"]>,
-                DeclareOpInterfaceMethods<ELF_BinarySizeOpInterface, ["getBinarySize", "getAlignmentRequirements"]>,
-                DeclareOpInterfaceMethods<ELF_WrappableOpInterface>,
-                Symbol
-            ]
-        > {
-    let summary = "Represents a version mechanism for vpux-plugin compiler hash value";
-
-    let arguments = (ins
-          SymbolNameAttr:$sym_name,
-          StrAttr:$compiler_hash
-        );
-
-    let extraClassDeclaration = [{
-        std::vector<uint8_t> getSerializedCompilerHash();
-    }];
-
-    let assemblyFormat = [{
-        `(` $compiler_hash `)`
-        attr-dict}];
-}
-
 def MainOp :
         ELF_Op<"Main",
             [

@@ -8,7 +8,6 @@
 set(BUILD_SHARED_LIBS OFF)
 set(VPU_COMPILER_SRC_INCLUDE_DIR
         $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/src/vpux_compiler/include>
-        ${VPUNN_INCLUDE_DIRS}
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/vpux_compiler/include>)
 set(VPU_COMPILER_BIN_INCLUDE_DIR
         $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}/src/vpux_compiler/tblgen>)
@@ -17,6 +16,7 @@ set(VPU_COMPILER_PCH_FILE
 
 add_subdirectory(NPU37XX)
 add_subdirectory(NPU40XX)
+add_subdirectory(dynamic_rewriter)
 add_subdirectory(conversion)
 add_subdirectory(ShaveCodeGen)
 add_subdirectory(dialect/const)
@@ -34,6 +34,7 @@ add_subdirectory(dialect/VPUMI37XX)
 add_subdirectory(dialect/VPUMI40XX)
 add_subdirectory(dialect/VPURegMapped)
 add_subdirectory(dialect/VPURT)
+add_subdirectory(dialect/ELF)
 add_subdirectory(NPU37XX/dialect/NPUReg37XX)
 add_subdirectory(NPU37XX/dialect/VPUIPDPU)
 add_subdirectory(NPU40XX/dialect/ELF)

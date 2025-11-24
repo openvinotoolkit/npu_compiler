@@ -4,6 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/json_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 
 #include <fstream>

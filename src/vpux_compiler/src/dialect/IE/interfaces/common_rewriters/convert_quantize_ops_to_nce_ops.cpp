@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes/convert_quantize_ops_to_nce_ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
+#include "vpux/compiler/utils/conv_utils.hpp"
 
 namespace vpux::IE {
 
@@ -20,7 +21,7 @@ mlir::LogicalResult QuantizeToDwRewriter::matchAndRewrite(IE::QuantizeOp originO
     const auto origType = mlir::cast<vpux::NDTypeInterface>(originOp.getInput().getType());
     const auto origShape = origType.getShape();
     const auto OC = origShape[Dims4D::Act::C];
-    auto weights = buildDwWeights(originOp->getLoc(), OC, origType.getElementType(), rewriter);
+    auto weights = vpux::buildDwWeights(originOp->getLoc(), OC, origType.getElementType(), rewriter);
 
     const auto ctx = rewriter.getContext();
     const auto attrStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
@@ -55,7 +56,7 @@ mlir::LogicalResult DequantizeToDwRewriter::matchAndRewrite(IE::DequantizeOp ori
     const auto quantizeType = mlir::quant::UniformQuantizedType::get(
             /*flags=*/0, /*storageType=*/getUInt8Type(ctx), /*expressedType=*/mlir::Float16Type::get(ctx),
             /*scale=*/1.0, /*zeroPoint=*/0, /*storageTypeMin=*/0, /*storageTypeMax=*/255);
-    auto quantWeightsOp = buildDwWeights(originOp->getLoc(), OC, quantizeType, rewriter);
+    auto quantWeightsOp = vpux::buildDwWeights(originOp->getLoc(), OC, quantizeType, rewriter);
 
     const auto attrStrides = getIntArrayAttr(ctx, SmallVector<int64_t>{1, 1});
     const auto attrPadsBegin = getIntArrayAttr(ctx, SmallVector<int64_t>{0, 0});

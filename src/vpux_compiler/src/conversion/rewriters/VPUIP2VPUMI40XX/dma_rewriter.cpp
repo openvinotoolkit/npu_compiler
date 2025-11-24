@@ -6,11 +6,13 @@
 #include "vpux/compiler/conversion/rewriters/VPUIP2VPUMI40XX/dma_rewriter.hpp"
 #include "vpux/compiler/conversion/passes/VPUIP2VPUMI40XX/buffer_conversion.hpp"
 
+#include "vpux/compiler/dialect/VPUMI40XX/attributes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/dma_limits.hpp"
+#include "vpux/utils/core/error.hpp"
 
 using namespace vpux;
 
@@ -128,7 +130,10 @@ mlir::LogicalResult ExpandDMARewriter::matchAndRewrite(VPUIP::ExpandDMAOp expand
     const auto tileIdx = adaptor.getPort().value();
     auto indexType = VPURegMapped::IndexType::get(ctx, tileIdx, getListIndex(inputType.getMemoryKind()), 0);
 
-    const auto dmaDescriptor = adaptor.getDmaDescriptor().value();
+    auto dmaTransaction = VPUMI40XX::ExpandDMATransactionAttr::get(ctx, adaptor.getInput().getType(),
+                                                                   adaptor.getOutputBuff().getType(),
+                                                                   adaptor.getPadsBegin(), adaptor.getPadsEnd());
+
     auto dmaResults = convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff());
     auto origOp = expandDMAOp->getParentOfType<VPURT::TaskOp>();
     rewriter.replaceOpWithNewOp<VPUMI40XX::NNDMAOp>(
@@ -143,10 +148,11 @@ mlir::LogicalResult ExpandDMARewriter::matchAndRewrite(VPUIP::ExpandDMAOp expand
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
-            nullptr,  // actCompressionSizeEntry
-            nullptr,  // actCompressionSparsityMap
-            nullptr,  // dmaTransaction
-            dmaDescriptor, adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
+            nullptr,         // actCompressionSizeEntry
+            nullptr,         // actCompressionSparsityMap
+            dmaTransaction,  // dmaTransaction
+            nullptr,         // dmaDescriptor
+            adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
             true,                    // allowDifferentInOutShapes
             nullptr,                 // indices
             nullptr,                 // enqueueBarrier
@@ -329,7 +335,12 @@ mlir::LogicalResult PerAxisTileDMARewriter::matchAndRewrite(VPUIP::PerAxisTileDM
     const auto tileIdx = adaptor.getPort().value();
     auto indexType = VPURegMapped::IndexType::get(ctx, tileIdx, getListIndex(inputType.getMemoryKind()), 0);
 
-    const auto dmaDescriptor = adaptor.getDmaDescriptor().value();
+    VPUX_THROW_UNLESS(perAxisTileDMAOp.getAxisAttr(), "Missing axis attribute");
+    VPUX_THROW_UNLESS(perAxisTileDMAOp.getTilesAttr(), "Missing tiles attribute");
+
+    const auto perAxisTileDMATransactionAttr = VPUMI40XX::PerAxisTileDMATransactionAttr::get(
+            ctx, inputType, outputType, perAxisTileDMAOp.getAxisAttr(), perAxisTileDMAOp.getTilesAttr());
+
     auto dmaResults = convertOrUnrollBuffer(rewriter, adaptor.getOutputBuff());
     auto origOp = perAxisTileDMAOp->getParentOfType<VPURT::TaskOp>();
     rewriter.replaceOpWithNewOp<VPUMI40XX::NNDMAOp>(
@@ -344,10 +355,11 @@ mlir::LogicalResult PerAxisTileDMARewriter::matchAndRewrite(VPUIP::PerAxisTileDM
             adaptor.getIsOutOfOrder(), adaptor.getIsCritical(),
             _isMemorySideCacheEnabled && enableMemorySideCache(inputType, outputType), tileIdx,
             VPUIP::DMAAccMode::DISABLE,
-            nullptr,  // actCompressionSizeEntry
-            nullptr,  // actCompressionSparsityMap
-            nullptr,  // dmaTransaction
-            dmaDescriptor, adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
+            nullptr,                        // actCompressionSizeEntry
+            nullptr,                        // actCompressionSparsityMap
+            perAxisTileDMATransactionAttr,  // dmaTransaction
+            nullptr,                        // dmaDescriptor
+            adaptor.getDmaHwpIdAttr(), adaptor.getProfilingMetadataAttr(),
             true,                    // allowDifferentInOutShapes
             nullptr,                 // indices
             nullptr,                 // enqueueBarrier

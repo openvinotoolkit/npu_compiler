@@ -45,7 +45,6 @@ The compiler is based on the MLIR project. There are two different ways for the 
 
 An engine backend is an abstraction layer on top of underlying APIs used to execute models. It is meant to include all the required functionality and infrastructure required to execute multiple models in parallel on one or multiple devices. Multiple engine backends are supported by the plugin:
 * L0 (Level Zero) backend
-* IMD backend
 
 &nbsp;
 ## Model Compilation

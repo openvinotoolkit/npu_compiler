@@ -29,7 +29,7 @@ using namespace vpux;
 
 using MLIR_VPU_LayerVPUNNCost = vpux::VPU::arch37xx::UnitTest;
 
-VPU::StrategyCost getSWVPUNNCost(std::shared_ptr<VPUNN::SWOperation> vpunnLayer, mlir::ModuleOp module,
+VPU::StrategyCost getSWVPUNNCost(std::shared_ptr<VPUNN::SHAVEWorkload> vpunnLayer, mlir::ModuleOp module,
                                  VPU::MultiClusterStrategy mcStrategy) {
     const auto archKind = config::getArch(module);
     const auto vpunnCostFunction = VPU::CostModelConfig::createLayerCostModel(archKind);
@@ -186,9 +186,13 @@ TEST_F(MLIR_VPU_LayerVPUNNCost, SWKernel_LayerCost) {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(kernelOp.getOutput().getType());
 
         const auto inputTensor = VPU::getVPUTensor(inputType.getShape(), inputType.getElementType());
-        ;
         const auto outputTensor = VPU::getVPUTensor(outputType.getShape(), outputType.getElementType());
-        const auto vpunnLayer = std::make_shared<VPUNN::SHVSoftmax>(vpuDevice, inputTensor, outputTensor);
+
+        const auto inputTensors = std::vector<VPUNN::VPUTensor>{inputTensor};
+        const auto outputTensors = std::vector<VPUNN::VPUTensor>{outputTensor};
+        VPUNN::SHAVEWorkload::Parameters params = {1};
+        const auto vpunnLayer =
+                std::make_shared<VPUNN::SHAVEWorkload>("Softmax", vpuDevice, inputTensors, outputTensors, params);
 
         EXPECT_EQ(layerCost.getStrategyCost(kernelOp, VPU::MultiClusterStrategy::Clustering),
                   getSWVPUNNCost(vpunnLayer, module.get(), VPU::MultiClusterStrategy::Clustering));

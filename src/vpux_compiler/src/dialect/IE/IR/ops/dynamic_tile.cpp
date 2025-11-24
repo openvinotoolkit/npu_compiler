@@ -28,7 +28,11 @@ mlir::LogicalResult vpux::IE::DynamicTileOp::inferReturnTypeComponents(
     }
 
     const auto outShape = parseIntArrayAttr<int64_t>(tile.getOutputShape());
-    const auto outBounds = parseIntArrayAttr<int64_t>(tile.getOutputBoundsAttr());
+
+    bool hasDynamic = any_of(outShape, [](int64_t dim) {
+        return dim == mlir::ShapedType::kDynamic;
+    });
+    const auto outBounds = hasDynamic ? parseIntArrayAttr<int64_t>(tile.getOutputBoundsAttr()) : SmallVector<int64_t>{};
 
     const auto inType = mlir::cast<mlir::RankedTensorType>(tile.getInput().getType());
 

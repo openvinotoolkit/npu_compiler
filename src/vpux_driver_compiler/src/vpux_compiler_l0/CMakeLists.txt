@@ -15,6 +15,8 @@ add_library(${TARGET_NAME}
         vcl_query_network.cpp
 )
 
+find_package(Git REQUIRED)
+
 # Use commit info to create compiler version
 ov_commit_hash(PLUGIN_GIT_COMMIT_HASH ${CMAKE_CURRENT_SOURCE_DIR})
 string(TIMESTAMP DATE_MAJOR "%m%d")

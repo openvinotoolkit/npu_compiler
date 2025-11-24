@@ -1,0 +1,65 @@
+<?xml version="1.0" ?>
+<net name="Range-4_239" version="11">
+  <rt_info/>
+  <layers>
+    <layer id="0" name="Range-4_0" type="Parameter" version="opset1">
+      <data shape="" element_type="i64"/>
+      <output>
+        <port id="0" precision="I64" names="0"/>
+      </output>
+    </layer>
+    <layer id="1" name="Range-4_1" type="Const" version="opset1">
+      <data element_type="i64" shape="" offset="0" size="8"/>
+      <output>
+        <port id="0" precision="I64"/>
+      </output>
+    </layer>
+    <layer id="2" name="Range-4_2" type="Const" version="opset1">
+      <data element_type="i32" shape="" offset="8" size="4"/>
+      <output>
+        <port id="0" precision="I32"/>
+      </output>
+    </layer>
+    <layer id="3" name="Range-4" type="Range" version="opset4">
+      <data output_type="f32"/>
+      <input>
+        <port id="0" precision="I64"/>
+        <port id="1" precision="I64"/>
+        <port id="2" precision="I32"/>
+      </input>
+      <output>
+        <port id="3" precision="FP32">
+          <dim>-1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="4" name="convert_fp32_to_fp16_Range-4" type="Convert" version="opset1">
+      <data destination_type="i64"/>
+      <input>
+        <port id="0" precision="FP32">
+          <dim>-1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="0" precision="FP16">
+          <dim>-1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="5" name="Result_27662" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="FP16">
+          <dim>-1</dim>
+        </port>
+      </input>
+    </layer>
+
+  </layers>
+  <edges>
+    <edge from-layer="0" from-port="0" to-layer="3" to-port="0"/>
+    <edge from-layer="1" from-port="0" to-layer="3" to-port="1"/>
+    <edge from-layer="2" from-port="0" to-layer="3" to-port="2"/>
+    <edge from-layer="3" from-port="3" to-layer="4" to-port="0"/>
+    <edge from-layer="4" from-port="0" to-layer="5" to-port="0"/>
+  </edges>
+</net>

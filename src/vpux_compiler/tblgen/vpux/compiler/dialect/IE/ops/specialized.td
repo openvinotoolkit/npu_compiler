@@ -366,42 +366,6 @@ def IE_IDFTOp :
     let hasCanonicalizer = 1;
 }
 
-//
-// IncrementalSDPA
-//
-
-def IE_IncrementalSDPAOp :
-        IE_LayerOp<
-            "IncrementalSDPA",
-            [
-                AttrSizedOperandSegments
-            ]
-        > {
-    let summary = "IncrementalSDPA VPU layer";
-
-    let arguments = (ins
-        RankedTensorOf<[F16, F32, F64]>:$query,
-        RankedTensorOf<[F16, F32, F64]>:$key,
-        RankedTensorOf<[F16, F32, F64]>:$value,
-
-        RankedTensorOf<[F16, F32, F64]>:$input_partial_output,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$input_running_max,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$input_running_sum,
-
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$attention_mask,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale,
-
-        OptionalAttr<IntAttr>:$kv_num_blocks
-
-    );
-
-    let results = (outs
-        RankedTensorOf<[F16, F32, F64]>:$result_partial_output,
-        RankedTensorOf<[F16, F32, F64]>:$result_running_max,
-        RankedTensorOf<[F16, F32, F64]>:$result_running_sum
-    );
-}
-
 def IE_IRDFTOp :
         IE_LayerOp<
             "IRDFT",
@@ -535,26 +499,24 @@ def IE_OneHotOp :
 }
 
 //
-// OnlineSDPA
+// FlashSDPA
 //
 
-def IE_OnlineSDPAOp :
+def IE_FlashSDPAOp :
         IE_LayerOp<
-            "OnlineSDPA",
+            "FlashSDPA",
             [
                 AttrSizedOperandSegments
             ]
         > {
-    let summary = "OnlineSDPA VPU layer";
+    let summary = "Flash Attention SDPA layer";
 
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$query,
         RankedTensorOf<[F16, F32, F64]>:$key,
         RankedTensorOf<[F16, F32, F64]>:$value,
         Optional<RankedTensorOf<[F16, F32, F64]>>:$attention_mask,
-        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale,
-
-        OptionalAttr<IntAttr>:$kv_num_blocks
+        Optional<RankedTensorOf<[F16, F32, F64]>>:$scale
     );
 
     let results = (outs
@@ -789,7 +751,9 @@ def IE_RoPEOp :
     let arguments = (ins
         RankedTensorOf<[F16, F32, F64]>:$input,
         RankedTensorOf<[F16, F32, F64]>:$input_cos,
-        RankedTensorOf<[F16, F32, F64]>:$input_sin
+        RankedTensorOf<[F16, F32, F64]>:$input_sin,
+
+        UnitAttr:$is_interleaved
      );
 
     let results = (outs
@@ -821,6 +785,29 @@ def IE_SDPAOp :
     );
 
     let hasCanonicalizer = 1;
+}
+
+def IE_SDPAExtendedOp :
+        IE_LayerOp<
+            "SDPAExtended",
+            [
+                AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "InferenceEngine custom SDPA layer";
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32]>:$inputQ,
+        RankedTensorOf<[F16, F32]>:$inputK,
+        RankedTensorOf<[F16, F32]>:$inputV,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputMask,
+        Optional<RankedTensorOf<[F16, F32]>>:$inputScale,
+
+        OptionalAttr<IntAttr>:$padSizeS
+     );
+   let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$output
+    );
 }
 
 def IE_SelectOp :
@@ -890,6 +877,52 @@ def IE_TopKOp :
     );
 
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
+}
+
+def IE_STFTOp :
+        IE_LayerOp<
+            "STFT",
+            [
+                AttrSizedOperandSegments
+            ]
+        > {
+    let summary = "InferenceEngine Short-Time Fourier Transform (STFT) layer";
+
+    let description = [{
+        STFT operation performs Short-Time Fourier Transform of real-valued input tensor.
+
+        Based on OpenVINO STFT-15 specification:
+        - Input signal: 1D [signal_size] or 2D [batch, signal_size]
+        - Window: 1D [window_length] for windowing function
+        - Frame size: scalar describing size of signal frame for FFT
+        - Frame step: scalar describing distance between successive frames
+        - Output: Complex result with real and imaginary parts in last dimension
+
+        Output shapes:
+        - transpose_frames=false: [frames, fft_results, 2] or [batch, frames, fft_results, 2]
+        - transpose_frames=true: [fft_results, frames, 2] or [batch, fft_results, frames, 2]
+
+        Where:
+        - frames = (signal_shape[-1] - frame_size) / frame_step + 1
+        - fft_results = (frame_size / 2) + 1
+    }];
+
+    let arguments = (ins
+        RankedTensorOf<[F16, F32, F64]>:$signal,
+        RankedTensorOf<[F16, F32, F64]>:$window,
+        Optional<RankedTensorOf<[AnyInteger]>>:$frame_size,
+        Optional<RankedTensorOf<[AnyInteger]>>:$frame_step,
+
+        OptionalAttr<IntAttr>:$frame_size_attr,
+        OptionalAttr<IntAttr>:$frame_step_attr,
+        UnitAttr:$transpose_frames
+    );
+
+    let results = (outs
+        RankedTensorOf<[F16, F32, F64]>:$output
+    );
+
     let hasVerifier = 1;
 }
 

@@ -116,5 +116,7 @@ using MapCoordFuncT = llvm::function_ref<std::pair<int32_t, double>(int32_t, dou
 // Determine the coordintate transformation function
 MapCoordFuncT getMapCoordMethod(InterpolateCoordMode coordMode);
 
+bool isFusingConvertIntoBilinearInterpolateOnDpuBeneficial(IE::InterpolateOp op, mlir::Type outType);
+
 }  // namespace IE
 }  // namespace vpux

@@ -521,57 +521,57 @@ func.func @ImplicitConcatView(%arg0: !InputBufferDdr, %arg1: !OutputBufferDdr) -
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @ShapeCast
-func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, #NHWC>, %arg1: memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]> {
+func.func @ShapeCast(%arg0: memref<64x3x7x7xf16, #NHWC>, %arg1: memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]> {
 
-    %0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
-    %weights = VPUIP.NNDMA
-        inputs(%arg0: memref<64x3x7x7xf16, #NHWC>)
-        outputs(%0: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+%0 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+%weights = VPUIP.NNDMA
+    inputs(%arg0: memref<64x3x7x7xf16, #NHWC>)
+    outputs(%0: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
 
-    %weights_align = VPUIP.ShapeCast{shape = [64, 16, 7, 7]}
-        inputs(%weights: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-         -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
-    %weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
+%weights_align = VPUIP.ShapeCast{shape = [64, 16, 7, 7]}
+    inputs(%weights: memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>)
+     -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
+%weight_table = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
 
-    %in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>
+%in = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>
 
-    %1 = VPUIP.NCEClusterTask {
-            kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
-            kernel_size = [7, 7],
-            kernel_strides = [2, 2],
-            task_type = #VPUIP.nce_task_type<CONV>
-        }
-        input(%in : memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>)
-        weights(%weights_align : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-        weight_table(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-        parent_input(%in : memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>)
-        parent_output(%arg1 : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-        outputs(%arg1 : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>
-        variants :
-        {
-            DPUTask {outEnd = [111, 111, 63], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
-        }
-        PPE :  {
-        }
+%1 = VPUIP.NCEClusterTask {
+        kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>,
+        kernel_size = [7, 7],
+        kernel_strides = [2, 2],
+        task_type = #VPUIP.nce_task_type<CONV>
+    }
+    input(%in : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
+    weights(%weights_align : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
+    weight_table(%weight_table : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
+    parent_input(%in : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
+    parent_output(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
+    outputs(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+    variants :
+    {
+        DPUTask {outEnd = [55, 55, 63], mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
+    }
+    PPE :  {
+    }
 
-    return %1 : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>
+return %1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
 
-    //CHECK:        [[VAR0:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:        [[VAR1:%.*]] = VPUIP.NNDMA inputs(%arg0 : memref<64x3x7x7xf16, #NHWC>) outputs([[VAR0]] : memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:        [[VAR2:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:        [[VAR3:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
-    //CHECK:        [[VAR4:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK:        [[VAR5:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}
-    //CHECK-SAME:           input([[VAR4]] : memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           weights([[VAR2]] : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           weight_table([[VAR3]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_input([[VAR4]] : memref<1x16x224x224xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           parent_output(%arg1 : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           outputs(%arg1 : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>)
-    //CHECK-SAME:           -> memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>
-    //CHECK-SAME:           variants :  {
-    //CHECK:       DPUTask {mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, outEnd = [111, 111, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-    //CHECK:       return [[VAR5]] : memref<1x64x112x112xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR0:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR1:%.*]] = VPUIP.NNDMA inputs(%arg0 : memref<64x3x7x7xf16, #NHWC>) outputs([[VAR0]] : memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>) -> memref<64x3x7x7xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR2:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR3:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <1024> -> memref<64x1x1x4xsi32, [@CMX_NN, 0]>
+//CHECK:        [[VAR4:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK:        [[VAR5:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 3 : i64, right = 3 : i64, top = 3 : i64, bottom = 3 : i64>, kernel_size = [7, 7], kernel_strides = [2, 2], task_type = #VPUIP.nce_task_type<CONV>}
+//CHECK-SAME:           input([[VAR4]] : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK-SAME:           weights([[VAR2]] : memref<64x16x7x7xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK-SAME:           weight_table([[VAR3]] : memref<64x1x1x4xsi32, [@CMX_NN, 0]>)
+//CHECK-SAME:           parent_input([[VAR4]] : memref<1x16x112x112xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK-SAME:           parent_output(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK-SAME:           outputs(%arg1 : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>)
+//CHECK-SAME:           -> memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
+//CHECK-SAME:           variants :  {
+//CHECK:       DPUTask {mpe_mode = #VPU.mpe_mode<VECTOR_FP16>, outEnd = [55, 55, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+//CHECK:       return [[VAR5]] : memref<1x64x56x56xf16, #NHWC, [@CMX_NN, 0]>
 }
 
 //

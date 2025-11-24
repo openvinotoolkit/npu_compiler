@@ -154,6 +154,20 @@ std::optional<SmallVector<DimArr>> OpTilingCache::getValidPermutations(llvm::has
     return it->second;
 }
 
+std::optional<DimArr> OpTilingCache::getDimOrder(llvm::hash_code opHash) {
+    if (!_enableCache) {
+        return std::nullopt;
+    }
+    _dimOrderAccessCount.fetch_add(1, std::memory_order_relaxed);
+    std::lock_guard<std::mutex> lock(_dimOrderMutex);
+    auto it = _dimOrderCache.find(opHash);
+    if (it == _dimOrderCache.end()) {
+        return std::nullopt;
+    }
+    _dimOrderHitCount.fetch_add(1, std::memory_order_relaxed);
+    return it->second;
+}
+
 void OpTilingCache::printStats(Logger& logger) const {
     if (!_enableCache) {
         return;
@@ -174,6 +188,9 @@ void OpTilingCache::printStats(Logger& logger) const {
     auto validPermutationsHitCount = _validPermutationsHitCount.load(std::memory_order_relaxed);
     auto validPermutationsAccessCount = _validPermutationsAccessCount.load(std::memory_order_relaxed);
 
+    auto dimOrderHitCount = _dimOrderHitCount.load(std::memory_order_relaxed);
+    auto dimOrderAccessCount = _dimOrderAccessCount.load(std::memory_order_relaxed);
+
     auto logCacheStats = [&](const char* name, uint64_t hit, uint64_t access) {
         logger.info("{0} cache hit : {1}", name, hit);
         logger.info("{0} cache miss : {1}", name, access - hit);
@@ -187,6 +204,7 @@ void OpTilingCache::printStats(Logger& logger) const {
     logCacheStats("VPUNNLayer cost", vpunnLayerCostHitCount, vpunnLayerCostAccessCount);
     logCacheStats("Shape with distributionInfo", perClusterShapeHitCount, perClusterShapeAccessCount);
     logCacheStats("Valid permutations", validPermutationsHitCount, validPermutationsAccessCount);
+    logCacheStats("Dim Order", dimOrderHitCount, dimOrderAccessCount);
 }
 
 void OpTilingCache::updateOutputTiling(const llvm::hash_code opHash, mlir::Operation* op,
@@ -235,6 +253,14 @@ void OpTilingCache::updateValidPermutations(llvm::hash_code opHash, const SmallV
     _validPermutationsCache[opHash] = validPermutations;
 }
 
+void OpTilingCache::updateDimOrder(llvm::hash_code opHash, const DimArr& dimOrder) {
+    if (!_enableCache) {
+        return;
+    }
+    std::lock_guard<std::mutex> lock(_dimOrderMutex);
+    _dimOrderCache[opHash] = dimOrder;
+}
+
 void OpTilingCache::cleanUp() {
     _tilingAccessCount = 0;
     _tilingHitCount = 0;
@@ -242,6 +268,8 @@ void OpTilingCache::cleanUp() {
     _dpuCostHitCount = 0;
     _vpunnLayerCostAccessCount = 0;
     _vpunnLayerCostHitCount = 0;
+    _dimOrderHitCount = 0;
+    _dimOrderAccessCount = 0;
 
     {
         std::lock_guard<std::mutex> lock(_tilingMutex);
@@ -257,6 +285,12 @@ void OpTilingCache::cleanUp() {
         std::lock_guard<std::mutex> lock(_vpunnLayerMutex);
         _vpunnLayerCostCache.clear();
     }
+
+    {
+        std::lock_guard<std::mutex> lock(_dimOrderMutex);
+        _dimOrderCache.clear();
+    }
+
     std::lock_guard<std::mutex> lock(_perClusterShapeMutex);
     _perClusterShapeCache.clear();
 }

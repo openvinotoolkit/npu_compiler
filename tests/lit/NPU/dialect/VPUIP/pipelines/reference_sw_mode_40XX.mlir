@@ -51,17 +51,17 @@ module @SoftMax attributes {config.arch = #config.arch_kind<NPU40XX>, config.com
         return %8 : memref<1x1000xf16>
 
         // CHECK:   [[BAR0:%.+]] = VPURT.ConfigureBarrier<0> <{isStartBarrier}> -> !VPURT.Barrier
+        // CHECK:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
+        // CHECK:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
+        // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
+        // CHECK:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK:   [[BUFF0:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK:   [[BUFF1:%.+]] = VPURT.DeclareBuffer <DDR> <0> -> memref<0x0x0x0xi32, @DDR>
         // CHECK:   [[BUFF2:%.+]] = VPURT.DeclareBuffer <NetworkOutput> [0] <0> -> memref<1x1000xf16, @DDR>
         // CHECK:   [[BUFF3:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK:   [[BUFF4:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <2048> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
         // CHECK:   [[BUFF5:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1x1x1000xf16, [@CMX_NN, 0]>
-        // CHECK:   [[BAR1:%.+]] = VPURT.ConfigureBarrier<1> -> !VPURT.Barrier
         // CHECK:   [[BUFF6:%.+]] = VPURT.DeclareBuffer <NetworkInput> [0] <0> -> memref<1x1x1x1000xf16, @DDR>
-        // CHECK:   [[BAR2:%.+]] = VPURT.ConfigureBarrier<2> -> !VPURT.Barrier
-        // CHECK:   [[BAR3:%.+]] = VPURT.ConfigureBarrier<3> -> !VPURT.Barrier
-        // CHECK:   [[BAR4:%.+]] = VPURT.ConfigureBarrier<4> <{isFinalBarrier}> -> !VPURT.Barrier
         // CHECK:   [[BUFF7:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x1000xf16, [@CMX_NN, 0]>
 
         // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) {

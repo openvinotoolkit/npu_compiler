@@ -6,11 +6,12 @@
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -19,7 +20,6 @@
 #include <mlir/Dialect/Quant/QuantOps.h>
 #include <mlir/IR/BuiltinAttributes.h>
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
-#include <optional>
 
 namespace vpux::IE {
 #define GEN_PASS_DECL_HANDLEU16FAKEQUANTIZE
@@ -193,7 +193,7 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::co
 mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::matchAndRewrite(
         IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const {
     auto moduleOp = getModuleOp(origOp);
-    auto setAdaptiveStrippingEnabled = VPU::hasEnableAdaptiveStripping(moduleOp);
+    auto setAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
     auto levels = origOp.getLevels();
     auto maxLevels = QuantizationLevels::QUANT_LEVELS_8BIT;
     // Maximum number of levels that don't exceeds I8/U8 storage type
@@ -277,17 +277,18 @@ mlir::LogicalResult HandleU16FakeQuantizePass::RemoveU16FakeQuantizeRewriter::ma
 }
 
 //
-// UpdateFQDown
+// LowerFakeQuantizeRewriter
 //
 
-class UpdateFQDown final : public mlir::OpRewritePattern<IE::FakeQuantizeOp> {
+template <class ConcreteOp>
+class LowerFakeQuantizeRewriter final : public mlir::OpRewritePattern<ConcreteOp> {
 public:
-    UpdateFQDown(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx), _log(log) {
-        this->setDebugName("UpdateFQDown");
+    LowerFakeQuantizeRewriter(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
+        this->setDebugName("LowerFakeQuantizeRewriter");
     }
 
 private:
-    mlir::LogicalResult matchAndRewrite(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const final;
+    mlir::LogicalResult matchAndRewrite(ConcreteOp op, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;
@@ -298,6 +299,11 @@ struct LowHigh {
     mlir::Value high;
 };
 
+enum class Direction {
+    ToUpperBound = 1,
+    ToLowerBound = -1,
+};
+
 std::optional<LowHigh> reduceLevelsZeroPoint(IE::FakeQuantizeOp origOp, float low, float high, int64_t maxLevels,
                                              mlir::PatternRewriter& rewriter) {
     auto loc = origOp->getLoc();
@@ -305,90 +311,162 @@ std::optional<LowHigh> reduceLevelsZeroPoint(IE::FakeQuantizeOp origOp, float lo
     auto limit = static_cast<float>(maxLevels - 1);
     auto scale = (high - low) / limit;
 
-    auto zeroPoint = (low != high) ? std::optional(std::round(-low / (high - low) * limit)) : std::nullopt;
+    auto lowScaleCalc = [](float low, float zeroPoint) {
+        return -low / zeroPoint;
+    };
+    auto highScaleCalc = [](float high, float limit, float zeroPoint) {
+        return high / (limit - zeroPoint);
+    };
+    auto adjustZeroPoint = [](float zeroPoint, float upperOrLowerBound, Direction direction,
+                              bool isBoundaryUpdated) -> std::optional<float> {
+        if (isBoundaryUpdated) {
+            if (isFloatEqual(zeroPoint, upperOrLowerBound)) {
+                return std::nullopt;
+            }
+            zeroPoint += static_cast<float>(direction);
+        }
+        return std::optional(zeroPoint);
+    };
+    if (isFloatEqual(low, high)) {
+        return std::nullopt;
+    }
+
+    auto zeroPoint = std::optional(std::round(-low / (high - low) * limit));
+    // NOTE: In order to shift zeroPoint it must not be 0 or limit, because the scaled values would divide by zero.
+    if (!isFloatEqual(zeroPoint.value(), 0.0f) && !isFloatEqual(zeroPoint.value(), limit)) {
+        auto zeroPointTowardsLowerBound = zeroPoint.value() < limit / 2.0f;
+        if (zeroPointTowardsLowerBound) {
+            auto lowScale = lowScaleCalc(low, zeroPoint.value());
+            auto newHigh = (limit - zeroPoint.value()) * lowScale;
+            auto lowerBound = 1.0f;
+            auto isCurrentHighHigher = high > newHigh;
+            zeroPoint = adjustZeroPoint(zeroPoint.value(), lowerBound, Direction::ToLowerBound, isCurrentHighHigher);
+            if (zeroPoint.has_value()) {
+                scale = lowScaleCalc(low, zeroPoint.value());
+            }
+        } else {
+            auto highScale = highScaleCalc(high, limit, zeroPoint.value());
+            auto newLow = -zeroPoint.value() * highScale;
+            auto upperBound = limit - 1.0f;
+            auto isCurrentLowLower = low < newLow;
+            zeroPoint = adjustZeroPoint(zeroPoint.value(), upperBound, Direction::ToUpperBound, isCurrentLowLower);
+            if (zeroPoint.has_value()) {
+                scale = highScaleCalc(high, limit, zeroPoint.value());
+            }
+        }
+    }
     if (!zeroPoint.has_value()) {
         return std::nullopt;
     }
 
-    // In testing values close to min and max produce accuracy issues. So values were chosen to be outside of that
-    // accuracy loss range, see ticket E#179583 for information.
-    const float lowerU8Bound = 2.0f;
-    const float upperU8Bound = 253.0f;
-    if (!isFloatEqual(low, 0.0f) && !isFloatEqual(high, 0.0f) &&
-        (zeroPoint.value() <= lowerU8Bound || zeroPoint.value() >= upperU8Bound)) {
-        return std::nullopt;
-    }
-
-    return std::make_optional<LowHigh>(
-            {Const::createFloatConst(rewriter, loc, type, -zeroPoint.value() * scale),
-             Const::createFloatConst(rewriter, loc, type, (limit - zeroPoint.value()) * scale)});
+    return LowHigh{Const::createFloatConst(rewriter, loc, type, -zeroPoint.value() * scale),
+                   Const::createFloatConst(rewriter, loc, type, (limit - zeroPoint.value()) * scale)};
 }
 
-mlir::LogicalResult UpdateFQDown::matchAndRewrite(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto moduleOp = getModuleOp(origOp);
-    auto setQDQOptimizationAggressiveEnabled = VPU::hasEnableQDQOptimizationAggressive(moduleOp);
-    if (!setQDQOptimizationAggressiveEnabled) {
-        return mlir::failure();
+mlir::Operation* getFQInputIfPresentThroughReshapes(mlir::Operation* op) {
+    while (mlir::isa_and_nonnull<IE::AffineReshapeOp, IE::ReshapeOp, IE::TransposeOp>(op)) {
+        op = op->getOperand(0).getDefiningOp();
     }
 
+    return mlir::dyn_cast_if_present<IE::FakeQuantizeOp>(op);
+}
+
+template <class ConcreteOp>
+std::pair<mlir::Operation*, mlir::Operation*> getFakeQuantizeInput(ConcreteOp concreteOp) {
+    auto leftInput = getFQInputIfPresentThroughReshapes(concreteOp->getOperand(0).getDefiningOp());
+    auto rightInput = getFQInputIfPresentThroughReshapes(concreteOp->getOperand(1).getDefiningOp());
+
+    return {leftInput, rightInput};
+}
+
+bool lowerFakeQuantizeU16ToU8(IE::FakeQuantizeOp origOp, mlir::PatternRewriter& rewriter) {
     const auto levels = origOp.getLevels();
     const auto maxLevels = QuantizationLevels::QUANT_LEVELS_8BIT;
 
     if (!levels.has_value() || *levels <= maxLevels) {
-        return mlir::failure();
+        return false;
     }
 
-    auto isSupportedOp = [](mlir::Operation* op) {
-        return mlir::isa_and_nonnull<IE::ConvolutionOp, IE::GroupConvolutionOp, IE::MatMulOp, IE::FullyConnectedOp>(op);
-    };
+    if (!origOp.getOutput().hasOneUse()) {
+        return false;
+    }
 
     auto maxLevelsAttr = rewriter.getI64IntegerAttr(maxLevels);
     auto lowFpTypeAttr = origOp.getLowFpTypeAttr();
-    auto outputUsers = origOp.getOutput().getUsers();
-    auto outputUsersSize = std::distance(outputUsers.begin(), outputUsers.end());
-    auto childOp = *origOp.getOutput().getUsers().begin();
 
-    if (outputUsersSize == 1 && isSupportedOp(childOp)) {
-        if ((mlir::isa_and_nonnull<IE::MatMulOp>(childOp) || mlir::isa_and_nonnull<IE::FullyConnectedOp>(childOp)) &&
-            mlir::isa_and_nonnull<IE::FakeQuantizeOp>(childOp->getOperand(0).getDefiningOp()) &&
-            mlir::isa_and_nonnull<IE::FakeQuantizeOp>(childOp->getOperand(1).getDefiningOp())) {
-            return mlir::failure();
-        }
+    rewriter.setInsertionPointAfter(origOp);
 
-        auto inLowValue = IE::getConst(origOp.getInputLow().getDefiningOp<Const::DeclareOp>());
-        auto inHighValue = IE::getConst(origOp.getInputHigh().getDefiningOp<Const::DeclareOp>());
-        auto outLowValue = IE::getConst(origOp.getOutputLow().getDefiningOp<Const::DeclareOp>());
-        auto outHighValue = IE::getConst(origOp.getOutputHigh().getDefiningOp<Const::DeclareOp>());
+    auto inLowValue = Const::getSplatValue<float>(origOp.getInputLow());
+    auto inHighValue = Const::getSplatValue<float>(origOp.getInputHigh());
+    auto outLowValue = Const::getSplatValue<float>(origOp.getOutputLow());
+    auto outHighValue = Const::getSplatValue<float>(origOp.getOutputHigh());
 
-        if (inLowValue.size() != 1 || inHighValue.size() != 1 || outLowValue.size() != 1 || outHighValue.size() != 1) {
-            return mlir::failure();
-        }
-
-        auto input = reduceLevelsZeroPoint(origOp, inLowValue[0], inHighValue[0], maxLevels, rewriter);
-        auto output = reduceLevelsZeroPoint(origOp, outLowValue[0], outHighValue[0], maxLevels, rewriter);
-
-        if (!input.has_value() || !output.has_value()) {
-            return mlir::failure();
-        }
-
-        rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, origOp.getInput(), input->low, input->high, output->low,
-                                                        output->high, maxLevelsAttr, lowFpTypeAttr,
-                                                        IE::AutoBroadcastType::NUMPY);
-        return mlir::success();
+    if (mlir::failed(inLowValue) || mlir::failed(inHighValue) || mlir::failed(outLowValue) ||
+        mlir::failed(outHighValue)) {
+        return false;
     }
 
-    return mlir::failure();
+    auto input = reduceLevelsZeroPoint(origOp, inLowValue.value(), inHighValue.value(), maxLevels, rewriter);
+    auto output = reduceLevelsZeroPoint(origOp, outLowValue.value(), outHighValue.value(), maxLevels, rewriter);
+
+    if (!input.has_value() || !output.has_value()) {
+        return false;
+    }
+
+    rewriter.replaceOpWithNewOp<IE::FakeQuantizeOp>(origOp, origOp.getInput(), input->low, input->high, output->low,
+                                                    output->high, maxLevelsAttr, lowFpTypeAttr,
+                                                    IE::AutoBroadcastType::NUMPY);
+
+    return true;
+}
+
+template <class ConcreteOp>
+mlir::LogicalResult LowerFakeQuantizeRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp op,
+                                                                           mlir::PatternRewriter& rewriter) const {
+    auto inputs = getFakeQuantizeInput<ConcreteOp>(op);
+
+    // Supported operations with both non-constant FQ inputs has a significant accuracy drop when lowering
+    auto areBothFQ = inputs.first != nullptr && inputs.second != nullptr;
+    auto areBothNotFQ = inputs.first == nullptr && inputs.second == nullptr;
+    if (areBothFQ || areBothNotFQ) {
+        return mlir::failure();
+    }
+
+    if (inputs.first != nullptr) {
+        return lowerFakeQuantizeU16ToU8(mlir::cast<IE::FakeQuantizeOp>(inputs.first), rewriter) ? mlir::success()
+                                                                                                : mlir::failure();
+    }
+
+    return lowerFakeQuantizeU16ToU8(mlir::cast<IE::FakeQuantizeOp>(inputs.second), rewriter) ? mlir::success()
+                                                                                             : mlir::failure();
 }
 
 void HandleU16FakeQuantizePass::safeRunOnFunc() {
     auto& ctx = getContext();
+    auto func = getOperation();
+    auto module = getModuleOp(func);
+
+    auto failedToPatternMatch = false;
+    auto enableU16ToU8Lowering = config::hasEnableQDQOptimizationAggressive(module);
+    if (enableU16ToU8Lowering) {
+        // NOTE: LowerFakeQuantizeRewriter must take priority over RemoveU16FakeQuantizeRewriter
+        mlir::RewritePatternSet patterns(&ctx);
+        patterns.add<LowerFakeQuantizeRewriter<IE::MatMulOp>>(&ctx, _log);
+        patterns.add<LowerFakeQuantizeRewriter<IE::FullyConnectedOp>>(&ctx, _log);
+        patterns.add<LowerFakeQuantizeRewriter<IE::ConvolutionOp>>(&ctx, _log);
+        patterns.add<LowerFakeQuantizeRewriter<IE::GroupConvolutionOp>>(&ctx, _log);
+        if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+            failedToPatternMatch = true;
+        }
+    }
 
     mlir::RewritePatternSet patterns(&ctx);
-    patterns.add<UpdateFQDown>(&ctx, _log);
     patterns.add<RemoveU16FakeQuantizeRewriter>(&ctx, _log);
-
-    auto func = getOperation();
     if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
+        failedToPatternMatch = true;
+    }
+
+    if (failedToPatternMatch) {
         signalPassFailure();
     }
 }

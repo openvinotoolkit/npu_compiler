@@ -5,20 +5,10 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/compressed_convolution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/profiling_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sep_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/static_shape_op_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/weights_table_reuse_utils.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
-#include "vpux/utils/core/error.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 namespace vpux::VPU {
 #define GEN_PASS_DECL_SETTARGETINDEPENDENTPASSOPTIONS
@@ -30,7 +20,7 @@ using namespace vpux;
 
 namespace {
 
-using vpux::VPU::getAttributeFromOption;
+using vpux::config::getAttributeFromOption;
 
 //
 // SetTargetIndependentPassOptionsPass
@@ -55,22 +45,26 @@ private:
 
 mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRContext* context) {
     _optionSet = {
-            {VPU::AUTO_PADDING_ODU, getAttributeFromOption(context, enableAutoPaddingODU)},
-            {VPU::AUTO_PADDING_IDU, getAttributeFromOption(context, enableAutoPaddingIDU)},
-            {VPU::ASYMMETRIC_PER_TENSOR_ZP, getAttributeFromOption(context, enableAsymmetricPerTensorZP)},
-            {VPU::ASYMMETRIC_PER_CHANNEL_ZP, getAttributeFromOption(context, enableAsymmetricPerChannelZP)},
-            {VPU::REDUCE_SUPPORTED, getAttributeFromOption(context, enableIsReduceSupported)},
-            {VPU::FP16_COMPRESSED_CONV, getAttributeFromOption(context, enableFP16CompressedConvolution)},
-            {VPU::VPUNN_PRE_SPLIT, getAttributeFromOption(context, enableVPUNNPreSplit)},
-            {VPU::ENABLE_SE_PTRS_OPERATIONS, getAttributeFromOption(context, enableSEPtrsOperations)},
-            {VPU::ENABLE_EXPERIMENTAL_SE_PTRS_OPERATIONS,
+            {config::AUTO_PADDING_ODU, getAttributeFromOption(context, enableAutoPaddingODU)},
+            {config::AUTO_PADDING_IDU, getAttributeFromOption(context, enableAutoPaddingIDU)},
+            {config::ASYMMETRIC_PER_TENSOR_ZP, getAttributeFromOption(context, enableAsymmetricPerTensorZP)},
+            {config::ASYMMETRIC_PER_CHANNEL_ZP, getAttributeFromOption(context, enableAsymmetricPerChannelZP)},
+            {config::REDUCE_SUPPORTED, getAttributeFromOption(context, enableIsReduceSupported)},
+            {config::FP16_COMPRESSED_CONV, getAttributeFromOption(context, enableFP16CompressedConvolution)},
+            {config::VPUNN_PRE_SPLIT, getAttributeFromOption(context, enableVPUNNPreSplit)},
+            {config::ENABLE_SE_PTRS_OPERATIONS, getAttributeFromOption(context, enableSEPtrsOperations)},
+            {config::ENABLE_EXPERIMENTAL_SE_PTRS_OPERATIONS,
              getAttributeFromOption(context, enableExperimentalSEPtrsOperations)},
-            {VPU::ENABLE_ADAPTIVE_STRIPPING, mlir::BoolAttr::get(context, enableQDQOptimizationAggressive.getValue() ||
-                                                                                  enableAdaptiveStripping.getValue())},
-            {VPU::ENABLE_QDQ_OPTIMIZATION_AGGRESSIVE, getAttributeFromOption(context, enableQDQOptimizationAggressive)},
-            {VPU::ENABLE_EXTRA_STATIC_SHAPE_OPS, getAttributeFromOption(context, enableExtraStaticShapeOps)},
-            {VPU::WEIGHTS_TABLE_REUSE_MODE, getAttributeFromOption(context, weightsTableReuseMode)},
-            {VPU::ENABLE_PROFILING, getAttributeFromOption(context, enableProfiling)},
+            {config::ENABLE_QDQ_OPTIMIZATION_AGGRESSIVE,
+             getAttributeFromOption(context, enableQDQOptimizationAggressive)},
+            {config::ENABLE_ADAPTIVE_STRIPPING,
+             mlir::BoolAttr::get(context,
+                                 enableQDQOptimizationAggressive.getValue() || enableAdaptiveStripping.getValue())},
+            {config::ENABLE_EXTRA_STATIC_SHAPE_OPS, getAttributeFromOption(context, enableExtraStaticShapeOps)},
+            {config::WEIGHTS_TABLE_REUSE_MODE, getAttributeFromOption(context, weightsTableReuseMode)},
+            {config::ENABLE_PROFILING, getAttributeFromOption(context, enableProfiling)},
+            {config::ENABLE_WEIGHTS_DYNAMIC_DEQUANTIZATION,
+             getAttributeFromOption(context, enableWeightsDynamicDequantization)},
     };
 
     if (allowCustomValues.hasValue()) {
@@ -82,7 +76,7 @@ mlir::LogicalResult SetTargetIndependentPassOptionsPass::initialize(mlir::MLIRCo
 void SetTargetIndependentPassOptionsPass::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    auto pipelineOptionsOp = VPU::getPipelineOptionsOp(getContext(), moduleOp);
+    auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     optionsBuilder =
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 

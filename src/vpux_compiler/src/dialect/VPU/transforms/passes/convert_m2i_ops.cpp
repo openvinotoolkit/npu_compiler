@@ -158,15 +158,12 @@ mlir::LogicalResult ConvertM2iNormToTask::matchAndRewrite(VPU::M2INormOp origOp,
 
 class ConvertM2IOpsPass final : public VPU::impl::ConvertM2IOpsBase<ConvertM2IOpsPass> {
 public:
-    explicit ConvertM2IOpsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertM2IOpsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ConvertM2IOpsPass::safeRunOnFunc() {

@@ -72,11 +72,8 @@ class ConvolutionOpModel :
         public VPU::NCEConvolutionOpModel<ConvolutionOpModel, VPU::NCEConvolutionOp>,
         public ConvMpeModeModel {
 public:
-    mlir::Value getWeightTableScaleOperand(mlir::Operation* op) const {
-        return mlir::cast<VPU::NCEConvolutionOp>(op).getWeightTableScale();
-    }
-    mlir::Value getWeightTableBiasOperand(mlir::Operation* op) const {
-        return mlir::cast<VPU::NCEConvolutionOp>(op).getWeightTableBias();
+    std::optional<vpux::VPU::MPEEngineAttr> getMpeEngine(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEConvolutionOp>(op).getMpeEngine();
     }
 };
 class ReduceOpModel : public VPU::NCEReduceOpModel<ReduceOpModel, VPU::NCEReduceOp>, public ConvMpeModeModel {};
@@ -90,7 +87,12 @@ class InterpolateOpModel :
         public VPU::NCEInterpolateOpModel<InterpolateOpModel, VPU::NCEInterpolateOp>,
         public ConvMpeModeModel {};
 
-class MatMulOpModel : public VPU::NCEMatMulOpModel<MatMulOpModel, VPU::NCEMatMulOp>, public ConvMpeModeModel {};
+class MatMulOpModel : public VPU::NCEMatMulOpModel<MatMulOpModel, VPU::NCEMatMulOp>, public ConvMpeModeModel {
+public:
+    std::optional<vpux::VPU::MPEEngineAttr> getMpeEngine(mlir::Operation* op) const {
+        return mlir::cast<VPU::NCEMatMulOp>(op).getMpeEngine();
+    }
+};
 class AveragePoolOpModel :
         public VPU::NCEAveragePoolOpModel<AveragePoolOpModel, VPU::NCEAveragePoolOp>,
         public Cuboid16MpeModeModel {};

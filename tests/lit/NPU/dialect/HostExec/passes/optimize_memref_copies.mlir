@@ -205,3 +205,123 @@ module @ScheduleCopyAndEltwiseFunctions {
    // CHECK:     [[OUTPUT_STATIC:%.+]] = builtin.unrealized_conversion_cast [[OUTPUT_SUBVIEW]]
    // CHECK:     [[CALL0:%.+]] = func.call [[MAIN_FUNC1]]([[COPY_OUTPUT]], [[ELTWISE_IN0_STATIC]], [[OUTPUT_STATIC]])
 }
+
+// -----
+
+// CHECK: module [[NESTED_CALL:@.+]] {
+module @NestedCall {
+  //CHECK: func.func private [[MAIN_FUNC0:@.+]]([[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>, [[_:%.+]]: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
+  func.func private @main_func0(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
+                                %arg2: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
+      %0 = VPUIP.Copy inputs(%arg0 : memref<1x90x1000x16xf16>) outputs(%arg1 : memref<1x90x1000x16xf16>)
+        -> memref<1x90x1000x16xf16>
+      %1 = VPUIP.Copy inputs(%arg1 : memref<1x90x1000x16xf16>) outputs(%arg2 : memref<1x90x1000x16xf16>)
+        -> memref<1x90x1000x16xf16>
+
+      return %1 : memref<1x90x1000x16xf16>
+  }
+}
+
+func.func @main(%arg0: memref<1x90x1000x16xf16>, %arg1: memref<1x90x1000x16xf16>,
+                %arg2: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
+    %alloc = memref.alloc() {alignment = 64 : i64} : memref<1x90x1000x16xf16>
+
+    %call = Core.NestedCall @NestedCall::@main_func0(%arg0, %arg1, %alloc)
+       : (memref<1x90x1000x16xf16>, memref<1x90x1000x16xf16>, memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16>
+
+    memref.copy %alloc, %arg2 : memref<1x90x1000x16xf16> to memref<1x90x1000x16xf16>
+    return %arg2 : memref<1x90x1000x16xf16>
+}
+
+// CHECK: func.func @main([[ARG0:%.+]]: memref<1x90x1000x16xf16>, [[ARG1:%.+]]: memref<1x90x1000x16xf16>, [[ARG2:%.+]]: memref<1x90x1000x16xf16>) -> memref<1x90x1000x16xf16> {
+// CHECK-NOT: memref.alloc()
+// CHECK:    [[CALL:%.+]] = Core.NestedCall [[NESTED_CALL]]::[[MAIN_FUNC0]]([[ARG0]], [[ARG1]], [[ARG2]])
+// CHECK-NOT: memref.copy
+// CHECK:    return [[ARG2]] : memref<1x90x1000x16xf16>
+
+// -----
+
+func.func @main_func0_dims_H_cases_0_static(%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+    return %arg1 : memref<1x16x28x1280xf16>
+  }
+func.func @main_func0_dims_H_cases_2_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+    return %arg1 : memref<1x16x28x1280xf16>
+  }
+func.func @main_func0_dims_H_cases_1_static(%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16> {
+    return %arg1 : memref<1x16x28x1280xf16>
+  }
+func.func @CopiesInCasesOfIndexSwitch(%arg0: memref<1x16x?x1280xf16>, %arg1: memref<1x16x?x1280xf16>, %arg2: index, %arg3: index) -> memref<1x16x?x1280xf16> {
+  %false = arith.constant false
+  %c2 = arith.constant 2 : index
+  %c28 = arith.constant 28 : index
+  %c0 = arith.constant 0 : index
+  %dim = memref.dim %arg0, %c2 : memref<1x16x?x1280xf16>
+  %alloc = memref.alloc(%dim) {alignment = 64 : i64} : memref<1x16x?x1280xf16>
+  scf.for %arg4 = %c0 to %dim step %c28 {
+    %13 = scf.index_switch %arg2 -> memref<1x16x28x1280xf16> 
+    case 0 {
+      %subview_1 = memref.subview %arg0[0, 0, %arg3, 0] [1, 16, 30, 1280] [1, 1, 1, 1] : memref<1x16x?x1280xf16> to memref<1x16x30x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+      %14 = builtin.unrealized_conversion_cast %subview_1 : memref<1x16x30x1280xf16, strided<[?, ?, 1280, 1], offset: ?>> to memref<1x16x30x1280xf16>
+      %alloc_2 = memref.alloc() : memref<1x16x28x1280xf16>
+      %15 = func.call @main_func0_dims_H_cases_0_static(%14, %alloc_2) : (memref<1x16x30x1280xf16>, memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16>
+      scf.yield %15 : memref<1x16x28x1280xf16>
+    }
+    case 1 {
+      %subview_1 = memref.subview %arg0[0, 0, %arg3, 0] [1, 16, 29, 1280] [1, 1, 1, 1] : memref<1x16x?x1280xf16> to memref<1x16x29x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+      %14 = builtin.unrealized_conversion_cast %subview_1 : memref<1x16x29x1280xf16, strided<[?, ?, 1280, 1], offset: ?>> to memref<1x16x29x1280xf16>
+      %alloc_2 = memref.alloc() : memref<1x16x28x1280xf16>
+      %15 = func.call @main_func0_dims_H_cases_1_static(%14, %alloc_2) : (memref<1x16x29x1280xf16>, memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16>
+      scf.yield %15 : memref<1x16x28x1280xf16>
+    }
+    case 2 {
+      %subview_1 = memref.subview %arg0[0, 0, %arg3, 0] [1, 16, 29, 1280] [1, 1, 1, 1] : memref<1x16x?x1280xf16> to memref<1x16x29x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+      %14 = builtin.unrealized_conversion_cast %subview_1 : memref<1x16x29x1280xf16, strided<[?, ?, 1280, 1], offset: ?>> to memref<1x16x29x1280xf16>
+      %alloc_2 = memref.alloc() : memref<1x16x28x1280xf16>
+      %15 = func.call @main_func0_dims_H_cases_2_static(%14, %alloc_2) : (memref<1x16x29x1280xf16>, memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16>
+      scf.yield %15 : memref<1x16x28x1280xf16>
+    }
+    default {
+      cf.assert %false, "Unsupported case"
+      %subview_1 = memref.subview %arg0[0, 0, %arg3, 0] [1, 16, 30, 1280] [1, 1, 1, 1] : memref<1x16x?x1280xf16> to memref<1x16x30x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+      %14 = builtin.unrealized_conversion_cast %subview_1 : memref<1x16x30x1280xf16, strided<[?, ?, 1280, 1], offset: ?>> to memref<1x16x30x1280xf16>
+      %alloc_2 = memref.alloc() : memref<1x16x28x1280xf16>
+      %15 = func.call @main_func0_dims_H_cases_0_static(%14, %alloc_2) : (memref<1x16x30x1280xf16>, memref<1x16x28x1280xf16>) -> memref<1x16x28x1280xf16>
+      scf.yield %15 : memref<1x16x28x1280xf16>
+    }
+    %subview = memref.subview %alloc[0, 0, %arg4, 0] [1, 16, 28, 1280] [1, 1, 1, 1] : memref<1x16x?x1280xf16> to memref<1x16x28x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+    memref.copy %13, %subview : memref<1x16x28x1280xf16> to memref<1x16x28x1280xf16, strided<[?, ?, 1280, 1], offset: ?>>
+  }
+  memref.copy %alloc, %arg1 : memref<1x16x?x1280xf16> to memref<1x16x?x1280xf16>
+  return %arg1 : memref<1x16x?x1280xf16>
+  
+  // CHECK: func.func [[FUNC0:@.+]](%arg0: memref<1x16x30x1280xf16>, %arg1: memref<1x16x28x1280xf16>)
+  // CHECK: func.func [[FUNC1:@.+]](%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>)
+  // CHECK: func.func [[FUNC2:@.+]](%arg0: memref<1x16x29x1280xf16>, %arg1: memref<1x16x28x1280xf16>)
+
+  // CHECK: func.func @CopiesInCasesOfIndexSwitch([[ARG0:%.+]]: memref<1x16x?x1280xf16>, [[ARG1:%.+]]: memref<1x16x?x1280xf16>, [[ARG2:%.+]]: index, [[ARG3:%.+]]: index) 
+  // CHECK: [[FALSE:%.+]] = arith.constant false
+  // CHECK: [[C2:%.+]] = arith.constant 2 : index
+  // CHECK: [[C28:%.+]] = arith.constant 28 : index
+  // CHECK: [[C0:%.+]] = arith.constant 0 : index
+  // CHECK: [[DIM:%.+]] = memref.dim [[ARG0]], [[C2]]
+
+  // CHECK: scf.for [[ARG4:%.+]] = [[C0]] to [[DIM]] step [[C28]] {
+
+  // CHECK: scf.index_switch [[ARG2]]
+
+  // CHECK: case 0 {
+  // CHECK-NOT: memref.copy
+
+  // CHECK: case 1 {
+  // CHECK-NOT: memref.copy
+
+  // CHECK: case 2 {
+  // CHECK-NOT: memref.copy
+
+  // CHECK: default {
+  // CHECK-NOT: memref.copy
+
+  // CHECK-NOT: memref.copy
+  // CHECK: return [[ARG1]]
+}
+

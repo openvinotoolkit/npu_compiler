@@ -97,9 +97,7 @@ SmallVector<VFSplit> getSplitFromDimArr(DimArrRef dimsToCheck, DimArrRef allowed
         }
         for (auto otherDim : allowedDims) {
             if (dim.ind() > otherDim.ind() && otherDim.ind() > Dims4D::Act::C.ind()) {
-                VFSplit doubleSplit = {
-                        {otherDim, getTilingLimit(otherDim, vfConfig.getVFOperations().getArrayRef(), true)},
-                        {dim, std::nullopt}};
+                VFSplit doubleSplit = {{otherDim, getTilingLimit(otherDim, vfConfig, true)}, {dim, std::nullopt}};
                 splits.emplace_back(doubleSplit);
             }
         }
@@ -475,6 +473,46 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
 
     // Record the operation and its corresponding tiling dim when back-infer subgraph
     std::unordered_map<mlir::Operation*, vpux::Dim> opDimMap;
+
+    bool checkIfNextMergeBetter = false;
+    if (!vfConfig.isPipelined() && currentOp->hasOneUse() &&
+        mlir::isa<VPU::VerticalFusionOp>(*currentOp->getUsers().begin())) {
+        checkIfNextMergeBetter = true;
+    }
+
+    // If mergedOp can not pipeline, but currentOp + userOp can pipeline, and mergedOp's tile dim is userOp's
+    // restricted axes, then we will block the mergeOp. For example Conv + Add + Softmax, the three operations
+    // can not be vertically fused due to restricted axes on Softmax. Conv + Add can not pipeline while
+    // Add + Softmax can. We prefer Add vertical fusion with Softmax.
+    const auto isNextMergeCanBePipelined = [&](const std::unordered_map<mlir::Operation*, vpux::Dim>& opDimMap) {
+        auto nextVFOp = mlir::cast<VPU::VerticalFusionOp>(*mergedOp->getUsers().begin());
+
+        llvm::SetVector<mlir::Operation*> operations;
+        const auto currentOps = currentConfig.getOperationsForTiling();
+        operations.insert(currentOps.begin(), currentOps.end());
+
+        VFConfig nextConfig(nextVFOp, _enableVerticalFusionPipelining);
+        const auto nextOps = nextConfig.getOperationsForTiling();
+        operations.insert(nextOps.begin(), nextOps.end());
+
+        VFConfig mergeCurrWithNextConfig(operations);
+        if (!mergeCurrWithNextConfig.isPipelined()) {
+            return false;
+        }
+
+        for (auto* operation : nextConfig.getOperationsForTiling()) {
+            auto vfOperation = mlir::cast<VPU::VerticalFusionOpInterface>(operation);
+            auto restrictedAxes = vfOperation.restrictedFusionAxes();
+            if (restrictedAxes.empty()) {
+                continue;
+            }
+            if (llvm::find(restrictedAxes, opDimMap.at(currentConfig.getOutputs().back())) != restrictedAxes.end()) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     // Only for current VF Op check to skip restricted dims
     // E.g., VF{conv} -> VF{conv}, the first VF can support CTiling, but the second cannot
     const auto isRegionRestrictedDim = [&](const std::unordered_map<mlir::Operation*, vpux::Dim>& opDimMap) {
@@ -526,7 +564,7 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
     };
 
     const auto getMaximalNumber = [&](auto dim, const VFSplit& split) -> int64_t {
-        auto maxTiles = getTilingLimit(dim, vfConfig.getVFOperations().getArrayRef());
+        auto maxTiles = getTilingLimit(dim, vfConfig);
         if (split.size() > 1) {
             // 2D tiling
             auto otherDimSum = getVFTilesLen(split);
@@ -560,6 +598,11 @@ std::optional<VFCase> MergeVFRegionRewriter::findVFTiling(VPU::VerticalFusionOp 
         for (auto split : splits) {
             auto dim = split.rbegin()->first;
             if (mlir::failed(backInferVFTilingDim(currentConfig, dim, opDimMap))) {
+                continue;
+            }
+
+            // Skip current merge if a better (pipelined) merge with the next VF block is possible.
+            if (checkIfNextMergeBetter && isNextMergeCanBePipelined(opDimMap)) {
                 continue;
             }
 

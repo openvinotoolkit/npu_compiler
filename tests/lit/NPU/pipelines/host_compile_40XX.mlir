@@ -29,8 +29,8 @@ module @CopyInputOutput {
   // CHECK-SAME:          config.compilationMode = #config.compilation_mode<HostCompile>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   // CHECK-NPU40XX:     module @DmaProfilingReservedMemory
 
-  // CHECK:             func.func private [[FUNC0:@.+]]([[_:%.+]]: memref<1x3x60x60xf16, @DDR>, [[_:%.+]]: memref<1x3x60x60xf16, @DDR>)
-  // CHECK-SAME:          -> memref<1x3x60x60xf16, @DDR> {
+  // CHECK:             func.func private [[FUNC0:@.+]]([[_:%.+]]: memref<1x3x60x60xf16>, [[_:%.+]]: memref<1x3x60x60xf16>)
+  // CHECK-SAME:          -> memref<1x3x60x60xf16> {
   // CHECK-COUNT-1:       VPURT.Task
   // CHECK-NOT:         VPU.Copy
 
@@ -67,7 +67,7 @@ module @StaticEltwiseNHWC {
     // CHECK-SAME:              config.compilationMode = #config.compilation_mode<HostCompile>, config.revisionID = #config.revision_id<REVISION_NONE>} {
     // CHECK-NPU40XX:         module @DmaProfilingReservedMemory
 
-    // CHECK:                   func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16, @DDR>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, @DDR>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16, @DDR>) -> memref<1x[[STEP]]x1000x16xf16, @DDR> {
+    // CHECK:                   func.func [[FUNC0:@.+]]([[_:%.+]]: memref<1x[[STEP:.+]]x1000x16xf16>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16>, [[_:%.+]]: memref<1x[[STEP]]x1000x16xf16>) -> memref<1x[[STEP]]x1000x16xf16> {
 
     // CHECK-NPU40XX-COUNT-27:    VPURT.Task
     // CHECK-NOT: IE.Add

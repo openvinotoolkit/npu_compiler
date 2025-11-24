@@ -137,6 +137,10 @@ void PipeliningVFScheduling::addOutputSpill(VFConfig& config, mlir::Operation* o
     }
 }
 
+bool PipeliningVFScheduling::isSharedWeightsSupported(VFConfig&) const {
+    return false;
+}
+
 VFPipelineContainer PipeliningVFScheduling::getPipelining(
         VFConfig& config, int64_t tilesNumber, const TilingOperationStorage::UPtr& tilingInfo,
         const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction) const {

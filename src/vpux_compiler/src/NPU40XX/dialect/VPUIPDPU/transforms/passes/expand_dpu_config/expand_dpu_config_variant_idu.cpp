@@ -45,9 +45,6 @@ mlir::LogicalResult buildIDUWeightSet(mlir::OpBuilder& builder, const mlir::Loca
     }
 
     switch (taskType) {
-    case VPUIP::NCETaskType::REDUCEMEAN:
-    case VPUIP::NCETaskType::REDUCESUMSQUARE:
-    case VPUIP::NCETaskType::REDUCESUM:
     case VPUIP::NCETaskType::CONV: {
         weightSize = kernelX * kernelY;
         if (inActType.getShape()[Dims4D::Act::C] < 16) {

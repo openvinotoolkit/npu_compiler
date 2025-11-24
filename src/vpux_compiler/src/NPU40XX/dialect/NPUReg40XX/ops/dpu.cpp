@@ -10,8 +10,7 @@
 #include "vpux/compiler/utils/ELF/utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
-#include <stdint.h>
-#include <stdio.h>
+#include <cstdint>
 #include <vector>
 
 #include <npu_40xx_nnrt.hpp>

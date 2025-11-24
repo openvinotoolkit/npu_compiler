@@ -17,8 +17,8 @@ void barrierPrintProperties(mlir::MLIRContext* /*ctx*/, mlir::OpAsmPrinter& prin
     const auto hasIsFinalBarrier = properties.isFinalBarrier != nullptr;
     const auto hasIsStartBarrier = properties.isStartBarrier != nullptr;
     const auto hasWlmPage = properties.wlmPage != nullptr;
-    const auto hasBarrerIndex = properties.barrierIndex.has_value();
-    if (!hasIsFinalBarrier && !hasIsStartBarrier && !hasWlmPage && !hasBarrerIndex) {
+    const auto hasBarrierIndex = properties.barrierIndex.has_value();
+    if (!hasIsFinalBarrier && !hasIsStartBarrier && !hasWlmPage && !hasBarrierIndex) {
         return;
     }
     bool shouldPrintComma = false;
@@ -41,7 +41,7 @@ void barrierPrintProperties(mlir::MLIRContext* /*ctx*/, mlir::OpAsmPrinter& prin
         printer << "wlmPage = " << properties.wlmPage;
         shouldPrintComma = true;
     }
-    if (hasBarrerIndex) {
+    if (hasBarrierIndex) {
         if (shouldPrintComma) {
             printer << ", ";
         }

@@ -67,4 +67,3 @@ func.func @DequantizeStaticScaleToFP16(%arg0: tensor<28x512x128xi4>) -> tensor<2
     // CHECK-NEXT:  [[CONVERT_OUT:%.+]] = IE.Convert([[DEQUANT]]) {dstElemType = f32} : tensor<28x512x128xf16> -> tensor<28x512x128xf32>
     // CHECK-NEXT:  return [[CONVERT_OUT]] : tensor<28x512x128xf32>
 }
-

@@ -112,9 +112,7 @@ private:
                 auto clonedOp = builder.clone(*op, mapper);
                 // The input pre-processing operations might be duplicated in multiple functions depending on how
                 // their results are used, so their location is customized during cloning
-                if (mlir::isa_and_nonnull<IE::ConvertOp, IE::TransposeOp, IE::FakeQuantizeOp, IE::FakeConvertOp>(op)) {
-                    clonedOp->setLoc(appendLoc(clonedOp->getLoc(), formatv("_part{0}", targetIdx + 1).str()));
-                }
+                extendOpLoc(clonedOp, StringLiteral("part_{0}"), targetIdx + 1);
                 for (size_t i = 0; i < clonedOp->getResults().size(); i++) {
                     oldToNewMap[op->getResult(i)] = clonedOp->getResult(i);
                 }
@@ -247,9 +245,7 @@ private:
 
                 // The input pre-processing operations might be duplicated in multiple functions depending on how
                 // their results are used, so their location is customized during cloning
-                if (mlir::isa_and_nonnull<IE::ConvertOp, IE::TransposeOp, IE::FakeQuantizeOp, IE::FakeConvertOp>(op)) {
-                    clonedOp->setLoc(appendLoc(clonedOp->getLoc(), formatv("_fn{0}", targetIdx + 1).str()));
-                }
+                extendOpLoc(clonedOp, StringLiteral("fn_{0}"), targetIdx + 1);
                 for (size_t i = 0; i < clonedOp->getResults().size(); i++) {
                     oldToNewMap[op->getResult(i)] = clonedOp->getResult(i);
                 }
@@ -408,8 +404,7 @@ private:
                     auto clonedOp = builder.clone(*op, mapper);
                     // Some operation could be duplicated in the IR (e.g. input pre-processing ops, constant
                     // quantization ops), so their location is customized during cloning to distinguish between them
-                    clonedOp->setLoc(appendLoc(clonedOp->getLoc(),
-                                               formatv("_fn{0}_block{1}", targetIdx + 1, sliceIdx + 1).str()));
+                    extendOpLoc(clonedOp, StringLiteral("fn_{0}_block_{1}"), targetIdx + 1, sliceIdx + 1);
                     for (size_t i = 0; i < clonedOp->getResults().size(); i++) {
                         oldToNewMap[op->getResult(i)] = clonedOp->getResult(i);
                     }
@@ -534,9 +529,7 @@ private:
                 auto clonedOp = builder.clone(*op, mapper);
                 // The input pre-processing operations might be duplicated in multiple functions depending on how
                 // their results are used, so their location is customized during cloning
-                if (mlir::isa_and_nonnull<IE::ConvertOp, IE::TransposeOp, IE::FakeQuantizeOp, IE::FakeConvertOp>(op)) {
-                    clonedOp->setLoc(appendLoc(clonedOp->getLoc(), formatv("_fn{0}", targetIdx + 1).str()));
-                }
+                extendOpLoc(clonedOp, StringLiteral("fn_{0}"), targetIdx + 1);
                 for (size_t i = 0; i < clonedOp->getResults().size(); i++) {
                     oldToNewMap[op->getResult(i)] = clonedOp->getResult(i);
                 }

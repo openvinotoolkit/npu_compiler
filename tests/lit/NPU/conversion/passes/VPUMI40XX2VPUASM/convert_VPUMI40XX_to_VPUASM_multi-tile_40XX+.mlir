@@ -40,7 +40,6 @@ func.func @multiple_clusters_dpu_soh_f16_f16_f16() {
 
   %18 = VPUMI40XX.MappedInference invariants(%14, %15 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%16, %17 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -124,7 +123,6 @@ func.func @multiple_clusters_dpu_sok_f16_f16_f16() {
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
   %26 = VPUMI40XX.MappedInference dmas((%21) : (!VPURegMapped.Index<0:0:0>)) invariants(%22, %23 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%24, %25 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) dmaCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 1, 0, 0, 0, 0]) variantCount([1, 1, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 

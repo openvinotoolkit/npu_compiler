@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -262,7 +263,7 @@ mlir::LogicalResult InnerDimReduceSumToConvRewriter::matchAndRewrite(IE::ReduceS
     const auto logCb = [&](const formatv_object_base& msg) {
         _log.trace("{0}", msg.str());
     };
-    if (VPU::isReduceOpSupportedOnNCE(origOp) && VPU::isNCEReduceSupported(origOp, logCb)) {
+    if (config::isReduceOpSupportedOnNCE(origOp) && VPU::isNCEReduceSupported(origOp, logCb)) {
         return mlir::failure();
     }
 

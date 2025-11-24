@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/utils/core/error.hpp"
 #include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/MLIRContext.h>
@@ -237,10 +238,18 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
         const auto tileDim =
                 (mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType())).getShape().size() - 1;
         return Dim(tileDim);
-    } else if (kernelEntryName == "lstm_sequence") {
+    } else if (kernelEntryName == "lstm_sequence" || (kernelEntryName == "sdpa_extended")) {
         const auto tileDim =
                 (mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType())).getShape().size() - 1;
         return Dim(tileDim);
+    } else if (kernelEntryName == "lstm_dpu") {
+        const auto output = swKernelOp->getResult(0);
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
+        const auto outShape = outputType.getShape();
+        if (outShape[Dims4D::Act::N] > 1) {
+            return Dims4D::Act::N;
+        }
+        return Dims4D::Act::C;
     } else if (kernelEntryName == "roll") {
         const auto tileDim =
                 (mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType())).getShape().size() - 1;
@@ -258,6 +267,13 @@ Dim getSwKernelTileDim(VPUIP::SwKernelOp swKernelOp) {
         return Dim(tileDim);
     } else if (kernelEntryName == "cum_sum") {
         return getHighestNonAxisDimOfSwKernel(swKernelOp);
+    } else if (kernelEntryName == "flash_sdpa") {
+        const auto numShaves = config::getTotalNumOfEngines(swKernelOp, VPU::ExecutorKind::SHAVE_ACT);
+
+        const auto outputShape = getShape(swKernelOp->getResult(0));
+        const auto batch = outputShape[Dims4D::Act::C];
+
+        return (batch >= numShaves) ? Dims4D::Act::C : Dims4D::Act::H;
     }
 
     auto isHighestDimTilingPerformant = [&]() {
@@ -433,7 +449,8 @@ bool isTopKOpTileAtHighestDim(VPUIP::SwKernelOp swKernelOp) {
 
 bool isOpTileOverWidthDim(VPUIP::SwKernelOp swKernelOp) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "sdpa",
+    VPUX_THROW_UNLESS(kernelEntryName == "rms_norm" || kernelEntryName == "rope" || kernelEntryName == "rope_ilv" ||
+                              kernelEntryName == "sdpa",
                       "This function was designed for RMSNorm, RoPE or SDPA operators");
 
     const auto outTileDimVal = getSwKernelTileDim(swKernelOp);
@@ -470,13 +487,24 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         return getShape(swKernelOp->getResult(0))[Dims4D::Act::H] >= actShavePerTile.getCount();
     }
 
+    if (kernelEntryName == "flash_sdpa") {
+        const auto numShaves = config::getTotalNumOfEngines(swKernelOp, VPU::ExecutorKind::SHAVE_ACT);
+
+        const auto outputShape = getShape(swKernelOp->getResult(0));
+        const auto batch = outputShape[Dims4D::Act::C];
+        const auto targetSeqLen = outputShape[Dims4D::Act::H];
+
+        return (batch >= numShaves) || (targetSeqLen >= numShaves);
+    }
+
     auto isAllOutputShapeEqual = llvm::all_of(swKernelOp.getOutputs(), [&](auto output) {
         return getShape(output) == getShape(*swKernelOp.getOutputs().begin());
     });
 
     // GRUSequenceOp/GRUSequenceLastPartOp has two different output shapes.
     if ((kernelEntryName != "gru_sequence") && (kernelEntryName != "gru_sequence_last_part") &&
-        (kernelEntryName != "lstm_sequence") && (swKernelOp.getOutputs().size() > 2 || !isAllOutputShapeEqual)) {
+        (kernelEntryName != "lstm_sequence") && (kernelEntryName != "lstm_dpu") &&
+        (swKernelOp.getOutputs().size() > 2 || !isAllOutputShapeEqual)) {
         log.trace("SW kernel op has outputs with different shapes at '{0}'", swKernelOp->getLoc());
         return false;
     }
@@ -520,14 +548,6 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
             return false;
         }
 
-        // E#83794 Case with aligned tiling not supported
-        // Offsets for the inputs and outputs needs to be adjusted based on aligned shapes
-        if (VPUIP::hasDistributedOperand(swKernelOp)) {
-            auto ndType = mlir::cast<VPUIP::DistributedBufferType>(swKernelOp->getOperand(0).getType());
-            if (ndType != nullptr && ndType.getDistribution().getAlignment() != nullptr) {
-                return false;
-            }
-        }
     } else if (kernelEntryName == "topk") {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
         auto highestDim = getHighestNonTrivialDim(outputType.getShape(), outputType.getDimsOrder()).value_or(Dim(0));
@@ -661,6 +681,27 @@ bool doesSwKernelSupportTiling(VPUIP::SwKernelOp swKernelOp, vpux::Logger log) {
         if (isBeneficialForUsingPermuteDMA(arch, inputType, outputType, memPerm.value(), dmaPortNum, log)) {
             return false;
         }
+    } else if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
+        auto module = swKernelOp.getOperation()->getParentOfType<mlir::ModuleOp>();
+        auto tileOp = config::getTileExecutor(module);
+        const auto numClusters = tileOp.getCount();
+
+        const auto tileDim = getSwKernelTileDim(swKernelOp);
+        const auto outputType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
+        const auto outputShape = outputType.getShape();
+
+        log.trace("YuvToRgb tiling check: kernel={0}, tileDim={1}, outputShape={2}, numClusters={3}", kernelEntryName,
+                  tileDim, outputShape, numClusters);
+
+        // Check only the dimension that's being tiled
+        if (static_cast<int64_t>(outputShape.size()) > tileDim.ind() && outputShape[tileDim] < numClusters) {
+            log.trace("YuvToRgb output dimension {0} (size {1}) is smaller than number of clusters {2} - rejecting "
+                      "tiling",
+                      tileDim, outputShape[tileDim], numClusters);
+            return false;
+        }
+
+        log.trace("YuvToRgb tiling check passed - allowing tiling");
     }
 
     return true;
@@ -670,12 +711,13 @@ mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernel
                                                       int64_t maxNumTiles, bool insertSubview, vpux::Logger log) {
     auto kernelEntryName = getSwKernelEntryName(swKernelOp);
 
-    if (kernelEntryName == "lstm_sequence") {
+    if (kernelEntryName == "lstm_sequence" || kernelEntryName == "sdpa_extended") {
         OutputTiling dividedTiles;
         TileInfo tileFullOutput(outputShape);
-        log.trace("lstm_sequence no tiles is {0}", maxNumTiles);
+        log.trace("{0} no tiles is {1}", kernelEntryName, maxNumTiles);
         if (maxNumTiles > 2) {  // lstm_sequence not support
-            log.trace("lstm_sequence not support more that 2 multi-shave implementation maxTile is {0}", maxNumTiles);
+            log.trace("{0} not support more that 2 multi-shave implementation maxTile is {1}", kernelEntryName,
+                      maxNumTiles);
             return mlir::failure();
         }
         auto repetLoop = maxNumTiles;
@@ -715,6 +757,9 @@ mlir::FailureOr<OutputTiling> getSwKernelOutputTiling(VPUIP::SwKernelOp swKernel
         VPUX_THROW_WHEN(blockSize == 0, "BlockSize is zero and used as a divisor");
 
         alignment[tileDim.ind()] = blockSize;
+        optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
+    } else if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
+        alignment[tileDim.ind()] = 2;
         optionalAlignment = std::optional<ArrayRef<int64_t>>(alignment);
     } else if (insertSubview) {
         // Shave can gain better performance when data address is 32 bytes aligned, the begin offset on the first shave
@@ -815,7 +860,8 @@ bool checkSwKernelTilingAlignment(VPUIP::SwKernelOp swKernelOp, const vpux::NDTy
 // SwKernelRewriterBase
 //
 
-static OutputTiling computeOutputTiling(const SmallString& kernelEntryName, const TileInfo& firstOutputTile) {
+static OutputTiling computeOutputTiling(VPUIP::SwKernelOp swKernelOp, const SmallString& kernelEntryName,
+                                        const TileInfo& firstOutputTile) {
     if (kernelEntryName == "detection_output_sort") {
         return vpux::VPU::DetectionOutputSortOpOutputTiling(firstOutputTile);
     } else if (kernelEntryName == "topk") {
@@ -826,6 +872,13 @@ static OutputTiling computeOutputTiling(const SmallString& kernelEntryName, cons
         return {firstOutputTile, firstOutputTile};
     } else if (kernelEntryName == "lstm_sequence") {
         return vpux::VPU::lstmSequenceOutputTiling(firstOutputTile);
+    } else if ((kernelEntryName == "lstm_dpu")) {
+        return vpux::VPU::lstmDpuOutputTiling(firstOutputTile);
+    } else if (kernelEntryName == "flash_sdpa") {
+        auto query = swKernelOp->getOperand(0);
+        auto queryShape = getShape(query);
+        auto qkEmbedding = queryShape[Dims4D::Act::W];
+        return vpux::VPU::FlashSDPAOpOutputTiling(firstOutputTile, qkEmbedding);
     }
     return OutputTiling{firstOutputTile};
 }
@@ -1008,6 +1061,11 @@ bool SwKernelRewriterBase::needInsertSubviewOnly(VPUIP::SwKernelOp swKernelOp) c
 
     if (kernelEntryName == "topk") {
         return isTopKOpTileAtHighestDim(swKernelOp);
+    }
+
+    // E-184947 Inserting SubviewOnly in legal cases, produces accuracy issues
+    if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
+        return false;
     }
 
     const auto tileDim = getSwKernelTileDim(swKernelOp);
@@ -1254,7 +1312,7 @@ SmallVector<mlir::Value> SwKernelRewriter::createNewOutBuffs(VPUIP::SwKernelOp s
     const auto perShaveFirstOutputTiles = calculateOutputTiles(swKernelOp).value();
 
     const auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    auto outputTilesOnShave = computeOutputTiling(kernelEntryName, perShaveFirstOutputTiles[shaveId]);
+    auto outputTilesOnShave = computeOutputTiling(swKernelOp, kernelEntryName, perShaveFirstOutputTiles[shaveId]);
     VPUX_THROW_UNLESS(outBuffs.size() == outputTilesOnShave.size(),
                       "Number of output buffers must be equal to number of outputs on a shave");
 
@@ -1559,7 +1617,8 @@ DimArr getFusibleDims(VPUIP::SwKernelOp swKernelOp, Dim tileDim, bool mcDimFusib
         auto taskArgs = kernelArgsRange(swKernelOp);
         const auto kernelAxis = mlir::cast<mlir::IntegerAttr>(taskArgs.front()).getInt();
         forbiddenDims.insert(convertKernelAxisToDim(swKernelOp.getResult(0), kernelAxis).ind());
-    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "prelu_fp16") {
+    } else if (kernelEntryName == "eltwise_mul" || kernelEntryName == "prelu_fp16" ||
+               kernelEntryName == "eltwise_div") {
         // If one of the two inputs are broadcast
         // this dimension can't be fused otherwise the broadcast won't work
         VPUX_THROW_UNLESS(swKernelOp->getOperands().size() >= 2, "invalid inputs number for eltwise_mul");
@@ -2364,7 +2423,8 @@ SmallVector<mlir::Value> ClusterSwKernelRewriter::createNewOutBuffs(VPUIP::SwKer
     const auto perShaveFirstOutputTiles = calculateOutputTiles(swKernelOp).value();
 
     const auto kernelEntryName = getSwKernelEntryName(swKernelOp);
-    const auto outputTilesOnCluster = computeOutputTiling(kernelEntryName, perClusterFirstOutputTiles[outTileIndex]);
+    const auto outputTilesOnCluster =
+            computeOutputTiling(swKernelOp, kernelEntryName, perClusterFirstOutputTiles[outTileIndex]);
     VPUX_THROW_UNLESS(outBuffs.size() == outputTilesOnCluster.size(),
                       "Number of output buffers '{0}' must be equal to the number of outputs of a tiled operation on a "
                       "cluster '{1}'",
@@ -2372,7 +2432,7 @@ SmallVector<mlir::Value> ClusterSwKernelRewriter::createNewOutBuffs(VPUIP::SwKer
 
     auto outputTilesOnShaves = SmallVector<OutputTiling>();
     for (const auto& onShaveFirstOutputTile : perShaveFirstOutputTiles) {
-        outputTilesOnShaves.push_back(computeOutputTiling(kernelEntryName, onShaveFirstOutputTile));
+        outputTilesOnShaves.push_back(computeOutputTiling(swKernelOp, kernelEntryName, onShaveFirstOutputTile));
     }
 
     SmallVector<mlir::Value> newOutputs;
@@ -2459,7 +2519,7 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
     }
 
     const auto origOpResults = origOp.getResults();
-    const auto resultsNum = origOpResults.size();
+    const auto resultsNum = static_cast<int64_t>(origOpResults.size());
     if (insertSubview) {
         llvm::SmallVector<mlir::Value> newConcats;
         for (auto p : origOpResults | indexed) {
@@ -2475,7 +2535,7 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
         return;
     }
 
-    auto outTiles = getOuterMostOutputTiling(origOp);
+    auto firstOutputTiles = getOuterMostOutputTiling(origOp);
     const auto hasCopyUser = onlyHasCopyOpUser(origOp);
     mlir::DenseMap<int64_t, mlir::memref::AllocOp> newAllocDDROpsMap;
     if (hasCopyUser) {
@@ -2504,16 +2564,26 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
         }
     }
 
+    const auto kernelEntryName = getSwKernelEntryName(newSwKernelOp);
     mlir::DenseMap<int64_t, mlir::Value> resultMap;
-    for (const auto& item : outTiles | indexed) {
-        const auto& outTile = item.value();
-        const auto& index = item.index();
-        auto outShape = to_small_vector(outTile.shape);
-        auto outOffset = to_small_vector(outTile.offsets);
+    for (const auto& item : firstOutputTiles | indexed) {
+        const auto& firstOutputTile = item.value();
+        const auto firstOutputIndex = static_cast<int64_t>(item.index());
+
+        auto outputTilesOnShave = computeOutputTiling(newSwKernelOp, kernelEntryName, firstOutputTile);
+        VPUX_THROW_UNLESS(
+                outputTilesOnShave.size() == origOpResults.size(),
+                "Number of tiled outputs '{0}' doesn't match original number of outputs '{1}' for kernel '{2}'",
+                outputTilesOnShave.size(), origOpResults.size(), kernelEntryName);
 
         for (auto p : origOpResults | indexed) {
             const auto result = p.value();
-            const auto resultIdx = p.index();
+            const auto resultIdx = static_cast<int64_t>(p.index());
+
+            auto outputTile = outputTilesOnShave[resultIdx];
+            auto outShape = to_small_vector(outputTile.shape);
+            auto outOffset = to_small_vector(outputTile.offsets);
+
             if (!result.getUsers().empty()) {
                 auto it = newAllocDDROpsMap.find(resultIdx);
 
@@ -2521,9 +2591,9 @@ void ClusterSwKernelRewriter::replaceOpWithConcatView(VPUIP::SwKernelOp origOp, 
                         rewriter.create<VPUIP::SubViewOp>(newSwKernelOp->getLoc(), it->second, outOffset, outShape);
                 auto copyOp = rewriter.create<VPUIP::CopyOp>(
                         newSwKernelOp->getLoc(),
-                        newSwKernelOp.getResult(checked_cast<unsigned int>(index * resultsNum + resultIdx)),
+                        newSwKernelOp.getResult(checked_cast<unsigned int>(firstOutputIndex * resultsNum + resultIdx)),
                         outSubview);
-                resultMap[index * resultsNum + resultIdx] = copyOp->getResult(0);
+                resultMap[firstOutputIndex * resultsNum + resultIdx] = copyOp->getResult(0);
             }
         }
     }
@@ -2854,15 +2924,12 @@ std::pair<mlir::ArrayAttr, mlir::ArrayAttr> ClusterSwKernelRewriter::getStrideOn
 
 class TileActShaveKernelTaskPass final : public VPUIP::impl::TileActShaveKernelTaskBase<TileActShaveKernelTaskPass> {
 public:
-    explicit TileActShaveKernelTaskPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit TileActShaveKernelTaskPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void TileActShaveKernelTaskPass::safeRunOnFunc() {

@@ -25,9 +25,9 @@ mlir::LogicalResult vpux::VPU::DynamicExpandOp::inferReturnTypes(
 
     // For upper bounded tensor interpretation the shape should be equal to the bounds
     // Tensor with dynamic_dims_mask has upper bounds set as its shape
-    auto outShape = inShapeInfo.bounds.empty() ? Shape(inShapeInfo.shape) : Shape(inShapeInfo.bounds);
+    auto outShape = inShapeInfo.bounds.empty() ? inShapeInfo.shape : inShapeInfo.bounds;
 
-    inferredReturnTypes.push_back(inType.changeShape(outShape));
+    inferredReturnTypes.push_back(mlir::RankedTensorType::get(outShape, inType.getElementType()));
 
     return mlir::success();
 }

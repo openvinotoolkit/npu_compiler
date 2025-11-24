@@ -349,6 +349,11 @@ def SetMemorySpace : PassBase<"set-memory-space", "vpux::ModulePass"> {
             "memSpaceName", "memory-space",
             "std::string", [{""}],
             "Memory space to perform allocation"
+        >,
+        Option<
+            "setMemorySpaceForFunctionBoundaries", "set-memory-space-for-function-boundaries",
+            "bool", "true",
+            "Enable/Disable MemorySpace information in function signatures"
         >
     ];
 }
@@ -1953,4 +1958,261 @@ def UnrollPermuteDMA : PassBase<"unroll-permute-dma", "vpux::FunctionPass"> {
     let constructor = "vpux::VPUIP::createUnrollPermuteDMAPass()";
 }
 
+//
+// AddSwKernelCacheHandlingOps
+//
+
+def AddSwKernelCacheHandlingOps : PassBase<"add-sw-kernel-cache-handling-ops", "vpux::FunctionPass"> {
+    let summary = "Add cache-handling ops for SW Kernels";
+
+    let description = [{
+        This pass adds CACHE_FLUSH or CACHE_FLUSH_INVALIDATE when needed.
+
+        CACHE_FLUSH will be added when at least one output buffer is located in DDR and at least one of its
+        consumers is not an ActSHAVE such that the ActSHAVE cache is flushed after the ActSHAVE Kernel writes
+        to DDR through the cache.
+
+        CACHE_FLUSH_INVALIDATE will be added when at least one input buffer is located in DDR and it is not
+        produced by an ActSHAVE or is a constant, such that the ActSHAVE cache is invalidated before the
+        ActSHAVE Kernel reads from DDR through the cache.
+
+        If there are two consecutive SW Kernels and a CACHE_FLUSH was added after the first one and a CACHE_INVALIDATE
+        is needed before the second one, the resulting sequence of ops will be:
+        [SW Kernel 1] - [CACHE_FLUSH] - [CACHE_FLUSH_INVALIDATE] - [SW Kernel 2].
+
+        CACHE_INVALIDATE no longer used since it's possible that the SHAVE stack resides in DDR, in which case
+        a CACHE_INVALIDATE on the Shave L2 cache causes the corruption of the SHAVE stack. The SHAVE jumps to a
+        null address on completion of the L2 invalidate.
+    }];
+
+    let constructor = "vpux::VPUIP::createAddSwKernelCacheHandlingOpsPass()";
+}
+
+//
+// UnrollDistributedOps
+//
+
+def UnrollDistributedOps : PassBase<"unroll-distributed-ops", "vpux::FunctionPass"> {
+    let summary = "Extracts child operations from distributed operation";
+
+    let description = [{
+        Legalizes chain of distributed operations according to the tile schema
+    }];
+
+    let constructor = "vpux::VPUIP::createUnrollDistributedOpsPass()";
+}
+
+//
+// ComputeHaloRegionForDPUTaskOp
+//
+
+def ComputeHaloRegionForDPUTaskOp : PassBase<"compute-halo-region-for-dpu-task-op", "vpux::FunctionPass"> {
+    let summary = "Add halo region information to each DPU Task Op.";
+
+    let description = [{
+        This pass will transfer halo region information from the ITIBuffer type of output and output_ITI operands of
+        VPUIP.NCEClusterTask to each of its VPUIP.DPUTaskOps.
+    }];
+
+    let constructor = "vpux::VPUIP::createComputeHaloRegionForDPUTaskOpPass()";
+
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect"
+    ];
+}
+
+//
+// DMATaskProfilingHwDdr
+//
+
+def DMATaskProfilingHwDdr : PassBase<"dma-task-profiling-hw-ddr", "vpux::ModulePass"> {
+    let summary = "DMA hardware task profiling";
+
+    let description = [{
+        This pass enables hardware DMA profiling directly to DDR.
+    }];
+
+    let options = [
+        Option<
+            "enableDMAProfiling", "dma-profiling",
+            "std::string", [{"false"}],
+            "Enable DMA task profiling (true|static|false)"
+        >
+    ];
+
+    let constructor = "vpux::VPUIP::createDMATaskProfilingHwDdrPass()";
+}
+
+//
+// ConstantDpuProfHwpBase
+//
+
+def ConstantDpuProfHwpBase : PassBase<"constant-dpu-prof-hwp-base", "vpux::FunctionPass"> {
+    let summary = "Sets single NCE HWP CMX base address";
+
+    let description = [{
+        In VPU4 NCE HWP CMX base address must remain the same for all DPU tasks since
+        HW may capture the address from a subsequent descriptor before storing the profiling
+        record for the task just completed. To prevent from such race condition NCE HWP CMX
+        base address for each NCE task will be 0 and profiling slot addressing will be
+        handled by workload_id.
+    }];
+
+    let constructor = "vpux::VPUIP::createConstantDpuProfHwpBasePass()";
+}
+
+//
+// Compress DMA for activations
+//
+
+def CompressSpillDma : PassBase<"compress-spill-dma", "vpux::ModulePass"> {
+    let summary = "CompressedDMA for activation spills";
+
+    let description = [{
+        Use Compress/Decompress DMA for DMA tasks responsible for activation spilling
+    }];
+
+    let constructor = "vpux::VPUIP::createCompressSpillDmaPass()";
+}
+
+//
+// OptimizeConvertDMAOp
+//
+
+def OptimizeConvertDMAOp : PassBase<"optimize-convert-dma-op", "vpux::FunctionPass"> {
+    let summary = "This pass deals with optimizations around ConvertDMAOp";
+
+    let description = [{
+        This pass deals with optimizations around ConvertDMAOp including rewriters like
+        1. ConvertDMACopy - Eliminate CopyOp in ConvertDMA -> Copy sequence
+        1. ConvertDMAClusterCopy - Eliminate CopyOp in ConvertDMA -> ClusteredCopy sequence
+    }];
+
+    let constructor = "vpux::VPUIP::createOptimizeConvertDMAOpPass()";
+}
+
+//
+// DMAOutOfOrderOptimization
+//
+
+def DMAOutOfOrderOptimization : PassBase<"dma-out-of-order-optimization", "vpux::FunctionPass"> {
+    let summary = "enable DMA out of order execution if possile";
+
+    let description = [{
+        Take advantage of DMA out of order execution if consequitive DMAs do not have any data dependency
+    }];
+
+    let constructor = "vpux::VPUIP::createDMAOutOfOrderOptimizationPass()";
+}
+
+//
+// ComputeTaskStripping
+//
+
+def ComputeTaskStripping : PassBase<"compute-task-stripping", "vpux::FunctionPass"> {
+    let summary = "Strips compute tasks from the model";
+
+    let description = [{
+        This pass strips compute tasks from the model.
+        There are three options that can be selected to strip tasks : dpu, act-shave, all.
+    }];
+
+    let constructor = "vpux::VPUIP::createComputeTaskStrippingPass()";
+
+    let options = [
+        Option<
+            "dpuDryRun", "dpu-dry-run",
+            "std::string", [{"none"}],
+            "Patch DPU tasks to disable their functionality (none|stub|strip)."
+        >,
+        Option<
+            "shaveDryRun", "shave-dry-run",
+            "bool", "false",
+            "Enable shave dry run stripping."
+        >
+    ];
+
+    let dependentDialects = [
+        "vpux::VPUIP::VPUIPDialect"
+    ];
+}
+
+//
+// AddStartBarrier
+//
+
+def AddStartBarrier: PassBase<"add-start-barrier", "vpux::FunctionPass"> {
+    let summary = "Adds a start barrier at the begining of the model";
+
+
+    let description = [{
+        Adds a start barrier to always ensure that there is a barrier consumption event. The barrier should
+        be produced by a sync DMA which is supposed to be zero copy with transfer size 0. The pattern is
+        expected after this pattern at the start of the nework:
+        DMATask -> Barrier -> DMATask -> other tasks
+    }];
+
+    let constructor = "vpux::VPUIP::createAddStartBarrierPass()";
+}
+
+//
+// DetectDMASplitCandidate
+//
+
+def DetectDMASplitCandidate : PassBase<"detect-dma-split-candidate", "vpux::FunctionPass"> {
+    let summary = "Detect DMA split candidate";
+
+    let description = [{
+        This pass looks for DMAs need to be split and assign splitCandidate attribute
+    }];
+
+    let constructor = "vpux::VPUIP::createDetectDMASplitCandidatePass()";
+}
+
+//
+// SplitDMAToBalanceLoad
+//
+
+def SplitDMAToBalanceLoad : PassBase<"split-dma-to-balance-load", "vpux::FunctionPass"> {
+    let summary = "Legalize split candidates to balance load on DMA ports";
+
+    let description = [{
+        This pass looks for DMAs with splitCandidate attribute and split them
+    }];
+
+    let constructor = "vpux::VPUIP::createSplitDMAToBalanceLoadPass()";
+}
+
+//
+// FuseSegmentedDMA
+//
+
+def FuseSegmentedDMA : PassBase<"fuse-segmented-dma", "vpux::FunctionPass"> {
+    let summary = "This pass fuse segmented DMAs, which has compatible parameters in one DMA to decrease configuration overhead";
+
+    let description = [{
+        This pass combines DMA with help of inter-cluster stride to combine them
+    }];
+
+    let constructor = "vpux::VPUIP::createFuseSegmentedDmaPass()";
+}
+
+//
+// LegalizeScheduleForPartialWlmFetchDmas
+//
+
+def LegalizeScheduleForPartialWlmFetchDmas : PassBase<"legalize-schedule-for-partial-wlm", "vpux::FunctionPass"> {
+    let summary = "Pass inserts dummy dmas to facilitate add-fetch-ops pass";
+
+    let description = [{
+        Workload Management pass expects to always find a DMA on tile 0 and list 0 for attaching a
+        fetch task which copies the descriptors from DDR to CMX Metadata. In cases when we have super optimized
+        schedule we may not have any such DMAs which would cause the fetch task insertion algorithm to fail
+
+        This pass understands how WLM creates execution groups and attaches fetch task. It emulates and tries to fit the
+        dummy DMAs such we would always find DMAs during fetch task insertion while maintaining a valid schedule
+    }];
+
+    let constructor = "vpux::VPUIP::createLegalizeScheduleForPartialWlmFetchDmasPass()";
+}
 #endif

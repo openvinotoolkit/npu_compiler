@@ -521,10 +521,11 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
         }
 
         rewriter.setInsertionPointAfter(nonExpand);
-        auto inputSliceOp = rewriter.create<IE::SliceOp>(_eltwiseOp->getLoc(), nonExpand->getResult(0),
-                                                         getIntArrayAttr(ctx, sliceOffset),
-                                                         getIntArrayAttr(ctx, expandInputType.getShape().raw()));
-        auto inputShapeCastOp = rewriter.create<IE::ShapeCastOp>(_eltwiseOp->getLoc(), inputSliceOp.getResult(),
+        auto newLoc = takeOpLoc(_eltwiseOp, "_input");
+        auto inputSliceOp =
+                rewriter.create<IE::SliceOp>(newLoc, nonExpand->getResult(0), getIntArrayAttr(ctx, sliceOffset),
+                                             getIntArrayAttr(ctx, expandInputType.getShape().raw()));
+        auto inputShapeCastOp = rewriter.create<IE::ShapeCastOp>(newLoc, inputSliceOp.getResult(),
                                                                  getIntArrayAttr(ctx, _newExpandedShape.raw()));
         nonExpand->getResult(0).replaceUsesWithIf(inputShapeCastOp.getResult(), [&](mlir::OpOperand& opOperand) {
             return getOwnerIgnoreQuantizeCast(opOperand) == _eltwiseOp;
@@ -668,7 +669,7 @@ mlir::LogicalResult ExpandEltwisePattern::rewrite(mlir::PatternRewriter& rewrite
 
     auto inputExpandOp = *_expandInputs.begin();
     auto newOutputExpandOp =
-            rewriter.create<IE::ExpandOp>(_eltwiseOp->getLoc(), outputShapeCastOp.getResult(),
+            rewriter.create<IE::ExpandOp>(takeOpLoc(_eltwiseOp, "_out_expand"), outputShapeCastOp.getResult(),
                                           inputExpandOp.getPadsBeginAttr(), inputExpandOp.getPadsEndAttr());
     _eltwiseOp->getResult(0).replaceAllUsesExcept(newOutputExpandOp.getOutput(), outputShapeCastOp);
 
@@ -1017,9 +1018,9 @@ mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite(mlir::PatternRewr
         auto padBegin = mlir::SmallVector<int64_t>(newInShape.size(), 0);
         auto padEnd = mlir::SmallVector<int64_t>(newInShape.size(), 0);
         padEnd[vpux::Dims4D::Act::C.ind()] = alignedInputC - newInShape[Dims4D::Act::C.ind()];
-        auto newExpand =
-                rewriter.create<IE::ExpandOp>(expand->getLoc(), inShapeCast, getIntArrayAttr(ctx, ArrayRef(padBegin)),
-                                              getIntArrayAttr(ctx, ArrayRef(padEnd)));
+        auto newExpand = rewriter.create<IE::ExpandOp>(takeOpLoc(op, "_in_expand"), inShapeCast,
+                                                       getIntArrayAttr(ctx, ArrayRef(padBegin)),
+                                                       getIntArrayAttr(ctx, ArrayRef(padEnd)));
         expand->replaceAllUsesWith(newExpand);
         input = newExpand.getResult();
     } else {
@@ -1045,7 +1046,7 @@ mlir::LogicalResult ExpandSingleChannelPoolingPattern::rewrite(mlir::PatternRewr
         // The original W has been expanded, need to slice for the new output
         SmallVector<int64_t> sliceOffset(outShape.size(), 0);
         newOutShape[Dims4D::Act::W.ind()] = inShape[Dims4D::Act::W];
-        newOutput = rewriter.create<IE::SliceOp>(outShapeCast->getLoc(), outShapeCast,
+        newOutput = rewriter.create<IE::SliceOp>(takeOpLoc(outShapeCast, "_slice"), outShapeCast,
                                                  getIntArrayAttr(ctx, sliceOffset), getIntArrayAttr(ctx, newOutShape));
     }
 

@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPURegMapped/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/shave.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
@@ -132,15 +133,15 @@ size_t getMetadataSize(mlir::Operation* op, VPURegMapped::TaskType taskType, con
     VPU::TaskType vpuTaskType = VPURegMapped::TaskTypeMapper<VPURegMapped::TaskType>::map(taskType);
     switch (vpuTaskType) {
     case VPU::TaskType::ActKernelInvocation:
-        return VPU::getConstraint(op, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2;
+        return config::getConstraint(op, config::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2;
     case VPU::TaskType::ActKernelRange:
-        return VPU::getConstraint(op, VPU::METADATA_MAX_KERNEL_RANGE_COUNT) / 2;
+        return config::getConstraint(op, config::METADATA_MAX_KERNEL_RANGE_COUNT) / 2;
     case VPU::TaskType::DPUInvariant:
-        return VPU::getConstraint(op, VPU::METADATA_MAX_INVARIANT_COUNT) / 2;
+        return config::getConstraint(op, config::METADATA_MAX_INVARIANT_COUNT) / 2;
     case VPU::TaskType::DPUVariant:
-        return VPU::getConstraint(op, VPU::METADATA_MAX_VARIANT_COUNT) / 2;
+        return config::getConstraint(op, config::METADATA_MAX_VARIANT_COUNT) / 2;
     case VPU::TaskType::M2I:
-        return VPU::getConstraint(op, VPU::METADATA_MAX_MEDIA_COUNT) / 2;
+        return config::getConstraint(op, config::METADATA_MAX_MEDIA_COUNT) / 2;
     default:
         // For types that do not have defined limits in the IR, use the default task list counts.
         return vpux::VPU::getDefaultTaskListCount(vpuTaskType, archKind) / 2;
@@ -245,7 +246,7 @@ private:
 
 void GroupExecutionOpsPass::safeRunOnFunc() {
     auto netFunc = getOperation();
-    bool fifoPerShaveEngineEnabled = VPU::isFifoPerShaveEngineEnabled(netFunc);
+    bool fifoPerShaveEngineEnabled = config::isFifoPerShaveEngineEnabled(netFunc);
     auto mpi = VPUMI40XX::getMPI(netFunc);
 
     auto parentModule = netFunc.getOperation()->getParentOfType<mlir::ModuleOp>();

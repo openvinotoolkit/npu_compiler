@@ -118,8 +118,7 @@ def IE_DeformableConvolutionOp :
 
         IntAttr:$group,
         IntAttr:$deformable_group,
-        UnitAttr:$biliniar_interpolate_pad
-
+        UnitAttr:$bilinear_interpolate_pad
     );
 
     let results = (outs

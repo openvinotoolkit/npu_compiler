@@ -5,7 +5,9 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 namespace vpux::VPU {
 

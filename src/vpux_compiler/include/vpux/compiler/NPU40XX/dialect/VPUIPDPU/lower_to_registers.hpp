@@ -84,7 +84,7 @@ uint64_t getTensorMode(mlir::Type type) {
             return static_cast<uint64_t>(nn_public::VpuInputTensorDType::U4);
         } else if (type.isInteger(1)) {
             return static_cast<uint64_t>(nn_public::VpuInputTensorDType::BIN);
-        } else if (type.isFloat8E5M2()) {
+        } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
             return static_cast<uint64_t>(nn_public::VpuInputTensorDType::FP8);
         }
         VPUX_THROW("Invalid tensor type for DPU configuration {0}", type);
@@ -773,7 +773,10 @@ void lowerToRegIDUWorkloadSetOp(VPUIPDPU::IDUWorkloadSetOp op, DpuVariantDescrip
     descriptor.template write<typename Type_Fields::Field_workload_start_zType>(op.getStartZ());
     descriptor.template write<typename Type_Fields::Field_workload_size_xType>(op.getSizeX());
     descriptor.template write<typename Type_Fields::Field_workload_size_yType>(op.getSizeY());
-    descriptor.template write<typename Type_Fields::Field_workload_size_zType>(op.getSizeZ());
+    // The workload_size_z register must be aligned to 16, even in cases where IDU autopad is used and there are fewer
+    // than 16 input channels for the workload
+    descriptor.template write<typename Type_Fields::Field_workload_size_zType>(
+            alignValUp(op.getSizeZ(), static_cast<int64_t>(16)));
 }
 
 // IDUPaddingOp

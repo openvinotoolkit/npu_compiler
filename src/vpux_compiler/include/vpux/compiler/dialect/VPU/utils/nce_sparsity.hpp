@@ -43,9 +43,22 @@ constexpr std::int32_t WEIGHTS_TABLE_READER_COUNT = 8;
 // size has to be rounded up to the nearest multiple of WEIGHTS_TABLE_READER_ALIGNMENT = 64, the values to be added
 // representing the padding.
 constexpr std::int32_t WEIGHTS_TABLE_READER_ALIGNMENT = WEIGHTS_TABLE_READER_COUNT * 8;
+// In case of zero point only table, each workload is logically divided in groups of 128 zero-points, excepting the last
+// one which will contain the remaining ones, padded with -1 up to the nearest multiple of
+// WEIGHTS_TABLE_READER_ALIGNMENT=64.
+// Regarding the storage, 1. For the 8-bit case the constructed zero-point table will be aligned to 64 bytes, while all
+// non-last groups will be aligned to 128 bytes.
+// 2. For the 4-bit case the constructed zero-point table will be aligned to 32 bytes (as 2 zero-points are stored in
+// each byte), while all non-last groups will be aligned to 64 (half of 128).
+// More details regarding the usage of this constant can be found in the constructNewZeroPointOnlyTableForWorkload
+// function.
+constexpr std::int32_t ZERO_POINT_TABLE_READER_ALIGNMENT = 128;
 // in each final (and padded) group of 64 weights table sets there has to be a multiple of 16 valid sets (16, 32, 48 or
 // 64), that can be read from memory
 constexpr std::int32_t WEIGHTS_TABLE_SETS_MIN_ALIGNMENT = 16;
+
+constexpr std::int32_t PADDING_POSITION_INDICATOR = -1;
+constexpr std::int32_t INVALID_POSITION_OUT_OF_RANGE = -2;
 
 enum class Mode { DW_CONV, POOL };
 
@@ -58,7 +71,7 @@ llvm::unique_function<ScaleElemType(size_t)> getMultShiftFunc(mlir::Type inElemT
     if (weightsType != nullptr) {
         auto inStorageType = mlir::quant::QuantizedType::castToStorageType(inElemType);
         if ((mlir::isa<mlir::quant::QuantizedType>(inElemType) && !mlir::isa<mlir::quant::QuantizedType>(weightsType) &&
-             !inStorageType.isFloat8E5M2() && !inStorageType.isFloat8E4M3FN())) {
+             !mlir::isa<mlir::Float8E5M2Type>(inStorageType) && !mlir::isa<mlir::Float8E4M3FNType>(inStorageType))) {
             VPUX_THROW("Unsupported In/Wt mixed precision. Got: in type {0}, wt type {1}", inElemType, weightsType);
         }
     }
@@ -72,6 +85,9 @@ llvm::unique_function<ScaleElemType(size_t)> getMultShiftFunc(mlir::Type inElemT
     broadcast(weightsQuantScales, OC);
     broadcast(outQuantScales, OC);
 
+    // Weights table scale is computed as:
+    // input_quant_scale * weights_quant_scale  * static_scale / output_quant_scale
+    // splitNCEConvolutionOverIC is based on this assumption.
     std::vector<double> rescale;
     rescale.reserve(OC);
     for (size_t i = 0; i < OC; ++i) {
@@ -144,14 +160,6 @@ std::vector<int32_t> getWeightsTable(mlir::Type inElemType, mlir::Type outElemTy
 
 class NewWeightsTableFormatMapper {
 public:
-    // utility function
-    static int32_t normalizeKAndReturnCurrentGroupOf128ZeroPoints(int32_t index, int32_t& k);
-
-    // encoding and decoding functions between the zero point initial index and its new index in the new format
-    // these two functions use mathematical computations in order to compute the result
-    static int32_t mathematicallyEncodePositionInNewZeroPointOnlyTableLayout(int32_t zeroPointIndex, int32_t k);
-    static int32_t mathematicallyDecodePositionInNewZeroPointOnlyTableLayout(int32_t position, int32_t k);
-
     // utility functions
     static std::vector<int32_t> computeInversePermutation(std::vector<int32_t> v);
     static std::vector<int32_t> computePointerTable(const std::vector<int32_t>& v);
@@ -159,19 +167,37 @@ public:
     static std::vector<int32_t> getZeroPointInversePermutationTableByK(int32_t k);
     static std::vector<int32_t> getPointerTableByK(int32_t k);
 
-    // encoding and decoding functions between the zero point initial index and its new index in the new format
-    // these two functions use statically-constructed vectors in order to deduce the result
-    static int32_t encodePositionInNewZeroPointOnlyTableLayout(int32_t zeroPointIndex, int32_t k);
-    static int32_t decodePositionInNewZeroPointOnlyTableLayout(int32_t position, int32_t k);
+    // Some observations regarding the below encoding and decoding functions between the zero point initial index and
+    // its new index in the new format; these functions use statically-constructed vectors in order to deduce the result
+    // 1A) regarding the encoding functions, the zeroPointIndex argument represents an element's position in the
+    // original unshuffled zp table; on the other hand, this functions return the the position/index of the same element
+    // in the shuffled and constructed zp table, hence the name "encoding"
+    // 1B) for 4-bit zero-points, for accessing the actual zp from the constructed table, you should divide by 2 the
+    // position returned by this function and extract the corresponding 4-bits from the element residing there (bits
+    // 0...3 if returned position is a multiple of 2 and bits 4...7 otherwise)
+    static int32_t encodePositionInWorkloadInNewZeroPointOnlyTableLayout(int32_t position, int32_t k);
+    // 1C) encodePositionInNewZeroPointOnlyTableLayout returns -2 if the given position is invalid, out of the range of
+    // valid indices (no zero-point resides there)
+    static int32_t encodePositionInNewZeroPointOnlyTableLayout(int32_t position, std::vector<int32_t> workloads);
+    // 2A) in these decoding functions, the position represents the index at which a given element is in the shuffled
+    // and constructed zp table; on the other hand, they return the position/index of the same element in the original
+    // unshuffled zp table, hence the name "decoding"
+    // 2B) for 4-bit zero-points, for computing the position of the actual zp from the unshuffled table, you should
+    // multiply by 2 the position of the zero-point in the shuffled table and pass it to the below function, as there
+    // are two zero-points in each byte (add 1 as well if you are interested in the upper byte zp)
+    static int32_t decodePositionInWorkloadInNewZeroPointOnlyTableLayout(int32_t position, int32_t k);
+    // 2C) decodePositionInNewZeroPointOnlyTableLayout returns -1 if a padding value resides at that position and -2 if
+    // the given position is invalid, out of the range of valid indices (no zero-point/padding value resides there)
+    static int32_t decodePositionInNewZeroPointOnlyTableLayout(int32_t position, std::vector<int32_t> workloads);
 
-    // store 2 zero-points in one byte:
-    // lowerZeroPoint in the least significant 4 bits and upperZeroPoint in the most significant 4 bits
-    // typename T should be one of uint8_t (for U4 zero-points) and int8_t (for I4 zero-points)
     template <typename T>
-    static T storeTwoZPInZPPalletizedByte(T lowerZeroPoint, T upperZeroPoint) {
-        constexpr uint8_t mask = 0x0F;
-        constexpr uint8_t shiftUpperZeroPointToUpperPartInByte = 4;
-        return (lowerZeroPoint & mask) | ((upperZeroPoint & mask) << shiftUpperZeroPointToUpperPartInByte);
+    static void setFourBitZPInPalletizedByte(ArrayRef<T> table, std::vector<T>& result, int32_t newPos,
+                                             int32_t ptrStartingIndex) {
+        const T currElem = table[ptrStartingIndex] & 0x0F;
+        const int32_t startPos = newPos % 2 == 1 ? 4 : 0;
+        const uint8_t mask = 0x0F << startPos;
+        result[newPos / 2] &= ~mask;
+        result[newPos / 2] |= currElem << startPos;
     }
 
     // in a zero-point palletized byte there are stored 2 zero-points, each one on 4 bits
@@ -184,68 +210,98 @@ public:
     // if lowerZP = false, the zero-point stored in the most significant 4 bits will be returned
     static uint8_t extractOneZPFromZPPalletizedByte(uint8_t zeroPoint, bool lowerZP);
 
-    // utility function used by constructNewZeroPointOnlyTable
+    // utility function used by constructNewZeroPointOnlyTableForWorkload
     template <typename T>
-    static void mapElementsToNewFormat(bool isZeroPoint4Bit, std::vector<T>& table, int32_t start, int32_t end,
-                                       std::vector<T>& result) {
+    static void mapElementsToNewZeroPointOnlyTableFormat(bool isZeroPoint4Bit, ArrayRef<T> ptrs, int32_t start,
+                                                         int32_t end, int32_t ptrStartingIndex,
+                                                         std::vector<T>& result) {
         int32_t range = end - start;
 
-        VPUX_THROW_WHEN(start % 128 != 0, "The starting index of the range ({0}) is not a multiple of 128", start);
-        VPUX_THROW_WHEN(range % 16 != 0, "Range length ({0}) is not a multiple of 16", range);
-        VPUX_THROW_WHEN(range < 16 || range > 128, "Range ({0}) should be between 16 and 128", range);
-        VPUX_THROW_WHEN(
-                start / 128 != (end - 1) / 128,
-                "All weight sets have to be from the same group of (at most) 128 weight sets: {0} / 128 != {1} / 128",
-                start, end - 1);
+        VPUX_THROW_WHEN(start % WEIGHTS_TABLE_READER_ALIGNMENT != 0,
+                        "The starting index of the range ({0}) is not a multiple of {1}", start,
+                        WEIGHTS_TABLE_READER_ALIGNMENT);
+        VPUX_THROW_WHEN(range % WEIGHTS_TABLE_SETS_MIN_ALIGNMENT != 0, "Range length ({0}) is not a multiple of {1}",
+                        range, WEIGHTS_TABLE_SETS_MIN_ALIGNMENT);
+        VPUX_THROW_WHEN(range < WEIGHTS_TABLE_SETS_MIN_ALIGNMENT || range > ZERO_POINT_TABLE_READER_ALIGNMENT,
+                        "Range ({0}) should not be less than {1}, nor greater than {2}", range,
+                        WEIGHTS_TABLE_SETS_MIN_ALIGNMENT, ZERO_POINT_TABLE_READER_ALIGNMENT);
 
-        // if isZeroPoint4Bit = true, divide by 2, as 2 zero-points will be stored in each byte
-        // otherwise, only 1 zero-point will be stored in each byte
-        if (isZeroPoint4Bit) {
-            start /= 2;
-            end /= 2;
-        }
-
-        auto map = getZeroPointTableByK(range);
+        auto map = getZeroPointInversePermutationTableByK(range);
         for (auto index = start; index < end; index++) {
             if (isZeroPoint4Bit) {
-                auto lowerZPPositionInOriginalTable = start + map[(2 * index) % 128];
-                auto upperZPPositionInOriginalTable = start + map[(2 * index + 1) % 128];
-                result[index] = storeTwoZPInZPPalletizedByte<T>(table[lowerZPPositionInOriginalTable],
-                                                                table[upperZPPositionInOriginalTable]);
+                auto newPos = start + map[index - start];
+                setFourBitZPInPalletizedByte(ptrs, result, newPos, ptrStartingIndex++);
             } else {
-                auto positionInOriginalTable = start + map[index % 128];
-                result[index] = table[positionInOriginalTable];
+                auto newPos = start + map[index - start];
+                result[newPos] = ptrs[ptrStartingIndex++];
             }
+        }
+    }
+
+    template <typename T>
+    static void constructNewZeroPointOnlyTableForWorkload(bool isZeroPoint4Bit, std::vector<T>& mappedTable,
+                                                          int32_t workloadStartingIndex, int32_t workloadSize,
+                                                          int32_t ptrStartingIndex, ArrayRef<T> ptrs) {
+        int32_t alignment = ZERO_POINT_TABLE_READER_ALIGNMENT;
+        int32_t countGroupsOf128ZP = workloadSize / alignment;
+        int32_t remainingZPInLastGroup = workloadSize % alignment;
+
+        // In what follows, we will use alignment as a shortcut for logical alignment, in order to keep this description
+        // abstract and independent of the storage/physical part, in which each byte can store either one 8-bit
+        // zero-point or two 4-bit zero-points.
+        // We firstly arrange the workload zero-points based on chunks (groups) of 128 elements and finally (see the
+        // next if conditional) we will arrange the remainig chunk of less than 128 elements, if that's the case; the
+        // last chunk will be aligned to 64 if there are at most 64 elements in it and to 128 otherwise; therefore, due
+        // to this last chunk/group, a workload can end up being aligned to 64 and not to 128 (see the
+        // constructNewZeroPointOnlyTable function as well, where we align each workload to 64 elements). It should be
+        // pointed out that this logic gets enforced because 128 zero points end up at different positions whether they
+        // are aligned as being part of 2 groups of 64 elements or as part of a single group; compared to
+        // data/sparsity-pointer tables, for which we have mapping tables only up to K=64 (e.g. pointersK48), for zero
+        // point only tables we have such mappings for K up to 128 (e.g. zeroPointsK112).
+        for (int index = 0; index < countGroupsOf128ZP; index++) {
+            mapElementsToNewZeroPointOnlyTableFormat(isZeroPoint4Bit, ptrs, workloadStartingIndex + index * alignment,
+                                                     workloadStartingIndex + index * alignment + alignment,
+                                                     ptrStartingIndex + index * alignment, mappedTable);
+        }
+
+        if (remainingZPInLastGroup) {
+            mapElementsToNewZeroPointOnlyTableFormat(
+                    isZeroPoint4Bit, ptrs, workloadStartingIndex + countGroupsOf128ZP * alignment,
+                    workloadStartingIndex + countGroupsOf128ZP * alignment + remainingZPInLastGroup,
+                    ptrStartingIndex + countGroupsOf128ZP * alignment, mappedTable);
         }
     }
 
     // function that constructs a zero point only table (in the new format) starting from a vector that
     // contains the zero points in ascending order based on their indices
+    // workloadSizes is needed for the shuffling logic
     // typename T should be one of uint8_t (for U4 and U8) and int8_t (for I4 and I8)
     // set isZeroPoint4Bit = true only if the zero points should be stored on 4 bits each
     template <typename T>
-    static std::vector<T> constructNewZeroPointOnlyTable(bool isZeroPoint4Bit, std::vector<T> table) {
+    static std::vector<T> constructNewZeroPointOnlyTable(bool isZeroPoint4Bit, ArrayRef<int32_t> workloadSizes,
+                                                         ArrayRef<T> ptrs) {
         static_assert(
                 std::is_same_v<T, uint8_t> || std::is_same_v<T, int8_t>,
                 "Typename should be one of uint8_t (for U4 and U8 zero-points) and int8_t (for I4 and I8 zero-points)");
 
-        int32_t k = table.size();
-
-        int32_t countGroupsOf128ZeroPoints = k / 128;
-        int32_t remainingZeroPointsInLastGroup = k % 128;
-
-        // if isZeroPoint4Bit = true, mappedTable will have k/2 elements (bytes), as 2 zero-points will be stored in
-        // each byte
-        // otherwise, mappedTable will have k elements (bytes), as only 1 zero-point will be stored in each byte
-        std::vector<T> mappedTable(isZeroPoint4Bit ? k / 2 : k, -1);
-
-        for (int index = 0; index < countGroupsOf128ZeroPoints; index++) {
-            mapElementsToNewFormat<T>(isZeroPoint4Bit, table, index * 128, index * 128 + 128, mappedTable);
+        int32_t mappedTableSize = 0;
+        for (auto workloadSize : workloadSizes) {
+            if (isZeroPoint4Bit) {
+                mappedTableSize += vpux::alignValUp(workloadSize / 2, WEIGHTS_TABLE_READER_ALIGNMENT / 2);
+            } else {
+                mappedTableSize += vpux::alignValUp(workloadSize, WEIGHTS_TABLE_READER_ALIGNMENT);
+            }
         }
 
-        if (remainingZeroPointsInLastGroup) {
-            mapElementsToNewFormat<T>(isZeroPoint4Bit, table, countGroupsOf128ZeroPoints * 128,
-                                      countGroupsOf128ZeroPoints * 128 + remainingZeroPointsInLastGroup, mappedTable);
+        std::vector<T> mappedTable(mappedTableSize, -1);
+
+        int32_t workloadStartingIndex = 0;
+        int32_t ptrStartingIndex = 0;
+        for (unsigned long index = 0; index < workloadSizes.size(); index++) {
+            constructNewZeroPointOnlyTableForWorkload(isZeroPoint4Bit, mappedTable, workloadStartingIndex,
+                                                      workloadSizes[index], ptrStartingIndex, ptrs);
+            workloadStartingIndex += vpux::alignValUp(workloadSizes[index], WEIGHTS_TABLE_READER_ALIGNMENT);
+            ptrStartingIndex += workloadSizes[index];
         }
 
         return mappedTable;
@@ -256,7 +312,7 @@ public:
     static void constructNewPointerTableForWorkload(std::vector<int32_t>& mappedTable, int32_t workloadStartingIndex,
                                                     int32_t workloadSize, int32_t ptrStartingIndex,
                                                     const std::vector<int32_t>& ptrs);
-    static std::vector<int32_t> constructNewPointerTable(ArrayRef<int32_t> workloadsSizes, ArrayRef<int32_t> ptrs);
+    static std::vector<int32_t> constructNewPointerTable(ArrayRef<int32_t> workloadSizes, ArrayRef<int32_t> ptrs);
     static std::vector<int32_t> constructNewPointerTable(ArrayRef<VPUIP::DPUTaskOp> tasks, ArrayRef<int32_t> ptrs);
 
 private:
@@ -278,7 +334,6 @@ private:
     static std::vector<int32_t> zeroPointsK112InversePermutation;
     static std::vector<int32_t> zeroPointsK128InversePermutation;
 
-    static int32_t paddingValue;
     static std::vector<int32_t> pointersK16;
     static std::vector<int32_t> pointersK32;
     static std::vector<int32_t> pointersK48;
@@ -293,7 +348,7 @@ private:
  *
  * @param inElemType - input tensor type
  * @param outElemType - output tensor type
- * @param workloadsSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
+ * @param workloadSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
  * that particular workload
  * @param weightsPtrs - the addresses at which the data-pointers will be stored
  * @param OC - number of output channels
@@ -304,8 +359,8 @@ private:
  * @return constructed and formatted data-pointer table.
  */
 template <typename T>
-std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outElemType,
-                                         ArrayRef<int32_t> workloadsSizes, ArrayRef<int32_t> weightsPtrs, int64_t OC,
+std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadSizes,
+                                         ArrayRef<int32_t> weightsPtrs, int64_t OC,
                                          ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     static_assert(std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>,
                   "Invalid zero-point type, expected int8_t or uint8_t");
@@ -334,7 +389,7 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
         dataPointerTableVals[oc] = getDataOrSparsityPointer(weightsPtrs[oc], zeroPointsVector[oc]);
     });
 
-    return NewWeightsTableFormatMapper::constructNewPointerTable(workloadsSizes, dataPointerTableVals);
+    return NewWeightsTableFormatMapper::constructNewPointerTable(workloadSizes, dataPointerTableVals);
 }
 
 /**
@@ -342,7 +397,7 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
  *
  * @param inElemType - input tensor type
  * @param outElemType - output tensor type
- * @param workloadsSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
+ * @param workloadSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
  * that particular workload
  * @param weightsPtrOffset - the address at which the first data-pointer is stored (defaults to 0)
  * @param weightsPtrStep - distance between two consecutive data-pointer addresses
@@ -352,9 +407,9 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
  * @return constructed and formatted data-pointer table.
  */
 template <typename T>
-std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outElemType,
-                                         ArrayRef<int32_t> workloadsSizes, std::optional<int32_t> weightsPtrOffset,
-                                         int32_t weightsPtrStep, int64_t OC, ArrayRef<T> zeroPoints = ArrayRef<T>()) {
+std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadSizes,
+                                         std::optional<int32_t> weightsPtrOffset, int32_t weightsPtrStep, int64_t OC,
+                                         ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     auto weightsPtrOffsetValue = weightsPtrOffset.value_or(0);
 
     SmallVector<int32_t> weightsPtrs(OC, 0);
@@ -363,7 +418,7 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
         weightsPtrOffsetValue += weightsPtrStep;
     }
 
-    return getDataPointerTable<T>(inElemType, outElemType, workloadsSizes, weightsPtrs, OC, zeroPoints);
+    return getDataPointerTable<T>(inElemType, outElemType, workloadSizes, weightsPtrs, OC, zeroPoints);
 }
 
 /**
@@ -371,7 +426,7 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
  *
  * @param inElemType - input tensor type
  * @param outElemType - output tensor type
- * @param workloadsSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
+ * @param workloadSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
  * that particular workload
  * @param weightsPtrs - the addresses at which the data-pointers will be stored
  * @param sparsityPtrs - the addresses at which the sparsity-pointers will be stored
@@ -384,7 +439,7 @@ std::vector<int32_t> getDataPointerTable(mlir::Type inElemType, mlir::Type outEl
  */
 template <typename T>
 std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTablePair(
-        mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadsSizes, ArrayRef<int32_t> weightsPtrs,
+        mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadSizes, ArrayRef<int32_t> weightsPtrs,
         ArrayRef<int32_t> sparsityPtrs, int64_t OC, ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     static_assert(std::is_same_v<T, int8_t> || std::is_same_v<T, uint8_t>,
                   "Invalid zero-point type, expected int8_t or uint8_t");
@@ -422,9 +477,9 @@ std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTableP
     });
 
     const auto dataPointerTableFormatted =
-            NewWeightsTableFormatMapper::constructNewPointerTable(workloadsSizes, dataPointerTableVals);
+            NewWeightsTableFormatMapper::constructNewPointerTable(workloadSizes, dataPointerTableVals);
     const auto sparsityPointerTableFormatted =
-            NewWeightsTableFormatMapper::constructNewPointerTable(workloadsSizes, sparsityPointerTableVals);
+            NewWeightsTableFormatMapper::constructNewPointerTable(workloadSizes, sparsityPointerTableVals);
 
     return {dataPointerTableFormatted, sparsityPointerTableFormatted};
 }
@@ -434,7 +489,7 @@ std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTableP
  *
  * @param inElemType - input tensor type
  * @param outElemType - output tensor type
- * @param workloadsSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
+ * @param workloadSizes - specifies the size of each workload - this size is equivalent to the number of weight sets in
  * that particular workload
  * @param weightsPtrOffset - the address at which the first data-pointer is stored (defaults to 0)
  * @param weightsShape - weights tensor's shape
@@ -452,7 +507,7 @@ std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTableP
  */
 template <typename T>
 std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTablePair(
-        mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadsSizes,
+        mlir::Type inElemType, mlir::Type outElemType, ArrayRef<int32_t> workloadSizes,
         std::optional<int32_t> weightsPtrOffset, ShapeRef weightsShape, int32_t sparsityPtrOffset,
         ArrayRef<uint8_t> sparsityMap, int64_t OC, mlir::Type weightsElemType, ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     VPUX_THROW_WHEN(weightsElemType == nullptr,
@@ -491,7 +546,7 @@ std::pair<std::vector<int32_t>, std::vector<int32_t>> getSparseDataPointerTableP
         sparsityTableOffset += weightSetsCounter;
     }
 
-    return getSparseDataPointerTablePair<T>(inElemType, outElemType, workloadsSizes, weightsPtrs, sparsityPtrs, OC,
+    return getSparseDataPointerTablePair<T>(inElemType, outElemType, workloadSizes, weightsPtrs, sparsityPtrs, OC,
                                             zeroPoints);
 }
 
@@ -536,8 +591,8 @@ std::vector<float> getBiasTable(mlir::Type inElemType, mlir::Type outElemType,
 // for I4 zero points set: T=int8_t and isZeroPoint4Bit=true
 // for I8 zero points set: T=int8_t and isZeroPoint4Bit=false
 template <typename T>
-std::vector<T> getZeroPointOnlyTable(int64_t OC, mlir::Type weightsElemType, bool isZeroPoint4Bit,
-                                     ArrayRef<T> zeroPoints) {
+std::vector<T> getZeroPointOnlyTable(ArrayRef<int32_t> workloadSizes, int64_t OC, mlir::Type weightsElemType,
+                                     bool isZeroPoint4Bit, ArrayRef<T> zeroPoints) {
     VPUX_THROW_WHEN(weightsElemType == nullptr || !mlir::isa<mlir::quant::QuantizedType>(weightsElemType),
                     "weightsElemType has to be a quantized type, not {0}", weightsElemType);
 
@@ -562,7 +617,7 @@ std::vector<T> getZeroPointOnlyTable(int64_t OC, mlir::Type weightsElemType, boo
     VPUX_THROW_WHEN(static_cast<int64_t>(zeroPoints.size()) != OC,
                     "Zero-points size {0} different than output channels {1}", zeroPoints.size(), OC);
 
-    return NewWeightsTableFormatMapper::constructNewZeroPointOnlyTable<T>(isZeroPoint4Bit, zeroPoints);
+    return NewWeightsTableFormatMapper::constructNewZeroPointOnlyTable(isZeroPoint4Bit, workloadSizes, zeroPoints);
 }
 
 std::vector<int32_t> patchWeightsTableSparsityPtrs(const std::vector<std::int32_t>& weightsTableVals,
@@ -574,6 +629,7 @@ std::vector<int32_t> patchWeightsTableSparsityPtrs(const std::vector<std::int32_
 // zero-point table. In this case, this function returns the same shape for each of these tables, having only one value
 // for each output channel.
 Shape inferWeightsTableShape(int64_t OC, bool newFormat = false);
+Shape infer5DWeightsTableShape(int64_t OC, int64_t groups, bool newFormat = false);
 Shape inferWeightsSparsityMapShape(ShapeRef dataShape);
 
 mlir::FailureOr<SmallVector<double>> getRescaledBias(const Const::ContentAttr& biasAttr, mlir::Type inElemType,
@@ -587,18 +643,6 @@ bool isSuperdenseRequired(const DimsOrder outOrder, const ShapeRef outShape, con
 
 // 5D weights.
 int32_t get5DWeightPtrStep(mlir::Value weights);
-
-std::vector<int32_t> create5DWeightsTableData(mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights,
-                                              const Const::ContentAttr& bias, int64_t outputChannels,
-                                              VPU::NCESparsity::PPEConverterCb ppeConverter,
-                                              VPU::NCESparsity::BiasConverterCb biasConverter, bool hasAutopad);
-std::vector<int32_t> create5DWeightsTableData(mlir::Value opInput, mlir::Value opOutput, mlir::Value weights,
-                                              const Const::ContentAttr& bias, int64_t outputChannels,
-                                              VPU::NCESparsity::PPEConverterCb ppeConverter,
-                                              VPU::NCESparsity::BiasConverterCb biasConverter, bool hasAutopad);
-
-mlir::Value create5DWeightsTableTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<int32_t> weightsTable,
-                                       int64_t outputChannels, int64_t groups);
 
 //
 // Convert real numbers to fixed point S16.16 format.

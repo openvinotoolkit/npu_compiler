@@ -13,7 +13,7 @@ add_npu_library(npu_compiler_dialect_vpuasm
         npu_ov_utils
         flatbuffers
         npu_elf
-        # E#98178: remove depedency on firmware headers
+        # E#98178: remove dependency on firmware headers
         npu_40xx_firmware_headers
     SYSTEM_INCLUDES
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/sw_runtime_kernels>)

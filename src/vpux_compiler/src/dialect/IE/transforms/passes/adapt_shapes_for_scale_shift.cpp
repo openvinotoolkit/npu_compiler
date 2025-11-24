@@ -138,15 +138,12 @@ mlir::LogicalResult BroadcastEltwiseRewriter<EltwiseOp>::matchAndRewrite(Eltwise
 class AdaptShapesForScaleShiftPass final :
         public IE::impl::AdaptShapesForScaleShiftPassBase<AdaptShapesForScaleShiftPass> {
 public:
-    explicit AdaptShapesForScaleShiftPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit AdaptShapesForScaleShiftPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 // Examples of illegal operations:
@@ -281,19 +278,19 @@ bool isPotentialScaleShift(mlir::Operation* op) {
     }
     auto actInputs = getActInputs(op);
     auto constInputs = getConstInputs(op);
-    auto secondImputMustBeConst = true;
-    if (actInputs.empty() || (constInputs.empty() && secondImputMustBeConst)) {
+    auto secondInputMustBeConst = true;
+    if (actInputs.empty() || (constInputs.empty() && secondInputMustBeConst)) {
         return false;
     }
     auto actInput = actInputs[0];
-    auto constInput = constInputs.empty() ? actInputs[1] : constInputs[0];
-    if (constInputs.empty() && getShape(constInput).isDynamic()) {
+    auto secondInput = constInputs.empty() ? actInputs[1] : constInputs[0];
+    if (constInputs.empty() && getShape(secondInput).isDynamic()) {
         return false;
     }
     auto actInputShape = mlir::cast<vpux::NDTypeInterface>(actInput.getType()).getShape();
-    auto constInputShape = mlir::cast<vpux::NDTypeInterface>(constInput.getType()).getShape();
+    auto constInputShape = mlir::cast<vpux::NDTypeInterface>(secondInput.getType()).getShape();
     if (actInputShape.size() != 4 || constInputShape.size() != 4 ||
-        (actInputShape == constInputShape && !secondImputMustBeConst)) {
+        (actInputShape == constInputShape && !secondInputMustBeConst)) {
         return false;
     }
     auto oneAndOnlyNonCDimNotOne = [&]() {

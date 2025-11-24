@@ -40,6 +40,13 @@ def ConvertToLLVMUMDCalls : PassBase<"convert-to-llvm-umd-calls", "vpux::ModuleP
         This pass converts higher-level MLIR operations into LLVM dialect operations that make calls
         to the UMD (User Mode Driver) runtime API. The resulting code can be executed by the host CPU
         and interfaces with the NPU device through the UMD wrapper library.
+
+        The pass handles (through level zero wrapper):
+         - Converting memref.alloc operations to Level Zero memory allocations
+         - Converting memref.copy operations to Level Zero memory copies
+         - Converting async operations (Execute, Await, AwaitAll, CreateGroup, AddToGroup) to appropriate
+           Level Zero command list operations
+         - Managing command list creation, submission, and synchronization
     }];
 
     let constructor = "vpux::HostExec::createConvertToLLVMUMDCallsPass()";
@@ -54,14 +61,16 @@ def ConvertToLLVMUMDCalls : PassBase<"convert-to-llvm-umd-calls", "vpux::ModuleP
 }
 
 //
-// WrapFuncCallsIntoAsyncRegions
+// PrepareHostFuncForAsyncExecution
 //
 
-def WrapFuncCallsIntoAsyncRegions : PassBase<"wrap-func-calls-into-async-regions", "vpux::FunctionPass"> {
-    let summary = "Wraps function calls into async regions";
+def PrepareHostFuncForAsyncExecution : PassBase<"prepare-host-function-for-async-execution", "vpux::FunctionPass"> {
+    let summary = "Prepares host function for async execution";
 
     let description = [{
-        The pass wraps operations implementing CallOpInterface into async regions preserving linear execution.
+        This pass wraps CallOpInterface operations in async.execute regions, creates async.group operations
+        for scf.for loops to enable parallel execution, removes unused results from scf.index_switch operations
+        to simplify control flow, and ensures proper async token management throughout the function.
 
         The special case of the pass is handling scf.for operations. Every scf.for operation assigned with an async group.
         It is expected that scf.for region contains at least one CallOpInterface operation.
@@ -74,7 +83,7 @@ def WrapFuncCallsIntoAsyncRegions : PassBase<"wrap-func-calls-into-async-regions
         and needed just to satisfy the async dialect requirements.
     }];
 
-    let constructor = "vpux::HostExec::createWrapFuncCallsIntoAsyncRegionsPass()";
+    let constructor = "vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass()";
 
     let dependentDialects = [
         "mlir::async::AsyncDialect"
@@ -91,7 +100,8 @@ def OptimizeMemRefCopies : PassBase<"optimize-memref-copies", "vpux::FunctionPas
     let description = [{
         The pass optimizes memref.copy operations by removing unnecessary copies. Two patterns are supported:
             1. memref.copy copies data from a call argument to a subview
-            2. memref.copy copies data from an alloc to a function argument
+            2. memref.copy copies data from an scf.index_switch to a subview
+            3. memref.copy copies data from an alloc to a function argument
     }];
 
     let constructor = "vpux::HostExec::createOptimizeMemRefCopiesPass()";

@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/utils/cost_model_factory.hpp"
+#include "vpux/compiler/NPU40XX/dialect/VPU/utils/cost_model_shave_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model_data.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 
@@ -58,6 +59,10 @@ std::shared_ptr<VPUNN::VPULayerCostModel> CostModelFactory::createLayerCostModel
             /*batch_size*/ 1, costModelCacheData.data(), costModelCacheData.size());
     return layerCostModel;
 }
+
+std::unique_ptr<IShaveCostModelUtils> CostModelFactory::createShaveCostModelUtil() const {
+    return std::make_unique<arch40xx::CostModelShaveUtil>(_isShave2ApiUsedInVPUNN);
+};
 
 }  // namespace arch40xx
 }  // namespace VPU

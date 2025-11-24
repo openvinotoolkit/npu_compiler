@@ -8,7 +8,6 @@
 // RUN: vpux-opt --split-input-file --init-compiler=vpu-arch=%arch% --introduce-init-function="ws-extraction-mode=gen-init memory-limit=0 init-part=0" --concat-init-results="ws-extraction-mode=gen-init memory-limit=0 init-part=0" %s | FileCheck --check-prefix=CHECK-INIT-PART0 %s
 // RUN: vpux-opt --split-input-file --init-compiler=vpu-arch=%arch% --introduce-init-function="ws-extraction-mode=gen-init memory-limit=0 init-part=1" --concat-init-results="ws-extraction-mode=gen-init memory-limit=0 init-part=1" %s | FileCheck --check-prefix=CHECK-INIT-PART1 %s
 // RUN: vpux-opt --split-input-file --init-compiler=vpu-arch=%arch% --introduce-init-function="ws-extraction-mode=gen-main memory-limit=0" --concat-init-results="ws-extraction-mode=gen-main memory-limit=0" %s | FileCheck --check-prefix=CHECK-MAIN-PARTS %s
-// RUN: vpux-opt --split-input-file --init-compiler=vpu-arch=%arch% --introduce-init-function="ws-extraction-mode=gen-all" --concat-init-results="ws-extraction-mode=gen-all" %s | FileCheck --check-prefix=CHECK-GEN-ALL %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 {-#
@@ -25,7 +24,6 @@
 // CHECK-INIT-PART0: module @TwoConstants
 // CHECK-INIT-PART1: module @TwoConstants
 // CHECK-MAIN-PARTS: module @TwoConstants
-// CHECK-GEN-ALL: module @TwoConstants
 module @TwoConstants {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -113,14 +111,6 @@ module @TwoConstants {
     // CHECK-MAIN-PARTS:    [[SLICE11:%.+]] = VPU.Slice [[BLOB1]] [8] [12]
     // CHECK-MAIN-PARTS:    [[CAST11:%.+]] = Core.ReinterpretCast([[SLICE11]]) {{.*}} -> tensor<2x1x1x3xf16>
     // CHECK-MAIN-PARTS:    return [[IN]]
-
-    // CHECK-GEN-ALL:   func.func @wrapper_main([[IN:%.+]]: tensor<4x16xf16>) -> tensor<4x16xf16>
-    // CHECK-GEN-ALL:       [[OV1:%.+]] = const.Declare tensor<1x1x5x1xui8> = dense_resource<vpux_ow_1>
-    // CHECK-GEN-ALL:       [[OV2:%.+]] = const.Declare tensor<2x1x1x2xf16> = dense_resource<vpux_ow_2>
-    // CHECK-GEN-ALL:       [[CALL_INIT:%.+]] = call @init([[OV1]], [[OV2]])
-    // CHECK-GEN-ALL-SAME:      -> tensor<25xi8>
-    // CHECK-GEN-ALL:       [[CALL_MAIN:%.+]] = call @main([[IN]], [[CALL_INIT]])
-    // CHECK-GEN-ALL:       return [[CALL_MAIN]]
 }
 
 // -----
@@ -149,7 +139,6 @@ module @TwoConstants {
 // CHECK-INIT-PART0: module @QuantizedType
 // CHECK-INIT-PART1: module @QuantizedType
 // CHECK-MAIN-PARTS: module @QuantizedType
-// CHECK-GEN-ALL: module @QuantizedType
 module @QuantizedType {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -237,14 +226,6 @@ module @QuantizedType {
     // CHECK-MAIN-PARTS:    [[BOUNDARY_CAST0:%.+]] = VPU.QuantizeCast([[CAST_OV1_1]]) {dstElemType = [[QTYPE]]}
     // CHECK-MAIN-PARTS:    [[BOUNDARY_CAST1:%.+]] = VPU.QuantizeCast([[CAST_OV1_0]]) {dstElemType = [[QTYPE]]}
     // CHECK-MAIN-PARTS:    return [[IN]]
-
-    // CHECK-GEN-ALL:   func.func @wrapper_main([[IN:%.+]]: tensor<4x16xf16>) -> tensor<4x16xf16>
-    // CHECK-GEN-ALL:       [[OV1:%.+]] = const.Declare tensor<2xf16> = dense_resource<vpux_ow_1>
-    // CHECK-GEN-ALL:       [[OVDUMMY:%.+]] = const.Declare tensor<2xf16> = dense_resource<vpux_ow_dummy>
-    // CHECK-GEN-ALL:       [[CALL_INIT:%.+]] = call @init([[OV1]], [[OVDUMMY]])
-    // CHECK-GEN-ALL-SAME:      -> tensor<11xi8>
-    // CHECK-GEN-ALL:       [[CALL_MAIN:%.+]] = call @main([[IN]], [[CALL_INIT]])
-    // CHECK-GEN-ALL:       return [[CALL_MAIN]]
 }
 
 
@@ -266,7 +247,6 @@ module @QuantizedType {
 // CHECK-INIT-PART0: module @SimpleOutlining
 // CHECK-INIT-PART1: module @SimpleOutlining
 // CHECK-MAIN-PARTS: module @SimpleOutlining
-// CHECK-GEN-ALL: module @SimpleOutlining
 module @SimpleOutlining {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -329,14 +309,6 @@ module @SimpleOutlining {
     // CHECK-MAIN-FULL:     [[CAST_OV1_2:%.+]] = Core.ReinterpretCast([[SLICE_OV1_2]]) {{.*}} -> tensor<1x1x1x3xf16>
     // CHECK-MAIN-FULL:     {{%.+}} = call @main_part1([[CAST_OV1_2]])
     // CHECK-MAIN-FULL:     return [[IN]]
-
-    // CHECK-GEN-ALL:   func.func @wrapper_main([[IN:%.+]]: tensor<4x16xf16>) -> tensor<4x16xf16>
-    // CHECK-GEN-ALL:       [[OV1:%.+]] = const.Declare tensor<1x1x1x2xf16> = dense_resource<vpux_ow_1>
-    // CHECK-GEN-ALL:       [[OVDUMMY:%.+]] = const.Declare tensor<1x1x1x2xf16> = dense_resource<vpux_ow_dummy>
-    // CHECK-GEN-ALL:       [[CALL_INIT:%.+]] = call @init([[OV1]], [[OVDUMMY]])
-    // CHECK-GEN-ALL-SAME:      -> tensor<24xi8>
-    // CHECK-GEN-ALL:       [[CALL_MAIN:%.+]] = call @main([[IN]], [[CALL_INIT]])
-    // CHECK-GEN-ALL:       return [[CALL_MAIN]]
 }
 
 // -----
@@ -355,7 +327,6 @@ module @SimpleOutlining {
 // CHECK-INIT-PART0: module @SingleConstantInTheBeginning
 // CHECK-INIT-PART1: module @SingleConstantInTheBeginning
 // CHECK-MAIN-PARTS: module @SingleConstantInTheBeginning
-// CHECK-GEN-ALL: module @SingleConstantInTheBeginning
 module @SingleConstantInTheBeginning {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -420,7 +391,6 @@ module @SingleConstantInTheBeginning {
 // CHECK-INIT-PART0: module @SingleConstantInTheMiddle
 // CHECK-INIT-PART1: module @SingleConstantInTheMiddle
 // CHECK-MAIN-PARTS: module @SingleConstantInTheMiddle
-// CHECK-GEN-ALL: module @SingleConstantInTheMiddle
 module @SingleConstantInTheMiddle {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -488,7 +458,6 @@ module @SingleConstantInTheMiddle {
 // CHECK-INIT-PART0: module @SingleConstantInTheEnd
 // CHECK-INIT-PART1: module @SingleConstantInTheEnd
 // CHECK-MAIN-PARTS: module @SingleConstantInTheEnd
-// CHECK-GEN-ALL: module @SingleConstantInTheEnd
 module @SingleConstantInTheEnd {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -554,7 +523,6 @@ module @SingleConstantInTheEnd {
 // CHECK-INIT-PART0: module @SingleConstantWithLayout
 // CHECK-INIT-PART1: module @SingleConstantWithLayout
 // CHECK-MAIN-PARTS: module @SingleConstantWithLayout
-// CHECK-GEN-ALL: module @SingleConstantWithLayout
 module @SingleConstantWithLayout {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -659,7 +627,6 @@ module @SingleConstantWithLayout {
 // CHECK-INIT-PART0: module @GenAllSpecialCase
 // CHECK-INIT-PART1: module @GenAllSpecialCase
 // CHECK-MAIN-PARTS: module @GenAllSpecialCase
-// CHECK-GEN-ALL: module @GenAllSpecialCase
 module @GenAllSpecialCase {
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input1" : tensor<4x16xf16>
@@ -707,15 +674,4 @@ module @GenAllSpecialCase {
     // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [0] [4] {{.*}} to tensor<4xi8>
     // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [4] [6] {{.*}} to tensor<6xi8>
     // CHECK-MAIN-FULL: {{%.+}} = VPU.Slice [[BLOB]] [10] [10] {{.*}} to tensor<10xi8>
-
-
-    // CHECK-GEN-ALL: func.func private @init
-    // CHECK-GEN-ALL:   [[CONCAT:%.+]] = IE.Concat({{%.+}}, {{%.+}}, {{%.+}})
-    // CHECK-GEN-ALL-SAME:  tensor<10xi8>, tensor<6xi8>, tensor<4xi8>
-    // CHECK-GEN-ALL:   return [[CONCAT]]
-
-    // CHECK-GEN-ALL: func.func private @main({{%.+}}: tensor<4x16xf16>, [[BLOB:%.+]]: tensor<20xi8>)
-    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [0] [10] {{.*}} to tensor<10xi8>
-    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [10] [6] {{.*}} to tensor<6xi8>
-    // CHECK-GEN-ALL:   {{%.+}} = VPU.Slice [[BLOB]] [16] [4] {{.*}} to tensor<4xi8>
 }

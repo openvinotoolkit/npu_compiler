@@ -9,8 +9,8 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -34,8 +34,8 @@ using namespace vpux;
 namespace {
 
 bool isLegalTensor(vpux::NDTypeInterface tensorType, mlir::ModuleOp moduleOp, int64_t symmetricalZeroPoint = 128) {
-    const auto isAsymmetricPerChannelZeroPointSupported = VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorZeroPointSupported = VPU::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorZeroPointSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
     const auto isSymmetricalZeroPoint = [](mlir::Type quantizedType, const int64_t symmetricalZeroPoint) -> bool {
         if (const auto uniformQuantizedType =
                     mlir::dyn_cast_or_null<mlir::quant::UniformQuantizedType>(quantizedType)) {

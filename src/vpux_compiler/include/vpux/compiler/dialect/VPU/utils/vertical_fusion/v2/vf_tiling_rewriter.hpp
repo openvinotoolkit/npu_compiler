@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduling_factory.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
@@ -41,6 +40,15 @@ protected:
             }
         }
         return std::make_pair(dims, tilesLen);
+    }
+
+    virtual TilingStorage restoreTilingStorage(VFConfig& config, ArrayRef<int64_t> strategy,
+                                               TilingOperationStorage::UPtr& operationStorage) const override {
+        auto storage = calculateTilingRegions(config, strategy, _log, operationStorage);
+
+        VPUX_THROW_WHEN(mlir::failed(storage), "Cannot restore tiling regions for VF {0}", config.getSubgraph());
+
+        return storage.value();
     }
 };
 }  // namespace vpux::VPU::VF::v2

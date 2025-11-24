@@ -112,13 +112,13 @@ func.func @MixedPrecisionFloatInputQuantWeightsConv(%arg0: tensor<1x16x16x16xf16
 // CHECK-LABEL: @MixedPrecisionFloatInputQuantWeightsConvNF4
 // CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x28x28xf16>
 func.func @MixedPrecisionFloatInputQuantWeightsConvNF4(%arg0: tensor<1x1x28x28xf16>) -> tensor<1x1x29x29xf16> {
-  %weights = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2x!quantFloatType>, [#const.ConvertElemType<f32>, #const.CastElemType<!quantFloatType>, #const.CastElemType<f16>, #const.CastElemType<ui4>, #const.CastElemType<!qElemType>]
+  %weights = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2xui4>, [#const.ConvertElemType<f32>, #const.CastElemType<!quantFloatType>, #const.CastElemType<f16>, #const.CastElemType<ui4>, #const.CastElemType<!qElemType>]
   %qweights = IE.Dequantize(%weights) {dstElemType = f16} : tensor<1x1x2x2x!qElemType> -> tensor<1x1x2x2xf16>
   %result = IE.Convolution(%arg0, %qweights) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x28x28xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x29x29xf16>
 
   return %result : tensor<1x1x29x29xf16>
 
-  //CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2x!QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>>, [#const.ConvertElemType<f32>, #const.CastElemType<!QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>>, #const.CastElemType<f16>, #const.CastElemType<ui4>, #const.CastElemType<!qElemType>]
+  //CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2xui4>, [#const.ConvertElemType<f32>, #const.CastElemType<!QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>>, #const.CastElemType<f16>, #const.CastElemType<ui4>, #const.CastElemType<!qElemType>]
 
   //CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x28x28xf16>, tensor<1x1x2x2x!qElemType> -> tensor<1x1x29x29xf16>
   //CHECK: return [[CONV]]

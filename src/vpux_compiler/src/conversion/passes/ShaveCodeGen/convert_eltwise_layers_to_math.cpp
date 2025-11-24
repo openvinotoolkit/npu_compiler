@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/conversion/passes/ShaveCodeGen/conversions.hpp"
 #include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/arithmetic.hpp"
@@ -369,6 +370,154 @@ mlir::Value emitLinalgRegion<IE::ReLUOp>(IE::ReLUOp op, mlir::ValueRange args, l
     return emitLeakyReLU(args[0], 0., rewriter);
 }
 
+// Elu
+
+template <>
+mlir::Value emitLinalgRegion<IE::EluOp>(IE::EluOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
+                                        mlir::PatternRewriter& rewriter) {
+    auto loc = op.getLoc();
+    auto input = args[0];
+
+    auto elemType = mlir::cast<mlir::FloatType>(resultTypes[0]);
+
+    // Create constants
+    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
+    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 1.0));
+
+    // Access alpha (x attribute)
+    auto xAttr = op.getXAttr();
+    const double alpha = xAttr.getValue().convertToDouble();
+    auto alphaConst = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, alpha));
+
+    // Use afn (approximate functions) flag for exp
+    auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
+    auto fmFlagsMinMax = mlir::arith::FastMathFlagsAttr::get(
+            rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
+
+    // Compute min and max using vector operations
+    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+
+    // Compute exponential of min (negative values only)
+    auto expMin = rewriter.create<mlir::math::ExpOp>(loc, min, fmFlags);
+
+    // Combine: max + alpha * (exp(min) - 1)
+    auto expSub = rewriter.create<mlir::arith::SubFOp>(loc, expMin, one);
+    auto scaled = rewriter.create<mlir::arith::MulFOp>(loc, alphaConst, expSub);
+
+    return rewriter.create<mlir::arith::AddFOp>(loc, max, scaled);
+}
+
+// Gelu
+
+template <>
+mlir::Value emitLinalgRegion<IE::GeluOp>(IE::GeluOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
+                                         mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto loc = op.getLoc();
+    auto input = args[0];
+
+    // Precomputed constants
+    const double SQRT2_DIV_PI_VAL = 0.79788456080286535587989211986876f;
+    const double MUL_FITTING_CONST_VAL = SQRT2_DIV_PI_VAL * 0.044715f;
+
+    // Create constants with proper type
+    auto sqrt2_div_pi =
+            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), SQRT2_DIV_PI_VAL));
+    auto mul_fitting_const = rewriter.create<mlir::arith::ConstantOp>(
+            loc, rewriter.getFloatAttr(input.getType(), MUL_FITTING_CONST_VAL));
+    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 1.0));
+    auto half = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(input.getType(), 0.5));
+
+    // Use afn (approximate functions) flag for tanh
+    auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
+
+    // Computes
+    auto square = rewriter.create<mlir::arith::MulFOp>(loc, input, input);
+    auto scaled_square = rewriter.create<mlir::arith::MulFOp>(loc, mul_fitting_const, square);
+    auto scaled_base = rewriter.create<mlir::arith::AddFOp>(loc, sqrt2_div_pi, scaled_square);
+    auto scaled_input = rewriter.create<mlir::arith::MulFOp>(loc, input, scaled_base);
+    auto tanh_result = rewriter.create<mlir::math::TanhOp>(loc, scaled_input, fmFlags);
+    auto tanh_plus_one = rewriter.create<mlir::arith::AddFOp>(loc, one, tanh_result);
+    auto gelu_intermediate = rewriter.create<mlir::arith::MulFOp>(loc, input, tanh_plus_one);
+
+    return rewriter.create<mlir::arith::MulFOp>(loc, gelu_intermediate, half);
+}
+
+// Selu
+
+template <>
+mlir::Value emitLinalgRegion<IE::SeluOp>(IE::SeluOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
+                                         mlir::PatternRewriter& rewriter) {
+    auto loc = op.getLoc();
+
+    // Get input value from args
+    auto input = args[0];
+    auto elemType = mlir::cast<mlir::FloatType>(resultTypes[0]);
+
+    // Create constants
+    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
+    auto one = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 1.0));
+
+    // Get alpha and lambda from the operation's attributes
+    auto alphaAttr = op.getAlphaValueAttr();
+    auto lambdaAttr = op.getLambdaValueAttr();
+
+    if (!alphaAttr || !lambdaAttr) {
+        VPUX_THROW("SeluOp must have alphaValue and lambdaValue attributes");
+    }
+
+    // Extract double values from attributes
+    double alphaVal = alphaAttr.getValue().convertToDouble();
+    double lambdaVal = lambdaAttr.getValue().convertToDouble();
+
+    auto alpha = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, alphaVal));
+    auto lambda = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, lambdaVal));
+
+    // Use afn (approximate functions) flag for exp
+    auto fmFlags = mlir::arith::FastMathFlagsAttr::get(rewriter.getContext(), mlir::arith::FastMathFlags::afn);
+    auto fmFlagsMinMax = mlir::arith::FastMathFlagsAttr::get(
+            rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
+
+    // Compute min and max using vector operations
+    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+
+    // Compute exponential of min (negative values only)
+    auto expMin = rewriter.create<mlir::math::ExpOp>(loc, min, fmFlags);
+
+    // Compute SELU components
+    auto exp_minus_one = rewriter.create<mlir::arith::SubFOp>(loc, expMin, one);
+    auto alpha_multiply = rewriter.create<mlir::arith::MulFOp>(loc, alpha, exp_minus_one);
+    auto sum_max = rewriter.create<mlir::arith::AddFOp>(loc, max, alpha_multiply);
+
+    // Scale by lambda
+    return rewriter.create<mlir::arith::MulFOp>(loc, lambda, sum_max);
+}
+
+// Prelu
+
+template <>
+mlir::Value emitLinalgRegion<IE::PReluOp>(IE::PReluOp op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> resultTypes,
+                                          mlir::PatternRewriter& rewriter) {
+    VPUX_UNUSED(resultTypes);
+    auto loc = op.getLoc();
+    auto input = args[0];
+
+    mlir::Type elemType = args[0].getType();
+    auto zero = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getFloatAttr(elemType, 0.0));
+
+    auto fmFlagsMinMax = mlir::arith::FastMathFlagsAttr::get(
+            rewriter.getContext(), mlir::arith::FastMathFlags::nnan | mlir::arith::FastMathFlags::nsz);
+
+    // Computes PReLU activation: max(input, 0) + slope * min(input, 0)
+    auto min = rewriter.create<mlir::arith::MinimumFOp>(loc, input, zero, fmFlagsMinMax);
+    auto max = rewriter.create<mlir::arith::MaximumFOp>(loc, input, zero, fmFlagsMinMax);
+
+    auto slopeMulMin = rewriter.create<mlir::arith::MulFOp>(loc, min, args[1]);
+    return rewriter.create<mlir::arith::AddFOp>(loc, max, slopeMulMin);
+}
+
 // Add/Sub/Mul
 
 template <typename SrcIOp, typename SrcFOp>
@@ -496,12 +645,12 @@ mlir::Value emitF16ViaF32ThenTrunc(mlir::Operation* op, mlir::ValueRange args, l
     // In case the type is f16 then we need to do a conversion to f32 and convert the result back to f16
     if (mlir::isa<mlir::Float16Type>(elTy)) {
         // f16 -> fp32
-        auto f32Type = mlir::FloatType::getF32(rewriter.getContext());
+        auto f32Type = mlir::Float32Type::get(rewriter.getContext());
         auto extArg = rewriter.create<mlir::arith::ExtFOp>(args[0].getLoc(), f32Type, args[0]);
 
         // Creating the operation in fp32
         auto genOp = rewriter.create<OpT>(op->getLoc(), f32Type, extArg);
-        auto f16Type = mlir::FloatType::getF16(rewriter.getContext());
+        auto f16Type = mlir::Float16Type::get(rewriter.getContext());
         return rewriter.create<mlir::arith::TruncFOp>(op->getLoc(), f16Type, genOp);
     }
 
@@ -639,81 +788,139 @@ mlir::Value emitLinalgRegion<IE::NegativeOp>(IE::NegativeOp op, mlir::ValueRange
 using EmitBodyCallback = std::function<mlir::Value(mlir::Operation*, mlir::ValueRange, llvm::ArrayRef<mlir::Type>,
                                                    mlir::PatternRewriter&)>;
 
+enum class BroadcastType { NONE, NUMPY, PER_CHANNEL, UNSUPPORTED };
+
+// Helper function to determine broadcast type for an operand
+static BroadcastType getBroadcastType(mlir::Operation* op, mlir::Value operand, unsigned operandIndex) {
+    // Check for PRelu-specific per-channel broadcast
+    if (auto preluOp = mlir::dyn_cast<IE::PReluOp>(op)) {
+        if (operandIndex == 1) {  // Slope operand
+            auto inputType = mlir::cast<vpux::NDTypeInterface>(preluOp.getInput().getType());
+            auto inputShape = inputType.getShape();
+
+            // Get slope type and shape from the operand
+            auto slopeType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+            auto slopeShape = slopeType.getShape();
+            auto slopeRank = slopeType.getRank();
+
+            // Per-channel broadcast applies only if slope is 1D and matches the channel dimension
+            // The channel dimension is at index 1 in NCHW layout (the second dimension)
+            if (slopeRank == 1 && inputShape.size() >= 2) {
+                // Check if slope dimension matches the input's channel dimension
+                if (slopeShape[Dim(0)] == inputShape[Dim(1)]) {
+                    return BroadcastType::PER_CHANNEL;
+                }
+            }
+            return BroadcastType::NUMPY;
+        }
+    }
+
+    // Check for general broadcast attributes
+    if (op->getOperands().size() > 1) {
+        if (auto broadcastAttr = op->getAttrOfType<IE::AutoBroadcastTypeAttr>("auto_broadcast")) {
+            switch (broadcastAttr.getValue()) {
+            case IE::AutoBroadcastType::NUMPY:
+                return BroadcastType::NUMPY;
+            case IE::AutoBroadcastType::NONE_OR_EXPLICIT:
+                return BroadcastType::NONE;
+            default:
+                return BroadcastType::UNSUPPORTED;
+            }
+        }
+    }
+
+    return BroadcastType::NONE;
+}
+
 static mlir::LogicalResult emitLinalgEltwiseHelper(mlir::Operation* op, EmitBodyCallback callback,
                                                    mlir::PatternRewriter& rewriter) {
     auto resultType = mlir::cast<mlir::RankedTensorType>(op->getResultTypes().front());
     auto outputShape = mlir::cast<vpux::NDTypeInterface>(op->getResultTypes().front()).getShape();
     auto linalgResultElTy = ShaveCodeGen::getLinalgElementType(resultType, rewriter.getContext());
 
-    bool allowBroadcast = false;
-    if (op->getOperands().size() > 1) {
-        // TODO: E#159770 - there should be a broadcastable op interface.
-        if (auto broadcastAddr = op->getAttrOfType<IE::AutoBroadcastTypeAttr>("auto_broadcast")) {
-            switch (broadcastAddr.getValue()) {
-            case IE::AutoBroadcastType::NONE_OR_EXPLICIT:
-                break;
-            case IE::AutoBroadcastType::NUMPY:
-                allowBroadcast = true;
-                break;
-            default:
-                // We don't support paddle paddle broadcasting.
-                return mlir::failure();
-            }
-        }
-    }
-    if (allowBroadcast) {
-        // Reject the dynamic output type, at least for now.
-        // We could support more cases though, at least where there's no ambiguity as to where the
-        // broadcast is coming from (e.g <1 x ?>, <4 x 1> -> <4, ?>).
-        if (outputShape.isDynamic()) {
-            return mlir::failure();
-        }
+    // Reject the dynamic output type, at least for now.
+    if (outputShape.isDynamic()) {
+        return mlir::failure();
     }
 
     // Create the linalg affine maps. This will handle broadcasting (operand dimension size
     // is equal to 1 and is different than the result dimension) by using a 0 affine constant
     // in the affine map.
     auto rank = resultType.getRank();
-    bool hasBroadcast = false;
     auto inverseOutputMap = mlir::inversePermutation(mlir::cast<vpux::NDTypeInterface>(op->getResultTypes().front())
                                                              .getDimsOrder()
                                                              .toAffineMap(rewriter.getContext()));
 
-    auto affineMaps = llvm::map_to_vector(op->getOperands(), [&](mlir::Value operand) {
-        auto shape = mlir::cast<vpux::NDTypeInterface>(operand.getType()).getShape();
-        SmallVector<mlir::AffineExpr> affineExprs;
+    // Helper function to create logical map for an operand
+    auto createLogicalMap = [&](mlir::Value operand, unsigned operandIndex) -> mlir::AffineMap {
         auto operandRank = mlir::cast<mlir::RankedTensorType>(operand.getType()).getRank();
+        auto operandShape = mlir::cast<vpux::NDTypeInterface>(operand.getType()).getShape();
 
+        // Handle scalar operands
+        if (operandRank == 0) {
+            return mlir::AffineMap::get(rank, 0, {}, rewriter.getContext());
+        }
+
+        SmallVector<mlir::AffineExpr> affineExprs;
+        BroadcastType broadcastType = getBroadcastType(op, operand, operandIndex);
+
+        // Check for unsupported broadcast type
+        if (broadcastType == BroadcastType::UNSUPPORTED) {
+            return mlir::AffineMap();  // Return invalid map to indicate failure
+        }
+
+        // Handle per-channel broadcast
+        if (broadcastType == BroadcastType::PER_CHANNEL) {
+            // For per-channel broadcast, map to channel dimension (index 1 in logical NCHW order)
+            affineExprs.push_back(rewriter.getAffineDimExpr(1));
+            return mlir::AffineMap::get(rank, 0, affineExprs, rewriter.getContext());
+        }
+
+        // Default handling for all other operands and operations
         // The output rank should always be larger or equal than the operand rank
         // due to shape inference rules.
         assert(rank >= operandRank && "Unexpected input rank");
-        for (auto it : llvm::enumerate(shape)) {
+        for (auto it : llvm::enumerate(operandShape)) {
             // Match the input dimension to the output dimension index according
             // to numpy broadcasting rules. Note if the input and output shapes
             // have different ranks then the lower ranked shape (the input one)
             // is right aligned and filled with ones to the left to equalize
             // the ranks.
             auto outIdx = rank - operandRank + it.index();
+            auto dimValue = it.value();
             auto outDim = outputShape.raw()[outIdx];
             // If the input dimension is equal to one and the output dimension is
             // not one then we are broadcasting.
-            auto broadcastDim = allowBroadcast && it.value() == 1 && outDim != it.value();
-            // Now that we've figured out if we are broadcasting or not we can
-            // update the overall broadcast flag.
-            hasBroadcast = hasBroadcast || broadcastDim;
+            bool broadcastDim = false;
+            if (broadcastType == BroadcastType::NUMPY) {
+                broadcastDim = (dimValue == 1 && outDim != dimValue);
+            }
             // Broadcasting across this dimension is equivalent to having a constant
             // zero expression in the affine map.
             auto affineExpr = broadcastDim ? rewriter.getAffineConstantExpr(0) : rewriter.getAffineDimExpr(outIdx);
             affineExprs.push_back(affineExpr);
         }
 
+        return mlir::AffineMap::get(rank, 0, affineExprs, rewriter.getContext());
+    };
+
+    // Create affine maps for all operands
+    SmallVector<mlir::AffineMap> affineMaps;
+    for (auto operand : llvm::enumerate(op->getOperands())) {
+        auto logicalMap = createLogicalMap(operand.value(), operand.index());
+
+        // Check if we got an invalid map (unsupported broadcast)
+        if (!logicalMap) {
+            return mlir::failure();
+        }
         // Compose affine maps to get the correct indexing for this operand
         // considering that the output tensor will have identity indexing.
-        auto opMap =
-                mlir::cast<vpux::NDTypeInterface>(operand.getType()).getDimsOrder().toAffineMap(rewriter.getContext());
-        auto logicalMap = mlir::AffineMap::get(rank, 0, affineExprs, rewriter.getContext());
-        return opMap.compose(logicalMap).compose(inverseOutputMap);
-    });
+        auto opMap = mlir::cast<vpux::NDTypeInterface>(operand.value().getType())
+                             .getDimsOrder()
+                             .toAffineMap(rewriter.getContext());
+        auto finalMap = opMap.compose(logicalMap).compose(inverseOutputMap);
+        affineMaps.push_back(finalMap);
+    }
 
     // Add the affine map for the output tensor as well.
     affineMaps.push_back(rewriter.getMultiDimIdentityMap(rank));
@@ -722,24 +929,12 @@ static mlir::LogicalResult emitLinalgEltwiseHelper(mlir::Operation* op, EmitBody
         return ShaveCodeGen::convertToLinalgValue(operand, rewriter);
     });
 
-    // We need a tensor::EmptyOp to cover the case where the output tensor type is different than the
-    // input ones. This can be caused either by broadcasting (the shape changes) or if we get
-    // a different element type for the output (bitcasting is possibly illegal).
-    // This should be removed after outlining.
-    auto inputElTy = mlir::cast<vpux::NDTypeInterface>(linalgOperands.front().getType()).getElementType();
-    bool changesType = (inputElTy != linalgResultElTy);
-    mlir::Value outputTensor = nullptr;
-
-    if (hasBroadcast || changesType || op->getOperand(0).getType() != op->getResult(0).getType()) {
-        // Compute the tensor shape with an identity layout which has a memory layout that matches our
-        // original output tensor.
-        auto ndResultTy = mlir::cast<NDTypeInterface>(resultType);
-        auto dOrder = DimsOrder::fromPermutation(ndResultTy.getDimsOrder().toPermutation());
-        auto dstShape = dOrder.toMemoryOrder(ndResultTy.getShape()).raw();
-        outputTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), dstShape, linalgResultElTy);
-    } else {
-        outputTensor = linalgOperands.front();
-    }
+    // Compute the output tensor shape with an identity layout which has a memory layout that matches our
+    // original output tensor.
+    auto ndResultTy = mlir::cast<NDTypeInterface>(resultType);
+    auto dOrder = DimsOrder::fromPermutation(ndResultTy.getDimsOrder().toPermutation());
+    auto dstShape = dOrder.toMemoryOrder(ndResultTy.getShape()).raw();
+    mlir::Value outputTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), dstShape, linalgResultElTy);
 
     llvm::SmallVector<mlir::utils::IteratorType> loopAttrs(rank, mlir::utils::IteratorType::parallel);
     auto linalgOp = rewriter.create<mlir::linalg::GenericOp>(
@@ -934,322 +1129,6 @@ mlir::Value emitLinalgRegion<IE::HSigmoidOp>(IE::HSigmoidOp op, mlir::ValueRange
     return rewriter.create<mlir::arith::MulFOp>(loc, min, divSix);
 }
 
-// Reduce layers
-template <>
-mlir::Value emitLinalgRegion<IE::ReduceMaxOp>(IE::ReduceMaxOp op, mlir::ValueRange args,
-                                              llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
-    return emitMax(op, args, resultTypes, rewriter);
-}
-
-template <>
-mlir::Value emitLinalgRegion<IE::ReduceMinOp>(IE::ReduceMinOp op, mlir::ValueRange args,
-                                              llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
-    return emitMin(op, args, resultTypes, rewriter);
-}
-
-template <>
-mlir::Value emitLinalgRegion<IE::ReduceL2Op>(IE::ReduceL2Op op, mlir::ValueRange args,
-                                             llvm::ArrayRef<mlir::Type> resultTypes, mlir::PatternRewriter& rewriter) {
-    VPUX_UNUSED(resultTypes);
-    auto in = args[0];
-    auto accum = args[1];
-    auto loc = op.getLoc();
-    auto inTy = in.getType();
-    if (mlir::isa<mlir::FloatType>(inTy)) {
-        if (inTy != accum.getType()) {
-            in = rewriter.create<mlir::arith::ExtFOp>(loc, accum.getType(), in);
-        }
-        in = rewriter.create<mlir::arith::MulFOp>(loc, accum.getType(), in, in);
-        // We need the reassoc flag for auto-vectorization.
-        return rewriter.create<mlir::arith::AddFOp>(loc, accum.getType(), accum, in,
-                                                    mlir::arith::FastMathFlags::reassoc);
-    }
-    in = rewriter.create<mlir::arith::MulIOp>(loc, accum.getType(), in, in);
-    return rewriter.create<mlir::arith::AddIOp>(loc, accum.getType(), accum, in);
-}
-
-// Infrastructure for reduce ops.
-
-static mlir::Value getNullScalar(mlir::Operation* op, mlir::Type resultTy, mlir::PatternRewriter& rewriter) {
-    auto elTy = mlir::cast<NDTypeInterface>(op->getOperand(0).getType()).getElementType();
-    mlir::TypedAttr constAttr;
-    if (mlir::isa<IE::ReduceMaxOp>(op)) {
-        if (mlir::isa<mlir::FloatType>(elTy)) {
-            constAttr = rewriter.getFloatAttr(
-                    resultTy, llvm::APFloat::getInf(mlir::cast<mlir::FloatType>(resultTy).getFloatSemantics(), true));
-        } else {
-            constAttr = rewriter.getIntegerAttr(
-                    resultTy, llvm::APSInt::getMinValue(resultTy.getIntOrFloatBitWidth(), !elTy.isSignedInteger()));
-        }
-    } else if (mlir::isa<IE::ReduceMinOp>(op)) {
-        if (mlir::isa<mlir::FloatType>(elTy)) {
-            constAttr = rewriter.getFloatAttr(
-                    resultTy, llvm::APFloat::getInf(mlir::cast<mlir::FloatType>(resultTy).getFloatSemantics(), false));
-        } else {
-            constAttr = rewriter.getIntegerAttr(
-                    resultTy, llvm::APSInt::getMaxValue(resultTy.getIntOrFloatBitWidth(), !elTy.isSignedInteger()));
-        }
-    } else if (mlir::isa<IE::ReduceSumOp>(op) || mlir::isa<IE::ReduceL1Op>(op) || mlir::isa<IE::ReduceL2Op>(op) ||
-               mlir::isa<IE::ReduceMeanOp>(op) || mlir::isa<IE::ReduceLogicalOrOp>(op)) {
-        if (mlir::isa<mlir::FloatType>(elTy)) {
-            constAttr = rewriter.getFloatAttr(
-                    resultTy, llvm::APFloat::getZero(mlir::cast<mlir::FloatType>(resultTy).getFloatSemantics()));
-        } else {
-            constAttr = rewriter.getIntegerAttr(resultTy, llvm::APSInt::getZero(resultTy.getIntOrFloatBitWidth()));
-        }
-    } else if (mlir::isa<IE::ReduceLogicalAndOp>(op)) {
-        if (mlir::isa<mlir::FloatType>(elTy)) {
-            constAttr = rewriter.getFloatAttr(
-                    resultTy, llvm::APFloat::getOne(mlir::cast<mlir::FloatType>(resultTy).getFloatSemantics()));
-        } else {
-            llvm::APInt one(resultTy.getIntOrFloatBitWidth(), 1);
-            constAttr = rewriter.getIntegerAttr(resultTy, one);
-        }
-    } else {
-        VPUX_THROW("unknown null value for reduce op");
-    }
-    return rewriter.create<mlir::arith::ConstantOp>(op->getLoc(), constAttr);
-}
-
-static mlir::AffineMap dropZeroResults(mlir::AffineMap& map) {
-    // Should replace with AffineMap::dropZeroResults when this becomes available.
-    auto exprs = llvm::to_vector(map.getResults());
-    SmallVector<mlir::AffineExpr> newExprs;
-    for (auto expr : map.getResults()) {
-        auto constExpr = mlir::dyn_cast<mlir::AffineConstantExpr>(expr);
-        if (!constExpr || constExpr.getValue() != 0) {
-            newExprs.push_back(expr);
-        }
-    }
-    return mlir::AffineMap::get(map.getNumDims(), map.getNumSymbols(), newExprs, map.getContext());
-};
-
-static mlir::LogicalResult emitLinalgReduceHelper(mlir::Operation* op, EmitBodyCallback callback,
-                                                  EmitBodyCallback normalizeCallback, bool accumNeedsF32Precision,
-                                                  bool keepDims, SmallVector<int64_t>& axes,
-                                                  mlir::PatternRewriter& rewriter) {
-    // The reduce operation contains three stages:
-    // 1. Producing an initial value for the output tensor filled with the neutral element
-    //    for the reduce operation. This neutral element is dependent on the performed
-    //    reduction.
-    // 2. The actual reduction linalg operation. The operation will use the input memory
-    //    order, so the output affine map and loop iterators need to be adjusted accordingly.
-    //    The output shape will *not* keep the reduced dimensions, since otherwise the
-    //    resulting linalg operation wouldn't be tilable.
-    // 3. An element-wise normalization stage, which will perform the required post-reduction
-    //    adjustments (e.g. sqrt for L2, or a div for mean). This stage will also add back
-    //    any of the dropped reduced dimensions if necessary.
-    auto input = op->getOperands().front();
-    auto inputType = mlir::cast<mlir::RankedTensorType>(input.getType());
-    auto result = op->getResult(0);
-    auto resultType = mlir::cast<mlir::RankedTensorType>(result.getType());
-    auto resultRank = resultType.getRank();
-    // Element type from the output of the normalization stage
-    auto postNormElTy = ShaveCodeGen::getLinalgElementType(resultType, rewriter.getContext());
-    auto forceF32ForReductionOutput = (accumNeedsF32Precision && mlir::isa<mlir::FloatType>(postNormElTy) &&
-                                       postNormElTy.getIntOrFloatBitWidth() < 32);
-    // Element type from the output of the reduction stage
-    auto reduceResultElTy = forceF32ForReductionOutput ? mlir::FloatType::getF32(rewriter.getContext()) : postNormElTy;
-    auto inputRank = inputType.getRank();
-    auto inputMemMap = mlir::cast<vpux::NDTypeInterface>(op->getOperandTypes().front())
-                               .getDimsOrder()
-                               .toAffineMap(rewriter.getContext());
-    auto outputMemMap =
-            mlir::cast<vpux::NDTypeInterface>(result.getType()).getDimsOrder().toAffineMap(rewriter.getContext());
-    auto inputLogicalShape = mlir::cast<vpux::NDTypeInterface>(input.getType()).getShape();
-
-    auto ndResultTy = mlir::cast<NDTypeInterface>(resultType);
-    auto resultDimsOrder = DimsOrder::fromPermutation(ndResultTy.getDimsOrder().toPermutation());
-    auto finalMemoryShape = resultDimsOrder.toMemoryOrder(ndResultTy.getShape()).raw();
-
-    // Compute the logical operation affine map for the reduce. This always has a constant zero
-    // expression on the reduced dimensions. We can drop the zeros when needed.
-    SmallVector<mlir::AffineExpr> logicalAffineExprs;
-    for (auto it : llvm::enumerate(inputLogicalShape)) {
-        auto isReduce = llvm::any_of(axes, [&](auto dim) {
-            return checked_cast<size_t>(dim) == it.index();
-        });
-        if (isReduce) {
-            logicalAffineExprs.push_back(rewriter.getAffineConstantExpr(0));
-            continue;
-        }
-        logicalAffineExprs.push_back(rewriter.getAffineDimExpr(it.index()));
-    }
-    auto operationLogicalMap = mlir::AffineMap::get(inputRank, 0, logicalAffineExprs, rewriter.getContext());
-
-    // Phase 1, initialize the reduce operation output.
-
-    // Compute the reduction stage's output shape. This is the same shape we need to use when emitting
-    // and initializing our empty tensor.
-    SmallVector<int64_t> reduceShape = finalMemoryShape;
-    if (keepDims) {
-        auto logicalShape = ndResultTy.getShape().raw();
-        auto outMap = outputMemMap.compose(operationLogicalMap);
-        outMap = dropZeroResults(outMap);
-        reduceShape = outMap.compose(logicalShape);
-    }
-
-    auto outputEmptyTensor = rewriter.create<mlir::tensor::EmptyOp>(op->getLoc(), reduceShape, reduceResultElTy);
-    auto nullScalar = getNullScalar(op, reduceResultElTy, rewriter);
-    auto outputTensor = rewriter.create<mlir::linalg::FillOp>(op->getLoc(), mlir::ValueRange{nullScalar},
-                                                              mlir::ValueRange{outputEmptyTensor})
-                                .result();
-
-    // Phase 2, emit the linalg reduce operation.
-
-    auto linalgOperands = llvm::map_to_vector(op->getOperands(), [&](mlir::Value operand) {
-        return ShaveCodeGen::convertToLinalgValue(operand, rewriter);
-    });
-
-    // Compute the affine map for the linalg output operand.
-    // This is a composition of the output memory order permutation, the operations
-    // logical map and the inverse input memory map (to account for the change of
-    // the input memory map to an identity one).
-    SmallVector<mlir::AffineMap> reductionAffineMaps;
-    auto outputMap = operationLogicalMap.compose(mlir::inversePermutation(inputMemMap));
-    if (!keepDims) {
-        outputMap = dropZeroResults(outputMap);
-    }
-    outputMap = outputMemMap.compose(outputMap);
-    if (keepDims) {
-        outputMap = dropZeroResults(outputMap);
-    }
-
-    reductionAffineMaps.push_back(rewriter.getMultiDimIdentityMap(inputRank));
-    reductionAffineMaps.push_back(outputMap);
-
-    // Prepare the reduction loop iterators.
-    SmallVector<mlir::utils::IteratorType, 5> reductionLoopAttrs;
-    {
-        llvm::SmallVector<mlir::utils::IteratorType> logicalLoopAttrs;
-        for (auto it : llvm::enumerate(inputLogicalShape)) {
-            auto isReduce = llvm::any_of(axes, [&](auto dim) {
-                return checked_cast<size_t>(dim) == it.index();
-            });
-            if (isReduce) {
-                logicalLoopAttrs.push_back(mlir::utils::IteratorType::reduction);
-                continue;
-            }
-            logicalLoopAttrs.push_back(mlir::utils::IteratorType::parallel);
-        }
-        // Permute the logical loop attributes to account for the change in
-        // the input order from the memory order to an identity mapping.
-        for (mlir::AffineExpr expr : inputMemMap.getResults()) {
-            auto dimExpr = mlir::cast<mlir::AffineDimExpr>(expr);
-            reductionLoopAttrs.push_back(logicalLoopAttrs[dimExpr.getPosition()]);
-        }
-    }
-
-    auto linalgOp = rewriter.create<mlir::linalg::GenericOp>(
-            op->getLoc(), outputTensor.getType(), linalgOperands, outputTensor, reductionAffineMaps, reductionLoopAttrs,
-            [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
-                mlir::Value opResult = callback(op, blockArgs, {reduceResultElTy}, rewriter);
-                opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
-            });
-
-    // Phase 3, post-reduction element-wise normalization
-
-    if (normalizeCallback != nullptr || postNormElTy != reduceResultElTy || keepDims) {
-        // The normalization stage element-wise so all loop attributes are parallel.
-        SmallVector<mlir::utils::IteratorType> normalizeLoopAttrs(resultRank, mlir::utils::IteratorType::parallel);
-        SmallVector<mlir::AffineMap, 2> normalizeAffineMaps;
-        if (keepDims) {
-            // In the keep_dims case we need to remove the reduced dimensions from
-            // our input map to match what the output of the reduction stage.
-            auto map = outputMemMap.compose(operationLogicalMap).compose(mlir::inversePermutation(outputMemMap));
-            normalizeAffineMaps.push_back(dropZeroResults(map));
-        } else {
-            normalizeAffineMaps.push_back(rewriter.getMultiDimIdentityMap(resultRank));
-        }
-        normalizeAffineMaps.push_back(rewriter.getMultiDimIdentityMap(resultRank));
-        // We'll need a new empty tensor if the normalization operation results either
-        // changes shape or has e different element type.
-        bool needsTruncate = (postNormElTy != reduceResultElTy);
-        auto normalizeOutputTensor = (needsTruncate || keepDims) ? rewriter.create<mlir::tensor::EmptyOp>(
-                                                                           op->getLoc(), finalMemoryShape, postNormElTy)
-                                                                 : linalgOp.getResult(0);
-        linalgOp = rewriter.create<mlir::linalg::GenericOp>(
-                op->getLoc(), normalizeOutputTensor.getType(), mlir::ValueRange{linalgOp.getResult(0)},
-                normalizeOutputTensor, normalizeAffineMaps, normalizeLoopAttrs,
-                [&](mlir::OpBuilder& opBuilder, mlir::Location loc, mlir::ValueRange blockArgs) {
-                    mlir::Value opResult = normalizeCallback ? normalizeCallback(op, blockArgs.take_front(1),
-                                                                                 {reduceResultElTy}, rewriter)
-                                                             : blockArgs.front();
-                    if (needsTruncate) {
-                        opResult = rewriter.create<mlir::arith::TruncFOp>(op->getLoc(), postNormElTy, opResult);
-                    }
-                    opBuilder.create<mlir::linalg::YieldOp>(loc, opResult);
-                });
-    }
-
-    rewriter.replaceOp(
-            op, ShaveCodeGen::convertFromLinalgValue(linalgOp->getResult(0), op->getResult(0).getType(), rewriter)
-                        .getDefiningOp());
-    return mlir::success();
-}
-
-template <typename SrcOp>
-EmitBodyCallback getNormalizationCallback() {
-    if (std::is_same<SrcOp, IE::ReduceL2Op>::value) {
-        return [](mlir::Operation* op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> types,
-                  mlir::PatternRewriter& rewriter) -> mlir::Value {
-            VPUX_UNUSED(types);
-            // Convert to float if integer-like.
-            // Type should be f32
-            auto argVal = args[0];
-            bool isFloat = mlir::isa<mlir::FloatType>(args[0].getType());
-            auto origTy = argVal.getType();
-            if (!isFloat) {
-                auto fpType = mlir::FloatType::getF32(rewriter.getContext());
-                if (args[0].getType().getIntOrFloatBitWidth() > 32) {
-                    fpType = mlir::FloatType::getF64(rewriter.getContext());
-                }
-                // We don't have to look at the signdness, this should be positive or we'll get a NAN
-                // from the sqrt.
-                argVal = rewriter.create<mlir::arith::UIToFPOp>(op->getLoc(), fpType, argVal);
-            }
-            argVal = rewriter.create<mlir::math::SqrtOp>(op->getLoc(), argVal.getType(), argVal,
-                                                         mlir::arith::FastMathFlags::afn);
-            if (isFloat) {
-                return argVal;
-            }
-            return rewriter.create<mlir::arith::FPToUIOp>(op->getLoc(), origTy, argVal);
-        };
-    }
-    if (std::is_same<SrcOp, IE::ReduceMeanOp>::value) {
-        VPUX_THROW("ReduceMean not supported");
-    }
-    return nullptr;
-}
-
-template <typename SrcOp>
-constexpr bool reduceRequiresF32Accumulator() {
-    if (std::is_same<SrcOp, IE::ReduceL2Op>::value || std::is_same<SrcOp, IE::ReduceL1Op>::value ||
-        std::is_same<SrcOp, IE::ReduceSumOp>::value || std::is_same<SrcOp, IE::ReduceMeanOp>::value ||
-        std::is_same<SrcOp, IE::ReduceProdOp>::value) {
-        return true;
-    }
-    return false;
-}
-
-template <typename SrcOp>
-class IEReduceToLinalg : public mlir::OpRewritePattern<SrcOp> {
-public:
-    using mlir::OpRewritePattern<SrcOp>::OpRewritePattern;
-
-    mlir::LogicalResult matchAndRewrite(SrcOp op, mlir::PatternRewriter& rewriter) const final {
-        auto emitBody = [](mlir::Operation* op, mlir::ValueRange args, llvm::ArrayRef<mlir::Type> types,
-                           mlir::PatternRewriter& rewriter) {
-            return emitLinalgRegion<SrcOp>(mlir::cast<SrcOp>(op), args, types, rewriter);
-        };
-        bool keepDims = op.getKeepDims();
-        SmallVector<int64_t> axes = parseIntArrayAttr<int64_t>(op.getAxesValue().value());
-        return emitLinalgReduceHelper(op, emitBody, getNormalizationCallback<SrcOp>(),
-                                      /*accumNeedsF32Precision=*/reduceRequiresF32Accumulator<SrcOp>(), keepDims, axes,
-                                      rewriter);
-    }
-};
-
 void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
@@ -1275,7 +1154,7 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     target.addIllegalOp<IE::SqrtOp>();
     target.addIllegalOp<IE::ErfOp>();
     target.addIllegalOp<IE::RoundOp>();
-    target.addIllegalOp<IE::ReLUOp, IE::LeakyReluOp, IE::ClampOp>();
+    target.addIllegalOp<IE::PReluOp, IE::ReLUOp, IE::LeakyReluOp, IE::ClampOp>();
     target.addIllegalOp<IE::AddOp, IE::MultiplyOp, IE::SubtractOp>();
     target.addIllegalOp<IE::ConvertOp>();
     target.addIllegalOp<IE::TanOp, IE::SinhOp, IE::CoshOp, IE::AtanOp, IE::AtanhOp>();
@@ -1285,6 +1164,7 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
     target.addIllegalOp<IE::HSwishOp>();
     target.addIllegalOp<IE::HSigmoidOp>();
     target.addIllegalOp<IE::ReduceMaxOp, IE::ReduceMinOp, IE::ReduceL2Op>();
+    target.addIllegalOp<IE::EluOp, IE::GeluOp, IE::SeluOp>();
 
     auto populatePatterns = [&](mlir::RewritePatternSet& patternSet) {
         patternSet.add<IEEltwiseToLinalg<IE::MaximumOp>, IEEltwiseToLinalg<IE::MinimumOp>,
@@ -1302,9 +1182,8 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
         patternSet.add<IEEltwiseToLinalg<IE::SquaredDifferenceOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::ErfOp>, IEEltwiseToLinalg<IE::RoundOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::SinOp>, IEEltwiseToLinalg<IE::CosOp>>(&ctx);
-        patternSet
-                .add<IEEltwiseToLinalg<IE::ReLUOp>, IEEltwiseToLinalg<IE::LeakyReluOp>, IEEltwiseToLinalg<IE::ClampOp>>(
-                        &ctx);
+        patternSet.add<IEEltwiseToLinalg<IE::PReluOp>, IEEltwiseToLinalg<IE::ReLUOp>,
+                       IEEltwiseToLinalg<IE::LeakyReluOp>, IEEltwiseToLinalg<IE::ClampOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::AddOp>, IEEltwiseToLinalg<IE::MultiplyOp>,
                        IEEltwiseToLinalg<IE::SubtractOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::ConvertOp>>(&ctx);
@@ -1312,15 +1191,18 @@ void ConvertEltwiseLayers2MathPass::safeRunOnFunc() {
                        IEEltwiseToLinalg<IE::CoshOp>>(&ctx);
         patternSet.add<IEEltwiseToLinalg<IE::AbsOp>, IEEltwiseToLinalg<IE::NegativeOp>, IEEltwiseToLinalg<IE::SignOp>,
                        IEEltwiseToLinalg<IE::HSwishOp>, IEEltwiseToLinalg<IE::HSigmoidOp>>(&ctx);
-        patternSet.add<IEReduceToLinalg<IE::ReduceMaxOp>, IEReduceToLinalg<IE::ReduceMinOp>,
-                       IEReduceToLinalg<IE::ReduceL2Op>>(&ctx);
+        patternSet.add<IEEltwiseToLinalg<IE::EluOp>, IEEltwiseToLinalg<IE::GeluOp>, IEEltwiseToLinalg<IE::SeluOp>>(
+                &ctx);
     };
+
+    mlir::RewritePatternSet patterns(&ctx);
+    populatePatterns(patterns);
+    ShaveCodeGen::populateIEReduceToLinalgPatterns(patterns);
+    mlir::FrozenRewritePatternSet frozenPatterns(std::move(patterns));
 
     // E#172607 [ShaveCodeGen] Make Linalg lowering pass run on CodeGenCapsuleOps
     func->walk([&](IE::CodeGenCapsuleOp capsuleOp) {
-        mlir::RewritePatternSet patterns(&ctx);
-        populatePatterns(patterns);
-        if (mlir::failed(mlir::applyPartialConversion(capsuleOp, target, std::move(patterns)))) {
+        if (mlir::failed(mlir::applyPartialConversion(capsuleOp, target, frozenPatterns))) {
             signalPassFailure();
         }
     });

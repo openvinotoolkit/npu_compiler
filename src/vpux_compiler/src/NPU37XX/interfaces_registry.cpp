@@ -16,6 +16,7 @@ namespace vpux {
 
 void InterfacesRegistry37XX::registerInterfaces(mlir::DialectRegistry& registry) {
     IE::arch37xx::registerElemTypeInfoOpInterfaces(registry);
+    IE::arch37xx::registerExecutorOpInterfaces(registry);
     VPU::arch37xx::registerLayerWithPostOpModelInterface(registry);
     VPU::arch37xx::registerLayoutInfoOpInterfaces(registry);
     VPU::arch37xx::registerDDRAccessOpModelInterface(registry);

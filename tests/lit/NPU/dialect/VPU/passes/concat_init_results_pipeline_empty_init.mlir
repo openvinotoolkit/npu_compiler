@@ -4,7 +4,6 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --introduce-init-function="ws-extraction-mode=gen-main" --concat-init-results="ws-extraction-mode=gen-main" %s | FileCheck --check-prefix=CHECK-MAIN %s
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --introduce-init-function="ws-extraction-mode=gen-all" --concat-init-results="ws-extraction-mode=gen-all" %s | FileCheck --check-prefix=CHECK-ALL %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 {-#
@@ -30,12 +29,4 @@ module @NoConstants {
 
     // CHECK-MAIN: func.func @main({{%.+}}: tensor<4x16xf16>) -> tensor<4x16xf16>
     // CHECK-MAIN-NEXT:  {{%.+}} = {{.*}} dense_resource<some_other_origin> {{.*}} [#const.Add<1.000000e+00 : f64>]
-
-
-    // CHECK-ALL: func.func private @main({{%.+}}: tensor<4x16xf16>) -> tensor<4x16xf16>
-    // CHECK-ALL-NEXT:  {{%.+}} = {{.*}} dense_resource<some_other_origin> {{.*}} [#const.Add<1.000000e+00 : f64>]
-
-    // CHECK-ALL: func.func @wrapper_main([[IN:%.+]]: tensor<4x16xf16>) -> tensor<4x16xf16>
-    // CHECK-ALL-NEXT:  [[OUT:%.+]] = call @main([[IN]])
-    // CHECK-ALL-NEXT:  return [[OUT]]
 }

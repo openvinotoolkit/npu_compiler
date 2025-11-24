@@ -6,7 +6,7 @@
 #include "vpux/compiler/dialect/VPU/interfaces/common_utils/layer_permute_ie.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/sep_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 
 using namespace vpux;
@@ -53,8 +53,8 @@ bool vpux::VPU::isSupportedPermutation(mlir::Operation* nceOp, mlir::Operation* 
        Strided concat interleaves H and W. If one of them is inner dimesion,
        it will lead to extremely slow DMA concatenation. */
     auto moduleOp = getModuleOp(nceOp);
-    auto seOpsEnabled = VPU::hasEnableSEPtrsOperations(moduleOp);
-    auto seExperimentalOpsEnabled = VPU::hasEnableExperimentalSEPtrsOperations(moduleOp);
+    auto seOpsEnabled = config::hasEnableSEPtrsOperations(moduleOp);
+    auto seExperimentalOpsEnabled = config::hasEnableExperimentalSEPtrsOperations(moduleOp);
 
     if (seExperimentalOpsEnabled && seOpsEnabled) {
         const auto logCb = [&](const formatv_object_base& msg) {

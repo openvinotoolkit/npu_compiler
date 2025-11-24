@@ -17,6 +17,12 @@
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 
 namespace vpux {
+namespace VPU {
+
+// Forward declaration to avoid including VPU headers
+enum class ExecutorKind : uint64_t;
+
+}  // namespace VPU
 namespace IE {
 
 //

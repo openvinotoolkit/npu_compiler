@@ -7,10 +7,12 @@
 
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/SmallVector.h>
 #include <mlir/Support/LLVM.h>
+#include "mlir/Dialect/Utils/IndexingUtils.h"
 
 namespace vpux::VPU {
 
@@ -43,7 +45,16 @@ public:
                                                                 unsigned resultNumber,
                                                                 ArrayRef<mlir::OpFoldResult> offsets,
                                                                 ArrayRef<mlir::OpFoldResult> sizes) const {
-        auto outputTile = SCFTileInfo(sizes, offsets, SCFShape(offsets.size(), builder.getIndexAttr(1)));
+        Bounds resultBounds;
+        if (IE::hasDynamicTensors(operation) && operation->hasAttr(tilingStrategy)) {
+            const auto strategy =
+                    Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
+            auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
+            if (mlir::failed(getResultTileBounds(operation, resultNumber, tilingDims, sizes, resultBounds))) {
+                return mlir::failure();
+            }
+        }
+        auto outputTile = SCFTileInfo(sizes, offsets, SCFShape(offsets.size(), builder.getIndexAttr(1)), resultBounds);
         auto inputTiling = backInferSCFTileInfo(operation, builder, outputTile);
 
         SmallVector<mlir::Value> tiledOperands;
@@ -64,7 +75,7 @@ public:
             tiledOperands.emplace_back(tiledInput);
         }
 
-        auto resultDenseTile = extractResultType(operation->getResult(0).getType(), sizes, {});
+        auto resultDenseTile = extractResultType(operation->getResult(0).getType(), sizes, resultBounds);
         auto* tiledOp = mlir::cloneWithoutRegions(builder, operation, {resultDenseTile}, tiledOperands);
         tiledOp->removeAttr(tilingStrategy);
 
@@ -83,6 +94,40 @@ class SCFLayoutCastTilingModelOp : public SCFViewLikeTilingModelOp<SCFLayoutCast
 public:
     SCFTilingInfo backInferSCFTileInfo(mlir::Operation*, mlir::OpBuilder&, const SCFTileInfo& outputTile) const {
         return SCFTilingInfo{{outputTile}};
+    }
+};
+
+class SCFPermuteCastTilingModelOp : public SCFViewLikeTilingModelOp<SCFPermuteCastTilingModelOp, VPU::PermuteCastOp> {
+public:
+    SCFTilingInfo backInferSCFTileInfo(mlir::Operation* op, mlir::OpBuilder& builder,
+                                       const SCFTileInfo& outputTile) const {
+        auto permuteCastOp = mlir::cast<VPU::PermuteCastOp>(op);
+
+        const auto srcType = mlir::cast<vpux::NDTypeInterface>(permuteCastOp.getInput().getType());
+
+        const auto toIntPermutation = [](auto dimsPermutation) {
+            return to_small_vector(dimsPermutation | transformed([](Dim dim) {
+                                       return checked_cast<int64_t>(dim.ind());
+                                   }));
+        };
+        auto inputTile = outputTile;
+        auto dstPerm = DimsOrder::fromAffineMap(permuteCastOp.getDstOrder());
+        auto inversePerm = DimsOrder::fromAffineMap(mlir::inversePermutation(permuteCastOp.getMemPerm()));
+        auto inverseSrcPerm = DimsOrder::fromAffineMap(
+                mlir::inversePermutation(srcType.getDimsOrder().toAffineMap(builder.getContext())));
+
+        auto permutation = toIntPermutation(
+                applyPermutation(applyPermutation(dstPerm, inversePerm), inverseSrcPerm).toPermutation());
+
+        mlir::applyPermutationToVector(inputTile.shape, permutation);
+        mlir::applyPermutationToVector(inputTile.offsets, permutation);
+        mlir::applyPermutationToVector(inputTile.axis, permutation);
+
+        if (!inputTile.bounds.empty()) {
+            inputTile.bounds = Bounds(mlir::applyPermutation(inputTile.bounds.raw(), permutation));
+        }
+
+        return SCFTilingInfo{{std::move(inputTile)}};
     }
 };
 

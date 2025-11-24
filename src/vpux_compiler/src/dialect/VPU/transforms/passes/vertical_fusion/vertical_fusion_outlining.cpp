@@ -6,7 +6,7 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/weights_table_reuse_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/VPU/function_outlining_splitter.hpp"
 #include "vpux/compiler/utils/logging.hpp"
@@ -77,7 +77,7 @@ void VerticalFusionOutliner::buildFuncOps(mlir::ModuleOp moduleOp, ArrayRef<Smal
                                                       ArrayRef(funcsInfo[targetIdx][sliceIdx].outputTypes));
         const auto funcLoc = appendLoc(netFunc.getLoc(), "_part{0}", targetIdx + 1);
         auto func = builder.create<mlir::func::FuncOp>(funcLoc, funcsInfo[targetIdx][sliceIdx].funcName, funcType);
-        if (VPU::getWeightsTableReuseMode(func) == WeightsTableReuseMode::VF_ENABLED && isPureVFRegion(slice)) {
+        if (config::getWeightsTableReuseMode(func) == WeightsTableReuseMode::VF_ENABLED && isPureVFRegion(slice)) {
             func->setAttr(VPU::PureVerticalFusionRegionAttrName, mlir::UnitAttr::get(ctx));
         }
         func.setPrivate();

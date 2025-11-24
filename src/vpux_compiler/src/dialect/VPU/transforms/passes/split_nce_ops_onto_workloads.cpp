@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -158,15 +159,12 @@ mlir::LogicalResult NCEWorkloadSplitPreSplitRewrite::matchAndRewrite(VPU::NCEOpI
 class SplitNCEOpsOntoWorkloadsPass final :
         public VPU::impl::SplitNCEOpsOntoWorkloadsBase<SplitNCEOpsOntoWorkloadsPass> {
 public:
-    explicit SplitNCEOpsOntoWorkloadsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit SplitNCEOpsOntoWorkloadsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void SplitNCEOpsOntoWorkloadsPass::safeRunOnFunc() {
@@ -198,19 +196,15 @@ void SplitNCEOpsOntoWorkloadsPass::safeRunOnFunc() {
     target.addLegalOp<VPU::DPUWorkloadOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
-    const auto enableVPUNNPreSplit = hasVPUNNPreSplit(module);
+    const auto enableVPUNNPreSplit = config::hasVPUNNPreSplit(module);
     if (enableVPUNNPreSplit) {
         const auto numTiles = nceCluster.getCount();
         auto maybeLayerCostModelAnalysis = getCachedParentAnalysis<VPU::LayerCostModelAnalysis>(module);
         auto layerCostModel =
                 VPU::LayerCostModelAnalysis::getOrCreateLayerCostModel(maybeLayerCostModelAnalysis, arch, _log);
         patterns.add<NCEWorkloadSplitPreSplitRewrite>(&ctx, numDPUs, numTiles, arch, layerCostModel, costModel, _log);
-        _log.info("[SplitNCEOpsOntoWorkloads phase]");
-        _log.info("[NN Cache statistics]  {0}", layerCostModel->getDPUPreloadedCacheCounter().printString());
     } else {
         patterns.add<NCEWorkloadSplitRewrite>(&ctx, numDPUs, arch, costModel, _log);
-        _log.info("[SplitNCEOpsOntoWorkloads phase]");
-        _log.info("[NN Cache statistics]  {0}", costModel->getPreloadedCacheCounter().printString());
     }
 
     if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {

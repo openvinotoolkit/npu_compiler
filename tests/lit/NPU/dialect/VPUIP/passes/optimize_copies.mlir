@@ -4,6 +4,7 @@
 //
 
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --optimize-copies %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --run-rewriters="rewriter=optimize-copies-set" %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -1998,8 +1999,8 @@ func.func @DDRToCMXCopyWithConcatViewWithMultiCopy(%arg0: memref<1x3x128x128xf16
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: func.func @SkipDDRToCMXCopyWithConcatViewInCaseNotDuplicatedCopyOutput
-// CHECK-SAME:   [[INPUT:%.+]]: memref<1x3x128x128xf16, #NHWC, @DDR>
+// CHECK: func.func @SkipDDRToCMXCopyWithConcatViewInCaseNotDuplicatedCopyOutput
+// CHECK-SAME:   ([[INPUT:%.+]]: memref<1x3x128x128xf16, #NHWC, @DDR>)
 func.func @SkipDDRToCMXCopyWithConcatViewInCaseNotDuplicatedCopyOutput(%arg0: memref<1x3x128x128xf16, #NHWC, @DDR>)
                                                                        -> (memref<1x16x128x128xf16, {order = #NHWC, strides = [524288, 1, 4096, 32]}, @CMX_NN>, memref<1x16x128x128xf16, #NHWC, @CMX_NN>) {
     %cst = const.Declare memref<1x13x128x128xf16, #NHWC> = dense<0.000000e+00> : tensor<212992xf16>, [#const.Reshape<[1, 13, 128, 128]>, #const.Reorder<#NHWC>]
@@ -6018,9 +6019,9 @@ func.func @CopyOpSequenceWithInPlaceEltwiseUserAndShapeCastParent(%arg0: memref<
    memory_shapes = [[1, 1, 1, 160], [1, 1, 1, 160]], memory_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]}
 >
 
-// CHECK-LABEL: SkipSubViewWithTilingCopyDueToSubViewUserWithExplcitOutputShape
-// CHECK-SAME:   [[INPUT:%.+]]: memref<8x1x1x160xf16, @DDR>
-func.func @SkipSubViewWithTilingCopyDueToSubViewUserWithExplcitOutputShape(
+// CHECK: func.func @SkipSubViewWithTilingCopyDueToSubViewUserWithExplicitOutputShape
+// CHECK-SAME: ([[INPUT:%.+]]: memref<8x1x1x160xf16, @DDR>)
+func.func @SkipSubViewWithTilingCopyDueToSubViewUserWithExplicitOutputShape(
     %input: memref<8x1x1x160xf16, @DDR>
 ) -> (!SubViewOutDistBufferType, !SubViewOutDistBufferType) {
 

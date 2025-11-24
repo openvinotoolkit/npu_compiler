@@ -38,9 +38,9 @@ elf::DType ELFNPU37XX::createDType(mlir::Type type) {
         return elf::DType::DType_FP16;
     } else if (type.isBF16()) {
         return elf::DType::DType_BFP16;
-    } else if (type.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return elf::DType::DType_F8E4M3FN;
-    } else if (type.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
         return elf::DType::DType_F8E5M2;
     } else if (type.isSignedInteger(CHAR_BIT * sizeof(int64_t))) {
         return elf::DType::DType_I64;
@@ -143,9 +143,9 @@ elf::OVNodeType ELFNPU37XX::createOVNodeType(mlir::Type type) {
         return elf::OVNodeType::OVNodeType_F16;
     } else if (type.isBF16()) {
         return elf::OVNodeType::OVNodeType_BF16;
-    } else if (type.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return elf::OVNodeType::OVNodeType_F8E4M3FN;
-    } else if (type.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
         return elf::OVNodeType::OVNodeType_F8E5M2;
     } else if (type.isSignedInteger(64)) {
         return elf::OVNodeType::OVNodeType_I64;

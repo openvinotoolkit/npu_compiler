@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
-#include "vpux/compiler/dialect/VPU/utils/weights_table_reuse_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
@@ -69,7 +69,7 @@ void RelocateWeightTableForReusePass::safeRunOnFunc() {
 
     // If neither weights-table-reuse is enabled nor the function is a pure vertical fusion region,
     // skip the relocation of weights table for reuse.
-    if (!VPU::isWeightsTableReuseEnabled(func)) {
+    if (!config::isWeightsTableReuseEnabled(func)) {
         _log.trace("Skipping relocation of weights table for reuse because the function is not supported {0}",
                    func->getLoc());
         return;

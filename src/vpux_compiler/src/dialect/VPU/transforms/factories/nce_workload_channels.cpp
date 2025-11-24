@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_workload_channels.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPU/impl/nce_workload_channels.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/nce_workload_channels.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 using namespace vpux;

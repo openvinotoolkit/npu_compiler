@@ -6,7 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/utils/core/dense_map.hpp"
 
 namespace vpux {

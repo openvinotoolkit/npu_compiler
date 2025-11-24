@@ -807,5 +807,7 @@ void splitSpaceToDepth(mlir::PatternRewriter& rewriter,
                        VPURT::DeclareBufferOp origChannelSideBuffer, int64_t blockSize, bool blocksFirst,
                        int64_t splitCount);
 
+mlir::Value getRootBuffer(mlir::Value buffer);
+
 }  // namespace VPUIP
 }  // namespace vpux

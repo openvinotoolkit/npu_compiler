@@ -6,6 +6,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Arith/Utils/Utils.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -76,8 +77,10 @@ mlir::LogicalResult vpux::IE::LSTMSequenceOp::reifyResultShapes(
     size_t initialHiddenStateIdx = 0;
     for (const auto dimIdx : irange(outputHiddenValuesType.getRank())) {
         if (outputHiddenValuesType.isDynamicDim(dimIdx)) {
-            mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(loc, getInputData(), seqLengthIdx);
-            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, dimOp));
+            auto dimLoc = appendLoc(loc, llvm::StringLiteral("dim_{0}"), dimIdx);
+            auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), seqLengthIdx);
+            mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, getInputData(), index);
+            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loc, "const_index"), dimOp));
         } else {
             shapes.push_back(builder.getIndexAttr(initialHiddenStateType.getDimSize(initialHiddenStateIdx++)));
         }

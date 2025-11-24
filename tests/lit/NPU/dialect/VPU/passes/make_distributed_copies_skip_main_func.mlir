@@ -64,5 +64,3 @@ module @ReplaceUnrolledTypeWithCopyOps {
 
   // CHECK: func.func [[MAIN_FUNC:@.+]]([[_:%.+]]: tensor<1x16x?x1000xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>, [[_:%.+]]: tensor<1x16x?x1000xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>) -> tensor<1x16x?x1000xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 720, 1000]> : tensor<4xsi64>, order = #NHWC}>
 }
-
-

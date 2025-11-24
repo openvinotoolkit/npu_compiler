@@ -40,6 +40,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "mvn1_norm",
                                                                  "mvn6",
                                                                  "interpolate",
+                                                                 "deformable_convolution",
                                                                  "activation_swish",
                                                                  "activation_gelu",
                                                                  "softmax",
@@ -91,6 +92,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "reduce_min",
                                                                  "reduce_prod",
                                                                  "reduce_sum",
+                                                                 "reduce_mean_square",
                                                                  "gru_sequence",
                                                                  "gru_sequence_last_part",
                                                                  "activation_floor",
@@ -102,6 +104,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "lstm_gates",
                                                                  "lstm_cell",
                                                                  "lstm_sequence",
+                                                                 "lstm_dpu",
                                                                  "round_fp16",
                                                                  "accumulate",
                                                                  "populate_weight_table",
@@ -111,6 +114,7 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "reverse",
                                                                  "rms_norm",
                                                                  "rope",
+                                                                 "rope_ilv",
                                                                  "sdpa",
                                                                  "random_uniform",
                                                                  "grid_sample",
@@ -119,15 +123,19 @@ const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_TILING = {"mvn1",
                                                                  "activation_negative",
                                                                  "activation_softplus",
                                                                  "eltwise_logical_not",
-                                                                 "cum_sum"};
+                                                                 "cum_sum",
+                                                                 "sdpa_extended",
+                                                                 "nv12_to_rgb",
+                                                                 "i420_to_rgb"};
 
-const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1", "lstm_cell", "lstm_sequence", "reorder"};
+const SmallVector<StringLiteral> SW_KERNELS_SUPPORTING_STRIDE = {"mvn1",     "lstm_cell", "lstm_sequence",
+                                                                 "lstm_dpu", "reorder",   "sdpa_extended"};
 
 const SmallVector<std::string_view> SW_KERNELS_SUPPORTING_SHAVE_BALANCING = {
-        "softmax",          "eltwise_mul",         "activation_sin",   "activation_cos",
-        "activation_swish", "activation_softplus", "activation_clamp", "convert",
-        "eltwise_min",      "eltwise_max",         "round_fp16",       "activation_exp",
-        "prelu_fp16",       "eltwise_logical_not"};
+        "softmax",          "eltwise_mul",         "activation_sin",     "activation_cos",
+        "activation_swish", "activation_softplus", "activation_clamp",   "convert",
+        "eltwise_min",      "eltwise_max",         "round_fp16",         "activation_exp",
+        "eltwise_div",      "prelu_fp16",          "eltwise_logical_not"};
 
 const SmallVector<StringLiteral> SW_KERNELS_LAYOUT_AGNOSTIC = {
         "activation_swish", "activation_gelu",     "activation_hswish",  "activation_hardsigmoid",
@@ -183,9 +191,11 @@ const SmallVector<StringLiteral> SW_KERNELS_NEED_TILING_ALIGNMENT = {"mvn1",
                                                                      "activation_cos",
                                                                      "lstm_cell",
                                                                      "activation_mish",
-                                                                     "eltwise_logical_not"};
+                                                                     "eltwise_logical_not",
+                                                                     "nv12_to_rgb",
+                                                                     "i420_to_rgb"};
 
-const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu"};
+const SmallVector<StringLiteral> SW_KERNELS_USE_DPU = {"lstm_dpu", "sdpa_extended"};
 
 SmallVector<mlir::Attribute> kernelArgsRange(VPUIP::SwKernelOp swKernelOp);
 

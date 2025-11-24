@@ -28,8 +28,9 @@ public:
     using Base = OptionsSetupBase<ReferenceSWSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
 
-    static void setupOptionsImpl(DefaultHWOptions37XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
+    static void setupOptionsImpl(DefaultHWOptions37XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
         setupOptionsCommon(options);
     }
 
@@ -48,7 +49,6 @@ public:
         overwriteIfUnset(options.fuseScalesToAccumulate, false);
         overwriteIfUnset(options.enableFP16CompressedConvolution, false);
         overwriteIfUnset(options.enableVPUNNPreSplit, false);
-        overwriteIfUnset(options.enableWeightsDynamicDequantization, false);
         overwriteIfUnset(options.enableInPlaceBufferization, false);
         overwriteIfUnset(options.useMemrefForHostFunctionBufferization, false);
         overwriteIfUnset(options.enableRuntimeDequant, false);
@@ -60,24 +60,23 @@ public:
         overwriteIfUnset(options.fuseMvn6ScaleBias, false);
         overwriteIfUnset(options.enableConvertFCToConv, false);
         overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
-        overwriteIfUnset(options.enableQDQOptimizationAggressive, false);
-        overwriteIfUnset(options.enableAdaptiveStripping, false);
         overwriteIfUnset(options.enableExtraStaticShapeOps, false);
 
         overwriteIfUnset(options.enableConvertFFTToConv, false);
+        overwriteIfUnset(options.enableConvertToSdpaExtended, false);
         overwriteIfUnset(options.enableDecomposeGRUSequence, false);
     }
-};
-
-class WSMonolithicSetup37XX final : public WSMonolithicSetupBase<WSMonolithicSetup37XX, DefaultHWOptions37XX> {
-public:
-    using Base = WSMonolithicSetupBase<WSMonolithicSetup37XX, DefaultHWOptions37XX>;
-    using Base::Base;
 };
 
 class WSInitSetup37XX : public WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX> {
 public:
     using Base = WSInitSetupBase<WSInitSetup37XX, DefaultHWOptions37XX>;
+    using Base::Base;
+};
+
+class WSMainSetup37XX : public WSMainSetupBase<WSMainSetup37XX, DefaultHWOptions37XX> {
+public:
+    using Base = WSMainSetupBase<WSMainSetup37XX, DefaultHWOptions37XX>;
     using Base::Base;
 };
 
@@ -185,11 +184,11 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy37X
     case config::CompilationMode::ReferenceSW: {
         return std::make_unique<DialectPipelineStrategyReferenceSW37XX>(config);
     }
-    case config::CompilationMode::WSMonolithic: {
-        return std::make_unique<DialectPipelineStrategy37XX<WSMonolithicSetup37XX>>(config);
-    }
     case config::CompilationMode::WSInit: {
         return std::make_unique<DialectPipelineStrategy37XX<WSInitSetup37XX>>(config);
+    }
+    case config::CompilationMode::WSMain: {
+        return std::make_unique<DialectPipelineStrategy37XX<WSMainSetup37XX>>(config);
     }
     default:
         VPUX_THROW("Unsupported compilation mode '{0}'", compilationMode);

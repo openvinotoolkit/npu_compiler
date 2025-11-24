@@ -131,14 +131,14 @@ module @mainModule attributes {config.arch = #config.arch_kind<NPU40XX>} {
 
 //CHECK: ELF.CreateSection @text.variants
 //CHECK: NPUReg40XX.DPUVariant descriptor = <
-//CHECK    > {elfMemOffsetAttrKey = 0 : ui64
+//CHECK:   > {elfMemOffsetAttrKey = 0 : ui64
 //CHECK:   sym_name = "DPUVariant0"
 //CHECK:   task_index = !VPURegMapped.Index<0:0:0>
 //CHECK: NPUReg40XX.DPUVariant descriptor = <
-//CHECK    > {elfMemOffsetAttrKey = 224 : ui64
+//CHECK:   > {elfMemOffsetAttrKey = 224 : ui64
 //CHECK:   sym_name = "DPUVariant1"
 //CHECK:   task_index = !VPURegMapped.Index<0:0:1>
 //CHECK: NPUReg40XX.DPUVariant descriptor = <
-//CHECK    > {elfMemOffsetAttrKey = 672 : ui64
+//CHECK:   > {elfMemOffsetAttrKey = 672 : ui64
 //CHECK:   sym_name = "DPUVariant2"
 //CHECK:   task_index = !VPURegMapped.Index<0:0:2>

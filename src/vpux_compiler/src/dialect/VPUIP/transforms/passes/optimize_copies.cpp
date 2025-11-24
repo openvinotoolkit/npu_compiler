@@ -8,10 +8,11 @@
 
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPUIP/transforms/rewriters.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
@@ -24,6 +25,7 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/types.hpp"
 
+#include "vpux/compiler/dynamic_rewriter/dynamic_rewriter_factory.hpp"
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/core/range.hpp"
 
@@ -70,11 +72,6 @@ bool isNonDistributedCastCompatible(vpux::NDTypeInterface inType, vpux::NDTypeIn
 // benefitLevels[0] is highest benefit level and represent the relative pattern is the first one to run
 const uint32_t levelCount = 4;
 SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
-
-mlir::Value getRootBuffer(mlir::Value buffer) {
-    vpux::ValueSourceInfo aliasInfo(buffer);
-    return aliasInfo.getRoot(buffer);
-}
 
 // Check the user of the copyOp is an EltwiseOp with is_inplace
 VPUIP::NCEClusterTaskOp getEltwiseInplaceUser(VPUIP::CopyOp copyOp) {
@@ -440,8 +437,8 @@ mlir::LogicalResult CopyOpSequence::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::
         }
 
         // Found the inplace buffer of nceOp and replace use
-        auto nceOutputBuff = getRootBuffer(eltwiseInPlaceUser.getOutputBuff());
-        auto copyOpOutBuff = getRootBuffer(copyOp.getOutputBuff());
+        auto nceOutputBuff = vpux::VPUIP::getRootBuffer(eltwiseInPlaceUser.getOutputBuff());
+        auto copyOpOutBuff = vpux::VPUIP::getRootBuffer(copyOp.getOutputBuff());
 
         if (nceOutputBuff == copyOpOutBuff) {
             if (isCopyOpDistributed) {
@@ -524,7 +521,7 @@ mlir::LogicalResult CopyOpSequence::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::
                 } else {
                     rewriter.replaceAllUsesExcept(nceOutputBuff, parentCopyOpInputBuff, viewOp);
                     rewriter.replaceOpWithNewOp<VPUIP::ViewOp>(viewOp, viewOp->getResult(0).getType(),
-                                                               getRootBuffer(parentCopyOpInputBuff));
+                                                               vpux::VPUIP::getRootBuffer(parentCopyOpInputBuff));
                 }
             }
         }
@@ -561,7 +558,7 @@ mlir::LogicalResult CopyOpSequence::matchAndRewrite(VPUIP::CopyOp copyOp, mlir::
 
         // check CMX
         auto availableCMXSize = VPU::getTotalCMXSize(copyOp);
-        auto rootBuffer = getRootBuffer(parentCopyOp.getInput());
+        auto rootBuffer = vpux::VPUIP::getRootBuffer(parentCopyOp.getInput());
         auto rootBufferType = mlir::dyn_cast<vpux::NDTypeInterface>(rootBuffer.getType());
         auto rootBufferSize = rootBufferType.getTotalAllocSize();
         auto copyOutputType = mlir::dyn_cast<vpux::NDTypeInterface>(copyOp.getOutput().getType());
@@ -2192,31 +2189,30 @@ DistributedCast(Duplicated|Segmented)    DistributedCast(Duplicated|Segmented)
 
 class SubViewWithDistributedCopy : public mlir::OpRewritePattern<VPUIP::CopyOp> {
 public:
-    SubViewWithDistributedCopy(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, int64_t cmxSize, Logger log)
-            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit), _cmxSize(cmxSize), log(log) {
+    SubViewWithDistributedCopy(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<VPUIP::CopyOp>(ctx, benefit), log(log) {
     }
 
 public:
     mlir::LogicalResult matchAndRewrite(VPUIP::CopyOp origOp, mlir::PatternRewriter& rewriter) const final;
     mlir::Value getSuitableSubViewPattern(VPUIP::CopyOp origOp, vpux::Logger log) const;
-    bool checkCMXFit(mlir::Value topBuffer) const;
+    bool checkCMXFit(Byte cmxSize, mlir::Value topBuffer) const;
 
 private:
-    const int64_t _cmxSize{};
     // Cache top buffers whose user matmul does not fit cmx
     //  to avoid duplicated calculation on other subview branches
     mutable llvm::SetVector<mlir::Value> _failedTopBuffers{};
     Logger log;
 };
 
-bool SubViewWithDistributedCopy::checkCMXFit(mlir::Value topBuffer) const {
+bool SubViewWithDistributedCopy::checkCMXFit(Byte cmxSize, mlir::Value topBuffer) const {
     auto type = mlir::dyn_cast<vpux::NDTypeInterface>(topBuffer.getType());
     // buffer will keep duplicated in cmx after distributed copy, so need to check the required cmx
     Byte requiredSize = type.getTotalAllocSize();
     if (type.getMemoryKind() == VPU::MemoryKind::CMX_NN) {
         requiredSize += type.getTotalAllocSize();
     }
-    return vpux::Byte(_cmxSize) >= requiredSize;
+    return cmxSize >= requiredSize;
 }
 
 mlir::LogicalResult SubViewWithDistributedCopy::matchAndRewrite(VPUIP::CopyOp origOp,
@@ -2347,6 +2343,8 @@ mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp 
         return !outReqs.checkStrides(distributedCopyOutputType);
     };
 
+    auto module = origOp->getParentOfType<mlir::ModuleOp>();
+    auto cmxSize = VPU::getTotalCMXSize(module);
     auto parentSubViewOp = origOp.getInput().getDefiningOp<VPUIP::SubViewOp>();
     if (parentSubViewOp == nullptr) {
         return nullptr;
@@ -2356,7 +2354,7 @@ mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp 
         return nullptr;
     }
 
-    if (!checkCMXFit(topBuffer)) {
+    if (!checkCMXFit(cmxSize, topBuffer)) {
         return nullptr;
     }
 
@@ -2372,7 +2370,7 @@ mlir::Value SubViewWithDistributedCopy::getSuitableSubViewPattern(VPUIP::CopyOp 
             // replace the original operand's required cmx size with new one
             requiredCMX -= getTotalSize(subviewCopy->getResult(0));
             requiredCMX += getTotalSize(topBuffer);
-            if (requiredCMX > Byte(_cmxSize)) {
+            if (requiredCMX > cmxSize) {
                 return false;
             }
 
@@ -2869,9 +2867,6 @@ void OptimizeCopiesPass::safeRunOnFunc() {
         _workloadManagementMode = workloadManagementModeOpt;
     }
 
-    auto module = func->getParentOfType<mlir::ModuleOp>();
-    auto cmxSize = VPU::getTotalCMXSize(module).count();
-
     // Note the below patterns exec order is defined by "benefitLevels" at the head
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<CopyOpSequence>(&ctx, benefitLevels[0], _workloadManagementMode, _log);
@@ -2880,7 +2875,7 @@ void OptimizeCopiesPass::safeRunOnFunc() {
     patterns.add<ConcatViewWithCopy>(&ctx, benefitLevels[3], _log);
     patterns.add<FuseCopyToTheFrontOfDistributedCopy>(&ctx, benefitLevels[3], _log);
     patterns.add<FuseCopyToTheBackOfDistributedCopy>(&ctx, benefitLevels[3], _log);
-    patterns.add<SubViewWithDistributedCopy>(&ctx, benefitLevels[3], cmxSize, _log);
+    patterns.add<SubViewWithDistributedCopy>(&ctx, benefitLevels[3], _log);
     patterns.add<DuplicatedCopyWithCMXCopy>(&ctx, benefitLevels[3], _log);
     patterns.add<FuseCopiesThroughReshape>(&ctx, benefitLevels[3], _log);
     patterns.add<SubViewWithCopy>(&ctx, benefitLevels[3], _log);
@@ -2901,6 +2896,33 @@ void OptimizeCopiesPass::safeRunOnFunc() {
 }
 
 }  // namespace
+
+void vpux::VPUIP::registerOptimizeCopiesRewriters(vpux::RewriterRegistry& registry,
+                                                  WorkloadManagementMode workloadManagementMode, Logger log) {
+    registry.registerRewriter<CopyOpSequence>("copy-sequence", benefitLevels[0], workloadManagementMode, log);
+    registry.registerRewriter<CMXToCMXCopy>("cmx-to-cmx", benefitLevels[1], log);
+    registry.registerRewriter<DDRToDDRCopy>("ddr-to-ddr", benefitLevels[2], log);
+    registry.registerRewriter<ConcatViewWithCopy>("concat-view-copy", benefitLevels[3], log);
+    registry.registerRewriter<FuseCopyToTheFrontOfDistributedCopy>("fuse-copy-front-distributed", benefitLevels[3],
+                                                                   log);
+    registry.registerRewriter<FuseCopyToTheBackOfDistributedCopy>("fuse-copy-back-distributed", benefitLevels[3], log);
+    registry.registerRewriter<SubViewWithDistributedCopy>("subview-distributed-copy", benefitLevels[3], log);
+    registry.registerRewriter<DuplicatedCopyWithCMXCopy>("duplicated-copy-cmx-copy", benefitLevels[3], log);
+    registry.registerRewriter<FuseCopiesThroughReshape>("fuse-copies-through-reshape", benefitLevels[3], log);
+    registry.registerRewriter<SubViewWithCopy>("subview-copy", benefitLevels[3], log);
+    registry.registerRewriter<CopyOpSequenceWithSubview>("copy-op-sequence-with-subview", benefitLevels[0],
+                                                         workloadManagementMode, log);
+}
+
+void vpux::VPUIP::registerOptimizeCopiesSection(vpux::RewriterRegistry& registry) {
+    registry.registerRewriterSet(
+            "optimize-copies-set",
+            [&](WorkloadManagementMode workloadManagementMode, Logger log) {
+                registerOptimizeCopiesRewriters(registry, workloadManagementMode, log);
+            },
+            // E-184017: Support testing different arguments in cmd line
+            WorkloadManagementMode::PWLM_V0_LCA, Logger("OptimizeCopies", LogLevel::Trace));
+}
 
 //
 // createOptimizeCopiesPass

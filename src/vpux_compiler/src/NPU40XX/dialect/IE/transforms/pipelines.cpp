@@ -14,10 +14,6 @@
 
 using namespace vpux;
 
-//
-// LowPrecision
-//
-
 void vpux::IE::arch40xx::buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
                                                    Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
@@ -131,7 +127,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     // Blob compilation using 'debatcher' method leverages 'outlining' feature so that
     // it will be turned on unless it was already enabled
     bool isOutliningEnabled = options.functionOutlining.hasValue() || DebatcherOptions::isAvailable(options);
-    if (options.enableProfiling && !options.enableProfilingWithOutlining) {
+    if (!canOutlineFromProfilingPerspective(options)) {
         // TODO: E#140041 enable profiling with outlining
         log.warning("Outlining was disabled due to profiling being enabled");
         isOutliningEnabled = false;
@@ -156,11 +152,8 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         }
     }
 
-    // TODO: Remove after E-171501 is resolved
-    pm.addPass(IE::createInputQuantizationRestorationPass(log));
-
     // No passes should be run before this pipeline, with very few exceptions.
-    IE::buildPostImportPipeline(pm, IE::PostImportOptions(options), log);
+    IE::buildPostImportPipeline(pm, log);
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
     if (options.enableReduceNumTilesForSmallModelsPass) {
@@ -172,22 +165,16 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createLogOpOptimizationsPass());
     }
 
-    if (options.enableOnlineSDPAConversion) {
-        pm.addPass(IE::createConvertSDPAToOnlineSDPAPass(log));
-        pm.addPass(IE::createTileOnlineSDPAPass(log));
-        pm.addPass(IE::createDecomposeOnlineSDPAPass(options.disableIncrementalSDPADecomposition, log));
-        pm.addPass(IE::createTileIncrementalSDPAPass(log));
-        if (!options.disableIncrementalSDPADecomposition) {
-            pm.addPass(IE::createDecomposeIncrementalSDPAPass(log));
-        }
+    if (options.enableFlashSDPAConversion) {
+        pm.addPass(IE::createConvertSDPAToFlashSDPAPass(log));
     }
 
     if (options.enableDynamicShapeTransformationsPipeline) {
-        IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
+        IE::buildDynamicShapeTransformationsPipeline(pm, IE::DynamicShapeTransformOptions(options), log);
     }
     pm.addPass(IE::createReshapeMatMulInputsPass(options.enableGroupedMatMul, log));
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
-    IE::arch37xx::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
+    IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
 
     if (options.enableAdjustPrecisionPipeline) {
         IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
@@ -217,7 +204,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(IE::createResolveStridedSlicePass(log));
     pm.addPass(IE::createSwapTransposeConcatPass(log));
     pm.addPass(IE::createConvertSplitConcatToTransposePass(log));
-    pm.addPass(IE::createConvertShapeTo4DPass(log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(IE::createSplitInterpolateAxesPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createConvertGatherElementsToGatherPass(log));
@@ -244,7 +231,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     // SwapOperations pass may generate non-4D AddOp.
     // If AddOp appears here means that it cannot be fused into NCE task.
     // So convert it's shape to 4D and then convert this AddOp to ScaleShift.
-    pm.addPass(IE::createConvertShapeTo4DPass(log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(IE::createConvertToScaleShiftPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createResolveScatterUpdateByTransposePass(log));
@@ -253,16 +240,18 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
                                                     isOptionEnabled(options.enableExperimentalSEPtrsOperations),
                                             log));
 
-    pm.addPass(IE::createConvertDepth2SpaceToTransposedConvPass(log));
+    if (options.enableD2SToTransposedConvConversion) {
+        pm.addPass(IE::createConvertDepth2SpaceToTransposedConvPass(log));
+    }
     pm.addPass(IE::createSwapD2SAndScaleShiftPass(log));
     pm.addPass(IE::createConvertReverseToDWConvPass(log));
-    pm.addPass(IE::createConvertDeformableConvToConvPass(log));
+    if (options.enableConvertDeformableConvToConv) {
+        pm.addPass(IE::createConvertDeformableConvToConvPass(log));
+    }
 
     IE::buildAdjustForVPUPipeline(pm, IE::AdjustForVPUOptions(options), log);
 
     pm.addPass(mlir::createCSEPass());
-
-    pm.addPass(Core::createStopLocationVerifierPass(log));
 
     pm.addPass(IE::createHandleExcludePadForAvgPoolPass(log));
     pm.addPass(IE::createResolveStridedSlicePass(log));
@@ -289,6 +278,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     }
 
     pm.addPass(IE::createConvertGroupConvToConvPass(log));
+    pm.addPass(Core::createStopLocationVerifierPass(log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     if (options.enableOptimizeScaleShiftToDWConv) {
         IE::buildScaleShiftProcessingPipeline(pm, log);
@@ -298,10 +288,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     pm.addPass(IE::createConvertStridedSlice2ConvPass(log));
     if (options.enableLowPrecision) {
         IE::arch40xx::buildLowPrecisionPipeline(pm, IE::LowPrecisionOptions(options), log);
-        pm.addPass(IE::createConvertShapeTo4DPass(log));
+        pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
         pm.addPass(IE::createSwapViewOpAndClampPass(log));
     }
-    IE::arch37xx::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
+    IE::buildOptimizeActivationsPipeline(pm, IE::OptimizeActivationsOptions(options), log);
 
     pm.addPass(IE::createOptimizeTileOpPass(log));
 
@@ -328,7 +318,7 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
 
     pm.addPass(IE::createSwapMVNWithTransposePass(log));
 
-    IE::arch37xx::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
+    IE::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
 
     pm.addPass(IE::createFuseConvWithSlicePass(log));
 
@@ -343,8 +333,8 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
         pm.addPass(IE::createAdjustGroupConvShapePass(log));
     }
 
-    IE::arch37xx::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(
-            pm, IE::ExpandActivationChannelsOptions(options), log);
+    IE::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, IE::ExpandActivationChannelsOptions(options),
+                                                                   log);
 
     pm.addPass(IE::createRemoveViewLikeOpsChainPass(log));
     pm.addPass(IE::createOptimizeOpSlicePass(log));
@@ -382,6 +372,10 @@ void vpux::IE::arch40xx::buildDefaultHWPipeline(mlir::OpPassManager& pm, const I
     if (options.enableShaveCodeGen) {
         IE::buildShaveCodeGenPipeline(pm, log);
     }
+
+    if (options.enableFuseD2SExpand) {
+        pm.addPass(IE::createFuseD2SExpandChannelsPass(log));
+    }
 }
 
 void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
@@ -389,12 +383,12 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     const auto grc = getDefaultGreedyRewriteConfig();
 
     // No passes should be run before this pipeline, with very few exceptions.
-    IE::buildPostImportPipeline(pm, IE::PostImportOptions(options), log);
+    IE::buildPostImportPipeline(pm, log);
 
     // Level 3 : Topology
 
     IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, IE::LowPrecisionTransformOptions(options), log);
-    IE::arch37xx::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
+    IE::buildInitialTransformationsPipeline(pm, IE::TransformOptions(options), log);
     IE::buildAdjustPrecisionPipeline(pm, IE::AdjustPrecisionOptions(options), log);
 
     // Resolve group quant MatMul pattern
@@ -414,7 +408,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(IE::createResolveStridedSlicePass(log));
     pm.addPass(IE::createConvertStridedSlice2ConvPass(log));
     pm.addPass(IE::createConvertNceOpsTo4DPass(log));
-    pm.addPass(IE::createConvertShapeTo4DPass(log));
+    pm.addPass(IE::createConvertShapeTo4DPass(isOptionEnabled(options.forceConvertGatherTo4D), log));
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(IE::createConvertToSpatialOpPass(false, isOptionEnabled(options.enableSEPtrsOperations), log));
     pm.addPass(IE::createConvertGRNToNormalizeL2Pass(log));
@@ -430,7 +424,7 @@ void vpux::IE::arch40xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     }
     pm.addPass(mlir::createCanonicalizerPass(grc));
 
-    IE::arch37xx::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
+    IE::buildAdjustLayoutPipeline(pm, IE::AdjustLayoutOptions(options), log);
     pm.addPass(IE::createConvertAssignReadValueToReturnsAndInputs(log));
 
     pm.addPass(IE::createConvertToMemPermutePass(log));
@@ -451,7 +445,6 @@ void vpux::IE::arch40xx::registerIEPipelines() {
             [](mlir::OpPassManager& pm, const IE::arch40xx::DefaultHWOptions& options) {
                 IE::arch40xx::buildDefaultHWPipeline(pm, options);
             });
-
     mlir::PassPipelineRegistration<IE::LowPrecisionTransformOptions>(
             "initial-low-precision-transformations",
             "[LEGALIZATION] Initial Low Precision Transformations, convert initial low precision IR operations to "
@@ -460,67 +453,16 @@ void vpux::IE::arch40xx::registerIEPipelines() {
                 IE::arch37xx::buildInitialLowPrecisionTransformationsPipeline(pm, options);
             });
 
-    mlir::PassPipelineRegistration<IE::TransformOptions>(
-            "initial-transformations",
-            "[LEGALIZATION] Initial Transformations, convert initial IR operations to another and tries to reduce the "
-            "number of op types used in the graph",
-            [](mlir::OpPassManager& pm, const IE::TransformOptions& options) {
-                IE::arch37xx::buildInitialTransformationsPipeline(pm, options);
-            });
-
-    mlir::PassPipelineRegistration<OptimizeActivationsOptions>(
-            "optimize-activations", "[OPTIMIZATION] Optimize activations for VPU target",
-            [](mlir::OpPassManager& pm, const OptimizeActivationsOptions& options) {
-                IE::arch37xx::buildOptimizeActivationsPipeline(pm, options);
-            });
-
-    mlir::PassPipelineRegistration<MemPermutePositioningOptions>(
-            "mempermute-positioning",
-            "[OPTIMIZATION] MemPermute positioning is responsible for handling data transfromations ops (Transpose, "
-            "Reshape etc), transform it to MemPermute and reorder the op to optimize final subgraph to avoid "
-            "unnecessary data permutations",
-            [](mlir::OpPassManager& pm, const MemPermutePositioningOptions& options) {
-                IE::arch37xx::buildMemPermutePositioningPipeline(pm, options);
-            });
-
-    mlir::PassPipelineRegistration<ExpandActivationChannelsOptions>(
-            "expand-and-optimize-activation-channels", "[OPTIMIZATION] Expand and optimize activation channels",
-            [](mlir::OpPassManager& pm, const ExpandActivationChannelsOptions& options) {
-                IE::arch37xx::buildExpandAndOptimizeActivationChannelsPipeline(pm, options);
-            });
-
-    mlir::PassPipelineRegistration<ExpandActivationChannelsOptions>(
-            "mempermute-processing",
-            "[OPTIMIZATION] MemPermute processing is responsible for handling mempermute op and optimize final "
-            "subgraph to avoid unnecessary data "
-            "permutations",
-            [](mlir::OpPassManager& pm, const ExpandActivationChannelsOptions& options) {
-                IE::arch37xx::buildMemPermuteProcessingPipeline(pm, options);
-            });
-
-    mlir::PassPipelineRegistration<ExpandActivationChannelsOptions>(
-            "optimize-mempermute-and-activation-channels-expand",
-            "[OPTIMIZATION] Optimize MemPermute and activation channel expand",
-            [](mlir::OpPassManager& pm, const ExpandActivationChannelsOptions& options) {
-                IE::arch37xx::buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(pm, options);
-            });
-
     mlir::PassPipelineRegistration<LowPrecisionOptions>(
             "low-precision", "[OPTIMIZATION] Low precision transformations",
             [](mlir::OpPassManager& pm, const LowPrecisionOptions& options) {
                 IE::arch40xx::buildLowPrecisionPipeline(pm, options);
             });
 
-    mlir::PassPipelineRegistration<AdjustLayoutOptions>(
-            "adjust-layout", "[LEGALIZATION] Adjust IR layout for VPU target",
-            [](mlir::OpPassManager& pm, const AdjustLayoutOptions& options) {
-                IE::arch37xx::buildAdjustLayoutPipeline(pm, options);
-            });
-
     mlir::PassPipelineRegistration<DynamicShapeTransformOptions>(
             "dynamic-shape-transformations", "[LEGALIZATION] Introduces operation to handle dynamic shapes",
             [](mlir::OpPassManager& pm, const DynamicShapeTransformOptions& options) {
-                IE::arch37xx::buildDynamicShapeTransformationsPipeline(pm, options);
+                IE::buildDynamicShapeTransformationsPipeline(pm, options);
             });
 
     mlir::PassPipelineRegistration<IE::arch40xx::DefaultHWOptions>(

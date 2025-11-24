@@ -240,7 +240,7 @@ rawFilterShape = [96, 16, 7, 7],
 
     // CHECK:       [[COPY_CONV_WEIGHTS_TBL_1:%.+]] = VPU.Copy([[WEIGHTS_TABLE2]]) {out_mem_space = @CMX_NN} : tensor<96x1x1x4xsi32>
     // CHECK-SAME:     -> !VPU.DistributedTensor<96x1x1x4xsi32, #NCHW, @CMX_NN,
-    // CHECK-sAME:          {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments
+    // CHECK-SAME:          {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments
     // CHECK-SAME{LITERAL}:  compute_shapes = [[96, 1, 1, 4], [96, 1, 1, 4]]
     // CHECK-SAME{LITERAL}:  compute_offsets = [[0, 0, 0, 0], [0, 0, 0, 0]]
     // CHECK-SAME{LITERAL}:  memory_shapes = [[96, 1, 1, 4], [96, 1, 1, 4]]

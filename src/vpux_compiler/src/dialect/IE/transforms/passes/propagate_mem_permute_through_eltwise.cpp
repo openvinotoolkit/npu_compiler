@@ -964,15 +964,12 @@ mlir::LogicalResult OptimizeEltwiseSequence::matchAndRewrite(IE::MemPermuteOp me
 class PropagateMemPermuteThroughEltwisePass final :
         public IE::impl::PropagateMemPermuteThroughEltwiseBase<PropagateMemPermuteThroughEltwisePass> {
 public:
-    explicit PropagateMemPermuteThroughEltwisePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PropagateMemPermuteThroughEltwisePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PropagateMemPermuteThroughEltwisePass::safeRunOnFunc() {

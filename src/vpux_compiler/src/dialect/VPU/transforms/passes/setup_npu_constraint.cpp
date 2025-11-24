@@ -5,15 +5,16 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/barrier_variant_constraint.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/factories/wlm_register_config.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/platform_resources.hpp"
-#include "vpux/compiler/utils/shave.hpp"
 #include "vpux/utils/core/error.hpp"
 
 namespace vpux::VPU {
@@ -38,8 +39,8 @@ public:
         Base::copyOptionValuesFrom(initCompilerOptions);
 
         const auto statusFromInitCompiler = initCompilerOptions.workloadManagementEnable
-                                                    ? VPU::WorkloadManagementStatus::ENABLED
-                                                    : VPU::WorkloadManagementStatus::DISABLED;
+                                                    ? WorkloadManagementStatus::ENABLED
+                                                    : WorkloadManagementStatus::DISABLED;
 
         _log.debug("Overriding the default value {0} of the 'workloadManagementStatus' field. Setting value {1} "
                    "of the InitCompilerOptions.",
@@ -68,17 +69,27 @@ void addConstraint(mlir::OpBuilder optionsBuilder, config::PipelineOptionsOp pip
                    mlir::StringRef constraintName, T constraintValue, bool allowCustomValues) {
     auto hasPipelineOption = pipelineOptionsOp.lookupSymbol<config::OptionOp>(constraintName) != nullptr;
     VPUX_THROW_WHEN(!allowCustomValues && hasPipelineOption,
-                    "Barrier constraint is already defined, probably you run '--init-compiler' twice");
+                    "Constraint is already defined, probably you run '--init-compiler' twice");
 
     if (hasPipelineOption) {
         return;
     }
 
     auto* ctx = optionsBuilder.getContext();
-    mlir::IntegerType sizeType = mlir::IntegerType::get(ctx, sizeof(void*) * 8, mlir::IntegerType::Unsigned);
     const auto constraintAttr = mlir::StringAttr::get(ctx, constraintName);
-    optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
-                                            mlir::IntegerAttr::get(sizeType, constraintValue));
+
+    if constexpr (std::is_same_v<T, llvm::SmallVector<uint32_t>>) {
+        if (constraintValue.empty()) {
+            return;
+        }
+        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
+                                                getIntArrayAttr(ctx, constraintValue));
+
+    } else {
+        mlir::IntegerType sizeType = mlir::IntegerType::get(ctx, sizeof(void*) * 8, mlir::IntegerType::Unsigned);
+        optionsBuilder.create<config::OptionOp>(optionsBuilder.getUnknownLoc(), constraintAttr,
+                                                mlir::IntegerAttr::get(sizeType, constraintValue));
+    }
 }
 
 template <>
@@ -120,7 +131,7 @@ void SetupNpuConstraintPass::initializeFromOptions() {
 void SetupNpuConstraintPass::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    auto pipelineOptionsOp = VPU::getPipelineOptionsOp(getContext(), moduleOp);
+    auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     optionsBuilder =
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 
@@ -130,13 +141,12 @@ void SetupNpuConstraintPass::safeRunOnModule() {
         // via InitCompilerOptions argument
         // note: WLM enabled on NPU2.7 may silently be ignored and work in some of the cases
         // but also may lead to unexpected compilation failures
-        workloadManagementStatus = VPU::WorkloadManagementStatus::DISABLED;
+        workloadManagementStatus = WorkloadManagementStatus::DISABLED;
     }
 
     bool isRollBackPossible = wlmRollback.hasValue() && wlmRollback;
-    bool isWlmWithoutRollback =
-            workloadManagementStatus == VPU::WorkloadManagementStatus::ENABLED && !isRollBackPossible;
-    if (_enableSwFifoPerShave && !VPU::hasSupportForFifoPerShaveEngine(arch, isWlmWithoutRollback)) {
+    bool isWlmWithoutRollback = workloadManagementStatus == WorkloadManagementStatus::ENABLED && !isRollBackPossible;
+    if (_enableSwFifoPerShave && !config::hasSupportForFifoPerShaveEngine(arch, isWlmWithoutRollback)) {
         // if dedicated SHAVE FIFOs are not, or cannot be supported, the feature will be disabled. For convenience, this
         // will be reflected in the iR in pipeline options section, as the value will be accessed by multiple passes.
         _enableSwFifoPerShave = false;
@@ -146,20 +156,20 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     }
 
     VPUX_THROW_WHEN(
-            pipelineOptionsOp.lookupSymbol<config::OptionOp>(VPU::WORKLOAD_MANAGEMENT_STATUS) && !_allowCustomValues,
+            pipelineOptionsOp.lookupSymbol<config::OptionOp>(config::WORKLOAD_MANAGEMENT_STATUS) && !_allowCustomValues,
             "Workload Management Status is already defined, probably you run '--init-compiler' twice");
 
-    if (!pipelineOptionsOp.lookupSymbol<config::OptionOp>(VPU::WORKLOAD_MANAGEMENT_STATUS)) {
-        vpux::VPU::setWorkloadManagementStatus(moduleOp, workloadManagementStatus);
+    if (!pipelineOptionsOp.lookupSymbol<config::OptionOp>(config::WORKLOAD_MANAGEMENT_STATUS)) {
+        config::setWorkloadManagementStatus(moduleOp, workloadManagementStatus);
     }
 
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE, _enableSwFifoPerShave,
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE, _enableSwFifoPerShave,
                   _allowCustomValues);
 
-    auto supportsSwFifoPerShave = VPU::getConstraint<bool>(moduleOp, VPU::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
+    auto supportsSwFifoPerShave = config::getConstraint<bool>(moduleOp, config::USE_DEDICATED_FIFO_PER_SHAVE_ENGINE);
     _log.info("Support for FIFO per each SHAVE engine enabled: {0}", supportsSwFifoPerShave);
 
-    auto useWlmBarrierConfig = workloadManagementStatus == VPU::WorkloadManagementStatus::ENABLED;
+    auto useWlmBarrierConfig = workloadManagementStatus == WorkloadManagementStatus::ENABLED;
     if (wlmRollback.hasValue() && wlmRollback.getValue() == true) {
         // Using non-WLM values might result in slightly worse inference latency but is
         // safer in case compilation with WLM enabled fails
@@ -174,8 +184,19 @@ void SetupNpuConstraintPass::safeRunOnModule() {
     auto barrVariantSum = static_cast<unsigned>(perBarrierVariantConstraint.getPerBarrierMaxVariantSum());
     auto barrVariantCount = static_cast<unsigned>(perBarrierVariantConstraint.getPerBarrierMaxVariantCount());
 
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::BARR_MAX_VARIANT_SUM, barrVariantSum, _allowCustomValues);
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::BARR_MAX_VARIANT_COUNT, barrVariantCount, _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARR_MAX_VARIANT_SUM, barrVariantSum, _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARR_MAX_VARIANT_COUNT, barrVariantCount,
+                  _allowCustomValues);
+
+    auto regConfig = vpux::VPU::getRegisterConfig(arch);
+    auto shvRegAddrs = regConfig.getSHVRegisterAddrs();
+    auto dpuRegAddrs = regConfig.getDPURegisterAddrs();
+    auto barrierFifoAddr = regConfig.getNCEBarrierFifoAddr();
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::DPU_FIFO_ADDRS, std::move(dpuRegAddrs),
+                  _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::SHV_FIFO_ADDRS, std::move(shvRegAddrs),
+                  _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::BARRIER_FIFO_ADDR, barrierFifoAddr, _allowCustomValues);
 
     // Get Maximum available space in CMX Metadata for various descriptor types
     auto maxVariants = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::DPUVariant, arch);
@@ -200,16 +221,17 @@ void SetupNpuConstraintPass::safeRunOnModule() {
             vpux::VPU::getDefaultTaskListCount(VPU::TaskType::ActKernelInvocation, arch) / numShvExecutorsPerTile;
 
     // Set CMX Metadata Constrains
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::METADATA_MAX_VARIANT_COUNT, maxVariants, _allowCustomValues);
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::METADATA_MAX_INVARIANT_COUNT, maxInvariants,
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_VARIANT_COUNT, maxVariants,
                   _allowCustomValues);
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT, maxActKernelInvocation,
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_INVARIANT_COUNT, maxInvariants,
                   _allowCustomValues);
-    addConstraint(optionsBuilder, pipelineOptionsOp, VPU::METADATA_MAX_KERNEL_RANGE_COUNT, maxActKernelRange,
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_KERNEL_INVOCATION_COUNT,
+                  maxActKernelInvocation, _allowCustomValues);
+    addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_KERNEL_RANGE_COUNT, maxActKernelRange,
                   _allowCustomValues);
     if (!vpux::config::isArchVPUX3XXX(arch)) {
         auto maxMediaCount = vpux::VPU::getDefaultTaskListCount(VPU::TaskType::M2I, arch);
-        addConstraint(optionsBuilder, pipelineOptionsOp, VPU::METADATA_MAX_MEDIA_COUNT, maxMediaCount,
+        addConstraint(optionsBuilder, pipelineOptionsOp, config::METADATA_MAX_MEDIA_COUNT, maxMediaCount,
                       _allowCustomValues);
     }
 }

@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/core/IR/memref_attr.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/utils/core/error.hpp"
@@ -313,7 +314,7 @@ mlir::RankedTensorType vpux::getTensorType(ShapeRef shape, mlir::Type elemType, 
     VPUX_THROW_UNLESS(order.numDims() == shape.size(), "DimsOrder '{0}' doesn't match to shape '{1}'", order, shape);
 
     VPUX_THROW_WHEN(!bounds.empty() && !dynamicDimsMask.empty(),
-                    "Should ether Bounds '{0}' or DynamicDimsMask '{1}' set, got both", bounds, dynamicDimsMask);
+                    "Should either Bounds '{0}' or DynamicDimsMask '{1}' set, got both", bounds, dynamicDimsMask);
     if (!bounds.empty()) {
         VPUX_THROW_UNLESS((bounds.size() == shape.size()), "Bounds '{0}' doesn't match shape '{1}'", bounds.raw(),
                           shape);
@@ -458,6 +459,21 @@ bool vpux::areTypesCompatible(mlir::TypeRange lhs, mlir::TypeRange rhs, IE::Type
                       rhsType.getMemoryKind() == VPU::MemoryKind::DDR)) {
                     return false;
                 }
+            }
+        }
+
+        const bool lhsIsBounded = mlir::isa<Core::BoundedTensorType>(lhsOrigType);
+        const bool rhsIsBounded = mlir::isa<Core::BoundedTensorType>(rhsOrigType);
+
+        if (lhsIsBounded != rhsIsBounded) {
+            return false;
+        }
+
+        if (lhsIsBounded && rhsIsBounded) {
+            auto lhsBoundedType = mlir::cast<Core::BoundedTensorType>(lhsOrigType);
+            auto rhsBoundedType = mlir::cast<Core::BoundedTensorType>(rhsOrigType);
+            if (lhsBoundedType.getBounds() != rhsBoundedType.getBounds()) {
+                return false;
             }
         }
     }

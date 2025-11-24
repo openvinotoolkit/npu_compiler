@@ -18,23 +18,6 @@
 
 using namespace vpux;
 
-void vpux::VPUIP::arch37xx::buildOptimizeCopiesPipeline(mlir::OpPassManager& pm,
-                                                        const VPUIP::arch37xx::OptimizeCopiesOptions& options,
-                                                        Logger log) {
-    if (options.enableOptimizeCopies) {
-        pm.addPass(VPUIP::createOptimizeCopiesPass(options.workloadManagementMode, log));
-        pm.addPass(VPUIP::createUniquifyWeightsTableCopiesPass(log));
-        pm.addPass(VPUIP::createOptimizeConcatViewCopiesPass(log));
-        pm.addPass(VPUIP::createFuseDDRCopiesIntoConcats(log));
-        pm.addPass(VPUIP::createOptimizeParallelCopiesPass(options.enableOptimizeConstCopies, log));
-        pm.addPass(VPUIP::createOptimizeSubviewCopiesPass(log));
-        pm.addPass(VPUIP::createFuseLastCopyPass(log));
-        if (options.enableOpsAsDMA) {
-            pm.addPass(VPUIP::createOptimizeTileOpAsNNDMAPass(log));
-        }
-    }
-}
-
 void vpux::VPUIP::arch37xx::buildMemoryAllocationPipeline(mlir::OpPassManager& pm,
                                                           const VPUIP::arch37xx::MemoryAllocationOptions& options,
                                                           Logger log) {
@@ -73,7 +56,8 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createConvertEltwiseToInPlacePass(log));
 
     // Level 2 : Abstract RunTime
-    pm.addPass(VPUIP::createSetMemorySpacePass(vpux::VPU::getMemKind<VPU::MemoryKind::DDR>, log));
+    pm.addPass(VPUIP::createSetMemorySpacePass(vpux::VPU::getMemKind<VPU::MemoryKind::DDR>,
+                                               options.setMemorySpaceForFunctionBoundaries, log));
 
     if (options.enableSEPtrsOperations || options.enableExperimentalSEPtrsOperations) {
         pm.addPass(VPUIP::createMoveSubViewBeforeSparseBufferPass(log));
@@ -89,7 +73,7 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     pm.addPass(VPUIP::createUngroupBoundedBuffersPass(log));
 
-    VPUIP::arch37xx::buildOptimizeCopiesPipeline(pm, VPUIP::arch37xx::OptimizeCopiesOptions(options), log);
+    VPUIP::buildOptimizeCopiesPipeline(pm, VPUIP::OptimizeCopiesOptionsBase(options), log);
 
     pm.addPass(VPUIP::createConvertDynamicReshapeToInPlacePass(log));
     pm.addPass(VPUIP::createInsertCopyForEltwiseInPlaceInputPass(log));
@@ -146,14 +130,14 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     // Handle WeightsTable, which requires statically allocated memory
     pm.addPass(VPUIP::createPatchWeightsTablePass(log));
 
-    pm.addPass(VPUIP::arch37xx::createAddSwKernelCacheHandlingOpsPass(log));
+    pm.addPass(VPUIP::createAddSwKernelCacheHandlingOpsPass(log));
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
     // Level 1 : VPU RunTime
     pm.addPass(VPUIP::createUnrollSwKernelPass(log));
 
-    pm.addPass(VPUIP::arch37xx::createUnrollDistributedOpsPass(log));
+    pm.addPass(VPUIP::createUnrollDistributedOpsPass(log));
     pm.addPass(VPUIP::createNNDMATilingPass(log));
     if (options.enableWeightsSparsity) {
         pm.addPass(VPUIP::createFlattenSparseWeightsTypesPass(log));
@@ -168,14 +152,8 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 
     VPUIP::buildDMAUnrollingPipeline(pm, log);
 
-    // TODO: E#140041 enable profiling with outlining
-    bool isOutliningEnabled = (options.functionOutlining.hasValue() || options.enableVerticalFusionOutlining) &&
-                              (!options.enableProfiling || options.enableProfilingWithOutlining);
-
     // TODO: E#118869 For now put the pass before barrier scheduling
-    if (isOutliningEnabled) {
-        pm.addPass(VPUIP::createDispatchedInlinerPass(log));
-    }
+    pm.addPass(VPUIP::createDispatchedInlinerPass(log));
 
     if (options.enableControlGraphSplit) {
         pm.addPass(VPURT::createSplitControlGraphPass(options.controlGraphSplitBlockSize, log));
@@ -244,7 +222,8 @@ void vpux::VPUIP::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
 void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
                                                      const VPUIP::arch37xx::DefaultHWOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
-    pm.addPass(VPUIP::createSetMemorySpacePass(VPU::getMemKind<VPU::MemoryKind::DDR>, log));
+    pm.addPass(VPUIP::createSetMemorySpacePass(VPU::getMemKind<VPU::MemoryKind::DDR>,
+                                               options.setMemorySpaceForFunctionBoundaries, log));
 
     pm.addPass(VPUIP::createAddCopyBetweenSWKernelsAndNetworkIOPass(log));
 
@@ -266,7 +245,7 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPUIP::createLinearizationPass(log));
     pm.addPass(VPUIP::createOptimizeAsyncDepsPass(log));
 
-    pm.addPass(VPUIP::arch37xx::createAddSwKernelCacheHandlingOpsPass(log));
+    pm.addPass(VPUIP::createAddSwKernelCacheHandlingOpsPass(log));
 
     VPUIP::buildHardwareAdaptationPipeline(pm, log);
 
@@ -290,21 +269,11 @@ void vpux::VPUIP::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm,
 }
 
 void vpux::VPUIP::arch37xx::registerVPUIPPipelines() {
-    mlir::PassPipelineRegistration<VPUIP::arch37xx::OptimizeCopiesOptions>(
-            "optimize-copies-pipeline", "Optimize Copies Pipeline",
-            [](mlir::OpPassManager& pm, const VPUIP::arch37xx::OptimizeCopiesOptions& options) {
-                VPUIP::arch37xx::buildOptimizeCopiesPipeline(pm, options);
-            });
-
     mlir::PassPipelineRegistration<VPUIP::arch37xx::MemoryAllocationOptions>(
             "memory-allocation", "Memory Allocation",
             [](mlir::OpPassManager& pm, const VPUIP::arch37xx::MemoryAllocationOptions& options) {
                 VPUIP::arch37xx::buildMemoryAllocationPipeline(pm, options);
             });
-
-    mlir::PassPipelineRegistration<>("dma-unrolling", "DMA unrolling", [](mlir::OpPassManager& pm) {
-        VPUIP::buildDMAUnrollingPipeline(pm);
-    });
 
     mlir::PassPipelineRegistration<VPUIP::arch37xx::DefaultHWOptions>(
             "default-hw-mode-vpuip", "VPUIP dialect part of Default HW pipeline",

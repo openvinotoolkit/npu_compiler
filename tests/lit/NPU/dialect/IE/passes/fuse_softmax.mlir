@@ -71,6 +71,27 @@ func.func @FuseSoftmax_WithoutFakeQuantize(%arg0: tensor<64x199x63xf32>) -> tens
 
 // -----
 
+// CHECK-LABEL: @FuseSoftmax_TransposeCase
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<2x4x8xf32>)
+func.func @FuseSoftmax_TransposeCase(%arg0: tensor<2x4x8xf32>) -> tensor<2x4x8xf32> {
+  %0 = IE.ReduceMax(%arg0) {axes_value = [0, 2], keep_dims} : tensor<2x4x8xf32> -> tensor<1x4x1xf32>
+  %1 = IE.Subtract(%arg0, %0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<1x4x1xf32> -> tensor<2x4x8xf32>
+  %2 = IE.Exp(%1) : tensor<2x4x8xf32> -> tensor<2x4x8xf32>
+  %3 = IE.ReduceSum(%2) {axes_value = [0, 2], keep_dims} : tensor<2x4x8xf32> -> tensor<1x4x1xf32>
+  %4 = IE.Divide(%2, %3) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2x4x8xf32>, tensor<1x4x1xf32> -> tensor<2x4x8xf32>
+
+  return %4 : tensor<2x4x8xf32>
+
+  // CHECK: [[TRANSPOSE_IN:%.+]] = IE.Transpose([[ARG0]]) {order_value = #HCW} : tensor<2x4x8xf32> -> tensor<4x2x8xf32>
+  // CHECK: [[RESHAPE_IN:%.+]] = IE.AffineReshape([[TRANSPOSE_IN]]) {dim_mapping = {{\[\[0, 1\], \[2\], \[2\]\]}}, shape_value = [1, 4, 16]} : tensor<4x2x8xf32> -> tensor<1x4x16xf32>
+  // CHECK: [[SOFTMAX:%.+]] = IE.SoftMax([[RESHAPE_IN]]) {axisInd = 2 : i64} : tensor<1x4x16xf32> -> tensor<1x4x16xf32>
+  // CHECK: [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[SOFTMAX]]) {dim_mapping = {{\[\[0\], \[0\], \[1, 2\]\]}}, shape_value = [4, 2, 8]} : tensor<1x4x16xf32> -> tensor<4x2x8xf32>
+  // CHECK: [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[RESHAPE_OUT]]) {order_value = #HCW} : tensor<4x2x8xf32> -> tensor<2x4x8xf32>
+  // CHECK: return [[TRANSPOSE_OUT]] : tensor<2x4x8xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @FuseSoftmax_NoMatch_MissingExp
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<64x199x63xf32>)
 func.func @FuseSoftmax_NoMatch_MissingExp(%arg0: tensor<64x199x63xf32>) -> tensor<64x199x63xf32> {

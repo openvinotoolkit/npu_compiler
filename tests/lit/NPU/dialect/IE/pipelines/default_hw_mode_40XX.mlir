@@ -297,18 +297,17 @@ module @MemPermuteProcessingWithNDMemPermute {
         // CHECK:       [[CST:%.+]] = const.Declare tensor<64x192x3x3xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<64x192x3x3xf16>, [#const.Reorder<#NHWC>]
         // CHECK:       [[CONCAT:%.+]] = IE.Concat([[ARG0]], [[ARG0]])
         // CHECK-SAME{LITERAL}:      {static_offsets = [[0, 0, 0, 0], [0, 96, 0, 0]]} : tensor<2x96x288x288xf16>, tensor<2x96x288x288xf16> -> tensor<2x192x288x288xf16>
-        // CHECK:       [[MEMPERMUTE1:%.+]] = IE.MemPermute([[CONCAT]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<2x192x288x288xf16> -> tensor<2x192x288x288xf16, {order = #NHWC}>
-        // CHECK-DAG:   [[SLICE6:%.+]] = IE.Slice [[MEMPERMUTE1]] [1, 0, 0, 0] [1, 192, 288, 288] : tensor<2x192x288x288xf16, {order = #NHWC}> to tensor<1x192x288x288xf16, {order = #NHWC}>
-        // CHECK-DAG:   [[SLICE7:%.+]] = IE.Slice [[MEMPERMUTE1]] [0, 0, 0, 0] [1, 192, 288, 288] : tensor<2x192x288x288xf16, {order = #NHWC}> to tensor<1x192x288x288xf16, {order = #NHWC}>
-        // CHECK:       [[CONV8:%.+]] = IE.Convolution([[SLICE7]], %cst) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x192x288x288xf16, {order = #NHWC}>, tensor<64x192x3x3xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
-        // CHECK:       [[CONV9:%.+]] = IE.Convolution([[SLICE6]], %cst) {
-        // CHECK-SAME:      dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x192x288x288xf16, {order = #NHWC}>, tensor<64x192x3x3xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
-        // CHECK:       [[SIGMOID10:%.+]] = IE.Sigmoid([[CONV8]]) : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
-        // CHECK:       [[SIGMOID11:%.+]] = IE.Sigmoid([[CONV9]]) : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
-        // CHECK:       [[MAXPOOL12:%.+]] = IE.MaxPool([[SIGMOID10]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16>
-        // CHECK:       [[MAXPOOL13:%.+]] = IE.MaxPool([[SIGMOID11]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16>
-        // CHECK:       [[CONCAT_OUT:%.+]] = IE.Concat([[MAXPOOL12]], [[MAXPOOL13]])
+        // CHECK:       [[SLICE1:%.+]] = IE.Slice [[CONCAT]] [0, 0, 0, 0] [1, 192, 288, 288] : tensor<2x192x288x288xf16> to tensor<1x192x288x288xf16>
+        // CHECK:       [[PERMUTEQUANT1:%.+]] = IE.PermuteQuantize([[SLICE1]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x192x288x288xf16> -> tensor<1x192x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[SLICE2:%.+]] = IE.Slice [[CONCAT]] [1, 0, 0, 0] [1, 192, 288, 288] : tensor<2x192x288x288xf16> to tensor<1x192x288x288xf16>
+        // CHECK:       [[PERMUTEQUANT2:%.+]] = IE.PermuteQuantize([[SLICE2]]) {dstElemType = f16, dst_order = #NHWC, mem_perm = #NHWC, pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0]} : tensor<1x192x288x288xf16> -> tensor<1x192x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[CONV1:%.+]] = IE.Convolution([[PERMUTEQUANT1]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x192x288x288xf16, {order = #NHWC}>, tensor<64x192x3x3xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[CONV2:%.+]] = IE.Convolution([[PERMUTEQUANT2]], [[CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x192x288x288xf16, {order = #NHWC}>, tensor<64x192x3x3xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[SIGMOID1:%.+]] = IE.Sigmoid([[CONV1]]) : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[SIGMOID2:%.+]] = IE.Sigmoid([[CONV2]]) : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16, {order = #NHWC}>
+        // CHECK:       [[MAXPOOL1:%.+]] = IE.MaxPool([[SIGMOID1]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16>
+        // CHECK:       [[MAXPOOL2:%.+]] = IE.MaxPool([[SIGMOID2]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x64x288x288xf16, {order = #NHWC}> -> tensor<1x64x288x288xf16>
+        // CHECK:       [[CONCAT_OUT:%.+]] = IE.Concat([[MAXPOOL1]], [[MAXPOOL2]])
         // CHECK-SAME{LITERAL}:       {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x64x288x288xf16>, tensor<1x64x288x288xf16> -> tensor<2x64x288x288xf16>
         // CHECK:       return [[CONCAT_OUT]] : tensor<2x64x288x288xf16>
     }

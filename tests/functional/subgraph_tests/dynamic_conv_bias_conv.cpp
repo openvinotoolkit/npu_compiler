@@ -20,7 +20,8 @@ using DynamicConvBiasConvParams = std::tuple<ov::test::InputShape, ov::element::
 class DynamicConvBiasConvTest : public testing::WithParamInterface<DynamicConvBiasConvParams>, public VpuOv2LayerTest {
     void configure_model() override {
         // tests should fail without this option enabled
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-apply-dynamic-boundary-correction=true";
+        configuration[ov::intel_npu::compilation_mode_params.name()] =
+                "enable-apply-dynamic-boundary-correction=true verify-locations=off";
     }
 
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {

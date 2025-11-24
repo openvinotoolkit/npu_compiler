@@ -71,44 +71,8 @@ mlir::LogicalResult UseLeakyRelu::matchAndRewrite(IE::PReluOp origOp, mlir::Patt
     return mlir::success();
 }
 
-class legalizeslope final : public mlir::OpRewritePattern<IE::PReluOp> {
-public:
-    using mlir::OpRewritePattern<IE::PReluOp>::OpRewritePattern;
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::PReluOp origOp, mlir::PatternRewriter& rewriter) const final;
-};
-
-mlir::LogicalResult legalizeslope::matchAndRewrite(IE::PReluOp origOp, mlir::PatternRewriter& rewriter) const {
-    auto input = origOp.getInput();
-    auto negativeSlopeOp = origOp.getNegativeSlope();
-
-    if (negativeSlopeOp == nullptr) {
-        return mlir::failure();
-    }
-
-    auto inputShape = getShape(input);
-    auto slopeShape = getShape(negativeSlopeOp);
-
-    if (slopeShape.size() == inputShape.size() &&
-        (slopeShape.totalSize() == 1 || slopeShape[Dims4D::Act::C] == inputShape[Dims4D::Act::C])) {
-        return mlir::failure();
-    }
-
-    SmallVector<int64_t> newShape(inputShape.size(), 1);
-    newShape[Dims4D::Act::C.ind()] = slopeShape.totalSize();
-
-    const auto newShapeAttr = getIntArrayAttr(getContext(), newShape);
-    auto slopeReshape = rewriter.createOrFold<IE::ReshapeOp>(origOp->getLoc(), origOp.getNegativeSlope(), nullptr,
-                                                             false, newShapeAttr);
-    rewriter.replaceOpWithNewOp<IE::PReluOp>(origOp, origOp.getInput(), slopeReshape);
-
-    return mlir::success();
-}
-
 }  // namespace
 
 void vpux::IE::PReluOp::getCanonicalizationPatterns(mlir::RewritePatternSet& patterns, mlir::MLIRContext* context) {
-    patterns.add<legalizeslope>(context);
     patterns.add<UseLeakyRelu>(context);
 }

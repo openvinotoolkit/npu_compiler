@@ -12,12 +12,13 @@
 #include "vpux/compiler/dialect/VPU/transforms/factories/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/tiling_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/dilated_utils.hpp"
@@ -386,9 +387,9 @@ bool isLargeFilterOp(mlir::Operation* op, Logger log) {
         cmxThreshold =
                 Byte(static_cast<int64_t>(std::ceil(static_cast<double>(cmxTotalSize) * LARGE_CONST_THRESHOLD_RATIO)));
     } else if (findBlockArgFilter(filter)) {
-        cmxThreshold = Byte(static_cast<int64_t>(
-                std::ceil(static_cast<double>(cmxTotalSize) *
-                          VPU::getConstraint<double>(op, VPU::FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS))));
+        cmxThreshold = Byte(static_cast<int64_t>(std::ceil(
+                static_cast<double>(cmxTotalSize) *
+                config::getConstraint<double>(op, config::FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS))));
     } else {
         return false;
     }
@@ -809,8 +810,9 @@ VPU::EnableShaveDDRAccessOptimization getShaveDDRAccessOptimizationMode(StringRe
 }
 
 bool isMultiClusterTilingSupported(mlir::Operation* op) {
-    return !IE::hasDynamicTensors(op) || mlir::isa<VPU::LSTMSequenceOp>(op) ||
-           config::getCompilationMode(op) == config::CompilationMode::HostCompile;
+    return mlir::isa<VPU::ClusteredOpInterface>(op) &&
+           (!IE::hasDynamicTensors(op) || mlir::isa<VPU::LSTMSequenceOp>(op) ||
+            config::getCompilationMode(op) == config::CompilationMode::HostCompile);
 }
 
 bool isTilingSupported(mlir::Operation* op) {

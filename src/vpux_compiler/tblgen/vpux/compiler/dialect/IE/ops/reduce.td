@@ -263,4 +263,26 @@ def IE_ReduceSumOp :
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_MIXED_PRECISION, IE_TypeComparisonMode_ALLOW_DIFFERENT_QUANT];
 }
 
+def IE_ReduceMeanSquareOp :
+        IE_LayerOp<
+            "ReduceMeanSquare"
+        > {
+    let summary = "InferenceEngine ReduceMeanSquare layer";
+
+    let arguments = (ins
+        AnyRankedTensor:$input,
+        Optional<TensorRankOf<[AnyInteger], [0, 1]>>:$axes,
+
+        OptionalAttr<I64ArrayAttr>:$axes_value,
+        UnitAttr:$keep_dims
+    );
+
+    let results = (outs
+        AnyRankedTensor:$output
+    );
+
+    let hasCanonicalizer = 1;
+    let hasFolder = 1;
+}
+
 #endif

@@ -32,9 +32,6 @@ std::unique_ptr<mlir::Pass> createUnpackNestedModulesPass(const Logger& log = Lo
 std::unique_ptr<mlir::Pass> createAddNetInfoToModulePass(Logger log = Logger::global(),
                                                          bool hasTensorSemantics = false);
 
-// special pass
-std::unique_ptr<mlir::Pass> createWsFoldReinterpretCastIntoConstPass(const Logger& log = Logger::global());
-
 //
 // Registration
 //

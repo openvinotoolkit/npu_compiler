@@ -10,7 +10,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -240,7 +240,7 @@ mlir::LogicalResult ConvGeneralRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp 
     const auto kernelX = filterShape[Dims4D::Filter::KX];
     const auto expandKernelX = (kernelX - 1) * dilations[Dims4D::Dilation::X] + 1;
     const auto expandKernelY = (kernelY - 1) * dilations[Dims4D::Dilation::Y] + 1;
-    const auto maxKernelSize = VPU::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getMaxKernelSize(origOp);
 
     const auto isKernelSupportedByNCE = expandKernelX <= maxKernelSize && expandKernelY <= maxKernelSize;
     const auto isFilterConstant = mlir::succeeded(IE::getConstParentOp(origOp.getFilter()));

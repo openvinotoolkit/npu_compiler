@@ -191,8 +191,9 @@ mlir::LogicalResult replaceWithNewSubGraph(mlir::Value affineReshape, mlir::Valu
     const auto newPermAttr = mlir::AffineMapAttr::get(newPerm);
     const auto identityOrderAttr = mlir::AffineMapAttr::get(identityMap);
 
-    auto newPermute = rewriter.create<IE::MemPermuteOp>(permuteOp->getLoc(), inputCast.getOutput(), identityOrderAttr,
-                                                        newPermAttr);
+    auto newPermute = rewriter.create<IE::MemPermuteOp>(
+            takeOpLoc(permuteOp, llvm::formatv("_{0}", DimsOrder::fromAffineMap(identityMap))), inputCast.getOutput(),
+            identityOrderAttr, newPermAttr);
 
     // Reshape to original output shape
     auto outputType = mlir::cast<vpux::NDTypeInterface>(permuteOp->getResult(0).getType());
@@ -618,12 +619,14 @@ mlir::LogicalResult MoveThroughOpBase<ConcreteOp>::matchAndRewrite(ConcreteOp co
     // create new permute operation which keeps the shape unchanged and adjust the dst order only.
     SmallVector<mlir::Value> newInputs;
     DenseMap<mlir::Value, mlir::Operation*> operandsMap;
-    for (const auto& input : concreteOp->getOperands()) {
+    for (auto& input : concreteOp->getOpOperands()) {
         mlir::Operation* newPermuteOp = nullptr;
-        auto it = operandsMap.find(input);
+        auto it = operandsMap.find(input.get());
         if (it == operandsMap.end()) {
-            newPermuteOp = createNewPermuteOp(permuteOp, input, perm, rewriter);
-            operandsMap.insert({input, newPermuteOp});
+            newPermuteOp = createNewPermuteOp(permuteOp, input.get(), perm, rewriter);
+            auto newLoc = takeOpLoc(concreteOp, llvm::formatv("_input_{0}", input.getOperandNumber()));
+            newPermuteOp->setLoc(newLoc);
+            operandsMap.insert({input.get(), newPermuteOp});
         } else {
             // Some operands may have the same input, re-use the Permute operation that has been created already
             newPermuteOp = it->second;
@@ -825,8 +828,10 @@ bool MoveMemPermuteThroughOp<ConcreteOp>::isPropagationBeneficialForConcatAndSli
             return true;
         }
 
-        auto newPermuteOp = rewriter.create<IE::MemPermuteOp>(permuteOp->getLoc(), input, permuteOp.getDstOrderAttr(),
-                                                              permuteOp.getMemPermAttr());
+        auto newPermuteOp = rewriter.create<IE::MemPermuteOp>(
+                takeOpLoc(permuteOp,
+                          llvm::formatv("_mempermute_{0}", DimsOrder::fromAffineMap(permuteOp.getMemPerm()))),
+                input, permuteOp.getDstOrderAttr(), permuteOp.getMemPermAttr());
         auto doesFusedIntoNCE = false;
         if (auto layerWithPermute = getFusableLayerWithPermuteInterface(newPermuteOp.getOperation())) {
             doesFusedIntoNCE = layerWithPermute.isSupportedPermutation(newPermuteOp);
@@ -942,7 +947,10 @@ mlir::Operation* MoveMemPermuteThroughOp<ConcreteOp>::createNewPermuteOp(mlir::O
     auto memPermuteOp = mlir::dyn_cast<IE::MemPermuteOp>(permuteOp);
     VPUX_THROW_WHEN(memPermuteOp == nullptr, "Not a MemPermuteOp");
 
-    return rewriter.create<IE::MemPermuteOp>(memPermuteOp->getLoc(), newInput, dstOrder, memPermuteOp.getMemPerm());
+    return rewriter.create<IE::MemPermuteOp>(
+            appendLoc(newInput.getLoc(),
+                      llvm::formatv("_mempermute_{0}", DimsOrder::fromAffineMap(memPermuteOp.getMemPerm()))),
+            newInput, dstOrder, memPermuteOp.getMemPerm());
 }
 
 //
@@ -1114,7 +1122,7 @@ mlir::LogicalResult MoveThroughShapeCast::matchAndRewrite(IE::ShapeCastOp shapeC
     auto newPerm = calculateNewPermutation(memDimMapping.value(), origPermRef, DimsOrder::NCHW, DimsOrder::NCHW,
                                            origReshapeInMemShape, origReshapeOutMemShape, _log, ctx);
     const auto identityOrderAttr = mlir::AffineMapAttr::get(identityMap);
-    auto newMemPermute = rewriter.create<IE::MemPermuteOp>(shapeCastOp->getLoc(), inputCast.getOutput(),
+    auto newMemPermute = rewriter.create<IE::MemPermuteOp>(takeOpLoc(shapeCastOp, "_mempermute"), inputCast.getOutput(),
                                                            identityOrderAttr, mlir::AffineMapAttr::get(newPerm));
 
     auto outputShapeAttr =
@@ -1224,7 +1232,7 @@ mlir::LogicalResult MoveMemPermuteThroughReshape::matchAndRewrite(IE::ReshapeOp 
 
     // Create new MemPermute
     auto newMemPermuteOp =
-            rewriter.create<IE::MemPermuteOp>(memPermuteOp->getLoc(), reshapeOp.getInput(),
+            rewriter.create<IE::MemPermuteOp>(takeOpLoc(reshapeOp, "_mempermute"), reshapeOp.getInput(),
                                               memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
 
     // Create new Reshape
@@ -1241,15 +1249,12 @@ mlir::LogicalResult MoveMemPermuteThroughReshape::matchAndRewrite(IE::ReshapeOp 
 class PropagateMemPermuteBeforeOpPass final :
         public IE::impl::PropagateMemPermuteBeforeOpBase<PropagateMemPermuteBeforeOpPass> {
 public:
-    explicit PropagateMemPermuteBeforeOpPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PropagateMemPermuteBeforeOpPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PropagateMemPermuteBeforeOpPass::safeRunOnFunc() {

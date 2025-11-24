@@ -17,6 +17,9 @@ outputs:
   npu-compiler-tag:
     description: 'NPU Compiler custom tag to be used in the packages build'
     value: ${{ steps.create-npu-tag.outputs.npu-compiler-tag }}
+  npu-compiler-version:
+    description: 'NPU Compiler version parsed from the changelog'
+    value: ${{ steps.read-npu-version.outputs.npu-compiler-version }}
   npu-linux-driver-repository:
     description: 'NPU Linux Driver Repository full name: fork/linux-npu-driver'
     value: ${{ steps.read-linux-npu-driver-sha.outputs.drv-repository }}
@@ -38,20 +41,70 @@ runs:
       shell: bash
       run: |
         if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-          echo "npu-compiler-repository=${{ github.event.pull_request.head.repo.full_name }}" >> $GITHUB_OUTPUT
-          echo "npu-compiler-sha=${{ github.event.pull_request.head.sha }}" >> $GITHUB_OUTPUT
+          NPU_REPO=${{ github.event.pull_request.head.repo.full_name }}
+          NPU_SHA=${{ github.event.pull_request.head.sha }}
         else
-          echo "npu-compiler-repository=${{ github.repository }}" >> $GITHUB_OUTPUT
-          echo "npu-compiler-sha=${{ github.sha }}" >> $GITHUB_OUTPUT
+          NPU_REPO=${{ github.repository }}
+          NPU_SHA=${{ github.sha }}
         fi
 
-    - name: Create NPU Compiler tag
+        echo "NPU Compiler repository = $NPU_REPO"
+        echo "NPU Compiler commit sha = $NPU_SHA"
+        echo "npu-compiler-repository=$NPU_REPO" >> $GITHUB_OUTPUT
+        echo "npu-compiler-sha=$NPU_SHA" >> $GITHUB_OUTPUT
+
+    - name: Get NPU tag
       id: create-npu-tag
       shell: bash
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+        NPU_REPO: ${{ steps.get-npu-sha.outputs.npu-compiler-repository }}
+        NPU_SHA:  ${{ steps.get-npu-sha.outputs.npu-compiler-sha }}
       run: |
-        NPU_TAG=ci_${GITHUB_SHA:0:7}
-        echo "NPU Compiler tag to be used in NPU Driver Linux build : $NPU_TAG"
-        echo "npu-compiler-tag=$NPU_TAG" >> $GITHUB_OUTPUT
+        NPU_TAG=""
+        if JSON=$(gh api --paginate "repos/$NPU_REPO/tags?per_page=100" 2>/dev/null); then
+          NPU_TAG=$(printf '%s' "$JSON" | jq -r --arg sha "$NPU_SHA" '
+            .[] | select(.commit.sha == $sha) | .name
+          ' | head -n1)
+        fi
+
+        if [[ -z "${NPU_TAG}" ]]; then
+          echo "No tag found associated with the current commit, temporary tag will be used."
+          NPU_TAG="ci_${NPU_SHA:0:7}"
+        fi
+
+        echo "NPU Compiler tag to be used in NPU builds : $NPU_TAG"
+        echo "npu-compiler-tag=${NPU_TAG}" >> $GITHUB_OUTPUT
+
+    - name: Fetch and parse NPU Compiler version from the changelog file
+      id: read-npu-version
+      shell: bash
+      run: |
+        NPU_REPO=${{ steps.get-npu-sha.outputs.npu-compiler-repository }}
+        NPU_SHA=${{ steps.get-npu-sha.outputs.npu-compiler-sha }}
+        CHANGELOG=$(curl -sS --fail --retry 5 --retry-delay 2 \
+          -H "Accept: application/vnd.github.v3.raw" \
+          https://api.github.com/repos/${NPU_REPO}/contents/src/vpux_driver_compiler/CHANGES.txt?ref=${NPU_SHA} \
+        )
+        compiler_version="$(
+          printf '%s\n' "$CHANGELOG" | awk '
+            /^[[:space:]]*VPUXCompilerL0[[:space:]]+([0-9]+\.){2}[0-9]+[[:space:]]*:/ {
+              line=$0
+              sub(/^[[:space:]]*VPUXCompilerL0[[:space:]]+/, "", line)
+              sub(/[[:space:]]*:.*$/, "", line)
+              print line
+              exit
+            }'
+        )"
+
+        if [[ -z "${compiler_version}" ]]; then
+          echo "Coould not find: 'VPUXCompilerL0 X.Y.Z:' pattern"; exit 1
+        fi
+
+        compiler_version_under_score="${compiler_version//./_}"
+
+        echo "NPU Compiler version = $compiler_version_under_score"
+        echo "npu-compiler-version=$compiler_version_under_score" >> $GITHUB_OUTPUT
 
     - name: Fetch and parse OpenVINO config from NPU Compiler
       id: read-openvino-sha
@@ -59,7 +112,7 @@ runs:
       run: |
         NPU_REPO=${{ steps.get-npu-sha.outputs.npu-compiler-repository }}
         NPU_SHA=${{ steps.get-npu-sha.outputs.npu-compiler-sha }}
-        JSON=$(curl -s \
+        JSON=$(curl -sS --fail --retry 5 --retry-delay 2 \
           -H "Accept: application/vnd.github.v3.raw" \
           https://api.github.com/repos/${NPU_REPO}/contents/validation/openvino_config.json?ref=${NPU_SHA} \
         )
@@ -76,7 +129,7 @@ runs:
       run: |
         NPU_REPO=${{ steps.get-npu-sha.outputs.npu-compiler-repository }}
         NPU_SHA=${{ steps.get-npu-sha.outputs.npu-compiler-sha }}
-        JSON=$(curl -s \
+        JSON=$(curl -sS --fail --retry 5 --retry-delay 2 \
           -H "Accept: application/vnd.github.v3.raw" \
           https://api.github.com/repos/${NPU_REPO}/contents/validation/linux_npu_driver_config.json?ref=${NPU_SHA} \
         )
@@ -93,7 +146,7 @@ runs:
       run: |
         OV_REPO=${{ steps.read-openvino-sha.outputs.openvino-repository }}
         OV_SHA=${{ steps.read-openvino-sha.outputs.openvino-sha }}
-        JSON=$(curl -s \
+        JSON=$(curl -sS --fail --retry 5 --retry-delay 2 \
           -H "Accept: application/vnd.github.v3.raw" \
           https://api.github.com/repos/${OV_REPO}/contents/src/plugins/intel_npu/tools/omz_version.json?ref=${OV_SHA} \
         )

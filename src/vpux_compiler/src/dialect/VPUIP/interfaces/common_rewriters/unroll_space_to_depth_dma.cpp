@@ -4,9 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/common_rewriters/unroll_space_to_depth_dma.hpp"
-#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
-
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"

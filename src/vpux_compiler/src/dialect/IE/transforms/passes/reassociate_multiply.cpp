@@ -40,13 +40,13 @@ private:
 };
 
 mlir::Value MultiplyRewriter::getInputWithSmallerSize(mlir::Value input1, mlir::Value input2) const {
-    return getShape(input1).totalSize() > getShape(input2).totalSize() ? input2 : input1;
+    return getBoundedShape(input1).totalSize() > getBoundedShape(input2).totalSize() ? input2 : input1;
 }
 
 mlir::LogicalResult MultiplyRewriter::matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const {
     auto origOpLhs = origOp.getInput1();
     auto origOpRhs = origOp.getInput2();
-    if (getShape(origOpLhs).totalSize() == getShape(origOpRhs).totalSize()) {
+    if (getBoundedShape(origOpLhs).totalSize() == getBoundedShape(origOpRhs).totalSize()) {
         return matchFailed(_log, rewriter, origOp, "two inputs of multiply have the same size");
     }
 
@@ -68,7 +68,7 @@ mlir::LogicalResult MultiplyRewriter::matchAndRewrite(IE::MultiplyOp origOp, mli
 
     auto producerLhs = producerMultiplyOp.getInput1();
     auto producerRhs = producerMultiplyOp.getInput2();
-    if (getShape(producerLhs).totalSize() == getShape(producerRhs).totalSize()) {
+    if (getBoundedShape(producerLhs).totalSize() == getBoundedShape(producerRhs).totalSize()) {
         return matchFailed(_log, rewriter, origOp, "two inputs of producer multiply have the same size");
     }
 
@@ -77,16 +77,19 @@ mlir::LogicalResult MultiplyRewriter::matchAndRewrite(IE::MultiplyOp origOp, mli
 
     auto smallestSizeInput = getInputWithSmallerSize(origOpSmallSizeInput, producerSmallSizeInput);
     auto middleSizeInput = smallestSizeInput == origOpSmallSizeInput ? producerSmallSizeInput : origOpSmallSizeInput;
-    const auto validBroadcastShape = IE::broadcastEltwiseShape(getShape(middleSizeInput), getShape(smallestSizeInput),
-                                                               IE::AutoBroadcastType::NUMPY, origOp.getLoc());
+    const auto validBroadcastShape =
+            IE::broadcastEltwiseShape(getBoundedShape(middleSizeInput), getBoundedShape(smallestSizeInput),
+                                      IE::AutoBroadcastType::NUMPY, origOp.getLoc());
     if (mlir::failed(validBroadcastShape)) {
         return matchFailed(_log, rewriter, origOp, "broadcast input failed");
     }
-    const auto newMultiplyOutShape = Shape(validBroadcastShape.value());
 
-    if (newMultiplyOutShape.totalSize() > getShape(producerLargeSizeInput).totalSize()) {
+    const auto newMultiplyOutShape = Shape(validBroadcastShape.value());
+    auto producerOutput = producerMultiplyOp.getOutput();
+    if (newMultiplyOutShape.totalSize() >= getBoundedShape(producerOutput).totalSize()) {
         return matchFailed(_log, rewriter, origOp, "new multiply output is too big");
     }
+
     auto multiply_1 = rewriter.create<IE::MultiplyOp>(appendLoc(origOp.getLoc(), "_new_multiply_1"), middleSizeInput,
                                                       smallestSizeInput, IE::AutoBroadcastType::NUMPY, nullptr, nullptr,
                                                       nullptr, nullptr);

@@ -44,7 +44,8 @@ private:
     template <class ConcreteOp>
     void updatePoolOperation(ConcreteOp op);
 
-    void updateAvgPoolOperation(IE::AvgPoolOp op);
+    template <class ConcreteOp>
+    void updateAvgPoolOperation(ConcreteOp op);
 
     template <class ConcreteOp>
     void updateConvOperation(ConcreteOp op);
@@ -63,7 +64,10 @@ void ConvertPaddingsToFloorModePass::safeRunOnFunc() {
                     updatePoolOperation<IE::MaxPoolOp>(op);
                 })
                 .Case<IE::AvgPoolOp>([this](IE::AvgPoolOp op) {
-                    updateAvgPoolOperation(op);
+                    updateAvgPoolOperation<IE::AvgPoolOp>(op);
+                })
+                .Case<IE::AvgPool16Op>([this](IE::AvgPool16Op op) {
+                    updateAvgPoolOperation<IE::AvgPool16Op>(op);
                 })
                 .Case<IE::ConvolutionOp>([this](IE::ConvolutionOp op) {
                     updateConvOperation<IE::ConvolutionOp>(op);
@@ -142,9 +146,34 @@ void ConvertPaddingsToFloorModePass::updatePoolOperation(ConcreteOp op) {
     op.setRoundingTypeAttr(IE::RoundingTypeAttr::get(op.getContext(), IE::RoundingType::FLOOR));
 }
 
-void ConvertPaddingsToFloorModePass::updateAvgPoolOperation(IE::AvgPoolOp op) {
+template <>
+void ConvertPaddingsToFloorModePass::updatePoolOperation(IE::AvgPool16Op op) {
+    const auto inShape = getShape(op.getInput());
+    const auto outShape = getShape(op.getOutput());
+
+    const auto kernel = parseIntArrayAttr<int64_t>(op.getKernelSize());
+    const auto strides = parseIntArrayAttr<int64_t>(op.getStrides());
+    const auto dilations = parseIntArrayAttr<int64_t>(op.getDilations());
+    auto padsBegin = parseIntArrayAttr<int64_t>(op.getPadsBegin());
+    auto padsEnd = parseIntArrayAttr<int64_t>(op.getPadsEnd());
+
+    cvtPaddingsToFloorMode(inShape, outShape, kernel, strides, dilations, padsBegin, padsEnd);
+    for (size_t idx = 0; idx < padsEnd.size(); idx++) {
+        padsEnd[idx] = std::max<int64_t>(padsEnd[idx], 0);
+    }
+
+    const auto newPadsBeginAttr = getIntArrayAttr(op.getContext(), padsBegin);
+    const auto newPadsEndAttr = getIntArrayAttr(op.getContext(), padsEnd);
+
+    op.setPadsBeginAttr(newPadsBeginAttr);
+    op.setPadsEndAttr(newPadsEndAttr);
+    op.setRoundingTypeAttr(IE::RoundingTypeAttr::get(op.getContext(), IE::RoundingType::FLOOR));
+}
+
+template <class ConcreteOp>
+void ConvertPaddingsToFloorModePass::updateAvgPoolOperation(ConcreteOp op) {
     auto padsEndOriginal = parseIntArrayAttr<int64_t>(op.getPadsEnd());
-    updatePoolOperation<IE::AvgPoolOp>(op);
+    updatePoolOperation<ConcreteOp>(op);
     auto padsBegin = parseIntArrayAttr<int64_t>(op.getPadsBegin());
     auto padsEnd = parseIntArrayAttr<int64_t>(op.getPadsEnd());
     auto isZero = [](auto val) {
@@ -161,9 +190,9 @@ void ConvertPaddingsToFloorModePass::updateAvgPoolOperation(IE::AvgPoolOp op) {
 
 template <class ConcreteOp>
 void ConvertPaddingsToFloorModePass::updateConvOperation(ConcreteOp op) {
-    const auto inShape = getShape(op.getInput());
+    const auto inShape = getBoundedShape(op.getInput());
     const auto filterShape = getShape(op.getFilter());
-    const auto outShape = getShape(op.getOutput());
+    const auto outShape = getBoundedShape(op.getOutput());
 
     SmallVector<int64_t> kernel;
 

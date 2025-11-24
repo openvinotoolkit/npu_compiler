@@ -434,15 +434,12 @@ mlir::LogicalResult FuseMemPermuteThroughViewOps::matchAndRewrite(IE::MemPermute
 
 class FuseMemPermutePass final : public IE::impl::FuseMemPermutePassBase<FuseMemPermutePass> {
 public:
-    explicit FuseMemPermutePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FuseMemPermutePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void FuseMemPermutePass::safeRunOnFunc() {

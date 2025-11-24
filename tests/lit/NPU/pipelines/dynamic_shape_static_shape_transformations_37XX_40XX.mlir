@@ -58,4 +58,3 @@ func.func @DynamicConvAddTranpose(%arg0: !BoundedInType) -> !BoundedTransposeTyp
 
     // CHECK: return [[TRANSPOSE]]
 }
-

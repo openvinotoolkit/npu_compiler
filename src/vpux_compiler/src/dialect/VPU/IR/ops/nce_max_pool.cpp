@@ -18,6 +18,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -36,6 +37,8 @@ bool vpux::VPU::NCEMaxPoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
     const auto outputChannels = outputShape[Dims4D::Act::C];
 
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     if (getWeightsTable() != nullptr) {
         buffers.push_back(NCEInvariant::getWeightsTableSize(outputChannels));
@@ -215,7 +218,9 @@ mlir::LogicalResult vpux::VPU::NCEMaxPoolOp::inferReturnTypes(mlir::MLIRContext*
         return mlir::failure();
     }
 
-    auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), createTensorAttrFromType(inType));
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShapeInfo.bounds));
+    auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), outDesc);
 
     inferredReturnTypes.push_back(outType);
 
@@ -344,6 +349,8 @@ bool VPU::NCEMaxPoolOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis))};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     if (getWeightsTable() != nullptr) {
         buffers.push_back(NCEInvariant::getWeightsTableSize(outputChannels));

@@ -133,7 +133,13 @@ namespace {
 
 // Checks if the given operation leads to the weights input of a "weighted" operation, through a sequence of ViewLike
 // and Transpose ops.
-bool isOnWeightsPath(mlir::Operation* op, const Logger& log) {
+bool isOnWeightsAsInputPath(mlir::Operation* op, mlir::Type lowPrecisionType, const Logger& log) {
+    // If low precision type is 16 bits integer type then consider the pattern is weights dequantize.
+    // Without this a Convert from U16 to FP16 can be propagated until the end which can produce invalid numbers because
+    // the U16 (0:65535) range is not fully contained by FP16 (-65504.0:+65504.0) range
+    if (lowPrecisionType != nullptr && lowPrecisionType.isInteger(16)) {
+        return true;
+    }
     static constexpr uint8_t MAX_CHAIN_LENGTH = 8;  // Safeguard, increase if the throw occurs.
     for (uint8_t i = 0; i < MAX_CHAIN_LENGTH; ++i) {
         if (!op->hasOneUse()) {
@@ -200,6 +206,14 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::checkAndSet(mlir::Value& out
         }
     }
 
+    if (auto stridedSlice = mlir::dyn_cast<IE::StridedSliceOp>(definingOp)) {
+        const auto stridedSliceInput = stridedSlice.getInput();
+        if (mlir::isa<mlir::BlockArgument>(stridedSliceInput)) {
+            out = stridedSlice.getResult();
+            return mlir::success();
+        }
+    }
+
     return mlir::failure();
 }
 
@@ -212,7 +226,7 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Mult
     }
 
     // To avoid unwanted matching on WAI cases, we must check if the pattern is on the weights path.
-    if (!hasConstWeights() && !isOnWeightsPath(multiplyOp, log)) {
+    if (!hasConstWeights() && !isOnWeightsAsInputPath(multiplyOp, lowPrecisionType, log)) {
         return mlir::failure();
     }
 
@@ -240,7 +254,8 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Subt
     }
 
     // To avoid unwanted matching on WAI cases, we must check if the pattern is on the weights path.
-    return hasConstWeights() || isOnWeightsPath(subtractOp, log) ? mlir::success() : mlir::failure();
+    return hasConstWeights() || isOnWeightsAsInputPath(subtractOp, lowPrecisionType, log) ? mlir::success()
+                                                                                          : mlir::failure();
 }
 
 mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::ConvertOp& convertOp) {
@@ -258,6 +273,7 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(IE::Conv
     if (const auto inputBlock = mlir::dyn_cast<mlir::BlockArgument>(convertOp.getInput())) {
         log.trace("Got block argument input: {0}", inputBlock);
 
+        lowPrecisionType = IE::getTrueElemType(convertOp);
         // There could be a Transpose after the Convert:
         // WAI -> Convert -> Transpose -> Subtract/Multiply -> ...
         if (auto transposeOp = mlir::dyn_cast<IE::TransposeOp>(opUser)) {
@@ -294,6 +310,11 @@ mlir::LogicalResult WeightsDequantizeStructureInfo::initializeStructure(Const::D
 
     const auto& inputAttr = declareOp.getContentAttr();
     inputValue = declareOp.getOutput();
+    lowPrecisionType = IE::getTrueElemType(declareOp);
+    if (lowPrecisionType.isInteger(16)) {
+        log.trace("Match failed: 16 bits weights as constant is not suitable for FQ");
+        return mlir::failure();
+    }
 
     const auto castedElemType = inputAttr.getType().getElementType();
     if (!mlir::isa<mlir::FloatType>(castedElemType)) {
@@ -392,9 +413,11 @@ NDTypeInterface WeightsDequantizeStructureInfo::getInputType() const {
 mlir::Value getTrueInputValue(mlir::Operation* op, mlir::PatternRewriter& rewriter) {
     if (auto declareOp = mlir::dyn_cast_or_null<Const::DeclareOp>(op)) {
         auto contentAttr = declareOp.getContentAttr();
+        auto transformations = contentAttr.getTransformations().vec();
         auto elemType = IE::getTrueElemType(declareOp);
+        transformations.push_back(Const::CastElemTypeAttr::get(elemType));
         auto newType = mlir::cast<vpux::NDTypeInterface>(declareOp.getOutput().getType()).changeElemType(elemType);
-        auto baseContentAttr = Const::ContentAttr::get(contentAttr.getBaseContent());
+        auto baseContentAttr = Const::ContentAttr::get(contentAttr.getBaseContent(), transformations);
         return rewriter.create<Const::DeclareOp>(appendLoc(op->getLoc(), "base_shift"), newType, baseContentAttr)
                 .getOutput();
     } else if (auto convertOp = mlir::dyn_cast_or_null<IE::ConvertOp>(op)) {
@@ -508,6 +531,10 @@ mlir::Type WeightsDequantizeStructureInfo::getInputElemType() const {
     return getInputType().getElementType();
 }
 
+mlir::Type WeightsDequantizeStructureInfo::getLowPrecisionElemType() const {
+    return lowPrecisionType;
+}
+
 Const::ContentAttr WeightsDequantizeStructureInfo::getStaticScaleAttr() const {
     if (scale == nullptr) {
         return {};
@@ -619,6 +646,28 @@ std::set<int64_t> findAxes(IE::DynamicDequantizeOp origOp) {
         }
     }
     return axes;
+}
+
+template <>
+type::QuantileFloatType tryParsingNF4(Const::DeclareOp constOp) {
+    // Note: NF4 is special: the raw data is 4-bit int, but - due to quantiles -
+    // its range is not standard quantization range - it is instead deduced from
+    // quantiles.
+    const auto& contentAttr = constOp.getContentAttr();
+    const bool baseTypeIsInt4 = mlir::isa<mlir::IntegerType>(contentAttr.getBaseContent().getElementType()) &&
+                                contentAttr.getBaseContent().getElementType().getIntOrFloatBitWidth() == 4;
+    if (!baseTypeIsInt4) {
+        return nullptr;
+    }
+
+    for (const auto& transform : contentAttr.getTransformations()) {
+        // if there is a cast to NF4, it means the constant is NF4.
+        if (auto cast = mlir::dyn_cast<Const::CastElemTypeAttr>(transform);
+            cast && mlir::isa<type::QuantileFloatType>(cast.getElemType())) {
+            return mlir::cast<type::QuantileFloatType>(cast.getElemType());
+        }
+    }
+    return nullptr;
 }
 
 }  // namespace IE

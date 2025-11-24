@@ -11,24 +11,6 @@ namespace vpux {
 namespace VPUMI40XX {
 using lcaCache = llvm::DenseMap<std::pair<uint32_t, uint32_t>, llvm::SmallVector<mlir::Value>>;
 
-// NPU IP can theoretically support up to 8 Tiles
-// These FIFO offset values are fixed and currently shared across NPU generations 4, 5, and 6.
-// The design assumes this similarity across generations. If future hardware
-// changes these offsets, this logic must be revisited and updated accordingly.
-constexpr size_t NPU_MAX_TILES = 8;
-constexpr uint32_t FIFO_BARRIERS_NCE_FILL_BARRIER_FIFO_ADR = 0x2F010000U;
-constexpr uint32_t NNCMX_DPU_CMX_CTRL_BASE = 0x2F000000;
-constexpr uint32_t NNCMX_SHV_CMX_CTRL_BASE = 0x2F00C000;
-
-constexpr std::array<uint32_t, NPU_MAX_TILES> DPU_FIFO_OFFSETS = {0x00000000, 0x00000020, 0x00000040, 0x00000060,
-                                                                  0x00000080, 0x000000A0, 0x000000C0, 0x000000E0};
-constexpr std::array<uint32_t, NPU_MAX_TILES * 2> SHV_FIFO_OFFSETS = {
-        0x00000000, 0x00000020, 0x00000040, 0x00000060, 0x00000080, 0x000000A0, 0x000000C0, 0x000000E0,
-        0x00000100, 0x00000120, 0x00000140, 0x00000160, 0x00000180, 0x000001A0, 0x000001C0, 0x000001E0};
-
-static_assert(DPU_FIFO_OFFSETS.size() == NPU_MAX_TILES, "Mismatch in DPU FIFO offsets");
-static_assert(SHV_FIFO_OFFSETS.size() == NPU_MAX_TILES * 2, "Mismatch in SHV FIFO offsets");
-
 //
 // AddEnqueue Utils
 //

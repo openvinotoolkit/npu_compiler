@@ -132,15 +132,12 @@ mlir::LogicalResult MoveConvertBeforeAffineReshape::matchAndRewrite(VPU::Convert
 class MoveConvertAroundViewLikeOpsPass final :
         public VPU::impl::MoveConvertAroundViewLikeOpsBase<MoveConvertAroundViewLikeOpsPass> {
 public:
-    explicit MoveConvertAroundViewLikeOpsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit MoveConvertAroundViewLikeOpsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void MoveConvertAroundViewLikeOpsPass::safeRunOnFunc() {

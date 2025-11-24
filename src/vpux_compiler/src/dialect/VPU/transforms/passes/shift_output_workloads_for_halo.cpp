@@ -95,15 +95,12 @@ void applyClusteringOffset(VPU::DPUWorkloadOp dpuWorkloadOp, ArrayRef<int64_t> c
 class ShiftOutputWorkloadsForHaloPass final :
         public VPU::impl::ShiftOutputWorkloadsForHaloBase<ShiftOutputWorkloadsForHaloPass> {
 public:
-    explicit ShiftOutputWorkloadsForHaloPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ShiftOutputWorkloadsForHaloPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ShiftOutputWorkloadsForHaloPass::safeRunOnFunc() {

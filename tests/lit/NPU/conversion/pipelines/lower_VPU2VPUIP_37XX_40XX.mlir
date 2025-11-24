@@ -630,55 +630,43 @@ func.func @SparseNCEConvSETable(%arg0 : tensor<1x32x16x16xf16, {order = #NHWC}>,
 #NCDHW = affine_map<(d0, d1, d2, d3, d4) -> (d0, d1, d2, d3, d4)>
 module {
   net.NetworkInfo entryPoint : @NCEMatMul inputsInfo : {
-    DataInfo "Parameter" : tensor<256x1x32x49x1xf16>
+    DataInfo "Parameter" : tensor<64x1x32x35x1xf16>
   } outputsInfo : {
-    DataInfo "Result" : tensor<256x1x64x49x1xf16>
+    DataInfo "Result" : tensor<64x1x64x35x1xf16>
   }
-// CHECK: func.func @NCEMatMul([[ARG0:%.+]]: memref<256x1x32x49x1xf16, #GNHWC, @CMX_NN>, [[ARG1:%.+]]: memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>) -> memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN> {
-func.func @NCEMatMul(%arg0 : tensor<256x1x32x49x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>) -> tensor<256x1x64x49x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
-    %weights = const.Declare tensor<256x64x32x1x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> = dense<1.000000e+00> : tensor<256x64x32x1x1xf16, {mem_space = @CMX_NN}>, [#const.Reorder<#GNHWC>]
-    %weights_table = const.Declare tensor<256x64x1x1x4xsi32, {mem_space = @CMX_NN}> = dense<1> : tensor<256x64x1x1x4xsi32, {mem_space = @CMX_NN}>
+// CHECK: func.func @NCEMatMul([[ARG0:%.+]]: memref<64x1x32x35x1xf16, #GNHWC, @CMX_NN>, [[ARG1:%.+]]: memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>) -> memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN> {
+func.func @NCEMatMul(%arg0 : tensor<64x1x32x35x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>) -> tensor<64x1x64x35x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+    %weights = const.Declare tensor<64x64x32x1x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> = dense<1.000000e+00> : tensor<64x64x32x1x1xf16, {mem_space = @CMX_NN}>, [#const.Reorder<#GNHWC>]
+    %weights_table = const.Declare tensor<64x64x1x1x4xsi32, {mem_space = @CMX_NN}> = dense<1> : tensor<64x64x1x1x4xsi32, {mem_space = @CMX_NN}>
 
     %1 = VPU.NCE.MatMul(%arg0, %weights, %weights_table) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-                rawFilterShape = [256, 64, 32, 1, 1], strides = [1, 1]
-            } -> tensor<256x1x64x49x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
-        VPU.DPU.Workload inOffsets [0, 0, 0, 0, 0] inSizes [64, 1, 32, 49, 1] outOffsets [0, 0, 0, 0, 0]
-         outSizes [64, 1, 64, 49, 1] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
-        VPU.DPU.Workload inOffsets [64, 0, 0, 0, 0] inSizes [64, 1, 32, 49, 1] outOffsets [64, 0, 0, 0, 0]
-         outSizes [64, 1, 64, 49, 1] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
-        VPU.DPU.Workload inOffsets [128, 0, 0, 0, 0] inSizes [64, 1, 32, 49, 1] outOffsets [128, 0, 0, 0, 0]
-         outSizes [64, 1, 64, 49, 1] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
-        VPU.DPU.Workload inOffsets [192, 0, 0, 0, 0] inSizes [64, 1, 32, 49, 1] outOffsets [192, 0, 0, 0, 0]
-         outSizes [64, 1, 64, 49, 1] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
+                rawFilterShape = [64, 64, 32, 1, 1], strides = [1, 1]
+            } -> tensor<64x1x64x35x1xf16, {mem_space = @CMX_NN, order = #GNHWC}> {
+        VPU.DPU.Workload inOffsets [0, 0, 0, 0, 0] inSizes [64, 1, 32, 35, 1] outOffsets [0, 0, 0, 0, 0]
+         outSizes [64, 1, 64, 35, 1] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
     }
-    return %1 : tensor<256x1x64x49x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
+    return %1 : tensor<64x1x64x35x1xf16, {mem_space = @CMX_NN, order = #GNHWC}>
 
-    // CHECK:       [[WEIGHTS:%.+]] = const.Declare memref<256x64x32x1x1xf16, #GNHWC, @CMX_NN> = dense<1.000000e+00> : tensor<256x64x32x1x1xf16,
+    // CHECK:       [[WEIGHTS:%.+]] = const.Declare memref<64x64x32x1x1xf16, #GNHWC, @CMX_NN> = dense<1.000000e+00> : tensor<64x64x32x1x1xf16,
     // CHECK-SAME:  {mem_space = @CMX_NN}>, [#const.Reorder<#GNHWC>]
-    // CHECK:       [[WEIGHT_TABLE:%.+]] = const.Declare memref<256x64x1x1x4xsi32, @CMX_NN> = dense<1> : tensor<256x64x1x1x4xsi32, {mem_space = @CMX_NN}>
-    // CHECK:       [[OUTPUT_BUF:%.+]] = memref.alloc() : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>
+    // CHECK:       [[WEIGHT_TABLE:%.+]] = const.Declare memref<64x64x1x1x4xsi32, @CMX_NN> = dense<1> : tensor<64x64x1x1x4xsi32, {mem_space = @CMX_NN}>
+    // CHECK:       [[OUTPUT_BUF:%.+]] = memref.alloc() : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>
 
     // CHECK:       [[OUT:%.+]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     // CHECK-SAME:  kernel_size = [1, 1], kernel_strides = [1, 1],
-    // CHECK-SAME:  task_type = #VPUIP.nce_task_type<CONV>} input([[ARG0]] : memref<256x1x32x49x1xf16, #GNHWC, @CMX_NN>)
-    // CHECK-SAME:  weights([[WEIGHTS]] : memref<256x64x32x1x1xf16, #GNHWC, @CMX_NN>) weight_table([[WEIGHT_TABLE]] : memref<256x64x1x1x4xsi32, @CMX_NN>)
-    // CHECK-SAME:  parent_input([[ARG0]] : memref<256x1x32x49x1xf16, #GNHWC, @CMX_NN>) parent_output([[OUTPUT_BUF]] : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>)
-    // CHECK-SAME:  outputs([[OUTPUT_BUF]] : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>) -> memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN> variants : {
+    // CHECK-SAME:  task_type = #VPUIP.nce_task_type<CONV>} input([[ARG0]] : memref<64x1x32x35x1xf16, #GNHWC, @CMX_NN>)
+    // CHECK-SAME:  weights([[WEIGHTS]] : memref<64x64x32x1x1xf16, #GNHWC, @CMX_NN>) weight_table([[WEIGHT_TABLE]] : memref<64x64x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:  parent_input([[ARG0]] : memref<64x1x32x35x1xf16, #GNHWC, @CMX_NN>) parent_output([[OUTPUT_BUF]] : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>)
+    // CHECK-SAME:  outputs([[OUTPUT_BUF]] : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>) -> memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN> variants : {
 
-    // CHECK:       DPUTask {inEnd = [0, 48, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 48, 63],
-    // CHECK-SAME:  outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-    // CHECK:       DPUTask {inEnd = [0, 48, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 48, 63],
-    // CHECK-SAME:  outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-    // CHECK:       DPUTask {inEnd = [0, 48, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 48, 63],
-    // CHECK-SAME:  outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
-    // CHECK:       DPUTask {inEnd = [0, 48, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 48, 63],
+    // CHECK:       DPUTask {inEnd = [0, 34, 31], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [0, 34, 63],
     // CHECK-SAME:  outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
 
-    // CHECK:       [[RESULT:%.+]] = VPUIP.Copy inputs([[OUT]] : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>)
-    // CHECK-SAME:  outputs([[ARG1]] : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>) -> memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>
-    // CHECK:       return [[RESULT]] : memref<256x1x64x49x1xf16, #GNHWC, @CMX_NN>
+    // CHECK:       [[RESULT:%.+]] = VPUIP.Copy inputs([[OUT]] : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>)
+    // CHECK-SAME:  outputs([[ARG1]] : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>) -> memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>
+    // CHECK:       return [[RESULT]] : memref<64x1x64x35x1xf16, #GNHWC, @CMX_NN>
 
 }
 }

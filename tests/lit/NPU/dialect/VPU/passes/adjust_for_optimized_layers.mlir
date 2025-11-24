@@ -347,8 +347,7 @@ func.func @NotAdjustForNCEPermuteWithNonDivisibleSpatialShape(%arg0: tensor<1x10
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x77x1xf16, {order = #GNHWC}> {
-    %cst = const.Declare tensor<12x64x1x1x4xsi32> = dense<1> : tensor<12x64x1x1x4xsi32>
-    %0 = VPU.NCE.MatMul(%arg0, %arg1, %cst) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
                 ppe = #VPU.PPEStub<>,
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
@@ -356,13 +355,11 @@ func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {orde
 
     return %0 : tensor<12x1x64x77x1xf16, {order = #GNHWC}>
 
-    // CHECK-DAG:   [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<12x64x1x1x4xsi32>
-
     // CHECK:       [[AFFINE_RESHAPE_IN:%.+]] = VPU.AffineReshape([[INPUT0]]) {
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [12, 1, 80, 11, 7]
     // CHECK-SAME:      tensor<12x1x80x77x1xf16, {order = #GNHWC}> -> tensor<12x1x80x11x7xf16, {order = #GNHWC}>
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
     // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],
@@ -385,8 +382,7 @@ func.func @LowerMatMulToNCEAndBalanceOddHW(%arg0: tensor<12x1x80x77x1xf16, {orde
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x32x1xf16, {order = #GNHWC}> {
-    %cst = const.Declare tensor<12x64x1x1x4xsi32> = dense<1> : tensor<12x64x1x1x4xsi32>
-    %0 = VPU.NCE.MatMul(%arg0, %arg1, %cst) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
                 rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
@@ -394,13 +390,11 @@ func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {ord
 
     return %0 : tensor<12x1x64x32x1xf16, {order = #GNHWC}>
 
-    // CHECK-DAG:   [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<12x64x1x1x4xsi32>
-
     // CHECK:       [[AFFINE_RESHAPE_IN:%.+]] = VPU.AffineReshape([[INPUT0]]) {
     // CHECK-SAME{LITERAL}:     dim_mapping = [[0], [1], [2], [3, 4], [4]], shape_value = [12, 1, 80, 8, 4]
     // CHECK-SAME:      tensor<12x1x80x32x1xf16, {order = #GNHWC}> -> tensor<12x1x80x8x4xf16, {order = #GNHWC}>
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[AFFINE_RESHAPE_IN]], [[INPUT1]]) {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
     // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],
@@ -423,8 +417,7 @@ func.func @LowerMatMulToNCEAndBalanceEvenHW(%arg0: tensor<12x1x80x32x1xf16, {ord
 // CHECK-SAME:    [[INPUT1:%.+]]: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
 func.func @LowerMatMulToNCEAndCannotBalanceHW(%arg0: tensor<12x1x80x17x1xf16, {order = #GNHWC}>, %arg1: tensor<12x64x80x1x1xf16, {order = #GNHWC}>
                                 ) -> tensor<12x1x64x17x1xf16, {order = #GNHWC}> {
-    %cst = const.Declare tensor<12x64x1x1x4xsi32> = dense<1> : tensor<12x64x1x1x4xsi32>
-    %0 = VPU.NCE.MatMul(%arg0, %arg1, %cst) {
+    %0 = VPU.NCE.MatMul(%arg0, %arg1) {
                 pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
                 ppe = #VPU.PPEStub<>,
                 rawFilterShape = [12, 64, 80, 1, 1], strides = [1, 1]
@@ -432,11 +425,9 @@ func.func @LowerMatMulToNCEAndCannotBalanceHW(%arg0: tensor<12x1x80x17x1xf16, {o
 
     return %0 : tensor<12x1x64x17x1xf16, {order = #GNHWC}>
 
-    // CHECK-DAG:   [[WEIGHTS_TABLE:%.+]] = const.Declare tensor<12x64x1x1x4xsi32>
-
     // CHECK-NOT:   VPU.AffineReshape
 
-    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[INPUT0]], [[INPUT1]], [[WEIGHTS_TABLE]]) {
+    // CHECK:       [[MATMUL:%.+]] = VPU.NCE.MatMul([[INPUT0]], [[INPUT1]]) {
     // CHECK-SAME:      pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64
     // CHECK-SAME:      ppe = #VPU.PPEStub<>,
     // CHECK-SAME:      rawFilterShape = [12, 64, 80, 1, 1],

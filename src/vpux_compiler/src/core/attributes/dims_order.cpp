@@ -66,6 +66,13 @@ const DimsOrder vpux::DimsOrder::GOIYX = DimsOrder(0x12345);
 const DimsOrder vpux::DimsOrder::GOYXI = DimsOrder(0x12453);
 
 const DimsOrder vpux::DimsOrder::IOYX = DimsOrder(0x2134);
+const DimsOrder vpux::DimsOrder::OYIX = DimsOrder(0x1324);
+
+const DimsOrder vpux::DimsOrder::OGIYX = DimsOrder(0x21345);
+const DimsOrder vpux::DimsOrder::GIOYX = DimsOrder(0x13245);
+
+const DimsOrder vpux::DimsOrder::GOIZYX = DimsOrder(0x123456);
+const DimsOrder vpux::DimsOrder::GIOZYX = DimsOrder(0x132456);
 
 namespace {
 

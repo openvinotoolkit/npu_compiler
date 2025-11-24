@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/stl_extras.hpp"
@@ -859,21 +859,21 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
         if (mlir::failed(addEnqusForTasksWithFetch(mpi, VPURegMapped::TaskType::DPUInvariant,
                                                    VPURegMapped::TaskType::DPUVariant, globalPreviousEnqu, builder,
                                                    globalEnquCounter, cache, _log, tilesCount))) {
-            VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+            config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
             signalPassFailure();
             return;
         }
         if (mlir::failed(addEnqusForTasksWithFetch(
                     mpi, VPURegMapped::TaskType::ActKernelRange, VPURegMapped::TaskType::ActKernelInvocation,
                     globalPreviousEnqu, builder, globalEnquCounter, cache, _log, tilesCount, shavesCountPerTile))) {
-            VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+            config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
             signalPassFailure();
             return;
         }
 
         if (mlir::failed(addEnqusForDmas(mpi, tilesCount, globalPreviousEnqu, builder, globalEnquCounter,
                                          lastDmaWithNoEnqueue, cache, _log))) {
-            VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+            config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
             signalPassFailure();
             return;
         }
@@ -912,7 +912,7 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
     // Verify enqueue ops can be enqueued at given barriers
     if (mlir::failed(verifyEnqueueBarrierIsNotBlockedByFutureTask(mpi, enquOps, barriers, lastDmaWithNoEnqueue,
                                                                   tilesCount, _log))) {
-        VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
         signalPassFailure();
         return;
     }
@@ -920,7 +920,7 @@ void AddEnqueueOpsPass::safeRunOnFunc() {
     // Check if enqueues order for given HW FIFO is not enqueueing tasks
     // for this FIFO out of order - task N needs to be enqueued before task N+1
     if (mlir::failed(verifyEnqueueOpsOrderIsAlignedWithPerFifoTaskOrder(enquOps, _log))) {
-        VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
         signalPassFailure();
         return;
     }

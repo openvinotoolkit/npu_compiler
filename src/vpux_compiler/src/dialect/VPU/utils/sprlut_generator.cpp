@@ -81,8 +81,12 @@ float vpux::VPU::getValue(uint16_t sign, uint16_t exponent, uint16_t mantissa) {
 // SprLUTGenerator
 //
 
-SprLUTGenerator::SprLUTGenerator(std::function<float(float)> refFunction, float maxAbsoluteError, Logger log)
-        : _refFunction(std::move(refFunction)), _maxAbsoluteError(maxAbsoluteError), _log(std::move(log)) {
+SprLUTGenerator::SprLUTGenerator(std::function<float(float)> refFunction, AbsoluteError error, Logger log)
+        : _refFunction(std::move(refFunction)), _error(error), _log(std::move(log)) {
+}
+
+SprLUTGenerator::SprLUTGenerator(std::function<float(float)> refFunction, RelativeError error, Logger log)
+        : _refFunction(std::move(refFunction)), _error(error), _log(std::move(log)) {
 }
 
 SprLUTGenerator& SprLUTGenerator::setIsSymmetric() {
@@ -161,11 +165,15 @@ uint16_t SprLUTGenerator::calculateNumOfMantissaMSBs(uint16_t sign, uint16_t exp
     uint16_t numOfMantissaMSBs = 0;
     for (uint16_t mantissa = 0; mantissa < FP16_MANTISSA_COUNT; ++mantissa) {
         float curError = 0;
-        while ((curError = getError(sign, exponent, mantissa, numOfMantissaMSBs)) > _maxAbsoluteError) {
+        while ((curError = getError(sign, exponent, mantissa, numOfMantissaMSBs)) > _error) {
             _log.nest().debug("Got error {0:f6} that is higher than maximum absolute error {1:f6}, retrying with "
                               "higher number of "
                               "segments",
-                              curError, _maxAbsoluteError);
+                              curError, _error);
+            const auto value = getValue(sign, exponent, mantissa);
+            const auto [segmentBegin, segmentEnd] = getSegmentBeginEnd(
+                    sign, exponent, numOfMantissaMSBs, extractMantissaMSBs(mantissa, numOfMantissaMSBs));
+            _log.nest(2).debug("Value: {0:f6}, segment: [{1:f6}, {2:f6}]", value, segmentBegin, segmentEnd);
             numOfMantissaMSBs++;
             VPUX_THROW_WHEN(numOfMantissaMSBs > FP16_MANTISSA_SIZE,
                             "Number of mantissa MSBs exceeded maximum size of FP16 mantissa");
@@ -206,7 +214,12 @@ float SprLUTGenerator::getError(uint16_t sign, uint16_t exponent, uint16_t manti
     const auto line = generateLine(segmentBegin, segmentEnd);
     const auto approx = line.slope * (value - (value >= 0 ? segmentBegin : segmentEnd)) + line.intercept;
     const auto ref = _refFunction(value);
-    return std::abs(approx - ref);
+    const auto error = std::abs(approx - ref);
+    if (_error.isRelative()) {
+        constexpr float epsilon = 1e-7f;  // in case ref == 0.0f, we divide by a small number to avoid NaN
+        return error / std::max(std::abs(ref), epsilon);
+    }
+    return error;
 }
 
 std::vector<uint16_t> SprLUTGenerator::serializeSprLUT() {

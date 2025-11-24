@@ -13,7 +13,7 @@ add_tool_target(
     LINK_LIBRARIES
         openvino::runtime
         openvino::runtime::dev
-        gflags
+        openvino::gflags_nothreads_static
     )
 
 # Additional linkage required: https://en.cppreference.com/w/cpp/filesystem#:~:text=GNU%20implementation%20prior,lstdc%2B%2Bfs

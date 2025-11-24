@@ -290,8 +290,8 @@ public:
         SmallVector<mlir::Value> inputs;
         auto outputType = origOp.getOutput().getType();
         for (auto input : eltwiseOp->getOperands()) {
-            auto sliceOp = input.getDefiningOp();
-            if (!mlir::isa<IE::SliceOp>(sliceOp) || !sliceOp->hasOneUse()) {
+            auto sliceOp = mlir::dyn_cast_or_null<IE::SliceOp>(input.getDefiningOp());
+            if (sliceOp == nullptr || !sliceOp->hasOneUse()) {
                 _log.trace("Cannot get 'Slice' before '{0} or Slice has multi uses'", eltwiseOp->getName());
                 return mlir::failure();
             }

@@ -307,15 +307,20 @@ DLLEXPORT vcl_result_t vclExecutableCreate(vcl_compiler_handle_t compiler, vcl_e
     } else {
         /// Get blob from compiled result and store in executable
         VPUXDriverCompiler::VPUXExecutableL0* pExecutable = status.first;
-        ret = pExecutable->serializeNetwork();
-        if (ret != VCL_RESULT_SUCCESS) {
-            delete pExecutable;
-            *executable = nullptr;
-            vclLogger->outputError("Failed to get compiled network");
-            return ret;
+        if (pExecutable != nullptr) {
+            ret = pExecutable->serializeNetwork();
+            if (ret != VCL_RESULT_SUCCESS) {
+                delete pExecutable;
+                *executable = nullptr;
+                vclLogger->outputError("Failed to get compiled network");
+                return ret;
+            }
+            /// Return the executable which holds the blob
+            *executable = reinterpret_cast<vcl_executable_handle_t>(pExecutable);
+        } else {
+            vclLogger->outputError("Failed to get blob from compiled result");
+            ret = VCL_RESULT_ERROR_UNKNOWN;
         }
-        /// Return the executable which holds the blob
-        *executable = reinterpret_cast<vcl_executable_handle_t>(pExecutable);
     }
     return ret;
 }

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/conversion.hpp"
 #include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferizable_ops_interface.hpp"
+#include "vpux/compiler/conversion/passes/VPU2VPUIP/bufferize_call_ops_interface.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/utils/func_dialect.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -22,8 +23,6 @@ using namespace vpux;
 //
 // One-shot-bufferization based funcOp and ReturnOp bufferization
 //
-
-namespace {
 
 //
 // getFuncOneShotAnalysisState
@@ -83,132 +82,6 @@ std::optional<int64_t> getEquivalentFuncArgIdx(mlir::func::FuncOp funcOp,
 
     return retValIt->getSecond();
 }
-
-//
-// CallOpBufferizeModel
-//
-
-class CallOpBufferizeModel : public BufferizableOpInterfaceExternalModelBase<CallOpBufferizeModel, mlir::func::CallOp> {
-public:
-    bool bufferizesToMemoryReadImpl(mlir::func::CallOp op, mlir::OpOperand& opOperand,
-                                    const mlir::bufferization::AnalysisState& state) const;
-    bool bufferizesToMemoryWriteImpl(mlir::func::CallOp op, mlir::OpOperand& opOperand,
-                                     const mlir::bufferization::AnalysisState& state) const;
-    mlir::bufferization::AliasingValueList getAliasingValuesImpl(mlir::func::CallOp op, mlir::OpOperand& opOperand,
-                                                                 const mlir::bufferization::AnalysisState& state) const;
-    mlir::LogicalResult bufferizeImpl(mlir::func::CallOp op, mlir::RewriterBase& rewriter,
-                                      const mlir::bufferization::BufferizationOptions& options,
-                                      mlir::func::CallOp::Adaptor adaptor) const;
-};
-
-bool CallOpBufferizeModel::bufferizesToMemoryReadImpl(mlir::func::CallOp op, mlir::OpOperand& opOperand,
-                                                      const mlir::bufferization::AnalysisState& state) const {
-    auto callOp = mlir::cast<mlir::func::CallOp>(op);
-    auto funcOp = getCalledFunction(callOp);
-
-    if (getFuncOpAnalysisState(state, funcOp) != mlir::bufferization::func_ext::FuncOpAnalysisState::Analyzed) {
-        return true;
-    }
-
-    const auto& funcState = getFuncOneShotAnalysisState(state);
-    return funcState.readBbArgs.lookup(funcOp).contains(opOperand.getOperandNumber());
-}
-
-bool CallOpBufferizeModel::bufferizesToMemoryWriteImpl(mlir::func::CallOp op, mlir::OpOperand& opOperand,
-                                                       const mlir::bufferization::AnalysisState& state) const {
-    auto callOp = mlir::cast<mlir::func::CallOp>(op);
-    auto funcOp = getCalledFunction(callOp);
-
-    if (getFuncOpAnalysisState(state, funcOp) != mlir::bufferization::func_ext::FuncOpAnalysisState::Analyzed) {
-        // FuncOp not analyzed yet. Assume that OpOperand is written.
-        return true;
-    }
-
-    const auto& funcState = getFuncOneShotAnalysisState(state);
-    return funcState.writtenBbArgs.lookup(funcOp).contains(opOperand.getOperandNumber());
-}
-
-mlir::bufferization::AliasingValueList CallOpBufferizeModel::getAliasingValuesImpl(
-        mlir::func::CallOp op, mlir::OpOperand& opOperand, const mlir::bufferization::AnalysisState& state) const {
-    auto callOp = mlir::cast<mlir::func::CallOp>(op);
-    auto funcOp = getCalledFunction(callOp);
-
-    if (getFuncOpAnalysisState(state, funcOp) != mlir::bufferization::func_ext::FuncOpAnalysisState::Analyzed) {
-        // FuncOp not analyzed yet. Any OpResult may be aliasing.
-        return mlir::bufferization::detail::unknownGetAliasingValues(opOperand);  // Note: using 'detail' namespace!
-    }
-
-    // Get aliasing results from state.
-    const auto& funcState = getFuncOneShotAnalysisState(state);
-    auto aliasingReturnVals = funcState.aliasingReturnVals.lookup(funcOp).lookup(opOperand.getOperandNumber());
-
-    // Check if the aliasing OpResult is equivalent to the OpOperand.
-    std::optional<int64_t> equivalent = {};
-    if (aliasingReturnVals.size() == 1) {
-        equivalent = getEquivalentFuncArgIdx(funcOp, funcState, aliasingReturnVals.front());
-        VPUX_THROW_WHEN((equivalent.has_value() && *equivalent != opOperand.getOperandNumber()),
-                        "inconsistent analysis state");
-    }
-
-    mlir::bufferization::AliasingValueList result;
-    for (auto resultIdx : aliasingReturnVals) {
-        result.addAlias({callOp->getOpResult(resultIdx),
-                         equivalent.has_value() ? mlir::bufferization::BufferRelation::Equivalent
-                                                : mlir::bufferization::BufferRelation::Unknown,
-                         /*isDefinite=*/equivalent.has_value()});
-    }
-    return result;
-}
-
-mlir::LogicalResult CallOpBufferizeModel::bufferizeImpl(mlir::func::CallOp op, mlir::RewriterBase& rewriter,
-                                                        const mlir::bufferization::BufferizationOptions&,
-                                                        mlir::func::CallOp::Adaptor) const {
-    auto log = Logger::global().nest("one-shot-bufferize-CallOp", 0);
-    log.trace("Got '{0}' at '{1}'", op->getName(), op->getLoc());
-
-    auto callOp = mlir::cast<mlir::func::CallOp>(op);
-
-    // 1. Compute the result types of the new CallOp.
-    SmallVector<mlir::Type> resultTypes;
-    for (auto result : callOp.getResults()) {
-        auto returnType = result.getType();
-        if (!mlir::isa<mlir::TensorType>(returnType)) {
-            // Non-tensor values are returned.
-            resultTypes.push_back(returnType);
-            continue;
-        }
-        auto resultType = vpux::getBufferType(result);
-        resultTypes.push_back(resultType);
-    }
-
-    // 2. Rewrite tensor operands as memrefs based on type of the already bufferized callee.
-    auto funcOp = getCalledFunction(callOp);
-    auto funcType = funcOp.getFunctionType();
-    SmallVector<mlir::Value> newOperands;
-    newOperands.reserve(llvm::size(callOp->getOperands()));
-    for (auto& opOperand : callOp->getOpOperands()) {
-        auto buffer = vpux::getBuffer(rewriter, opOperand.get());
-        auto memRefType = mlir::cast<mlir::MemRefType>(funcType.getInput(opOperand.getOperandNumber()));
-        // E#169895: This is a workaround: we align arguments with function parameters, if they are misaligned
-        if (buffer.getType() != memRefType) {
-            auto castBufferOp = rewriter.create<mlir::UnrealizedConversionCastOp>(callOp.getLoc(), memRefType, buffer);
-            buffer = castBufferOp.getResult(0);
-        }
-        newOperands.push_back(buffer);
-    }
-
-    // 3. Create the new CallOp.
-    auto newCallOp =
-            rewriter.create<mlir::func::CallOp>(callOp.getLoc(), funcOp.getSymName(), resultTypes, newOperands);
-    newCallOp->setAttrs(callOp->getAttrs());
-
-    // 4. Replace the old op with the new op.
-    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, callOp, newCallOp->getResults());
-
-    return mlir::success();
-}
-
-}  // namespace
 
 //
 // ReturnOpBufferizeModel
@@ -362,6 +235,6 @@ void vpux::registerFuncAndReturnBufferizableOpInterfaces(mlir::DialectRegistry& 
     registry.addExtension(+[](mlir::MLIRContext* ctx, mlir::func::FuncDialect*) {
         mlir::func::FuncOp::attachInterface<FuncOpBufferizeModel>(*ctx);
         mlir::func::ReturnOp::attachInterface<ReturnOpBufferizeModel>(*ctx);
-        mlir::func::CallOp::attachInterface<CallOpBufferizeModel>(*ctx);
+        mlir::func::CallOp::attachInterface<CallOpBufferizeModel<mlir::func::CallOp>>(*ctx);
     });
 }

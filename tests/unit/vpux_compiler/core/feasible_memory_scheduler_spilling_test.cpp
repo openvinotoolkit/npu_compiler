@@ -181,6 +181,213 @@ TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForI
     EXPECT_NE(input2AllocOp, outputAllocOp);
 }
 
+TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForRemovedInplaceAttr) {
+    constexpr llvm::StringLiteral inputIR = R"(
+        #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+        #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+        !Conv_In_DDR = memref<1x128x28x28xf16, #NHWC, @DDR>
+        !Conv_In_CMX = memref<1x128x28x28xf16, #NHWC, [@CMX_NN, 0]>
+        !Conv_WT_CMX = memref<512x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+        !Conv_Weights_CMX = memref<512x128x1x1xf16, #NHWC, [@CMX_NN, 0]>
+        !Conv_Out_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+
+        !EltWise_In_DDR =  memref<1x512x28x28xf16, #NHWC, @DDR>
+        !EltWise_CMX =  memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+
+        !DWConv_In_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+        !DWConv_OUT_CMX = memref<1x512x28x28xf16, #NHWC, [@CMX_NN, 0]>
+        !DWConv_WT_CMX = memref<512x1x1x4xsi32, #NCHW, [@CMX_NN, 0]>
+        !DWConv_Weights_CMX = memref<512x16x1x1xf16, #NHWC, [@CMX_NN, 0]>
+
+        module @test {
+            func.func @main(%arg0: !Conv_In_DDR, %arg1: !Conv_Weights_CMX, %arg2: !Conv_WT_CMX, %arg3: !EltWise_In_DDR, %arg4: !DWConv_Weights_CMX, %arg5: !DWConv_WT_CMX) -> !DWConv_OUT_CMX {
+                %conv1_in_cmx = memref.alloc() : !Conv_In_CMX
+                %conv1_out_cmx = memref.alloc() : !Conv_Out_CMX
+
+                %eltwise_in_cmx = memref.alloc() : !EltWise_CMX
+                %dwconv_out_cmx = memref.alloc() : !DWConv_OUT_CMX
+
+                %t0, %r0 = async.execute -> !async.value<!Conv_In_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64} {
+                    %270 = VPUIP.Copy inputs(%arg0 : !Conv_In_DDR) outputs(%conv1_in_cmx : !Conv_In_CMX) -> !Conv_In_CMX
+                    async.yield %270 : !Conv_In_CMX
+                }
+
+                %t1, %r1 = async.execute -> !async.value<!EltWise_CMX> attributes {VPUIP.executor = @DMA_NN, VPUIP.num_units = 1 : i64} {
+                    %270 = VPUIP.Copy inputs(%arg3 : !EltWise_In_DDR) outputs(%eltwise_in_cmx : !EltWise_CMX) -> !EltWise_CMX
+                    async.yield %270 : !EltWise_CMX
+                }
+
+                %t2, %r2 = async.execute [%t0] (%r0 as %arg8: !async.value<!Conv_In_CMX>) -> !async.value<!Conv_Out_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
+                    %270 = VPUIP.NCEClusterTask {constantsFused = true, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], minimumHardwareExecutionCost = 11735 : i64, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<CONV>}
+                        input(%arg8 : !Conv_In_CMX) weights(%arg1 : !Conv_Weights_CMX)  weight_table(%arg2 : !Conv_WT_CMX) parent_input(%arg8 : !Conv_In_CMX) parent_output(%conv1_out_cmx : !Conv_Out_CMX) outputs(%conv1_out_cmx : !Conv_Out_CMX) -> !Conv_Out_CMX  variants : {
+                            DPUTask {cluster_id = 0 : i64, inEnd = [27, 27, 127], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [27, 27, 511], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+                        } PPE : {
+                            PPETask {ppe = #VPU.PPEStub<>}
+                        }
+                    async.yield %270: !Conv_Out_CMX
+                }
+
+                %t4, %r4 = async.execute [%t1, %t2] (%r1 as %arg8: !async.value<!EltWise_CMX>, %r2 as %arg9: !async.value<!Conv_Out_CMX>) -> !async.value<!EltWise_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
+                    %270 = VPUIP.NCEClusterTask {is_inplace = true, minimumHardwareExecutionCost = 21125 : i64, task_type = #VPUIP.nce_task_type<ELTWISE>}
+                        input(%arg9 : !Conv_Out_CMX) weights(%arg8 : !EltWise_CMX) parent_input(%arg9 : !Conv_Out_CMX) parent_output(%conv1_out_cmx : !Conv_Out_CMX) outputs(%conv1_out_cmx : !Conv_Out_CMX) -> !EltWise_CMX  variants : {
+                            DPUTask {cluster_id = 0 : i64, inEnd = [27, 27, 511], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_8x16>, outEnd = [27, 27, 511], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+                            } PPE : {
+                                PPETask {ppe = #VPU.PPEStub<>}
+                            }
+
+                    async.yield %270: !EltWise_CMX
+                }
+
+                %t5, %r5 = async.execute [%t4] (%r4 as %arg8: !async.value<!EltWise_CMX>) -> !async.value<!DWConv_OUT_CMX> attributes {VPUIP.executor = @DPU, VPUIP.num_units = 1 : i64} {
+                        %270 = VPUIP.NCEClusterTask {constantsFused = true, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], minimumHardwareExecutionCost = 8240 : i64, mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>, task_type = #VPUIP.nce_task_type<DWCONV>}
+                        input(%arg8 : !EltWise_CMX) weights(%arg4 : !DWConv_Weights_CMX)  weight_table(%arg5 : !DWConv_WT_CMX) parent_input(%arg8 : !EltWise_CMX) parent_output(%dwconv_out_cmx : !DWConv_OUT_CMX) outputs(%dwconv_out_cmx : !DWConv_OUT_CMX) -> !DWConv_OUT_CMX  variants : {
+                        DPUTask {cluster_id = 0 : i64, inEnd = [27, 9, 63], inStart = [0, 0, 0], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [27, 9, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+                        } PPE : {
+                            PPETask {ppe = #VPU.PPEStub<>}
+                        }
+
+                        async.yield %270 : !DWConv_OUT_CMX
+                }
+
+                %r = async.await %r5 : !async.value<!DWConv_OUT_CMX>
+                return %r : !DWConv_OUT_CMX
+            }
+        }
+    )";
+
+    mlir::MLIRContext ctx(registry);
+    auto module = mlir::parseSourceString<mlir::ModuleOp>(inputIR, &ctx);
+    ASSERT_TRUE(module.get() != nullptr);
+
+    auto func = module.get().lookupSymbol<mlir::func::FuncOp>("main");
+    ASSERT_TRUE(func != nullptr);
+
+    AliasesInfo aliasesInfo{func};
+    AsyncDepsInfo depsInfo{func};
+
+    auto log = vpux::Logger::global();
+
+    VPUIP::NCEClusterTaskOp convOp = nullptr;
+    VPUIP::NCEClusterTaskOp eltwiseOp = nullptr;
+    VPUIP::NCEClusterTaskOp dwConvOp = nullptr;
+
+    func.walk([&](mlir::Operation* op) {
+        if (auto nceOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
+            if (nceOp.getTaskType() == VPUIP::NCETaskType::ELTWISE) {
+                eltwiseOp = nceOp;
+            } else if (nceOp.getTaskType() == VPUIP::NCETaskType::CONV) {
+                convOp = nceOp;
+            } else if (nceOp.getTaskType() == VPUIP::NCETaskType::DWCONV) {
+                dwConvOp = nceOp;
+            }
+        }
+    });
+
+    ASSERT_TRUE(convOp != nullptr);
+    ASSERT_TRUE(eltwiseOp != nullptr);
+    ASSERT_TRUE(dwConvOp != nullptr);
+
+    auto convInputBuff = aliasesInfo.getRoot(convOp.getInput());
+    auto convOutputBuff = convOp.getOutputBuff();
+    auto eltwiseInputBuff = aliasesInfo.getRoot(eltwiseOp.getInput());
+    auto eltwiseWeightsBuff = aliasesInfo.getRoot(eltwiseOp.getWeights());
+    auto eltwiseOutputBuff = convOp.getOutputBuff();
+    auto dwConvInputBuff = aliasesInfo.getRoot(dwConvOp.getInput());
+    auto dwConvOpOutputBuff = dwConvOp.getOutputBuff();
+
+    ASSERT_TRUE(convOutputBuff == eltwiseInputBuff);
+    ASSERT_TRUE(eltwiseInputBuff == eltwiseOutputBuff);
+    ASSERT_TRUE(eltwiseOutputBuff == dwConvInputBuff);
+
+    // Required components needed to construct FeasibleMemorySchedulerSpilling object
+    const auto memKind = VPU::MemoryKind::CMX_NN;
+    const auto secondLvlMemKind = VPU::MemoryKind::DDR;
+    uint64_t alignment = vpux::DEFAULT_CMX_ALIGNMENT;
+    LinearScan<mlir::Value, LinearScanHandler> scan(1024 * 1024, {}, alignment);
+
+    FeasibleMemorySchedulerSpilling spilling(memKind, secondLvlMemKind, depsInfo, aliasesInfo, log, scan);
+
+    //
+    //  opId  info
+    //  0     copyOp
+    //  1     copyOp
+    //  2     Conv
+    //  3     Eltwise
+    //  4     Eltwise spill write
+    //  5     Eltwise spill read
+    //  6     DWConv
+    //
+    FeasibleMemoryScheduler::ScheduledOpInfoVec scheduledOps = {
+            {0, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP, 1, 2, {}, {{338112, 538816, convInputBuff}}},
+            {1, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP, 2, 3, {}, {{1182016, 1468736, eltwiseWeightsBuff}}},
+            {2,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             3,
+             4,
+             {{338112, 538816, convInputBuff}},
+             {{538816, 825536, convOutputBuff}}},  // Conv
+            {3,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             4,
+             5,
+             {{538816, 825536, eltwiseInputBuff}, {1182016, 1468736, eltwiseWeightsBuff}},
+             {{538816, 825536, eltwiseOutputBuff}}},  // Eltwise
+
+            {3,
+             FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_WRITE_OP,
+             5,
+             6,
+             {{538816, 825536, eltwiseOutputBuff}},
+             {}},
+
+            {3, FeasibleMemoryScheduler::EOpType::IMPLICIT_SPILL_READ_OP, 6, 7, {}, {{0, 286720, dwConvInputBuff}}},
+            {4,
+             FeasibleMemoryScheduler::EOpType::ORIGINAL_OP,
+             7,
+             8,
+             {{0, 286720, dwConvInputBuff}},
+             {{286720, 1089536, dwConvOpOutputBuff}}},  // DWConv
+    };
+
+    // The spill buffer is allocated-deallocated-allocated due to splling and the offset is determined by the last
+    // allocation.
+    scan.handler().setAddress(dwConvInputBuff, 0);
+    spilling.removeComputeOpRelocationSpills(scheduledOps);
+
+    EXPECT_EQ(scan.handler().getAddress(convOutputBuff), 538816);
+    EXPECT_EQ(scan.handler().getAddress(eltwiseInputBuff), 538816);
+    EXPECT_EQ(scan.handler().getAddress(eltwiseOutputBuff), 538816);
+
+    // The scheduled ops after handled by `removeComputeOpRelocationSpills`
+    //
+    // op = '0'  type = 'ORIGINAL'  inputs = '<none>' outputs = '[338112 538816]'
+    // op = '1'  type = 'ORIGINAL'  inputs = '<none>' outputs = '[1182016 1468736]'
+    // op = '2'  type = 'ORIGINAL'  inputs = '[338112 538816]' outputs = '[538816 825536]'
+    // op = '3'  type = 'ORIGINAL'  inputs = '[538816 825536], [1182016 1468736]' outputs = '[0 286720]'
+    // op = '4'  type = 'ORIGINAL'  inputs = '[0 286720]' outputs = '[286720 1089536]
+    //
+    EXPECT_EQ(scheduledOps.size(), 5);
+
+    // Conv
+    EXPECT_EQ(scheduledOps[2].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+
+    // EltWise
+    EXPECT_EQ(scheduledOps[3].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+
+    // DWConv
+    EXPECT_EQ(scheduledOps[4].opType_, FeasibleMemoryScheduler::EOpType::ORIGINAL_OP);
+
+    EXPECT_EQ(scheduledOps[2].op_, 2);
+    EXPECT_EQ(scheduledOps[3].op_, 3);
+    EXPECT_EQ(scheduledOps[4].op_, 4);
+
+    EXPECT_EQ(scheduledOps[0].beginOutputResource(0), scheduledOps[2].beginInputResource(0));
+    EXPECT_EQ(scheduledOps[1].beginOutputResource(0), scheduledOps[3].beginInputResource(1));
+    EXPECT_EQ(scheduledOps[2].beginOutputResource(0), scheduledOps[3].beginInputResource(0));
+    EXPECT_EQ(scheduledOps[3].beginOutputResource(0), scheduledOps[4].beginInputResource(0));
+}
+
 TEST_F(MLIR_FeasibleMemorySchedulerSpilling, RemoveComputeOpRelocationSpillsForSharedOutputBuffer) {
     mlir::MLIRContext ctx(registry);
 

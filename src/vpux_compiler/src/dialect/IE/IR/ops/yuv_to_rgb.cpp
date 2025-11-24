@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -101,18 +102,18 @@ mlir::LogicalResult ConvertToMultiInputs::matchAndRewrite(IE::YuvToRgbOp yuvToRg
             input1_sizes[H] = inShapeType[H] / 3 * 2;
             input2_sizes[H] = inShapeType[H] / 3;
 
-            auto input1_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, yuvToRgbOp.getInput1(),
+            auto input1_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_Y"), yuvToRgbOp.getInput1(),
                                                              getIntArrayAttr(ctx, input1_offsets),
                                                              getIntArrayAttr(ctx, input1_sizes));
-            auto input2_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, yuvToRgbOp.getInput1(),
+            auto input2_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_UV"), yuvToRgbOp.getInput1(),
                                                              getIntArrayAttr(ctx, input2_offsets),
                                                              getIntArrayAttr(ctx, input2_sizes));
 
             input2_sizes[W] = input2_sizes[W] / 2;
             input2_sizes[C] = 2;
             auto shapeEndAttr = getIntArrayAttr(ctx, input2_sizes);
-            auto input2_slice_reshape =
-                    rewriter.create<IE::ReshapeOp>(sliceOpLoc, input2_slice.getResult(), nullptr, false, shapeEndAttr);
+            auto input2_slice_reshape = rewriter.create<IE::ReshapeOp>(
+                    appendLoc(sliceOpLoc, "reshape_UV"), input2_slice.getResult(), nullptr, false, shapeEndAttr);
 
             rewriter.replaceOpWithNewOp<IE::YuvToRgbOp>(yuvToRgbOp, input1_slice.getResult(), input2_slice_reshape,
                                                         nullptr, yuvToRgbOp.getInFmt(), yuvToRgbOp.getOutFmt());
@@ -132,10 +133,10 @@ mlir::LogicalResult ConvertToMultiInputs::matchAndRewrite(IE::YuvToRgbOp yuvToRg
             inputUV_sizes[H] = inShapeType[H] / 3;
             inputUV_sizes[W] = inShapeType[W];
 
-            auto inputY_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, yuvToRgbOp.getInput1(),
+            auto inputY_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_Y"), yuvToRgbOp.getInput1(),
                                                              getIntArrayAttr(ctx, inputY_offsets),
                                                              getIntArrayAttr(ctx, inputY_sizes));
-            auto inputUV_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, yuvToRgbOp.getInput1(),
+            auto inputUV_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_UV"), yuvToRgbOp.getInput1(),
                                                               getIntArrayAttr(ctx, inputUV_offsets),
                                                               getIntArrayAttr(ctx, inputUV_sizes));
 
@@ -143,8 +144,8 @@ mlir::LogicalResult ConvertToMultiInputs::matchAndRewrite(IE::YuvToRgbOp yuvToRg
             inputUV_sizes[W] = inShapeType[W] / 2;
 
             auto shape2EndAttr = getIntArrayAttr(ctx, inputUV_sizes);
-            auto inputUV_slice_reshape = rewriter.create<IE::ReshapeOp>(sliceOpLoc, inputUV_slice.getResult(), nullptr,
-                                                                        false, shape2EndAttr);
+            auto inputUV_slice_reshape = rewriter.create<IE::ReshapeOp>(
+                    appendLoc(sliceOpLoc, "reshape_UV"), inputUV_slice.getResult(), nullptr, false, shape2EndAttr);
 
             SmallVector<int64_t> inputU_sizes(inputShape.begin(), inputShape.end());
             SmallVector<int64_t> inputV_sizes(inputShape.begin(), inputShape.end());
@@ -159,10 +160,10 @@ mlir::LogicalResult ConvertToMultiInputs::matchAndRewrite(IE::YuvToRgbOp yuvToRg
             auto inputV_offsets = SmallVector<int64_t>(inputShape.size(), 0);
             inputV_offsets[H] = inputUV_sizes[H] / 2;
 
-            auto inputU_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, inputUV_slice_reshape,
+            auto inputU_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_U"), inputUV_slice_reshape,
                                                              getIntArrayAttr(ctx, inputU_offsets),
                                                              getIntArrayAttr(ctx, inputU_sizes));
-            auto inputV_slice = rewriter.create<IE::SliceOp>(sliceOpLoc, inputUV_slice_reshape,
+            auto inputV_slice = rewriter.create<IE::SliceOp>(appendLoc(sliceOpLoc, "slice_V"), inputUV_slice_reshape,
                                                              getIntArrayAttr(ctx, inputV_offsets),
                                                              getIntArrayAttr(ctx, inputV_sizes));
 

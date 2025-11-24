@@ -20,6 +20,10 @@ InputTiling DetectionOutputSortOpInputTilingOnShave(VPUIP::SwKernelOp swKernelOp
 
 OutputTiling GRUSequenceOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling lstmSequenceOutputTiling(const vpux::TileInfo& firstOutputTile);
+OutputTiling lstmDpuOutputTiling(const vpux::TileInfo& firstOutputTile);
 OutputTiling DynamicQuantizeOutputTiling(const vpux::TileInfo& firstOutputTile);
 
+OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile, int64_t qkEmbedding);
+InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
+                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape);
 }  // namespace vpux::VPU

@@ -79,6 +79,10 @@ InputTiling vpux::VPU::LSTMGatesOp::backInferTileInfo(const vpux::TileInfo& outp
     return TilingInfo{inputTiles};
 }
 
+OutputTiling vpux::VPU::LSTMGatesOp::getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger /*log*/) {
+    return OutputTiling{outputTile, outputTile};
+}
+
 void vpux::VPU::LSTMGatesOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {
     // Do nothing
 }

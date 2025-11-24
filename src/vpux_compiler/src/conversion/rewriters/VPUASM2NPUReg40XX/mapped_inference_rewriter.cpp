@@ -7,9 +7,9 @@
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/utils.hpp"
 #include "vpux/compiler/core/profiling.hpp"
-#include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <npu_40xx_nnrt.hpp>
 
@@ -112,11 +112,12 @@ mlir::LogicalResult MappedInferenceRewriter::matchAndRewrite(VPUASM::MappedInfer
     // Look only at the DMA tasks belonging to the first (and only) DMA engine
     std::tie(mi.task_storage_counts_.dma_ddr_count, mi.task_storage_counts_.dma_cmx_count) =
             VPUMI40XX::compute_dma_split(totalDDRDmaCount, totalCMXDmaCount);
-    mi.task_storage_counts_.dpu_invariant_count = VPU::getConstraint(moduleOp, VPU::METADATA_MAX_INVARIANT_COUNT);
-    mi.task_storage_counts_.dpu_variant_count = VPU::getConstraint(moduleOp, VPU::METADATA_MAX_VARIANT_COUNT);
-    mi.task_storage_counts_.act_range_count = VPU::getConstraint(moduleOp, VPU::METADATA_MAX_KERNEL_RANGE_COUNT);
-    mi.task_storage_counts_.act_invo_count = VPU::getConstraint(moduleOp, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT);
-    mi.task_storage_counts_.media_count = VPU::getConstraint(moduleOp, VPU::METADATA_MAX_MEDIA_COUNT);
+    mi.task_storage_counts_.dpu_invariant_count = config::getConstraint(moduleOp, config::METADATA_MAX_INVARIANT_COUNT);
+    mi.task_storage_counts_.dpu_variant_count = config::getConstraint(moduleOp, config::METADATA_MAX_VARIANT_COUNT);
+    mi.task_storage_counts_.act_range_count = config::getConstraint(moduleOp, config::METADATA_MAX_KERNEL_RANGE_COUNT);
+    mi.task_storage_counts_.act_invo_count =
+            config::getConstraint(moduleOp, config::METADATA_MAX_KERNEL_INVOCATION_COUNT);
+    mi.task_storage_counts_.media_count = config::getConstraint(moduleOp, config::METADATA_MAX_MEDIA_COUNT);
 
     VpuMappedInference miDesc;
     VPUX_THROW_UNLESS(sizeof(npu40xx::nn_public::VpuMappedInference) == miDesc.size(),

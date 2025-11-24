@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 namespace vpux::VPUIP::arch37xx {
@@ -132,8 +133,14 @@ mlir::LogicalResult SingleClusterPermuteDMARewriter::unroll(VPUIP::PermuteDMAOp 
             }
 
             const auto layout = mlir::AffineMapAttr::get(dimOrder.toAffineMap(ctx));
-            newDstType = VPUIP::DistributedBufferType::get(ctx, subOutputShapes[idx].raw(), dstType.getElementType(),
-                                                           layout, dstType.getMemSpace(), distributionAttr);
+
+            // Although in the current implementation strides are compact and having the correct DMADescriptorAttr is
+            // all that is needed for further lowering, apply the strides to the new type nonetheless as the
+            // implementation may change in the future.
+            newDstType = mlir::cast<NDTypeInterface>(VPUIP::DistributedBufferType::get(
+                                                             ctx, subOutputShapes[idx].raw(), dstType.getElementType(),
+                                                             layout, dstType.getMemSpace(), distributionAttr))
+                                 .changeStrides(StridesRef(newDstStrides));
         } else {
             newDstType = vpux::getMemRefType(subOutputShapes[idx], dstType.getElementType(), dimOrder,
                                              dstType.getMemSpace(), StridesRef(newDstStrides));

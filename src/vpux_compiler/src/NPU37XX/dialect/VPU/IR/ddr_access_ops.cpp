@@ -130,6 +130,66 @@ public:
 };
 
 //
+// DDRAccessDeformableConvolutionOpModel
+//
+
+class DDRAccessDeformableConvolutionOpModel final :
+        public VPU::DDRAccessOpInterface::FallbackModel<DDRAccessDeformableConvolutionOpModel> {
+public:
+    bool isDDRAccessNecessaryOrBeneficial(mlir::Operation* op, Logger log) const {
+        auto defConvOp = mlir::dyn_cast<VPU::DeformableConvolutionOp>(op);
+        VPUX_THROW_WHEN(defConvOp == nullptr, "Unexpected op {0} at '{1}'", op->getName(), op->getLoc());
+
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(0).getType());
+        const auto inputShape = inputType.getShape();
+
+        const auto offsetType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(1).getType());
+        const auto offsetShape = offsetType.getShape();
+
+        const auto kernelType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(2).getType());
+        const auto kernelShape = kernelType.getShape();
+
+        const auto maskType = mlir::cast<vpux::NDTypeInterface>(op->getOperand(3).getType());
+        const auto maskShape = maskType.getShape();
+
+        /* For DeformableConvolution op, first input cannot be tiled over C & H & W.
+            Offset input and mask input cannot be tiled over C.
+            Kernel input cannot be tiled over C & H & W.
+            So if DeformableConvolution's inputs required size is larger than
+            CMX size, DDR access is necessary. */
+
+        const auto totalSizeInput = inputType.getTotalAllocSize();
+        const auto requiredSizeInput = totalSizeInput / (inputShape[Dims4D::Act::N]);
+
+        const auto totalSizeOffset = offsetType.getTotalAllocSize();
+        const auto requiredSizeOffset = totalSizeOffset / (offsetShape[Dims4D::Act::N] * offsetShape[Dims4D::Act::H] *
+                                                           offsetShape[Dims4D::Act::W]);
+
+        const auto totalSizeKernel = kernelType.getTotalAllocSize();
+        const auto requiredSizeKernel = totalSizeKernel / (kernelShape[Dims4D::Act::N]);
+
+        const auto totalSizeMask = maskType.getTotalAllocSize();
+        const auto requiredSizeMask =
+                totalSizeMask / (maskShape[Dims4D::Act::N] * maskShape[Dims4D::Act::H] * maskShape[Dims4D::Act::W]);
+
+        const auto individualCheck = requiredSizeInput > vpux::VPU::getTotalCMXSize(op) ||
+                                     requiredSizeOffset > vpux::VPU::getTotalCMXSize(op) ||
+                                     requiredSizeKernel > vpux::VPU::getTotalCMXSize(op) ||
+                                     requiredSizeMask > vpux::VPU::getTotalCMXSize(op);
+
+        const auto sumCheck = (requiredSizeInput + requiredSizeOffset + requiredSizeKernel + requiredSizeMask) >
+                              vpux::VPU::getTotalCMXSize(op);
+
+        if (individualCheck || sumCheck) {
+            log.nest(1).trace(
+                    "Can't still fit into CMX after tiling. DDR access will be needed for DeformableConvolutionOp.");
+            return true;
+        }
+        return false;
+    }
+};
+
+//
 // DDRAccessRandomUniformOpModel
 //
 
@@ -189,6 +249,7 @@ void vpux::VPU::arch37xx::registerDDRAccessOpModelInterface(mlir::DialectRegistr
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*) {
         VPU::GatherOp::attachInterface<DDRAccessGatherOpModel>(*ctx);
         VPU::GridSampleOp::attachInterface<DDRAccessGridSampleOpModel>(*ctx);
+        VPU::DeformableConvolutionOp::attachInterface<DDRAccessDeformableConvolutionOpModel>(*ctx);
         VPU::TopKOp::attachInterface<DDRAccessTopKOpModel>(*ctx);
         VPU::RandomUniformOp::attachInterface<DDRAccessRandomUniformOpModel>(*ctx);
         VPU::GRUSequenceOp::attachInterface<DDRAccessGRUSequenceOpModel>(*ctx);

@@ -212,6 +212,30 @@ def VPU_SWOpInterface : OpInterface<"SWOpInterface"> {
     ];
 }
 
+//
+// AuxiliaryBufferOpInterface
+//
+
+def VPU_AuxiliaryBufferOpInterface : OpInterface<"AuxiliaryBufferOpInterface"> {
+    let description = "Interface for SHAVE operations that can work with an auxiliary input buffer";
+
+    let cppNamespace = "vpux::VPU";
+
+    let methods = [
+        InterfaceMethod<
+            "Get the auxiliary buffer(s)",
+            "vpux::SmallVector<mlir::Value>", "getAuxiliaryBuffers", (ins)
+        >,
+        InterfaceMethod<
+            "Set the auxiliary buffer(s)",
+            "mlir::LogicalResult", "setAuxiliaryBuffers", (ins "ArrayRef<mlir::Value>":$buffers)
+        >,
+        InterfaceMethod<
+            "Get the necessary types for the auxiliary buffer(s)",
+            "vpux::SmallVector<mlir::Type>", "getBufferTypes", (ins)
+        >
+    ];
+}
 
 //
 // SparseOpInterface
@@ -292,6 +316,24 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
         >,
 
         InterfaceMethod<
+            "Get the data pointer table operand of the operation",
+            "mlir::Value", "getWeightTableDataPtrOperand", (ins),
+            [{}],
+            [{
+                return nullptr;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Get the sparsity pointer table operand of the operation",
+            "mlir::Value", "getWeightTableSpPtrOperand", (ins),
+            [{}],
+            [{
+                return nullptr;
+            }]
+        >,
+
+        InterfaceMethod<
             "Get the scale table operand of the operation",
             "mlir::Value", "getWeightTableScaleOperand", (ins),
             [{}],
@@ -303,6 +345,15 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
         InterfaceMethod<
             "Get the bias table operand of the operation",
             "mlir::Value", "getWeightTableBiasOperand", (ins),
+            [{}],
+            [{
+                return nullptr;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Get the zero-point only table operand of the operation",
+            "mlir::Value", "getWeightZeroPointsOperand", (ins),
             [{}],
             [{
                 return nullptr;
@@ -337,6 +388,16 @@ def VPU_NCEOpInterface : OpInterface<"NCEOpInterface"> {
             [{}],
             [{
                 return vpux::VPU::details::verifyInputTypeOp($_op, inputType);
+            }]
+        >,
+
+        InterfaceMethod<
+            "Get MPE engine",
+            "std::optional<vpux::VPU::MPEEngineAttr>", "getMpeEngine",
+            (ins),
+            [{}],
+            [{
+                return nullptr;
             }]
         >,
 
@@ -464,6 +525,16 @@ def VPU_TilingViewLikeOpInterface : OpInterface<"TilingViewLikeOpInterface"> {
             "Check if the output tile is supported or not",
             "bool", "isSupportedOutTile",
             (ins "const TileInfo&":$outputTile),
+            [{}],
+            [{
+                return true;
+            }]
+        >,
+
+        InterfaceMethod<
+            "Until aligning between scf and VPU tiling interfaces is implemented, not VF supported ops are marked",
+            "bool", "isVFSupported",
+            (ins),
             [{}],
             [{
                 return true;

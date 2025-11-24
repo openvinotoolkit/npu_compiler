@@ -293,6 +293,9 @@ public:
      */
     bool adjustTasksDependenciesToGraphSplitConstraints(const TaskSet& producers);
 
+    std::optional<size_t> getFirstTaskInGroupFromBlock(int grpIdx, size_t blockIdx,
+                                                       const ExecutionGroupList& fifoExecGroups);
+
     /**
      * @brief Get index of sync-task from the block preceding the block of the provided taskInd
      *
@@ -311,7 +314,8 @@ public:
      *
      */
     std::optional<size_t> getNextBlockSyncPoint(size_t taskInd) const;
-    void splitBarriersWithExceedingVariantCount(size_t availableSlots, size_t maxSlotsSum, size_t maxAvailableSlots);
+    void splitBarriersWithExceedingVariantCount(size_t availableSlots, size_t maxSlotsSum,
+                                                bool maxSlotsSumLimitEnabled);
     void splitBarrierProducers(size_t availableSlots, size_t maxSlotsSum, bool maxSlotsSumLimitEnabled);
     void splitBarrierConsumers(size_t availableSlots, size_t maxSlotsSum, bool maxSlotsSumLimitEnabled);
     bool ensureTasksDrivenBySingleBarrier(size_t availableSlots, bool mergeWaitBarriersIteratively = false,

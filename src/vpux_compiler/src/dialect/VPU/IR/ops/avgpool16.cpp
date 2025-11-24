@@ -47,7 +47,15 @@ mlir::LogicalResult vpux::VPU::AvgPool16Op::inferReturnTypes(mlir::MLIRContext* 
 vpux::InputTiling vpux::VPU::AvgPool16Op::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger) {
     const auto origInputShape = getShape(getInput());
     const auto pads = PadInfo(getPadsBegin(), getPadsEnd());
-    auto inputTiling = vpux::backInferPoolTile(outputTile, origInputShape, getKernelSize(), getStrides(), pads);
+    // Add dilation to calculate new Kernel
+    auto kernelSize = parseIntArrayAttr<int64_t>(getKernelSize());
+    auto dilations = parseIntArrayAttr<int64_t>(getDilations());
+    for (size_t i = 0; i < kernelSize.size(); i++) {
+        kernelSize[i] = (kernelSize[i] - 1) * dilations[i] + 1;
+    }
+
+    auto inputTiling = vpux::backInferPoolTile(outputTile, origInputShape,
+                                               getIntArrayAttr(this->getContext(), kernelSize), getStrides(), pads);
     return inputTiling;
 }
 

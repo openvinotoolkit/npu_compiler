@@ -100,12 +100,11 @@ func.func @ParsePrintDistributedBufferConvertDMA(%input: !Input_DDR) -> !Output_
 // -----
 
 !InputGatherDMA_DDR = memref<50257x768xf32, @DDR>
-!IndicesGatherDMA_CMX = memref<1024x1xi64, [@CMX_NN, 0]>
-!OutputGatherDMA_CMX_Large = memref<1024x768xf32, [@CMX_NN, 0]>
-
+!IndicesGatherDMA_CMX = memref<384x1xi64, [@CMX_NN, 0]>
+!OutputGatherDMA_CMX_Large = memref<384x768xf32, [@CMX_NN, 0]>
 module @ParseGatherDMAOpModuleDDR {
     func.func @ParseGatherDMAOp(%input: !InputGatherDMA_DDR, %indices: !IndicesGatherDMA_CMX) -> !OutputGatherDMA_CMX_Large {
-        %output = VPURT.DeclareBuffer <CMX_NN> [0] <3145728> -> !OutputGatherDMA_CMX_Large
+        %output = VPURT.DeclareBuffer <CMX_NN> [0] <1473536> -> !OutputGatherDMA_CMX_Large
 
         %barrier0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
         %barrier1 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier

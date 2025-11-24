@@ -44,15 +44,24 @@ def VPU_ConvolutionOp :
 
 def VPU_DeformableConvolutionOp :
         VPU_LayerOp<
-            "DeformableConvolution"
+            "DeformableConvolution",
+             [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+             ]
         > {
     let summary = "DeformableConvolution VPU layer";
 
+    let description = [{
+        The 'initial_output_offset_attr' attribute is used in kernel for tiling, MC/MS logic.
+    }];
+
     let arguments = (ins
-        RankedTensorOf<[F16, F32]>:$input,
-        RankedTensorOf<[F16, F32]>:$offset,
-        RankedTensorOf<[F16, F32]>:$kernel,
-        Optional<RankedTensorOf<[F16, F32]>>:$mask,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$input,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$offset,
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$kernel,
+        Optional<AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>>:$mask,
 
         I64ArrayAttr:$strides,
         I64ArrayAttr:$pads_begin,
@@ -61,12 +70,40 @@ def VPU_DeformableConvolutionOp :
 
         IntAttr:$group,
         IntAttr:$deformable_group,
-        UnitAttr:$biliniar_interpolate_pad
+        UnitAttr:$bilinear_interpolate_pad,
+
+        OptionalAttr<I64ArrayAttr>:$initial_output_offset_attr,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        RankedTensorOf<[F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::Value":$offset,
+            "::mlir::Value":$kernel,
+            "::mlir::Value":$mask,
+            "::mlir::ArrayAttr":$strides,
+            "::mlir::ArrayAttr":$pads_begin,
+            "::mlir::ArrayAttr":$pads_end,
+            "::mlir::ArrayAttr":$dilations,
+            "::mlir::IntegerAttr":$group,
+            "::mlir::IntegerAttr":$deformable_group,
+            "::mlir::UnitAttr":$bilinear_interpolate_pad,
+            "::mlir::ArrayAttr":$initial_output_offset_attr
+        )>
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 

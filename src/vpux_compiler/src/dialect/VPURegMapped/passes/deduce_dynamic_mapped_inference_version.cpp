@@ -8,7 +8,6 @@
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
-
 namespace vpux::VPURegMapped {
 #define GEN_PASS_DECL_DEDUCEDYNAMICMAPPEDINFERENCEVERSION
 #define GEN_PASS_DEF_DEDUCEDYNAMICMAPPEDINFERENCEVERSION

@@ -13,13 +13,15 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/small_kernel_optimization.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/se_roll_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
@@ -76,8 +78,8 @@ bool vpux::VPU::NCEInvariant::verifyPads(mlir::ArrayAttr kernelSizeAttr, mlir::A
 bool vpux::VPU::NCEInvariant::isAttrsSupported(mlir::Operation* op, int64_t KY, int64_t KX, int64_t SY, int64_t SX,
                                                int64_t padTop, int64_t padBottom, int64_t padLeft, int64_t padRight,
                                                LogCb logCb) {
-    if (VPU::hasMaxKernelSize(op)) {
-        const auto maxKernelSize = VPU::getMaxKernelSize(op);
+    if (config::hasMaxKernelSize(op)) {
+        const auto maxKernelSize = config::getMaxKernelSize(op);
 
         if (KY > maxKernelSize || KY <= 0) {
             logCb(formatv("Unsupported kernel height dimension '{0}', must be in range [1, {1}]", KY, maxKernelSize));
@@ -206,9 +208,9 @@ Byte vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC) {
 
 // OC can be used to represent a number of output channels that is different from the number of output channels in op
 // (e.g. when a new output type will be used)
-mlir::FailureOr<SmallVector<Byte>> vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC, mlir::Value weightsTable,
-                                                                                mlir::Value weightTableScale,
-                                                                                mlir::Value weightTableBias) {
+SmallVector<Byte> vpux::VPU::NCEInvariant::getWeightsTableSize(int64_t OC, mlir::Value weightsTable,
+                                                               mlir::Value weightTableScale,
+                                                               mlir::Value weightTableBias) {
     if (weightsTable != nullptr) {
         return SmallVector<Byte>{getWeightsTableSize(OC)};
     }
@@ -224,49 +226,35 @@ mlir::FailureOr<SmallVector<Byte>> vpux::VPU::NCEInvariant::getWeightsTableSize(
     return newWeightTables;
 }
 
-template <typename NCEOp>
-mlir::LogicalResult getWeightTableBuffersBase(NCEOp nceOp, SmallVector<Byte>& buffers, int64_t OC) {
-    auto weightTables = vpux::VPU::NCEInvariant::getWeightsTableSize(
-            OC, nceOp.getWeightsTable(), nceOp.getWeightTableScale(), nceOp.getWeightTableBias());
-    if (mlir::failed(weightTables)) {
-        return mlir::failure();
-    }
-
-    auto weightTablesValue = weightTables.value();
-    buffers.append(weightTablesValue.begin(), weightTablesValue.end());
-    return mlir::success();
-}
-
 mlir::LogicalResult vpux::VPU::NCEInvariant::getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers,
                                                                    int64_t OC) {
-    if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(op)) {
-        return getWeightTableBuffersBase(convOp, buffers, OC);
-    } else if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(op)) {
-        return getWeightTableBuffersBase(dwConvOp, buffers, OC);
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        return errorAt(op, "The operation type should be one that implements NCEOpInterface");
     }
-    return mlir::failure();
+
+    auto weightTables = vpux::VPU::NCEInvariant::getWeightsTableSize(
+            OC, nceOp.getWeightsTableOperand(), nceOp.getWeightTableScaleOperand(), nceOp.getWeightTableBiasOperand());
+
+    buffers.append(weightTables.begin(), weightTables.end());
+    return mlir::success();
 }
 
 //
 // verifyWeightTables
 //
 
-template <typename NCEOp>
-static mlir::LogicalResult verifyWeightTablesBase(NCEOp op, Logger) {
-    if ((op.getWeightTableDataPtr() || op.getWeightTableSpPtr() || op.getWeightTableScale() ||
-         op.getWeightTableBias() || op.getWeightZeroPoints())) {
+mlir::LogicalResult vpux::VPU::NCEInvariant::verifyWeightTables(mlir::Operation* op) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr) {
+        return errorAt(op, "The operation type should be one that implements NCEOpInterface");
+    }
+    if ((nceOp.getWeightTableDataPtrOperand() || nceOp.getWeightTableSpPtrOperand() ||
+         nceOp.getWeightTableScaleOperand() || nceOp.getWeightTableBiasOperand() ||
+         nceOp.getWeightZeroPointsOperand())) {
         return errorAt(op, "Only weightsTable can be populated for NCEOp");
     }
     return mlir::success();
-}
-
-mlir::LogicalResult vpux::VPU::NCEInvariant::verifyWeightTables(mlir::Operation* op, Logger log) {
-    if (auto convOp = mlir::dyn_cast<VPU::NCEConvolutionOp>(op)) {
-        return verifyWeightTablesBase(convOp, log);
-    } else if (auto dwConvOp = mlir::dyn_cast<VPU::NCEDepthConvolutionOp>(op)) {
-        return verifyWeightTablesBase(dwConvOp, log);
-    }
-    return mlir::failure();
 }
 
 //
@@ -345,6 +333,10 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::isSupported(mlir::Operation* op, Lo
                         return VPU::NCEInterpolateOp::isSupported(origOp, emptyLogCb, checkLayout,
                                                                   checkChannelAlignment, /*checkBatch=*/false);
                     })
+                    .Case<VPU::InterpolateOp>([&](VPU::InterpolateOp origOp) {
+                        return VPU::NCEInterpolateOp::isSupported(origOp, emptyLogCb, checkLayout,
+                                                                  checkChannelAlignment, /*checkBatch=*/false);
+                    })
                     .Case<IE::TransposedConvolutionOp>([&](IE::TransposedConvolutionOp origOp) {
                         return isSupportedSEPTransposedConv(origOp, emptyLogCb, checkLayout, checkChannelAlignment);
                     })
@@ -402,8 +394,8 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, i
                                                           int64_t padLeft, int64_t padRight, Logger log) {
     log.setName("NCEInvariant");
     auto loc = op->getLoc();
-    if (VPU::hasMaxKernelSize(op)) {
-        const auto maxKernelSize = VPU::getMaxKernelSize(op);
+    if (config::hasMaxKernelSize(op)) {
+        const auto maxKernelSize = config::getMaxKernelSize(op);
 
         if (KY > maxKernelSize || KY <= 0) {
             log.trace("[{0}] Unsupported kernel height dimension '{1}', must be in range [1, {2}]", loc, KY,
@@ -478,6 +470,9 @@ mlir::LogicalResult vpux::VPU::NCEInvariant::verifyKernel(mlir::Operation* op, L
             .Case<IE::MatMulOp>([&](IE::MatMulOp origOp) {
                 return VPU::NCEMatMulOp::verifyKernel(origOp);
             })
+            .Case<IE::InterpolateOp>([&](IE::InterpolateOp origOp) {
+                return VPU::NCEInterpolateOp::verifyKernel(origOp);
+            })
             .Default([](mlir::Operation*) -> mlir::LogicalResult {
                 return mlir::failure();
             });
@@ -542,6 +537,10 @@ bool vpux::VPU::NCEInvariant::isAlignmentBeneficial(mlir::Operation* op) {
         if (softMaxOp.getAxisInd() == Dims4D::Act::C.ind() && IC > 256) {
             return true;
         }
+    }
+
+    if (auto SDPAExtendedOp = mlir::dyn_cast<IE::SDPAExtendedOp>(op)) {
+        return true;
     }
 
     return false;

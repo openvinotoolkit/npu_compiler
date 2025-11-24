@@ -3,14 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-//
-
-#include "vpux/compiler/dialect/VPU/utils/wlm_constraint_utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 #include "vpux/compiler/utils/shave.hpp"
 
@@ -47,12 +45,14 @@ void ResolveWLMTaskLocationPass::safeRunOnFunc() {
 
     auto archKind = config::getArch(netFunc);
     const llvm::DenseMap<VPURegMapped::TaskType, size_t> sizes = {
-            {VPURegMapped::TaskType::DPUInvariant, VPU::getConstraint(netFunc, VPU::METADATA_MAX_INVARIANT_COUNT) / 2},
-            {VPURegMapped::TaskType::DPUVariant, VPU::getConstraint(netFunc, VPU::METADATA_MAX_VARIANT_COUNT) / 2},
+            {VPURegMapped::TaskType::DPUInvariant,
+             config::getConstraint(netFunc, config::METADATA_MAX_INVARIANT_COUNT) / 2},
+            {VPURegMapped::TaskType::DPUVariant,
+             config::getConstraint(netFunc, config::METADATA_MAX_VARIANT_COUNT) / 2},
             {VPURegMapped::TaskType::ActKernelInvocation,
-             VPU::getConstraint(netFunc, VPU::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2},
+             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_INVOCATION_COUNT) / 2},
             {VPURegMapped::TaskType::ActKernelRange,
-             VPU::getConstraint(netFunc, VPU::METADATA_MAX_KERNEL_RANGE_COUNT) / 2}};
+             config::getConstraint(netFunc, config::METADATA_MAX_KERNEL_RANGE_COUNT) / 2}};
 
     auto getSize = [&sizes](VPURegMapped::TaskType type) -> size_t {
         auto mapIt = sizes.find(type);

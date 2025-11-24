@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-shape-to-4d --canonicalize %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --convert-shape-to-4d="force-convert-gather-to-4d=true" --canonicalize %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 // CHECK:       func.func @main(
@@ -1302,6 +1302,18 @@ func.func @DoNotConvert5DReduceSum(%arg0: tensor<2x1024x7x7x3xf32>) -> tensor<2x
 
 // -----
 
+// CHECK-LABEL: func.func @Convert3DReduceMeanSquare(
+// CHECK-SAME:      %[[VAL_0:.+]]: tensor<1024x7x7xf32>) -> tensor<1024xf32> {
+func.func @Convert3DReduceMeanSquare(%arg0: tensor<1024x7x7xf32>) -> tensor<1024xf32> {
+  %0 = IE.ReduceMeanSquare(%arg0) {axes_value = [1, 2]} : tensor<1024x7x7xf32> -> tensor<1024xf32>
+  return %0 : tensor<1024xf32>
+
+// CHECK:   %[[VAL_1:.+]] = IE.ReduceMeanSquare(%[[VAL_0]]) {axes_value = [1, 2]} : tensor<1024x7x7xf32> -> tensor<1024xf32>
+// CHECK:   return %[[VAL_1]] : tensor<1024xf32>
+}
+
+// -----
+
 // CHECK-LABEL: @ReshapeMvn6Scale1DBias2D
 // CHECK-SAME:   [[INPUT:%.+]]: tensor<151x1x768xf16>,
 // CHECK-SAME:   [[SCALE:%.+]]: tensor<768xf16>,
@@ -1357,6 +1369,52 @@ func.func @ReshapeMvn6Scale4D(%input: tensor<151x1x768xf16>, %scale: tensor<1x1x
     // CHECK-SAME:                        : tensor<1x151x1x768xf16> -> tensor<151x1x768xf16>
 
     // CHECK:       return [[OUT_RESHAPE]] : tensor<151x1x768xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @ReverseSequence2D
+// CHECK-SAME:   [[DATA:%.+]]: tensor<3x10xf16>
+// CHECK-SAME:   [[SEQ_LENS:%.+]]: tensor<3xsi32>
+func.func @ReverseSequence2D(%data: tensor<3x10xf16>, %seq_lens: tensor<3xsi32>) -> tensor<3x10xf16> {
+    %0 = IE.ReverseSequence(%data, %seq_lens) {batch_axis = 0 : i64, seq_axis = 1 : i64} : tensor<3x10xf16>, tensor<3xsi32> -> tensor<3x10xf16>
+    return %0 : tensor<3x10xf16>
+
+    // CHECK-DAG:   [[RESHAPE_IN_0:%.+]] = IE.AffineReshape([[DATA]])
+    // CHECK-SAME:      shape_value = [1, 1, 3, 10]} : tensor<3x10xf16> -> tensor<1x1x3x10xf16>
+    // CHECK-DAG:   [[RESHAPE_IN_1:%.+]] = IE.AffineReshape([[SEQ_LENS]])
+    // CHECK-SAME:      shape_value = [1, 1, 3, 1]} : tensor<3xsi32> -> tensor<1x1x3x1xsi32>
+
+    // CHECK:       [[REV_SEQ:%.+]] = IE.ReverseSequence([[RESHAPE_IN_0]], [[RESHAPE_IN_1]])
+    // CHECK-SAME:      {batch_axis = 2 : i64, seq_axis = 3 : i64} : tensor<1x1x3x10xf16>, tensor<1x1x3x1xsi32> -> tensor<1x1x3x10xf16>
+
+    // CHECK-DAG:   [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[REV_SEQ]])
+    // CHECK-SAME:      shape_value = [3, 10]} : tensor<1x1x3x10xf16> -> tensor<3x10xf16>
+
+    // CHECK:       return [[RESHAPE_OUT]] : tensor<3x10xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @ReverseSequence5D
+// CHECK-SAME:   [[DATA:%.+]]: tensor<1x13x13x3x2xf16>
+// CHECK-SAME:   [[SEQ_LENS:%.+]]: tensor<1xsi32>
+func.func @ReverseSequence5D(%data: tensor<1x13x13x3x2xf16>, %seq_lens: tensor<1xsi32>) -> tensor<1x13x13x3x2xf16> {
+   %0 = IE.ReverseSequence(%data, %seq_lens) {batch_axis = 0 : i64, seq_axis = 4 : i64} : tensor<1x13x13x3x2xf16>, tensor<1xsi32> -> tensor<1x13x13x3x2xf16>
+   return %0 : tensor<1x13x13x3x2xf16>
+
+   // CHECK-DAG:   [[RESHAPE_IN_0:%.+]] = IE.AffineReshape([[DATA]])
+   // CHECK-SAME:      shape_value = [1, 169, 3, 2]} : tensor<1x13x13x3x2xf16> -> tensor<1x169x3x2xf16>
+   // CHECK-DAG:   [[RESHAPE_IN_1:%.+]] = IE.AffineReshape([[SEQ_LENS]])
+   // CHECK-SAME:      shape_value = [1, 1, 1, 1]} : tensor<1xsi32> -> tensor<1x1x1x1xsi32>
+
+   // CHECK:       [[REV_SEQ:%.+]] = IE.ReverseSequence([[RESHAPE_IN_0]], [[RESHAPE_IN_1]])
+   // CHECK-SAME:      {batch_axis = 0 : i64, seq_axis = 3 : i64} : tensor<1x169x3x2xf16>, tensor<1x1x1x1xsi32> -> tensor<1x169x3x2xf16>
+
+   // CHECK-DAG:   [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[REV_SEQ]])
+   // CHECK-SAME:      shape_value = [1, 13, 13, 3, 2]} : tensor<1x169x3x2xf16> -> tensor<1x13x13x3x2xf16>
+
+   // CHECK:       return [[RESHAPE_OUT]] : tensor<1x13x13x3x2xf16>
 }
 
 // -----
@@ -2376,6 +2434,24 @@ func.func @Convert3DGatherElements(%arg0: tensor<12x64x512xf16>) -> tensor<12x64
     // CHECK: [[GATHER_ELEMENTS:%.+]] = IE.GatherElements([[RESHAPE_IN]], [[INDICES]]) {axis = 2 : i64} : tensor<1x768x512x1xf16>, tensor<1x768x64x1xsi32> -> tensor<1x768x64x1xf16>
     // CHECK: [[RESHAPE_OUT:%.+]] = IE.Reshape([[GATHER_ELEMENTS]]) {shape_value = [12, 64, 64]} : tensor<1x768x64x1xf16> -> tensor<12x64x64xf16>
     // CHECK:   return [[RESHAPE_OUT]] : tensor<12x64x64xf16>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @Convert2DGather
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<30522x128xf16>
+func.func @Convert2DGather(%arg0: tensor<30522x128xf16>) -> tensor<1x128x128xf16> {
+    %cst = const.Declare tensor<1x128xsi32> = dense<0> : tensor<1x128xsi64>, [#const.CastElemType<si32>]
+    %0 = IE.Gather(%arg0, %cst) {axis_value = 0 : i64, batch_dims = 0 : i64, indices_rank = 2 : i64} : tensor<30522x128xf16>, tensor<1x128xsi32> -> tensor<1x128x128xf16>
+    return %0 : tensor<1x128x128xf16>
+
+    // CHECK: [[INDICES:%.+]] = const.Declare tensor<1x128x1x1xsi32> = dense<0> : tensor<1x128xsi64>, [#const.Reshape<[1, 128, 1, 1]>, #const.CastElemType<si32>]
+    // CHECK: [[RESHAPE_IN:%.+]] = IE.AffineReshape([[ARG0]]) {
+    // CHECK-SAME{LITERAL}: dim_mapping = [[0, 1, 2], [3]], shape_value = [1, 1, 30522, 128]} : tensor<30522x128xf16> -> tensor<1x1x30522x128xf16>
+    // CHECK: [[GATHER:%.+]] = IE.Gather([[RESHAPE_IN]], [[INDICES]]) {axis_value = 2 : i64, batch_dims = 1 : i64, indices_rank = 2 : i64} : tensor<1x1x30522x128xf16>, tensor<1x128x1x1xsi32> -> tensor<1x1x128x128xf16>
+    // CHECK: [[RESHAPE_OUT:%.+]] = IE.AffineReshape([[GATHER]]) {
+    // CHECK-SAME{LITERAL}: dim_mapping = [[0], [0], [1], [2]], shape_value = [1, 128, 128]} : tensor<1x1x128x128xf16> -> tensor<1x128x128xf16>
+    // CHECK:   return [[RESHAPE_OUT]] : tensor<1x128x128xf16>
 }
 
 // -----

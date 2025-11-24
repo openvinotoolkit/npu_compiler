@@ -8,6 +8,8 @@
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+
 namespace vpux::VPU {
 class VerticalFusionOp;
 }

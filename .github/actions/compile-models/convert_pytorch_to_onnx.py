@@ -84,7 +84,7 @@ class MaskDecoderWrapper(torch.nn.Module):
         multimask_output,
     ):
         """Adds extra image_positional_embeddings input"""
-        low_res_masks, iou_predictions, _ = self.decoder(
+        low_res_masks, iou_predictions = self.decoder(
             image_embeddings=image_embeddings,
             image_positional_embeddings=torch.randn_like(image_embeddings),
             sparse_prompt_embeddings=sparse_prompt_embeddings,

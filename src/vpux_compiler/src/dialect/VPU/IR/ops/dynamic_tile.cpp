@@ -25,6 +25,7 @@ mlir::LogicalResult vpux::VPU::DynamicTileOp::inferReturnTypes(mlir::MLIRContext
     }
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(tile.getInput().getType());
+    mlir::RankedTensorType outType;
 
     const auto outShape = parseIntArrayAttr<int64_t>(tile.getOutputShapeAttr());
     const auto outBounds = parseIntArrayAttr<int64_t>(tile.getOutputBoundsAttr());
@@ -36,13 +37,13 @@ mlir::LogicalResult vpux::VPU::DynamicTileOp::inferReturnTypes(mlir::MLIRContext
     };
 
     // DynamicTile might have static outShape
-    if (llvm::none_of(outShape, isDynamicDim)) {
-        typeComponents.setShape(ShapeRef(outShape));
+    if (none_of(outShape, isDynamicDim)) {
+        const auto outDesc = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outShape.size()), inType.getMemSpace());
+        outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), outDesc);
     } else {
         assignDynamicTypeComponents(typeComponents, tile.getBoundsRepresentation(), outShape, outBounds);
+        outType = mlir::cast<mlir::RankedTensorType>(inType.changeTypeComponents(typeComponents));
     }
-
-    auto outType = inType.changeTypeComponents(typeComponents);
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();

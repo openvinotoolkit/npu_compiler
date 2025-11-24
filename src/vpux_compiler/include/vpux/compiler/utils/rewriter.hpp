@@ -30,6 +30,8 @@ namespace vpux {
 mlir::LogicalResult updateFunctionSignature(mlir::func::FuncOp funcOp, ArrayRef<mlir::Type> newArgTypes,
                                             ArrayRef<mlir::Type> newResultTypes, Logger log = Logger::global());
 
+mlir::LogicalResult updateModuleInfo(mlir::Operation* module, ArrayRef<mlir::Type> newResultTypes, Logger log);
+
 //
 // convertFunc
 //

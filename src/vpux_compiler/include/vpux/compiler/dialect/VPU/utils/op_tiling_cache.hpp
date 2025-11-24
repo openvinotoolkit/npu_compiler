@@ -75,6 +75,8 @@ public:
 
     std::optional<SmallVector<DimArr>> getValidPermutations(llvm::hash_code opHash);
 
+    std::optional<DimArr> getDimOrder(llvm::hash_code opHash);
+
     void updateOutputTiling(const llvm::hash_code opHash, mlir::Operation* op, const OutputTilingCacheItem& outputTile);
 
     void updateOpDPUCost(llvm::hash_code opHash, ArrayRef<uint32_t> cost);
@@ -84,6 +86,8 @@ public:
     void updatePerClusterShape(llvm::hash_code shapeHash, const PerClusterShapeCacheItem& perClusterShape);
 
     void updateValidPermutations(llvm::hash_code opHash, const SmallVector<DimArr>& validPermutations);
+
+    void updateDimOrder(llvm::hash_code opHash, const DimArr& validDimOrder);
 
     bool isCacheSupported();
 
@@ -102,12 +106,14 @@ private:
     std::mutex _vpunnLayerMutex;
     std::mutex _perClusterShapeMutex;
     std::mutex _validPermutationsMutex;
+    std::mutex _dimOrderMutex;
     DenseMap<llvm::hash_code, std::optional<NTilesOnDim>> _tilingCache;
     DenseMap<llvm::hash_code, std::optional<llvm::hash_code>> _opHashToInputOutputModeHash;
     DenseMap<llvm::hash_code, SmallVector<uint32_t>> _opDpuCostCache;
     DenseMap<llvm::hash_code, uint32_t> _vpunnLayerCostCache;
     DenseMap<llvm::hash_code, PerClusterShapeCacheItem> _perClusterShapeCache;
     DenseMap<llvm::hash_code, SmallVector<DimArr>> _validPermutationsCache;
+    DenseMap<llvm::hash_code, DimArr> _dimOrderCache;
 
     bool _enableCache{false};
 
@@ -125,6 +131,9 @@ private:
 
     std::atomic<uint64_t> _validPermutationsHitCount{0};
     std::atomic<uint64_t> _validPermutationsAccessCount{0};
+
+    std::atomic<uint64_t> _dimOrderHitCount{0};
+    std::atomic<uint64_t> _dimOrderAccessCount{0};
 };
 }  // namespace VPU
 }  // namespace vpux

@@ -182,18 +182,21 @@ mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origO
     mlir::Value permuteInput = inputReshape.getOutput();
     mlir::Value permuteOutput;
     if (decomposedPermMaps.empty()) {
-        permuteOutput = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), permuteInput,
+        permuteOutput = rewriter.create<IE::MemPermuteOp>(appendLoc(origOp.getLoc(), "_mempermute"), permuteInput,
                                                           mlir::AffineMap::getMultiDimIdentityMap(
                                                                   checked_cast<uint32_t>(mergedShape.size()), ctx),
                                                           reducedPermutation)
                                 .getOutput();
     } else {
         // decompose permutation
-        for (auto perm : decomposedPermMaps) {
-            permuteOutput = rewriter.create<IE::MemPermuteOp>(origOp.getLoc(), permuteInput,
-                                                              mlir::AffineMap::getMultiDimIdentityMap(
-                                                                      checked_cast<uint32_t>(mergedShape.size()), ctx),
-                                                              perm)
+        for (const auto& item : decomposedPermMaps | indexed) {
+            const auto& perm = item.value();
+            permuteOutput = rewriter.create<IE::MemPermuteOp>(
+                                            appendLoc(origOp.getLoc(), llvm::formatv("_mempermute_{0}", item.index())),
+                                            permuteInput,
+                                            mlir::AffineMap::getMultiDimIdentityMap(
+                                                    checked_cast<uint32_t>(mergedShape.size()), ctx),
+                                            perm)
                                     .getOutput();
 
             permuteInput = permuteOutput;
@@ -224,15 +227,12 @@ mlir::LogicalResult LegalizeNDMemPermute::matchAndRewrite(IE::MemPermuteOp origO
 
 class LegalizeNDMemPermutePass final : public IE::impl::LegalizeNDMemPermuteBase<LegalizeNDMemPermutePass> {
 public:
-    explicit LegalizeNDMemPermutePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit LegalizeNDMemPermutePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void LegalizeNDMemPermutePass::safeRunOnFunc() {

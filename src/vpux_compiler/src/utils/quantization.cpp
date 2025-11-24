@@ -61,7 +61,7 @@ bool vpux::isSupportedEltwiseQuantization(mlir::Type lhsElemType, mlir::Type rhs
         }
     } else {
         const auto isSupportedFP8Type = [](mlir::Type type) {
-            return type.isFloat8E4M3FN() || type.isFloat8E5M2();
+            return mlir::isa<mlir::Float8E4M3FNType>(type) || mlir::isa<mlir::Float8E5M2Type>(type);
         };
         // Although we support different scale per input tensor, for integer quantized types
         // the HW scale uses 2 U16 register fields meaning we don't support negative scales
@@ -124,10 +124,10 @@ mlir::Type vpux::normalizeQuantStorageType(mlir::quant::QuantizedType qType) {
                                       qType.isSigned() ? mlir::IntegerType::Signed : mlir::IntegerType::Unsigned);
     }
     if (const auto lowFpType = mlir::dyn_cast_or_null<mlir::Float8E4M3FNType>(elemType)) {
-        return mlir::FloatType::getFloat8E4M3FN(lowFpType.getContext());
+        return mlir::Float8E4M3FNType::get(lowFpType.getContext());
     }
     if (const auto lowFpType = mlir::dyn_cast_or_null<mlir::Float8E5M2Type>(elemType)) {
-        return mlir::FloatType::getFloat8E5M2(lowFpType.getContext());
+        return mlir::Float8E5M2Type::get(lowFpType.getContext());
     }
 
     VPUX_THROW("Unsupported storage element type {0}", elemType);

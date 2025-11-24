@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
@@ -347,6 +348,86 @@ mlir::LogicalResult PropagateFakeQuantize::matchAndRewrite(IE::FakeQuantizeOp or
 }
 
 //
+// PropagateMultiply
+//
+// (Multiply(Const(splat), Concat(RMS...)) -> Concat(Multiply(Const, RMS) ...))
+class PropagateMultiply final : public mlir::OpRewritePattern<IE::MultiplyOp> {
+public:
+    PropagateMultiply(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<IE::MultiplyOp>(ctx), _log(log) {
+        this->setDebugName("PropagateOpThroughBatchConcat::PropagateMultiply");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult PropagateMultiply::matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+    auto input1 = origOp.getInput1();
+    auto input2 = origOp.getInput2();
+    // Identify concat and const(splat) sides
+    auto concatOp = input1.getDefiningOp<IE::ConcatOp>();
+    mlir::Value constVal = input2;
+    if (concatOp == nullptr) {
+        concatOp = input2.getDefiningOp<IE::ConcatOp>();
+        constVal = input1;
+    }
+    if (concatOp == nullptr) {
+        return matchFailed(_log, rewriter, origOp, "No ConcatOp operand");
+    }
+    if (!concatOp->hasOneUse()) {
+        return matchFailed(_log, rewriter, origOp, "ConcatOp has multiple uses");
+    }
+
+    auto constOp = constVal.getDefiningOp<Const::DeclareOp>();
+    if (constOp == nullptr) {
+        return matchFailed(_log, rewriter, origOp, "Other operand is not Const::DeclareOp");
+    }
+    if (!constOp.getContent().isSplat()) {
+        return matchFailed(_log, rewriter, origOp, "Const is not splat");
+    }
+
+    // All concat inputs must be RMS outputs and each RMS must have single user (the concat)
+    const auto inputs = concatOp.getInputs();
+    if (!llvm::all_of(inputs, [&](mlir::Value v) {
+            auto rmsOp = v.getDefiningOp<IE::RMSOp>();
+            if (rmsOp == nullptr || !rmsOp->hasOneUse()) {
+                return false;
+            }
+            auto gammaConstOp = rmsOp.getGamma().getDefiningOp<Const::DeclareOp>();
+            return gammaConstOp != nullptr;
+        })) {
+        return matchFailed(_log, rewriter, origOp, "Not all Concat inputs are single-use RMS ops");
+    }
+
+    _log.nest().trace("Propagating MultiplyOp with splat const before ConcatOp");
+
+    // Clone multiply per input (re-use same const splat)
+    SmallVector<mlir::Value> newConcatInputs;
+    newConcatInputs.reserve(inputs.size());
+    for (auto inVal : inputs) {
+        auto newMul = rewriter.create<IE::MultiplyOp>(
+                takeOpLoc(origOp, StringLiteral("slice_{0}"), newConcatInputs.size()), inVal, constVal,
+                origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(), origOp.getClampAttr(),
+                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
+        newConcatInputs.push_back(newMul.getOutput());
+    }
+
+    auto newConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(concatOp, StringLiteral("prop_mul_out")), newConcatInputs,
+                                                   concatOp.getPerAxisAttr(), concatOp.getStaticOffsetsAttr());
+    rewriter.replaceOp(origOp, newConcat.getOutput());
+
+    if (concatOp->use_empty()) {
+        rewriter.eraseOp(concatOp);
+    }
+
+    return mlir::success();
+}
+
+//
 // PropagateOpThroughBatchConcat
 //
 
@@ -376,6 +457,7 @@ void PropagateOpThroughBatchConcat::safeRunOnFunc() {
     patterns.add<PropagateReshape<IE::AffineReshapeOp>>(&ctx, _log);
     patterns.add<PropagateSoftmax>(&ctx, _log);
     patterns.add<PropagateFakeQuantize>(&ctx, _log);
+    patterns.add<PropagateMultiply>(&ctx, _log);
 
     if (mlir::failed(applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();

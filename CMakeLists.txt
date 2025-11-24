@@ -70,6 +70,7 @@ endif()
 include(cmake/flatbuffers.cmake)
 include(cmake/bundle_static_library.cmake)
 include(cmake/embed_bin_file.cmake)
+include(cmake/add_native_exec_target.cmake)
 include(cmake/add_tool_target.cmake)
 include(cmake/coverage.cmake)
 include(cmake/log_level.cmake)
@@ -115,28 +116,29 @@ if(ENABLE_PREBUILT_LLVM_MLIR_LIBS)
     list(APPEND CMAKE_PREFIX_PATH ${MLIR_BINARY_PKG_DIR}/lib/cmake/mlir)
 else()
     message(STATUS "Include LLVM by source files")
-    # When vpux-plugin is built independently, MLIRConfig.cmake is under this dir
-    list(APPEND CMAKE_PREFIX_PATH ${PROJECT_BINARY_DIR}/lib/cmake/mlir)
-    # When vpux-plugin is added as OPENVINO_EXTRA_MODULES, MLIRConfig.cmake is under this dir
-    list(APPEND CMAKE_PREFIX_PATH ${OpenVINO_BINARY_DIR}/lib/cmake/mlir)
-    # When vpux-plugin is added in monorepo, MLIRConfig.cmake is under this dir
-    if(ENABLE_NPU_MONO)
-        if(NOT DEFINED NPU_MONO_BUILD_DIR)
-            message(FATAL_ERROR "Cannot find `npu_mono` build directory")
+    if (ANDROID)
+        # To find MLIR/LLVM packages in Android build, we have to set the paths manually
+        # because Android NDK set CMAKE_FIND_ROOT_PATH that is appended to CMAKE_PREFIX_PATH
+        set(MLIR_DIR ${CMAKE_BINARY_DIR}/lib/cmake/mlir)
+        set(LLVM_DIR ${CMAKE_CURRENT_BINARY_DIR}/thirdparty/llvm-project/llvm/lib/cmake/llvm)
+    else()
+        # When vpux-plugin is built independently, MLIRConfig.cmake is under this dir
+        list(APPEND CMAKE_PREFIX_PATH ${PROJECT_BINARY_DIR}/lib/cmake/mlir)
+        # When vpux-plugin is added as OPENVINO_EXTRA_MODULES, MLIRConfig.cmake is under this dir
+        list(APPEND CMAKE_PREFIX_PATH ${OpenVINO_BINARY_DIR}/lib/cmake/mlir)
+        # When vpux-plugin is added in monorepo, MLIRConfig.cmake is under this dir
+        if(ENABLE_NPU_MONO)
+            if(NOT DEFINED NPU_MONO_BUILD_DIR)
+                message(FATAL_ERROR "Cannot find `npu_mono` build directory")
+            endif()
+            list(APPEND CMAKE_PREFIX_PATH ${NPU_MONO_BUILD_DIR}/lib/cmake/mlir)
         endif()
-        list(APPEND CMAKE_PREFIX_PATH ${NPU_MONO_BUILD_DIR}/lib/cmake/mlir)
     endif()
 endif()
 
 add_subdirectory(thirdparty EXCLUDE_FROM_ALL)
 
-set(VPUNN_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/thirdparty/vpucostmodel")
-set(VPUNN_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/thirdparty/vpucostmodel")
 
-set(VPUNN_INCLUDE_DIRS
-        "${VPUNN_SOURCE_DIR}/include"
-        "${VPUNN_BINARY_DIR}/include"
-)
 
 if(ENABLE_DEVELOPER_BUILD)
     add_compile_definitions(VPUX_DEVELOPER_BUILD)

@@ -8,9 +8,6 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 namespace vpux::IE {
-
-mlir::Value buildDwWeights(const mlir::Location& loc, const int64_t OC, const mlir::Type& elementType,
-                           mlir::PatternRewriter& rewriter);
 bool isQuantizedPerAxis(mlir::Value val);
 // cst -> dequant case.
 // When a dequantize operation has a constant producer, execute dequantization on activation shaves.

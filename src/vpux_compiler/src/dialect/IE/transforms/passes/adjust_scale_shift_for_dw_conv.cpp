@@ -44,7 +44,7 @@ mlir::LogicalResult mergeNCAndRewrite(mlir::PatternRewriter& rewriter, mlir::MLI
         auto broadcastShape = Shape({origOutShape[N], origOutShape[C], 1, 1});
         auto reshapeShape = Shape({1, origOutShape[N] * origOutShape[C], 1, 1});
 
-        auto broadcastOp = IE::createBroadcast(rewriter, loc, origValue, broadcastShape);
+        auto broadcastOp = IE::createBroadcast(rewriter, appendLoc(loc, "_broadcast"), origValue, broadcastShape);
 
         return rewriter.createOrFold<IE::ReshapeOp>(loc, broadcastOp, nullptr, false,
                                                     getIntArrayAttr(ctx, ShapeRef(reshapeShape)));

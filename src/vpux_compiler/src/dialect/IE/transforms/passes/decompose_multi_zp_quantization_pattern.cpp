@@ -264,12 +264,11 @@ mlir::LogicalResult GroupWisePatternRewriter<ConcreteOp>::matchAndRewrite(Concre
 class DecomposeMultiZPQuantizationPatternPass final :
         public IE::impl::DecomposeMultiZPQuantizationPatternBase<DecomposeMultiZPQuantizationPatternPass> {
 public:
-    explicit DecomposeMultiZPQuantizationPatternPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit DecomposeMultiZPQuantizationPatternPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
-    Logger _log;
     void safeRunOnFunc() final;
 };
 

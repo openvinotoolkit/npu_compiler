@@ -482,8 +482,8 @@ TEST_P(ReifyDimTests, ReifyDimTest) {
     auto inType = mlir::RankedTensorType::get(params.shape, builder.getF16Type(), desc);
 
     auto funcType = builder.getFunctionType({inType}, {});
-    auto func = builder.create<mlir::func::FuncOp>(loc, "TestFunc", funcType);
-    auto& entryBlock = *func.addEntryBlock();
+    mlir::OwningOpRef<mlir::func::FuncOp> func = builder.create<mlir::func::FuncOp>(loc, "TestFunc", funcType);
+    auto& entryBlock = *func->addEntryBlock();
 
     builder.setInsertionPointToStart(&entryBlock);
 

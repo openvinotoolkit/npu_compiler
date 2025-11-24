@@ -24,6 +24,8 @@ func.func @FuseRoPE(%arg0: tensor<1x32x1024x128xf32>, %arg1: tensor<1x1x1024x128
 
 }
 
+// -----
+
 // CHECK-LABEL: @FuseRoPEWithDifferentChannel
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x64x1x64xf32>, [[ARG1:%.+]]: tensor<1x64x1x64xf32>, [[ARG2:%.+]]: tensor<1x64x1x64xf32>)
 func.func @FuseRoPEWithDifferentChannel(%arg0: tensor<1x64x1x64xf32>, %arg1: tensor<1x64x1x64xf32>, %arg2: tensor<1x64x1x64xf32>) -> tensor<1x64x1x64xf32> {
@@ -40,6 +42,8 @@ func.func @FuseRoPEWithDifferentChannel(%arg0: tensor<1x64x1x64xf32>, %arg1: ten
     // CHECK: [[RoPE:%.+]] = IE.RoPE([[ARG0]], [[ARG1]], [[ARG2]]) : tensor<1x64x1x64xf32>, tensor<1x64x1x64xf32>, tensor<1x64x1x64xf32> -> tensor<1x64x1x64xf32>
     // CHECK: return [[RoPE]] : tensor<1x64x1x64xf32>
 }
+
+// -----
 
 // CHECK-LABEL: @FuseRoPEWithReshape
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x64x1x64xf32>, [[ARG1:%.+]]: tensor<1x64x1x64xf32>, [[ARG2:%.+]]: tensor<1x1x64x64xf32>)
@@ -64,6 +68,8 @@ func.func @FuseRoPEWithReshape(%arg0: tensor<1x64x1x64xf32>, %arg1: tensor<1x64x
     // CHECK: return [[RoPE]] : tensor<1x1x64x64xf32>
 }
 
+// -----
+
 // CHECK-LABEL: @FuseRoPEWithHeightOne
 // CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x2048xf32>, [[ARG1:%.+]]: tensor<1x1x1x128xf32>, [[ARG2:%.+]]: tensor<1x1x1x128xf32>)
 func.func @FuseRoPEWithHeightOne(%arg0: tensor<1x1x2048xf32>, %arg1: tensor<1x1x1x128xf32>, %arg2: tensor<1x1x1x128xf32>) -> tensor<1x16x1x128xf32> {
@@ -82,4 +88,26 @@ func.func @FuseRoPEWithHeightOne(%arg0: tensor<1x1x2048xf32>, %arg1: tensor<1x1x
     // CHECK-SAME{LITERAL}: {dim_mapping = [[0], [0], [1, 2, 3]], shape_value = [1, 16, 1, 128]} : tensor<1x1x2048xf32> -> tensor<1x16x1x128xf32>
     // CHECK: [[ROPE:%.+]] = IE.RoPE([[RESHAPE]], [[ARG1]], [[ARG2]]) : tensor<1x16x1x128xf32>, tensor<1x1x1x128xf32>, tensor<1x1x1x128xf32> -> tensor<1x16x1x128xf32>
     // CHECK: return [[ROPE]] : tensor<1x16x1x128xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @FuseRoPEInterleaved
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x1x256x64xf32>, [[ARG1:%.+]]: tensor<1x1x256x64xf32>, [[ARG2:%.+]]: tensor<1x1x256x64xf32>)
+func.func @FuseRoPEInterleaved(%arg0: tensor<1x1x256x64xf32>, %arg1: tensor<1x1x256x64xf32>, %arg2: tensor<1x1x256x64xf32>) ->tensor<1x1x256x64xf32> {
+  %cst = const.Declare tensor<1x1x1x1xf32> = dense<-1.000000e+00> : tensor<1x1x1x1xf32> isSplat
+  %0 = IE.Multiply(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x256x64xf32>, tensor<1x1x256x64xf32> -> tensor<1x1x256x64xf32>
+  %1 = IE.AffineReshape(%arg0) {dim_mapping = [[0], [1], [2], [3, 4]], shape_value = [1, 1, 256, 32, 2]} : tensor<1x1x256x64xf32> -> tensor<1x1x256x32x2xf32>
+  %2:2 = IE.Split(%1) {axis_value = 4 : i64, num_splits = 2 : i64} : tensor<1x1x256x32x2xf32> -> tensor<1x1x256x32x1xf32>, tensor<1x1x256x32x1xf32>
+  %3 = IE.AffineReshape(%2#1) {dim_mapping = [[0], [1], [2], [3], [3]], shape_value = [1, 1, 256, 32]} : tensor<1x1x256x32x1xf32> -> tensor<1x1x256x32xf32>
+  %4 = IE.Multiply(%3, %cst) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x256x32xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x256x32xf32>
+  %5 = IE.AffineReshape(%4) {dim_mapping = [[0], [1], [2], [3, 4]], shape_value = [1, 1, 256, 32, 1]} : tensor<1x1x256x32xf32> -> tensor<1x1x256x32x1xf32>
+  %6 = IE.Concat(%5, %2#0) {static_offsets = [[0, 0, 0, 0, 0], [0, 0, 0, 0, 1]]} : tensor<1x1x256x32x1xf32>, tensor<1x1x256x32x1xf32> -> tensor<1x1x256x32x2xf32>
+  %7 = IE.AffineReshape(%6) {dim_mapping = [[0], [1], [2], [3], [3]], shape_value = [1, 1, 256, 64]} : tensor<1x1x256x32x2xf32> -> tensor<1x1x256x64xf32>
+  %8 = IE.Multiply(%7, %arg2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x256x64xf32>, tensor<1x1x256x64xf32> -> tensor<1x1x256x64xf32>
+  %9 = IE.Add(%0, %8) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x256x64xf32>, tensor<1x1x256x64xf32> -> tensor<1x1x256x64xf32>
+  return %9 : tensor<1x1x256x64xf32>
+
+  // CHECK: [[RoPE:%.+]] = IE.RoPE([[ARG0]], [[ARG1]], [[ARG2]]) {is_interleaved} : tensor<1x1x256x64xf32>, tensor<1x1x256x64xf32>, tensor<1x1x256x64xf32> -> tensor<1x1x256x64xf32>
+  // CHECK: return [[RoPE]] : tensor<1x1x256x64xf32>
 }

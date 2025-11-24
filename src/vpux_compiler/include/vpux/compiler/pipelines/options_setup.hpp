@@ -75,11 +75,11 @@ public:
 
 protected:
     // Fallback implementations - make sure they are exposed in ConcreteModel by doing `using Base::setupOptionsImpl;`.
-    static void setupLitTestOptionsImpl(OptionsType&) {
+    static void setupLitTestOptionsImpl(OptionsType&, VPU::InitCompilerOptions&) {
         VPUX_THROW("setupOptionsImpl() is not implemented.");
     }
 
-    static void setupOptionsImpl(OptionsType&, const intel_npu::Config&) {
+    static void setupOptionsImpl(OptionsType&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
         VPUX_THROW("setupOptionsImpl() is not implemented.");
     }
 
@@ -127,9 +127,9 @@ private:
             // TODO: #169147 remove this WA
             _options->matchAndCopyOptionValuesFrom(*_initCompilerOptions);
 
-            ConcreteModel::setupOptionsImpl(*_options.get(), configVal);
+            ConcreteModel::setupOptionsImpl(*_options.get(), *_initCompilerOptions, configVal);
         } else {
-            ConcreteModel::setupLitTestOptionsImpl(*_options.get());
+            ConcreteModel::setupLitTestOptionsImpl(*_options.get(), *_initCompilerOptions);
         }
     }
 
@@ -171,41 +171,24 @@ public:
     friend Base;
 
 protected:
-    static void setupLitTestOptionsImpl(ArchSpecificOptionsType&) {
+    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options,
+                                        VPU::InitCompilerOptions& initCompilerOptions) {
+        setupOptionsCommon(options, initCompilerOptions);
     }
 
-    static void setupOptionsImpl(ArchSpecificOptionsType& options, const intel_npu::Config& config) {
+    static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
         overwriteIfUnset(options.enableProfiling, config.get<intel_npu::PERF_COUNT>());
         options.updateBatchCompileOptionsFromString(config.get<intel_npu::BATCH_COMPILER_MODE_SETTINGS>());
-    }
-};
-
-template <class ConcreteModel, class ArchSpecificOptionsType>
-class WSMonolithicSetupBase : public OptionsSetup<ConcreteModel, ArchSpecificOptionsType> {
-public:
-    using Base = OptionsSetup<ConcreteModel, ArchSpecificOptionsType>;
-    using Base::Base;
-    friend Base;
-
-protected:
-    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options) {
-        setupOptionsCommon(options);
+        setupOptionsCommon(options, initCompilerOptions);
     }
 
-    static void setupOptionsImpl(ArchSpecificOptionsType& options, const intel_npu::Config&) {
-        setupOptionsCommon(options);
-    }
-
-private:
-    static void setupOptionsCommon(ArchSpecificOptionsType& options) {
-        // E#127228 Enable profiling
-        overwriteIfUnset(options.enableProfiling, false);
-        // E#127228 Introduce IE.Swizzle operation
-        overwriteIfUnset(options.enableWeightsSwizzling, false);
-        // E#127235 Introduce IE.Sparsify operation
-        overwriteIfUnset(options.enableWeightsSparsity, false);
-        // E#182190: Enable vertical fusion outlining
-        overwriteIfUnset(options.enableVerticalFusionOutlining, false);
+    static void setupOptionsCommon(ArchSpecificOptionsType& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        if (initCompilerOptions.enableAdaptiveStripping) {
+            options.enableQuantDequantRemoval = true;
+            options.enableFuseOutstandingDequant = true;
+            options.enableFuseOutstandingQuant = true;
+        }
     }
 };
 
@@ -217,24 +200,59 @@ public:
     friend Base;
 
 protected:
-    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options) {
+    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&) {
         setupOptionsCommon(options);
     }
 
-    static void setupOptionsImpl(ArchSpecificOptionsType& options, const intel_npu::Config& config) {
-        overwriteIfUnset(options.enableProfiling, config.get<intel_npu::PERF_COUNT>());
+    static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&,
+                                 const intel_npu::Config&) {
         setupOptionsCommon(options);
     }
 
 private:
     static void setupOptionsCommon(ArchSpecificOptionsType& options) {
+        // E#176454: Profiling is disabled for the @init() function.
+        overwriteIfUnset(options.enableProfiling, false);
         // E#176434: remove option
         overwriteIfUnset(options.enableConvertQuantizeOpsToNceOps, false);
         overwriteIfUnset(options.enableAdjustPrecisionPipeline, false);
         overwriteIfUnset(options.enableConvertWeightsToU8I4, false);
+        // E#180631: remove option
+        overwriteIfUnset(options.forceConvertGatherTo4D, true);
         // E#182190: Enable vertical fusion outlining
         overwriteIfUnset(options.enableVerticalFusionOutlining, false);
     }
 };
 
+template <class ConcreteModel, class ArchSpecificOptionsType>
+class WSMainSetupBase : public OptionsSetup<ConcreteModel, ArchSpecificOptionsType> {
+public:
+    using Base = OptionsSetup<ConcreteModel, ArchSpecificOptionsType>;
+    using Base::Base;
+    friend Base;
+
+protected:
+    static void setupLitTestOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&) {
+        setupOptionsCommon(options);
+    }
+
+    static void setupOptionsImpl(ArchSpecificOptionsType& options, VPU::InitCompilerOptions&,
+                                 const intel_npu::Config& config) {
+        setupOptionsCommon(options);
+        // Profiling is enabled for the @main() function.
+        overwriteIfUnset(options.enableProfiling, config.get<intel_npu::PERF_COUNT>());
+    }
+
+private:
+    static void setupOptionsCommon(ArchSpecificOptionsType& options) {
+        // E#127228 Introduce IE.Swizzle operation
+        overwriteIfUnset(options.enableWeightsSwizzling, false);
+        // E#127235 Introduce IE.Sparsify operation
+        overwriteIfUnset(options.enableWeightsSparsity, false);
+        // E#180631: remove option
+        overwriteIfUnset(options.forceConvertGatherTo4D, true);
+        // E#182190: Enable vertical fusion outlining
+        overwriteIfUnset(options.enableVerticalFusionOutlining, false);
+    }
+};
 }  // namespace vpux

@@ -196,7 +196,12 @@ void ManualStrategyUtilsPass::safeRunOnFunc() {
 #endif  // defined(VPUX_DEVELOPER_BUILD) || !defined(NDEBUG)
 
     auto func = getOperation();
-    auto module = vpux::getTopModuleOp(func);
+    auto module = getTopParentOpOfType<mlir::ModuleOp>(func);
+    if (module == nullptr) {
+        _log.error("Top level module not found");
+        signalPassFailure();
+        return;
+    }
     const int funcCount = countFunctions(module);
 
     if (!_writeStrategyToJSON && !_readStrategyFromJSON && !_dumpStrategyToLog) {

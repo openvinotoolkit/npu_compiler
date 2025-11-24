@@ -42,7 +42,7 @@ template <>
 struct CvtHelper<vpux::type::float16> final {
     template <typename InT>
     static vpux::type::float16 cvt(InT val) {
-        return vpux::type::float16(checked_cast<float>(val));
+        return vpux::type::float16(val);
     }
 };
 
@@ -400,10 +400,10 @@ private:
             } else if (elemType.isBF16()) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., vpux::type::bfloat16>(
                         types, std::forward<Caller>(caller));
-            } else if (elemType.isFloat8E4M3FN()) {
+            } else if (mlir::isa<mlir::Float8E4M3FNType>(elemType)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., vpux::type::float8_e4m3>(
                         types, std::forward<Caller>(caller));
-            } else if (elemType.isFloat8E5M2()) {
+            } else if (mlir::isa<mlir::Float8E5M2Type>(elemType)) {
                 return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., vpux::type::float8_e5m2>(
                         types, std::forward<Caller>(caller));
             } else if (const auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(elemType)) {
@@ -420,10 +420,10 @@ private:
                 } else if (quantStorageType.isUnsignedInteger(4)) {
                     return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., uint8_t>(types,
                                                                                        std::forward<Caller>(caller));
-                } else if (quantStorageType.isFloat8E4M3FN()) {
+                } else if (mlir::isa<mlir::Float8E4M3FNType>(quantStorageType)) {
                     return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., vpux::type::float8_e4m3>(
                             types, std::forward<Caller>(caller));
-                } else if (quantStorageType.isFloat8E5M2()) {
+                } else if (mlir::isa<mlir::Float8E5M2Type>(quantStorageType)) {
                     return dispatchByElemTypeImpl<I + 1, N, Caller, Types..., vpux::type::float8_e5m2>(
                             types, std::forward<Caller>(caller));
                 } else {

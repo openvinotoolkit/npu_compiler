@@ -22,7 +22,6 @@
 #include <vpux/utils/core/type/float16.hpp>
 
 #include <cmath>
-#include <iostream>
 #include <limits>
 
 static_assert(sizeof(vpux::type::float16) == sizeof(uint16_t), "class float16 must be exactly 2 bytes");

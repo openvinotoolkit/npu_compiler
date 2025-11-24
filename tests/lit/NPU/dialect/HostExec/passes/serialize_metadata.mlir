@@ -49,7 +49,3 @@ module @MaxPool attributes {HostExec.numSubgraphs = 1 : i64, config.arch = #conf
 // CHECK-NOT: IE.Resource
 // CHECK-NOT: config.MemoryResource
 // CHECK-NOT: net.NetworkInfo
-
-
-
-

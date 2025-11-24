@@ -78,7 +78,7 @@ void traverseDynamicSubgraph(mlir::Operation* op) {
     }
 
     if (checkForDynamicGarbage(op)) {
-        mlir::OpBuilder builder(op);
+        IE::DynamicDimOpBuilder builder(op);
         for (auto operand : op->getOperands() | indexed) {
             if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(operand.value().getType())) {
                 if (boundedType.getBounds().empty()) {
@@ -109,15 +109,12 @@ void traverseDynamicSubgraph(mlir::Operation* op) {
 class ApplyDynamicBoundaryCorrectionPass final :
         public IE::impl::ApplyDynamicBoundaryCorrectionBase<ApplyDynamicBoundaryCorrectionPass> {
 public:
-    explicit ApplyDynamicBoundaryCorrectionPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ApplyDynamicBoundaryCorrectionPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ApplyDynamicBoundaryCorrectionPass::safeRunOnFunc() {

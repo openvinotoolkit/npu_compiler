@@ -4,16 +4,14 @@
 //
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 
 namespace vpux {
 namespace VPU {
 
-constexpr StringRef REDUCE_SUPPORTED = "VPU.ReduceSupported";
-
 bool isNCEReduceSupported(mlir::Operation* op, LogCb logCb);
-bool isReduceOpSupportedOnNCE(mlir::Operation* op);
+
 VPUIP::NCETaskType configureNCEReduceTaskType(VPU::NCEReduceOp origOp);
 
 }  // namespace VPU

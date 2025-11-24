@@ -329,7 +329,7 @@ func.func @UnrollNCESequence(%input: !Input_DDR, %output: !Output_DDR) -> !Outpu
     //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 0]
     //CHECK:                outputs([[OUT1_CMX_2ND_TASK]] : !VPUIP.ITIBuffer<
     //CHECK-NEXT:               1x32x32x32xf16, #NHWC, [@CMX_NN, 0]
-    //CHECK-:           variants :  {
+    //CHECK:            variants :  {
     //CHECK:                DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [31, 31, 15], outStart = [0, 0, 0],
     //CHECK-SAME:               pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
     //CHECK:          } PPE :  {

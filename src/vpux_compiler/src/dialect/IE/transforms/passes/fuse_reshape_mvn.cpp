@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -63,6 +64,7 @@ private:
     mlir::Value _patternIn = nullptr;
     mlir::Value _patternOut = nullptr;
     IE::GroupConvolutionOp _groupConvOp = nullptr;
+    IE::AddOp _addOp = nullptr;
     int64_t _origChannelSize = 0;
     int64_t _newChannelSize = 0;
 
@@ -189,6 +191,17 @@ bool ReshapeMVNPattern::isSupportedGroupConv() {
 // Concat(NCHW) -> Reorder(NHWC)
 //                       ├─ [...]
 //                       └─ MVN(NHWC) -> Output(NHWC)
+//
+// Variant 3:
+// From:
+// Input0(NHWC) -> Reorder(NCHW) -|
+//                                |-> Add(NCHW) -> Reshape(NCHW) -> Reorder(NHWC) -> MVN(NHWC) -> Reorder(NCHW)
+// Input1(NHWC) -> Reorder(NCHW) -|
+//                                              -> Reshape(NCHW) -> Reorder(NHWC) -> Output(NHWC)
+// To:
+// Input0(NHWC)
+//              -> Add(NHWC) -> MVN(NHWC) -> Output(NHWC)
+// Input1(NHWC)
 
 bool ReshapeMVNPattern::init() {
     const auto log = _log.nest();
@@ -227,14 +240,7 @@ bool ReshapeMVNPattern::init() {
 
     if (reorder1 != nullptr) {
         _patternIn = reorder1.getInput();
-    } else {
-        auto concatOp = mlir::dyn_cast_or_null<IE::ConcatOp>(reshape2->getOperand(0).getDefiningOp());
-
-        if (concatOp == nullptr) {
-            log.trace("Match failed: [Reorder]->Reshape->Reorder->MVN");
-            return false;
-        }
-
+    } else if (auto concatOp = mlir::dyn_cast_or_null<IE::ConcatOp>(reshape2->getOperand(0).getDefiningOp())) {
         for (auto user : concatOp.getResult().getUsers()) {
             if (auto reorderInner = getTargetOpWithSpecificLayoutAndSingleUser<IE::ReorderOp>(user, DimsOrder::NCHW,
                                                                                               DimsOrder::NHWC)) {
@@ -242,6 +248,23 @@ bool ReshapeMVNPattern::init() {
                 break;
             }
         }
+    } else {
+        _addOp = mlir::dyn_cast_or_null<IE::AddOp>(reshape2->getOperand(0).getDefiningOp());
+        if (_addOp == nullptr) {
+            log.trace("Match failed: [Reorder]->Reshape->Reorder->MVN");
+            return false;
+        }
+
+        auto addInReorder0 = getTargetOpWithSpecificLayoutAndSingleUser<IE::ReorderOp>(
+                _addOp.getOperand(0).getDefiningOp(), DimsOrder::NHWC, DimsOrder::NCHW);
+        auto addInReorder1 = getTargetOpWithSpecificLayoutAndSingleUser<IE::ReorderOp>(
+                _addOp.getOperand(1).getDefiningOp(), DimsOrder::NHWC, DimsOrder::NCHW);
+        if (addInReorder0 == nullptr || addInReorder1 == nullptr) {
+            log.trace("Match failed: [Reorder]->Reshape->Reorder->MVN");
+            return false;
+        }
+
+        _patternIn = addInReorder0.getInput();
     }
 
     if (_patternIn == nullptr) {
@@ -360,6 +383,16 @@ mlir::LogicalResult ReshapeMVNPattern::replacePattern() {
         mapper.map(origInputs, newInputs);
         return builder.clone(*op, mapper);
     };
+
+    if (_addOp != nullptr) {
+        auto addInReorder0 = mlir::cast<IE::ReorderOp>(_addOp->getOperand(0).getDefiningOp());
+        auto addInReorder1 = mlir::cast<IE::ReorderOp>(_addOp->getOperand(1).getDefiningOp());
+        auto newAddOp =
+                builder.create<IE::AddOp>(_addOp.getLoc(), addInReorder0.getInput(), addInReorder1.getInput(),
+                                          _addOp.getAutoBroadcastAttr(), _addOp.getPostOpAttr(), _addOp.getClampAttr(),
+                                          _addOp.getOutputPaddingAttr(), _addOp.getInputPaddingAttr());
+        _patternIn = newAddOp.getResult();
+    }
 
     auto newMvnOp = mlir::cast<IE::MVNOp>(cloneOpAndReplaceInputs(_mvnOp, {_mvnOp.getInput()}, {_patternIn}));
     newMvnOp.setInternalReshapeAttr(internalReshapeAttr);

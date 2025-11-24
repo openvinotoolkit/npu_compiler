@@ -16,7 +16,7 @@ namespace vpux::VPU::arch37xx {
 class PpeFactory final :
         public vpux::VPU::IPpeFactory,
         public vpux::VPU::IPpeAdapterClamp,
-        public vpux::VPU::IPpeAdapterScale,
+        public vpux::VPU::IPpeAdapterScaleBias,
         public vpux::VPU::IPpeAdapterQuantParams,
         public vpux::VPU::IPpeAdapterFpPreluAlpha,
         public vpux::VPU::IPpeAdapterMode {
@@ -68,13 +68,21 @@ public:
     // @brief Sets the clamp interval to the intersection between the original clamps and a given interval.
     [[nodiscard]] vpux::VPU::PPEAttr intersectClamps(vpux::VPU::PPEAttr orig, double newLow, double newHigh,
                                                      mlir::Type outputElemType) const override;
+    // @brief Clears clamp values and sets them to limits of dtype
+    [[nodiscard]] vpux::VPU::PPEAttr discardClamp(vpux::VPU::PPEAttr orig, mlir::Type outputElemType) const override;
 
-    // --- IPpeAdapterScale Implementation ---
+    // --- IPpeAdapterScaleBias Implementation ---
 
     // @brief Returns the scale factor of the PPE Attribute.
-    [[nodiscard]] SmallVector<double> getScale(vpux::VPU::PPEAttr orig) const override;
+    [[nodiscard]] std::optional<SmallVector<double>> getScale(vpux::VPU::PPEAttr orig) const override;
+    // @brief Returns the bias of the PPE Attribute.
+    [[nodiscard]] std::optional<double> getBias(vpux::VPU::PPEAttr orig) const override;
     // @brief Modifies the scale factor of the PPE Attribute.
     [[nodiscard]] vpux::VPU::PPEAttr updateScale(vpux::VPU::PPEAttr orig, ArrayRef<double> scale) const override;
+    // @brief Sets new per-tensor bias overriding the existing data.
+    [[nodiscard]] vpux::VPU::PPEAttr updateBias(vpux::VPU::PPEAttr orig, double perTensorBias) const override;
+    // @brief Removes scale and bias from a ppe attr
+    [[nodiscard]] vpux::VPU::PPEAttr discardScaleBias(vpux::VPU::PPEAttr orig) const override;
 
     // --- IPpeAdapterFpPreluAlpha Implementation ---
 

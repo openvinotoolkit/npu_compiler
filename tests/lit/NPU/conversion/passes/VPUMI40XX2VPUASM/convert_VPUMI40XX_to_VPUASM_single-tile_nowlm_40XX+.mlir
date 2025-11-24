@@ -22,7 +22,6 @@ func.func @oneDma() {
 
   %4 = VPUMI40XX.MappedInference dmas((%3) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -82,7 +81,6 @@ func.func @twoDma() {
 
   %19 = VPUMI40XX.MappedInference dmas((%13), (%16) : (!VPURegMapped.Index<0:0:0>), (!VPURegMapped.Index<1:0:0>)) barriers(%11 : !VPURegMapped.Index<0:0:0>) dmaCount([[3, 0], [3, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -195,7 +193,6 @@ func.func @maxpool_f16_f16() {
 
   %22 = VPUMI40XX.MappedInference dmas((%16, %19) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:3>)) invariants(%20 : !VPURegMapped.Index<0:0:0>) variants(%21 : !VPURegMapped.Index<0:0:0>) barriers(%14 : !VPURegMapped.Index<0:0:0>) dmaCount([[3, 1], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([1, 0, 0, 0, 0, 0]) variantCount([1, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -301,7 +298,6 @@ func.func @single_hswish() {
 
   %18 = VPUMI40XX.MappedInference dmas((%14, %15) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:1>)) actKernelRanges((%16) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%17) : (!VPURegMapped.Index<0:0:0>)) barriers(%12 : !VPURegMapped.Index<0:0:0>) dmaCount([[1, 1], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges
 }
 
@@ -388,7 +384,6 @@ func.func @continued_conv_f16_f16_f16() {
   %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
   %36 = VPUMI40XX.MappedInference invariants(%26 : !VPURegMapped.Index<0:0:0>) variants(%28 : !VPURegMapped.Index<0:0:0>) barriers(%23 : !VPURegMapped.Index<0:0:0>) dmaCount([[0, 0]]) invariantCount([2]) variantCount([2]) actKernelRangesCount([[0, 0]]) actKernelInvocationsCount([[0, 0]]) mediaCount(0) barrierCount(4) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
   VPUMI40XX.OpRanges types([#VPURegMapped.task_type<DPUInvariant>, #VPURegMapped.task_type<DPUVariant>]) begins(%26, %28 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:0:0>) ends(%27, %29 : !VPURegMapped.Index<0:0:1>, !VPURegMapped.Index<0:0:1>)
 }
 

@@ -296,7 +296,10 @@ llvm::Expected<llvm::raw_ostream&> emitFieldsDefinitions(llvm::raw_ostream& stre
     return stream;
 }
 
-llvm::Error generate(llvm::raw_ostream& stream, llvm::RecordKeeper& records, const std::string& platformTypeName) {
+// LLVM 20.x TableGenMain callback signature changed to take a const RecordKeeper&
+// This generator does not mutate the RecordKeeper, so we propagate const here.
+llvm::Error generate(llvm::raw_ostream& stream, const llvm::RecordKeeper& records,
+                     const std::string& platformTypeName) {
     stream << "#pragma once\n";
     stream << '\n';
     stream << "#include <cstdint>\n";
@@ -408,8 +411,11 @@ llvm::Error generate(llvm::raw_ostream& stream, llvm::RecordKeeper& records, con
     return llvm::Error::success();
 }
 
-bool RegGenMain(llvm::raw_ostream& stream, llvm::RecordKeeper& records) {
-    auto doGenerate = [](auto& stream, auto& records, auto& platformTypeName) {
+bool RegGenMain(llvm::raw_ostream& stream, const llvm::RecordKeeper& records) try {
+    // Add a top-level try-catch block to handle std::runtime_error exceptions
+    // thrown by the parsing logic, resolving a Coverity finding.
+    auto doGenerate = [](llvm::raw_ostream& stream, const llvm::RecordKeeper& records,
+                         const std::string& platformTypeName) {
         if (auto error = generate(stream, records, platformTypeName)) {
             handleAllErrors(std::move(error), [](const llvm::ErrorInfoBase& error) {
                 error.log(llvm::WithColor::error());
@@ -429,6 +435,12 @@ bool RegGenMain(llvm::raw_ostream& stream, llvm::RecordKeeper& records) {
         return true;
     }
     return false;
+} catch (const std::exception& ex) {
+    vpux::printTo(llvm::errs(), "Failed to generate register mappings: {0}\n", ex.what());
+    return true;
+} catch (...) {
+    vpux::printTo(llvm::errs(), "Failed to generate register mappings: unknown exception\n");
+    return true;
 }
 
 int main(int argc, char** argv) {

@@ -120,8 +120,13 @@ struct LSTMSequenceParams : public BaseParams {
 //
 
 class OpBuilder {
+    SmallVector<mlir::Operation*> _toBeErased;
+
 public:
     virtual ~OpBuilder() {
+        for (auto op : _toBeErased) {
+            op->erase();
+        }
     }
     virtual std::optional<mlir::tensor::EmptyOp> prepareInput(mlir::OpBuilder& builder,
                                                               std::shared_ptr<BaseParams> baseParams,
@@ -149,6 +154,14 @@ public:
     }
     virtual mlir::Operation* buildFunction(mlir::OpBuilder& builder, std::shared_ptr<BaseParams> baseParams) = 0;
     virtual std::string getOpName(std::shared_ptr<BaseParams> baseParams) = 0;
+
+    // marks the operation for deletion at the end of this object's lifetime.
+    template <typename AnyOp>
+    void eraseLater(std::optional<AnyOp> possibleOp) {
+        if (possibleOp.has_value()) {
+            _toBeErased.push_back(possibleOp->getOperation());
+        }
+    }
 };
 
 //
@@ -162,7 +175,9 @@ public:
         if (auto matmulParams = std::dynamic_pointer_cast<MatMulParams>(baseParams)) {
             const auto loc = builder.getUnknownLoc();
             auto input = prepareInput(builder, baseParams);
+            eraseLater(input);
             auto weights = prepareWeights(builder, baseParams);
+            eraseLater(weights);
             return builder.create<IE::MatMulOp>(loc, input.value(), weights.value(), matmulParams->m_transpose_a,
                                                 matmulParams->m_transpose_b, /*post_op=*/nullptr);
         }
@@ -182,7 +197,9 @@ public:
             const auto loc = builder.getUnknownLoc();
 
             auto input = prepareInput(builder, baseParams);
+            eraseLater(input);
             auto weights = prepareWeights(builder, baseParams);
+            eraseLater(weights);
 
             const auto attrStride = getIntArrayAttr(ctx, convParams->m_strides);
             const auto attrPadsBegin = getIntArrayAttr(ctx, convParams->m_padsBegin);
@@ -212,6 +229,7 @@ public:
             const auto ctx = builder.getContext();
             const auto loc = builder.getUnknownLoc();
             auto input = prepareInput(builder, baseParams);
+            eraseLater(input);
 
             switch (actFuncParams->m_activationFunc) {
             case ActivationFunctionParams::ReLU:
@@ -249,7 +267,9 @@ public:
             const auto ctx = builder.getContext();
             const auto loc = builder.getUnknownLoc();
             auto lhsOp = prepareInput(builder, baseParams);
+            eraseLater(lhsOp);
             auto rhsOp = prepareWeights(builder, baseParams);
+            eraseLater(rhsOp);
 
             return builder.create<IE::AddOp>(loc, lhsOp.value(), rhsOp.value(),
                                              IE::AutoBroadcastTypeAttr::get(ctx, addParams->m_broadcastType),
@@ -273,6 +293,7 @@ public:
             const auto ctx = builder.getContext();
             const auto loc = builder.getUnknownLoc();
             auto input = prepareInput(builder, baseParams);
+            eraseLater(input);
 
             return builder.create<IE::MaxPoolOp>(loc, input.value(), getIntArrayAttr(ctx, maxPoolParams->m_kernelSize),
                                                  getIntArrayAttr(ctx, maxPoolParams->m_strides),
@@ -297,11 +318,17 @@ public:
 
         // Prepare input tensors
         auto inputData = prepareInput(builder, baseParams, 0);
+        eraseLater(inputData);
         auto initialHiddenState = prepareInput(builder, baseParams, 1);
+        eraseLater(initialHiddenState);
         auto initialCellState = prepareInput(builder, baseParams, 2);
+        eraseLater(initialCellState);
         auto weights = prepareInput(builder, baseParams, 3);
+        eraseLater(weights);
         auto recurrenceWeights = prepareInput(builder, baseParams, 4);
+        eraseLater(recurrenceWeights);
         auto bias = prepareInput(builder, baseParams, 5);
+        eraseLater(bias);
 
         // Create LSTMSequence operation
         return builder.create<IE::LSTMSequenceOp>(

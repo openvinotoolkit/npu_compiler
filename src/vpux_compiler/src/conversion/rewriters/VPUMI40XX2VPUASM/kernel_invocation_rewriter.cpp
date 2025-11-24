@@ -37,16 +37,28 @@ mlir::FailureOr<SymbolizationResult> KernelInvocationRewriter::symbolize(
         profilingData = findSym(profBuffer);
     }
 
-    mlir::SymbolRefAttr nextLink = nullptr;
-    auto nextInvocation = VPUMI40XX::getNextOp(op);
-    while (nextInvocation) {
-        if (auto nextInvocationTaskLink = nextInvocation.getTaskLink();
-            nextInvocationTaskLink.has_value() && nextInvocationTaskLink.value() == op.getType()) {
-            nextLink = findSym(nextInvocation.getTaskLocation());
-            break;
+    const auto findNextInvocationSymRef = [&](auto op) -> mlir::SymbolRefAttr {
+        // optimize for worst-case scenario when invocation isn't linked to anything
+        // by searching just 2 next ops instead of whole chain
+        // op can be linked either to immediate next or one after it in case of disabled fifo per shave engine
+        static constexpr auto maxDistanceToLinkedOp = size_t{2};
+        auto candidate = VPUMI40XX::getNextOp(op);
+        for ([[maybe_unused]] auto _ : irange(maxDistanceToLinkedOp)) {
+            if (!candidate) {
+                return nullptr;
+            }
+
+            if (auto taskLink = candidate.getTaskLink(); taskLink.has_value() && taskLink.value() == op.getType()) {
+                return findSym(candidate.getTaskLocation());
+            }
+
+            candidate = VPUMI40XX::getNextOp(candidate);
         }
-        nextInvocation = VPUMI40XX::getNextOp(nextInvocation);
-    }
+
+        return nullptr;
+    };
+
+    mlir::SymbolRefAttr nextLink = findNextInvocationSymRef(op);
 
     auto newOp = rewriter.create<VPUASM::ActKernelInvocationOp>(
             op.getLoc(), symName, taskIdx, taskLocation, nextLink, kernelRange, kernelData, kernelParams, waitAttr,

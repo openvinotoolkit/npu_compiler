@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
@@ -37,12 +38,8 @@ namespace {
 template <typename ConcreteOp>
 class EltwiseFakeQuantizeFusion final : public mlir::OpRewritePattern<IE::FakeQuantizeOp> {
 public:
-    EltwiseFakeQuantizeFusion(mlir::MLIRContext* ctx, const FuncRef<float(float, float)> compute, Logger log,
-                              const bool adaptiveStrippingEnabled = false)
-            : mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx),
-              _compute(compute),
-              _log(log),
-              _adaptiveStrippingEnabled(adaptiveStrippingEnabled) {
+    EltwiseFakeQuantizeFusion(mlir::MLIRContext* ctx, const FuncRef<float(float, float)> compute, Logger log)
+            : mlir::OpRewritePattern<IE::FakeQuantizeOp>(ctx), _compute(compute), _log(log) {
         this->setDebugName("EltwiseFakeQuantizeFusion");
     }
 
@@ -52,7 +49,6 @@ public:
 private:
     FuncRef<float(float, float)> _compute;
     Logger _log;
-    bool _adaptiveStrippingEnabled;
 };
 
 template <typename ConcreteOp>
@@ -194,15 +190,17 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
         }
     }
 
-    // TODO(E#129083): Remove this condition and _adaptiveStrippingEnabled
+    // TODO(E#129083): Remove this condition and isAdaptiveStrippingEnabled
     //                 when adaptive-stripping is enabled by default.
     // In case of cst-FQ-Mul, fusing Mul-FQ will generate redundant DQ-Q pair.
     // This pair can be optimized by adaptive-stripping.
     //   (FuseOutstandingDequant removes DQ, and ConvertToMixedPrecision removes Q)
     // But if adaptive-stripping is disabled, it's better to not fuse Mul,
     //   and Mul will convert into GroupConv and fuse any redundant DQ and Q.
+    auto moduleOp = getModuleOp(fakeQuantizeOp);
+    auto isAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
     if (mlir::isa<IE::MultiplyOp>(concreteParentOp) && concreteScalarInputFqOp != nullptr &&
-        !_adaptiveStrippingEnabled) {
+        !isAdaptiveStrippingEnabled) {
         _log.nest().trace("Do not fuse Mul-FQ when adaptive-stripping disabled "
                           "and Multiply's constant input has FakeQuantize '{0}'",
                           concreteScalarInputFqOp->getLoc());
@@ -234,18 +232,17 @@ mlir::LogicalResult EltwiseFakeQuantizeFusion<ConcreteOp>::matchAndRewrite(IE::F
 class EltwiseFakeQuantizeFusionPass final :
         public IE::impl::EltwiseFakeQuantizeFusionBase<EltwiseFakeQuantizeFusionPass> {
 public:
-    explicit EltwiseFakeQuantizeFusionPass(const bool adaptiveStrippingEnabled, Logger log)
-            : _adaptiveStrippingEnabled(adaptiveStrippingEnabled) {
+    explicit EltwiseFakeQuantizeFusionPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-    bool _adaptiveStrippingEnabled;
 };
 
 void EltwiseFakeQuantizeFusionPass::safeRunOnFunc() {
     auto& ctx = getContext();
+
     mlir::RewritePatternSet patterns(&ctx);
     // Because the Eltwise operation with one scalar input is the producer op for the FakeQuantize below the
     // mathematical operation that will fuse the Eltwise operation in FakeQuantize input range will be exactly the
@@ -255,8 +252,7 @@ void EltwiseFakeQuantizeFusionPass::safeRunOnFunc() {
     patterns.add<EltwiseFakeQuantizeFusion<IE::AddOp>>(&ctx, std::minus<float>(), _log);
     patterns.add<EltwiseFakeQuantizeFusion<IE::SubtractOp>>(&ctx, std::plus<float>(), _log);
     // TODO: E#129083
-    patterns.add<EltwiseFakeQuantizeFusion<IE::MultiplyOp>>(&ctx, std::divides<float>(), _log,
-                                                            _adaptiveStrippingEnabled);
+    patterns.add<EltwiseFakeQuantizeFusion<IE::MultiplyOp>>(&ctx, std::divides<float>(), _log);
     patterns.add<EltwiseFakeQuantizeFusion<IE::DivideOp>>(&ctx, std::multiplies<float>(), _log);
 
     auto func = getOperation();
@@ -267,7 +263,6 @@ void EltwiseFakeQuantizeFusionPass::safeRunOnFunc() {
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::IE::createEltwiseFakeQuantizeFusionPass(const bool adaptiveStrippingEnabled,
-                                                                          Logger log) {
-    return std::make_unique<EltwiseFakeQuantizeFusionPass>(adaptiveStrippingEnabled, log);
+std::unique_ptr<mlir::Pass> vpux::IE::createEltwiseFakeQuantizeFusionPass(Logger log) {
+    return std::make_unique<EltwiseFakeQuantizeFusionPass>(log);
 }

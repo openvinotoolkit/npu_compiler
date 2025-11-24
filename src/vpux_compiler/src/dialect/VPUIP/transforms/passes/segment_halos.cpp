@@ -264,15 +264,12 @@ void updateNceOps(NCEClusterTaskOp nceOp, DenseMap<NCEClusterTaskOp, NceOpOutput
 
 class SegmentHalosPass final : public VPUIP::impl::SegmentHalosBase<SegmentHalosPass> {
 public:
-    explicit SegmentHalosPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit SegmentHalosPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void SegmentHalosPass::safeRunOnFunc() {

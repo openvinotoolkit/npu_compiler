@@ -51,32 +51,6 @@ void PipelineRegistry40XX::registerPipelines() {
             });
 
     mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
-            "ws-monolithic", "Compile IE Network in Weights separation Monolithic mode for NPU40XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
-                                                             config::CompilationMode::WSMonolithic, options};
-                auto createPipelineStartegy = [&](config::CompilationMode compilationMode) {
-                    return createDialectPipelineStrategy40XXWS<DefaultHWOptions40XX>(compilationMode,
-                                                                                     &initCompilerOptions, &options);
-                };
-                WSMonolithicStrategy factory(createPipelineStartegy, Logger::global());
-                factory.buildPipeline(pm);
-            });
-
-    mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
-            "ws-monolithic-partial", "Compile IE Network in Weights separation Monolithic mode for NPU40XX",
-            [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
-                VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,
-                                                             config::CompilationMode::WSMonolithic, options};
-                auto createPipelineStartegy = [&](config::CompilationMode compilationMode) {
-                    return createDialectPipelineStrategy40XXWS<DefaultHWOptions40XX>(compilationMode,
-                                                                                     &initCompilerOptions, &options);
-                };
-                auto factory = WSMonolithicStrategy::createForLITTests(createPipelineStartegy, Logger::global());
-                factory.buildPipeline(pm);
-            });
-
-    mlir::PassPipelineRegistration<DefaultHWOptions40XX>(
             "host-compile", "Compile IE Network in Host mode (host and HW execution) for NPU40XX",
             [](mlir::OpPassManager& pm, const DefaultHWOptions40XX& options) {
                 VPU::InitCompilerOptions initCompilerOptions{config::ArchKind::NPU40XX,

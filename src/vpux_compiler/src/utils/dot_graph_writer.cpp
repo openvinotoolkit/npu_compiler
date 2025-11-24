@@ -4,7 +4,7 @@
 //
 
 #include "vpux/compiler/utils/dot_graph_writer.hpp"
-
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <memory>
+#include "vpux/compiler/dialect/VPU/interfaces/cost_model_shave_utils_interface.hpp"
 
 namespace VPUNN {
 class VPUCostModel;
@@ -37,6 +38,13 @@ public:
      * @return std::shared_ptr<VPUNN::VPULayerCostModel>
      */
     virtual std::shared_ptr<VPUNN::VPULayerCostModel> createLayerCostModel() const = 0;
+
+    /**
+     * @brief Will create a unique pointer to the Shave Cost Model Utils
+     *
+     * @return std::unique_ptr<IShaveCostModelUtils>
+     */
+    virtual std::unique_ptr<IShaveCostModelUtils> createShaveCostModelUtil() const = 0;
 };
 
 }  // namespace VPU

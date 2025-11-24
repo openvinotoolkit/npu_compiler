@@ -151,7 +151,14 @@ mlir::LogicalResult vpux::Const::ContentAttr::verify(FuncRef<mlir::InFlightDiagn
     }
 
     auto baseContentElemType = baseContent.getShapedType().getElementType();
-    if (!baseContentElemType.isIntOrFloat() && !mlir::isa<vpux::type::QuantileFloatType>(baseContentElemType)) {
+
+    // Note: base content element type must be directly aligned to a respective
+    // C++ type that is supported by NPU compiler (and also by MLIR!). Thus, any
+    // quantized type is impossible to be specified as base content (aka raw
+    // data). In general, consult Content::dispatchByElemType() to understand
+    // which types are directly supported in C++. For instance, quantized types
+    // are NOT supported.
+    if (!baseContentElemType.isIntOrFloat()) {
         return printTo(emitError(), "Got unsupported element type for 'baseContent' in 'ContentAttr' : '{0}'",
                        baseContent.getShapedType().getElementType());
     }
@@ -347,12 +354,28 @@ Const::Content wrapBaseContent(mlir::ElementsAttr baseContent) {
 }  // namespace
 
 mlir::DenseResourceElementsAttr Const::createExternalConstContent(mlir::ShapedType type, ArrayRef<char> rawData,
-                                                                  StringRef resourcePrefix) {
+                                                                  StringRef resourcePrefix, bool deepCopyConstData) {
     constexpr size_t defaultAlignment =
-            alignof(std::max_align_t);  // seemingly used nowhere except no-op deleter - use C++ default
-    constexpr auto noopDeleter = [](void*, size_t, size_t) {};
+            alignof(std::max_align_t);  // seemingly used nowhere except deleter - use C++ default
     constexpr bool isMutable = false;
-    mlir::AsmResourceBlob blob(rawData, defaultAlignment, noopDeleter, isMutable);
+
+    auto blob = [&]() -> mlir::AsmResourceBlob {
+        if (deepCopyConstData) {
+            // copy and manage the memory internally (debug)
+            auto ownedData = std::make_unique<char[]>(rawData.size());
+            std::memcpy(ownedData.get(), rawData.data(), rawData.size());
+            auto* rawPtr = ownedData.get();
+            return mlir::AsmResourceBlob(
+                    llvm::ArrayRef<char>(rawPtr, rawData.size()), defaultAlignment,
+                    [_ownedData = std::move(ownedData)](void*, size_t, size_t) {
+                        // _ownedData will be destroyed when the deleter is destroyed
+                    },
+                    isMutable);
+        } else {
+            constexpr auto noopDeleter = [](void*, size_t, size_t) {};
+            return mlir::AsmResourceBlob(rawData, defaultAlignment, noopDeleter, isMutable);
+        }
+    }();
 
     auto& builtinDialectManager = mlir::DenseResourceElementsHandle::getManagerInterface(type.getContext());
     // assumption (as per MLIR documented behavior): inserting a new blob with the same key would internally cause
@@ -376,12 +399,12 @@ mlir::DenseElementsAttr Const::detail::createConstContentWithConversion(mlir::Sh
                                                    return static_cast<vpux::type::float16>(val);
                                                }));
         return mlir::DenseElementsAttr::get(type, ArrayRef(arrayFP16));
-    } else if (elemType.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(elemType)) {
         const auto arrayFloat8E5M2 = to_small_vector(array | transformed([](float val) {
                                                          return static_cast<vpux::type::float8_e5m2>(val);
                                                      }));
         return mlir::DenseElementsAttr::get(type, ArrayRef(arrayFloat8E5M2));
-    } else if (elemType.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(elemType)) {
         const auto arrayFloat8E4M3FN = to_small_vector(array | transformed([](float val) {
                                                            return static_cast<vpux::type::float8_e4m3>(val);
                                                        }));

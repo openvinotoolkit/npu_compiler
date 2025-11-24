@@ -228,22 +228,4 @@ def AddNetInfoToModule : PassBase<"add-netinfo-to-module", "vpux::ModulePass"> {
     let constructor = "vpux::Core::createAddNetInfoToModulePass()";
 }
 
-def WsFoldReinterpretCastIntoConst : PassBase<"ws-fold-reinterpret-cast-into-const", "vpux::FunctionPass"> {
-    let summary = "ReinterpretCastOp::fold() substitute";
-
-    let description = [{
-        This pass substitutes folding mechanism for Core.ReinterpretCast. Under
-        normal conditions (production IR), ReinterpretCast is *never* expected
-        to have Const.Declare as direct origin. However, in some limited scope
-        the Const.Declare -> ReinterpretCast chain could appear (e.g. debug-only
-        monolithic weights separation pipeline). In order to have valid
-        legalization of ReinterpretCast in this case, this pass exists.
-
-        Warning: the pass does NOT attempt to be optimal in any way. Instead, it
-        does the bare minimum to legalize IR.
-    }];
-
-    let constructor = "vpux::Core::createWsFoldReinterpretCastIntoConstPass()";
-}
-
 #endif

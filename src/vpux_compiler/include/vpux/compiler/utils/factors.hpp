@@ -22,7 +22,8 @@ struct Factors final {
 };
 
 SmallVector<Factors> getFactorsList(int64_t n);
-SmallVector<Factors> getFactorsListWithLimitation(int64_t n, int64_t limit);
+SmallVector<Factors> getFactorsListWithMaxLimit(int64_t n, int64_t limit);
+SmallVector<Factors> getFactorsListWithMinLimit(int64_t n, int64_t limit);
 SmallVector<int64_t> getPrimeFactors(int64_t n);
 int64_t smallestDivisor(int64_t n);
 }  // namespace vpux

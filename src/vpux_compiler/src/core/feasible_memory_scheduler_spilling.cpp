@@ -68,6 +68,25 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
         FeasibleMemoryScheduler::ScheduledOpInfoVec& scheduledOps) {
     _log.trace("Optimize spills resulting from compute op immediate relocation");
 
+    std::unordered_map<size_t, size_t> opIndexToSchedId;
+
+    const auto findScheduledOpsVecIndexByOpIndex = [&](size_t opIndex) {
+        if (opIndexToSchedId.empty()) {
+            opIndexToSchedId.reserve(scheduledOps.size());
+            for (size_t schedIndex = 0; schedIndex < scheduledOps.size(); schedIndex++) {
+                if (scheduledOps[schedIndex].isOriginalOp()) {
+                    opIndexToSchedId[scheduledOps[schedIndex].op_] = schedIndex;
+                }
+            }
+        }
+
+        auto it = opIndexToSchedId.find(opIndex);
+        if (it != opIndexToSchedId.end()) {
+            return it->second;
+        }
+        VPUX_THROW("No schedule index for op index '{0}'", opIndex);
+    };
+
     SmallVector<size_t> operationIndexesToRemove;
     for (size_t opIndex = 0; opIndex < scheduledOps.size(); opIndex++) {
         if (scheduledOps[opIndex].isSpillWrite() && !scheduledOps[opIndex].isDataOp()) {
@@ -259,41 +278,36 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
             _log.nest().trace("op = '{0}'\t type = '{1}'\t time = '{2}'", spillReadOp.op_, spillReadOp.opTypeName(),
                               spillReadOp.cycleBegin_);
 
-            // the spill buffer may have multiple write users. If yes, skip the optimization.
+            // The spill buffer may have multiple write users. If yes, skip the optimization.
             bool hasSharedOutputBuffer = false;
 
             const auto spillRootBuffer = _aliasInfo.getRoot(spillBuf);
-
             auto origExecOp = _depsInfo.getExecuteOpAtIndex(origOp.op_);
             const auto allAlias = _aliasInfo.getAllAliases(spillRootBuffer);
+
             for (const auto alias : allAlias) {
                 auto inputExecOp = alias.getDefiningOp<mlir::async::ExecuteOp>();
                 if (inputExecOp == nullptr || origExecOp == inputExecOp) {
                     continue;
                 }
 
-                const auto inputSchedId = _depsInfo.getIndex(inputExecOp);
-                const auto inputEndCycle = scheduledOps[inputSchedId].cycleEnd_;
-                const auto origBeginCycle = origOp.cycleBegin_;
-                if (origBeginCycle < inputEndCycle) {
-                    continue;
-                }
-
                 auto inputInnerOp = getExecInnerOp(inputExecOp);
                 for (const auto output : inputInnerOp->getResults()) {
-                    const auto outputBuffers = _aliasInfo.getRoots(output);
-                    if (outputBuffers.size() != 1) {
-                        continue;
-                    }
-                    const auto outBuffer = *outputBuffers.begin();
-                    if (outBuffer == spillRootBuffer) {
-                        hasSharedOutputBuffer = true;
-                        break;
+                    if (spillRootBuffer == _aliasInfo.getRoot(output)) {
+                        // Get the dependency index and convert to scheduled operation index
+                        const auto inputOpId = _depsInfo.getIndex(inputExecOp);
+                        const auto schedOpId = findScheduledOpsVecIndexByOpIndex(inputOpId);
+                        const auto inputEndCycle = scheduledOps[schedOpId].cycleEnd_;
+                        if (origOp.cycleBegin_ >= inputEndCycle) {
+                            _log.nest().trace("Spill buffer is shared with op index {0} at {1}", inputOpId,
+                                              inputInnerOp->getLoc());
+                            hasSharedOutputBuffer = true;
+                            break;
+                        }
                     }
                 }
 
                 if (hasSharedOutputBuffer) {
-                    _log.nest().trace("hasSharedOutputBuffer {0}, schedId {1}", hasSharedOutputBuffer, inputSchedId);
                     break;
                 }
             }
@@ -336,6 +350,8 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
                         // as operation input and this code should not modify this allocation
                         mlir::OpBuilder builder(allocOpInsertionPoint);
                         auto newBufferOp = builder.clone(*spillBuf.getDefiningOp());
+                        // Add location suffix to identify this as a spill replacement buffer
+                        newBufferOp->setLoc(appendLoc(newBufferOp->getLoc(), "replace_spill"));
                         auto newBufferResult = newBufferOp->getResult(0);
 
                         // Update buffer data in scheduledOps
@@ -359,6 +375,32 @@ void FeasibleMemorySchedulerSpilling::removeComputeOpRelocationSpills(
                         // Configure address as prepared by scheduler.
                         // Since it is a new buffer it was not assigned before
                         _scan.handler().setAddress(newBufferResult, origOp.outputResourceInfo_[i].begin_);
+
+                        // Update addresses for all other operations that share the same spill buffer
+                        // Context: The spill buffer has multiple users and may be allocated-deallocated-allocated due
+                        // to spilling. The final memory offset is determined by the last allocation operation. Since
+                        // this spill buffer is being replaced by a new buffer, we need to restore the original
+                        // allocation offset for other users to maintain memory consistency
+                        for (const auto alias : _aliasInfo.getAllAliases(spillBuf)) {
+                            auto otherUserExecOp = alias.getDefiningOp<mlir::async::ExecuteOp>();
+                            if (otherUserExecOp == nullptr || origExecOp == otherUserExecOp) {
+                                continue;
+                            }
+
+                            // Find the scheduled operation corresponding to this input operation
+                            const auto schedOpId =
+                                    findScheduledOpsVecIndexByOpIndex(_depsInfo.getIndex(otherUserExecOp));
+                            const auto& schedOp = scheduledOps[schedOpId];
+
+                            // Update address for each output resource that uses the spill buffer
+                            for (size_t resourceIdx = 0; resourceIdx < schedOp.numOfOutputResources(); resourceIdx++) {
+                                if (schedOp.isActiveOutputResource(resourceIdx) &&
+                                    schedOp.getOutputBuffer(resourceIdx) == spillBuf) {
+                                    // Restore the original allocation offset for this shared buffer user
+                                    _scan.handler().setAddress(spillBuf, schedOp.beginOutputResource(resourceIdx));
+                                }
+                            }
+                        }
                     }
 
                     foundMatchingBuffer = true;

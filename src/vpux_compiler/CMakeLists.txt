@@ -15,29 +15,9 @@ if(ENABLE_LTO)
 endif()
 
 set(TARGET_NAME "npu_mlir_compiler")
-set(SCHEMA_TARGET_NAME "${TARGET_NAME}_schema")
 set(OBJ_TARGET_NAME "${TARGET_NAME}_obj")
 set(STATIC_TARGET_NAME "${TARGET_NAME}_static")
 set(gen_base_dst_include_dir "src/vpux_compiler/include/vpux/compiler")
-
-#
-# SCHEMA target
-#
-if(ENABLE_NPU_MONO)
-    if(NOT DEFINED ELF_SUBMODULE_PATH)
-        message(FATAL_ERROR "ELF submodule path is not set while `npu_mono` was activated")
-    endif()
-    set(SCHEMA_SOURCE_DIR ${ELF_SUBMODULE_PATH}/src/schema)
-else()
-    set(SCHEMA_SOURCE_DIR ${PROJECT_SOURCE_DIR}/thirdparty/elf/src/schema) # Legacy path
-endif(ENABLE_NPU_MONO)
-
-
-vpux_add_flatc_target(${SCHEMA_TARGET_NAME}
-    SRC_DIR "${SCHEMA_SOURCE_DIR}"
-    DST_DIR "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPUIP/generated"
-    ARGS "--gen-name-strings")
-set_target_properties(${SCHEMA_TARGET_NAME} PROPERTIES FOLDER "src")
 
 # These headers are needed by Unit tests even if ENABLE_MLIR_COMPILER=OFF
 add_subdirectory(include/vpux/compiler/NPU37XX/dialect/NPUReg37XX/firmware_headers)
@@ -77,7 +57,7 @@ add_subdirectory(tblgen)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 include_directories(SYSTEM ${CMAKE_CURRENT_BINARY_DIR}/include)
-# Elf schema is used in tblgen and therefore in entire compiler
+# ELF schema is used in tblgen and therefore in entire compiler
 include_directories(
     ${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPUIP/generated
     $<TARGET_PROPERTY:flatbuffers,INTERFACE_INCLUDE_DIRECTORIES>
@@ -91,7 +71,7 @@ set(VPUX_COMPILER_VERSION_FILE ${CMAKE_CURRENT_SOURCE_DIR}/src/compiler_version.
 # compiler repo git commit hash
 set(COMMIT_HASH_PATTERN ${CMAKE_CURRENT_SOURCE_DIR}/include/vpux/compiler/compiler_hash.hpp.in)
 set(COMMIT_HASH_FILE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler/compiler_hash.hpp)
-set(COMMIT_HASH_CACHE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler/compiler_hash.hpp.pre)
+set(COMMIT_HASH_CACHE ${CMAKE_CURRENT_BINARY_DIR}/include/vpux/compiler/compiler_hash_cache)
 
 add_custom_target(update_compiler_hash ALL
     COMMAND ${CMAKE_COMMAND}
@@ -122,8 +102,7 @@ target_link_libraries(mlir-dependencies
         MLIROptLib)
 target_include_directories(mlir-dependencies
     SYSTEM INTERFACE
-        ${MLIR_INCLUDE_DIRS}
-        ${VPUNN_INCLUDE_DIRS})
+        ${MLIR_INCLUDE_DIRS})
 
 if(BUILD_SHARED_LIBS)
     set(COMPILER_TARGET ${OBJ_TARGET_NAME})
@@ -223,7 +202,7 @@ if(BUILD_SHARED_LIBS)
     # Link the same to propagate dependencies
     target_link_libraries(${STATIC_TARGET_NAME} PUBLIC ${OBJ_TARGET_NAME})
 else()
-    bundle_static_library(${COMPILER_TARGET} inferenceStatic)
+    bundle_static_library(${COMPILER_TARGET} npu_costmodel)
     add_library(${STATIC_TARGET_NAME} ALIAS ${COMPILER_TARGET})
 endif()
 

@@ -32,7 +32,7 @@ namespace {
 class RestorePadAttrAfterSCFTilingPass final :
         public VPU::impl::RestorePadAttrAfterSCFTilingBase<RestorePadAttrAfterSCFTilingPass> {
 public:
-    explicit RestorePadAttrAfterSCFTilingPass(Logger log): _log(log) {
+    explicit RestorePadAttrAfterSCFTilingPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -40,8 +40,6 @@ private:
     void safeRunOnFunc() final;
     void processSCFForOp(mlir::scf::ForOp forOp);
     mlir::Value getInputOperand(mlir::tensor::PadOp padOp, mlir::OpBuilder builder);
-
-    Logger _log;
 };
 
 /**
@@ -51,34 +49,46 @@ private:
  * will determine the shape of the tensor.
  */
 mlir::Value RestorePadAttrAfterSCFTilingPass::getInputOperand(mlir::tensor::PadOp padOp, mlir::OpBuilder builder) {
+    auto& ctx = getContext();
     mlir::RankedTensorType srcType = padOp.getSourceType(), dstType = padOp.getResultType();
+    bool isDynamic = false;
     VPUX_THROW_WHEN(srcType == nullptr || dstType == nullptr, "Expected RankedTensorType for PadOp source and result");
 
-    auto newShape = llvm::SmallVector<int64_t>{};
-    llvm::transform(llvm::enumerate(padOp.getMixedLowPad()), std::back_inserter(newShape),
-                    [&srcType, &padOp](auto&& indexedOffset) {
-                        auto [idx, lowOffset] = indexedOffset;
-                        auto highOffset = padOp.getMixedHighPad()[idx];
+    auto newShape = SmallVector<int64_t>{};
+    vpux::ShapeRef newBounds = vpux::ShapeRef{};
+    transform(enumerate(padOp.getMixedLowPad()), std::back_inserter(newShape),
+              [&srcType, &padOp, &isDynamic](auto&& indexedOffset) {
+                  auto [idx, lowOffset] = indexedOffset;
+                  auto highOffset = padOp.getMixedHighPad()[idx];
 
-                        // Check if both low and high padding are static integer attributes
-                        bool lowIsStatic = false, highIsStatic = false;
+                  // Check if both low and high padding are static integer attributes
+                  bool lowIsStatic = false, highIsStatic = false;
 
-                        if (auto attr = mlir::dyn_cast<mlir::Attribute>(lowOffset)) {
-                            lowIsStatic = mlir::isa<mlir::IntegerAttr>(attr);
-                        }
+                  if (auto attr = mlir::dyn_cast<mlir::Attribute>(lowOffset)) {
+                      lowIsStatic = mlir::isa<mlir::IntegerAttr>(attr);
+                  }
 
-                        if (auto attr = mlir::dyn_cast<mlir::Attribute>(highOffset)) {
-                            highIsStatic = mlir::isa<mlir::IntegerAttr>(attr);
-                        }
+                  if (auto attr = mlir::dyn_cast<mlir::Attribute>(highOffset)) {
+                      highIsStatic = mlir::isa<mlir::IntegerAttr>(attr);
+                  }
 
-                        // If either padding is not static, make the dimension dynamic
-                        if (!lowIsStatic || !highIsStatic) {
-                            return mlir::ShapedType::kDynamic;
-                        }
+                  // If either padding is not static, make the dimension dynamic
+                  if (!lowIsStatic || !highIsStatic) {
+                      isDynamic = true;
+                      return mlir::ShapedType::kDynamic;
+                  }
 
-                        return srcType.getShape()[idx];
-                    });
-    auto newDstType = mlir::RankedTensorType::get(newShape, dstType.getElementType(), srcType.getEncoding());
+                  return srcType.getShape()[idx];
+              });
+
+    if (isDynamic) {
+        newBounds = getBoundedShape(srcType);
+    }
+
+    auto dstBounds = vpux::BoundsRef(newBounds);
+    const auto inType = mlir::cast<NDTypeInterface>(srcType);
+    auto outDesc = vpux::getTensorAttr(&ctx, inType.getDimsOrder(), /*memSpace=*/nullptr, dstBounds);
+    auto newDstType = mlir::RankedTensorType::get(newShape, dstType.getElementType(), outDesc);
     if (newDstType != srcType) {
         return builder.create<mlir::tensor::CastOp>(appendLoc(padOp.getLoc(), "cast"), newDstType, padOp.getSource());
     }
@@ -119,8 +129,8 @@ void RestorePadAttrAfterSCFTilingPass::processSCFForOp(mlir::scf::ForOp forOp) {
             auto highValue = affineUtils.getOpFoldResultValue(highPad, emptyMap);
             VPUX_THROW_WHEN(!lowValue.has_value() || !highValue.has_value(),
                             "Failed to compute static padding values for {0} operation", padOp->getName());
-            padValues.emplace_back(lowValue.value());
-            padValues.emplace_back(highValue.value());
+            padValues.emplace_back(lowValue.value()[0]);
+            padValues.emplace_back(highValue.value()[0]);
         }
 
         return VPU::getPaddingAttr(padOp.getContext(), padValues[0], padValues[1], padValues[2], padValues[3]);

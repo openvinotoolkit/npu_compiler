@@ -1098,6 +1098,32 @@ INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, Interpol
 
 INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_Tiling_Nearest_Align_Corner, InterpolateLayerTest_NPU4000,
                          interpolateNearestTilingAlignCorner, InterpolateLayerTest_NPU4000::getTestCaseName);
+const std::vector<std::vector<int64_t>> axesInput5D = {
+        {2, 3, 4},
+};
+const std::vector<std::vector<float>> scales5D = {
+        {2.0f, 2.0f, 2.0f},
+};
+const std::vector<ov::Shape> targetShapes5D = {
+        {4, 4, 4},
+};
+
+const auto interpolate5D = ::testing::Combine(
+        ::testing::Values(ov::op::v4::Interpolate::InterpolateMode::NEAREST), ::testing::ValuesIn(shapeCalculationMode),
+        ::testing::ValuesIn(coordinateTransformModeAsymmetric), ::testing::ValuesIn(nearestModes),
+        ::testing::ValuesIn(antialias), ::testing::ValuesIn(pads), ::testing::ValuesIn(pads),
+        ::testing::ValuesIn(cubeCoefs), ::testing::ValuesIn(axesInput5D), ::testing::ValuesIn(scales5D));
+const auto interpolate5D_3axes =
+        ::testing::Combine(interpolate5D, ::testing::ValuesIn(modelTypes),
+                           ::testing::ValuesIn(static_shapes_to_test_representation(
+                                   std::vector<std::vector<ov::Shape>>({{{1, 2, 2, 2, 2}}, {{2, 2, 2, 2, 2}}}))),
+                           ::testing::ValuesIn(targetShapes5D), ::testing::Values(test_utils::TARGET_DEVICE),
+                           ::testing::Values(additional_config));
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU3720, interpolate5D_3axes,
+                         InterpolateLayerTest_NPU3720::getTestCaseName);
+INSTANTIATE_TEST_SUITE_P(smoke_Interpolate_3axes_5D, InterpolateLayerTest_NPU4000, interpolate5D_3axes,
+                         InterpolateLayerTest_NPU4000::getTestCaseName);
+
 // --------------------------------------------------
 // ------ NPU3720 NoTiling Interpolate Testing ------
 // --------------------------------------------------

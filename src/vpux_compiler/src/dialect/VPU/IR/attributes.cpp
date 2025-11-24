@@ -7,10 +7,10 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
-#include "vpux/compiler/dialect/VPU/utils/profiling_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/platform_resources.hpp"
@@ -149,8 +149,8 @@ Byte vpux::VPU::getTotalCMXSize(mlir::ModuleOp module) {
     // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
     const auto arch = config::getArch(module);
     int64_t dynamicProfilingBufferSize =
-            (vpux::VPU::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
-                                                   : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
+            (config::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
+                                                : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
             vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE;
 
     auto cmxSpaceAttr = mlir::SymbolRefAttr::get(module.getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN));
@@ -178,8 +178,8 @@ Byte vpux::VPU::getTotalCMXFragmentationAwareSize(mlir::ModuleOp module) {
     // is still not disposed. Second buffer can be treated as an optimisation that prevents spilling.
     const int64_t profilingBufferSize =
             vpux::VPUIP::HW_DMA_PROFILING_MAX_BUFFER_SIZE +
-            (vpux::VPU::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
-                                                   : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
+            (config::isProfilingEnabled(module) ? vpux::VPUIP::getDPUProfMaxBufferSize(arch)
+                                                : vpux::VPUIP::HW_DPU_PROFILING_MAX_BUFFER_SIZE) +
             ((arch == config::ArchKind::NPU37XX) ? vpux::VPUIP::HW_ACT_SHAVE_PROFILING_MAX_BUFFER_SIZE : 0);
 
     return cmxRes.size() - Byte(2 * profilingBufferSize);
@@ -858,7 +858,7 @@ std::optional<SmallVector<Shape>> vpux::VPU::getPerClusterMemoryShapes(ShapeRef 
             return std::nullopt;
         }
 
-        const auto inputTileDimRanges = optionalInputTileDimRanges.value();
+        const auto& inputTileDimRanges = optionalInputTileDimRanges.value();
 
         for (auto p : inputTileDimRanges | indexed) {
             const auto inputTile = p.value();
@@ -901,7 +901,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef,
         VPUX_THROW_UNLESS(optionalPerClusterMemoryShapes.has_value(),
                           "Cannot get per cluster memory shape offsets. Unsupported distribution: {0}", distribution);
 
-        const auto tiledComputeShapes = optionalPerClusterMemoryShapes.value();
+        const auto& tiledComputeShapes = optionalPerClusterMemoryShapes.value();
         const auto tilingScheme = distribution.getNumTiles();
         const auto axis = vpux::VPU::getDistributedTilingAxis(tilingScheme);
 
@@ -925,7 +925,7 @@ SmallVector<Shape> vpux::VPU::getPerClusterMemoryShapeOffsets(ShapeRef shapeRef,
         VPUX_THROW_UNLESS(optionalInputTileDimRanges.has_value(),
                           "Cannot get per cluster memory shape offsets. Unsupported distribution: {0}", distribution);
 
-        const auto inputTileDimRanges = optionalInputTileDimRanges.value();
+        const auto& inputTileDimRanges = optionalInputTileDimRanges.value();
         for (auto p : inputTileDimRanges | indexed) {
             const auto inputTile = p.value();
             const auto cluster = p.index();

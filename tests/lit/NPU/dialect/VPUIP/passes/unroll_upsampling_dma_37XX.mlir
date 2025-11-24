@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --unroll-upsampling-dma %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% allow-custom-values=true" --unroll-upsampling-dma %s | FileCheck %s
 // REQUIRES: arch-NPU37XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -311,6 +311,10 @@ func.func @UnrollUpsamplingDMAWithExpandAttr() -> memref<1x32x640x640xf16, #NHWC
 // -----
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @UnrollUpsamplingDMAWithCstInputNHWC {
+config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource 17179869184 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+}
 // CHECK-LABEL: @UnrollUpsamplingDMAWithCstInputNHWC
 func.func @UnrollUpsamplingDMAWithCstInputNHWC() -> memref<1x96x1024x32xf16, #NHWC, [@CMX_NN, 0]> {
     %bar0 = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
@@ -373,6 +377,7 @@ func.func @UnrollUpsamplingDMAWithCstInputNHWC() -> memref<1x96x1024x32xf16, #NH
     // CHECK:       }
 
     // CHECK:    return [[OUTPUT]] : memref<1x96x1024x32xf16, #NHWC, [@CMX_NN, 0]>
+}
 }
 
 // -----

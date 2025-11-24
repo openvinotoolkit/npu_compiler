@@ -889,10 +889,10 @@ func.func @RMSNormTest(%arg0: tensor<1x2x6xf32>) -> tensor<1x2x6xf32> {
 
 // CHECK-LABEL: @DeformableConvolution
 func.func @DeformableConvolution(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x18x19x19xf16>, %arg2: tensor<128x128x3x3xf16>, %arg3: tensor<1x9x19x19xf16>) -> tensor<1x128x19x19xf16> {
-    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
     return %0 : tensor<1x128x19x19xf16>
 
-    // CHECK: [[VAR0:%.+]] = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+    // CHECK: [[VAR0:%.+]] = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
     // CHECK: return [[VAR0]] : tensor<1x128x19x19xf16>
 }
 
@@ -1238,4 +1238,118 @@ func.func @Add2D(%arg0: tensor<1x1xsi32>, %arg1: tensor<1x1xsi32>) -> tensor<1x1
     // CHECK:   [[ADD:%.+]] = VPU.Add([[RESHAPED_ARG0]], [[RESHAPED_ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:   [[RET:%.+]] = VPU.Reshape([[ADD]]) {shape_value = [1, 1]} : tensor<1x1x1x1xsi32> -> tensor<1x1xsi32>
     // CHECK:   return [[RET]] : tensor<1x1xsi32>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!inputDynamicType = tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+!outputDynamicType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 3200, 5120]> : tensor<4xsi64>, order = #NHWC}>
+
+// CHECK-LABEL: @dynamicD2S
+// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+func.func @dynamicD2S(%input: !inputDynamicType) -> !outputDynamicType {
+    %d2s = IE.DepthToSpace(%input) {
+        block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>
+    } : !inputDynamicType -> !outputDynamicType
+
+    return %d2s : !outputDynamicType
+
+    // CHECK:       [[D2S:%.+]] = VPU.DepthToSpace([[ARG0]])
+    // CHECK-SAME:      block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>
+    // CHECK-SAME:      : tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+    // CHECK-SAME:      -> tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 3200, 5120]> : tensor<4xsi64>, order = #NHWC}>
+
+    // CHECK:       return [[D2S]]
+}
+
+// -----
+
+// CHECK-LABEL: @FlashSDPA
+// CHECK-SAME: [[QUERY:%[^, ]+]]: tensor<1x8x64x64xf16>,
+// CHECK-SAME: [[KEY:%[^, ]+]]: tensor<1x8x32x64xf16>,
+// CHECK-SAME: [[VALUE:%[^, ]+]]: tensor<1x8x32x128xf16>
+func.func @FlashSDPA(%arg0: tensor<1x8x64x64xf16>, %arg1: tensor<1x8x32x64xf16>, %arg2: tensor<1x8x32x128xf16>) -> tensor<1x8x64x128xf16> {
+    %0 = IE.FlashSDPA(%arg0, %arg1, %arg2) {operandSegmentSizes = array<i32: 1, 1, 1, 0, 0>} : tensor<1x8x64x64xf16>, tensor<1x8x32x64xf16>, tensor<1x8x32x128xf16> -> tensor<1x8x64x128xf16>
+    return %0 : tensor<1x8x64x128xf16>
+
+    // CHECK:   [[IN_OUT:%.+]] = const.Declare tensor<1x8x64x128xf16> = dense<0.000000e+00> : tensor<1x8x64x128xf16>
+    // CHECK:   [[IN_MAX:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0xFF800000> : tensor<1x8x64x1xf32>
+    // CHECK:   [[IN_SUM:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0.000000e+00> : tensor<1x8x64x1xf32>
+    // CHECK:   [[AUX_BUF:%.+]] = const.Declare tensor<1x8x64x32xf16> = dense<0.000000e+00> : tensor<1x8x64x32xf16>
+
+    // CHECK:   [[RES_OUT:%.+]], [[RES_MAX:%.+]], [[RES_SUM:%.+]], [[RES_QUERY:%.+]] = VPU.FlashSDPA([[QUERY]], [[KEY]], [[VALUE]], [[AUX_BUF]], [[IN_OUT]], [[IN_MAX]], [[IN_SUM]])
+    // CHECK-SAME:      is_head = true, is_tail = true
+    // CHECK-SAME:      -> tensor<1x8x64x128xf16>, tensor<1x8x64x1xf32>, tensor<1x8x64x1xf32>, tensor<1x8x64x64xf16>
+
+    // CHECK:   return [[RES_OUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @DepthToSpacePadded
+func.func @DepthToSpacePadded(%arg0: tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 540, 960]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>)
+    -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080, 1920]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> {
+    // CHECK-SAME:  [[ARG0:%.+]]: tensor<1x12x?x?xf16
+    %0 = IE.DepthToSpace(%arg0) {block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>, padded_channels = #IE.ChannelPadding<input = 0, output = 13 : i64>} : tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 540, 960]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}> -> tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080, 1920]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+    return %0 : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080, 1920]> : tensor<4xsi64>, order = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>}>
+
+    // CHECK:           [[D2S:%.+]] = VPU.DepthToSpace([[ARG0]])
+    // CHECK-SAME:      block_size = 2 : i64
+    // CHECK-SAME:      mode = #IE.depth_to_space_mode<DEPTH_FIRST>
+    // CHECK-SAME:      padded_channels = #IE.ChannelPadding<input = 0 : i64, output = 13 : i64>
+    // CHECK:           return [[D2S]] : tensor<1x16x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 1080, 1920]>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+// CHECK-LABEL: @LessOperationWithDynamicBounds
+func.func @LessOperationWithDynamicBounds(%arg0: tensor<1x1x1x?xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>, %arg1: tensor<1x256x1x1xsi32>) -> tensor<1x256x1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 256, 1, 1024]> : tensor<4xsi64>, order = #NCHW}> {
+    %0 = IE.Less(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x256x1x1xsi32> -> tensor<1x256x1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 256, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>
+    return %0 : tensor<1x256x1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 256, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>
+
+    // CHECK: [[RESULT:%.+]] = VPU.Less(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x?xsi32, {bounds = #const.OpaqueI64Elements<[1, 1, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>, tensor<1x256x1x1xsi32> -> tensor<1x256x1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 256, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK: return [[RESULT]] : tensor<1x256x1x?xi8, {bounds = #const.OpaqueI64Elements<[1, 256, 1, 1024]> : tensor<4xsi64>, order = #NCHW}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK-LABEL: @LessBroadcastNHWC
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x1x1024x1024xf16, {order = #NHWC}>, [[ARG1:%.+]]: tensor<1x1x1x1xf16, {order = #NHWC}>)
+func.func @LessBroadcastNHWC(%arg0: tensor<1x1x1024x1024xf16, {order = #NHWC}>,
+                             %arg1: tensor<1x1x1x1xf16, {order = #NHWC}>)
+        -> tensor<1x1x1024x1024xi8, {order = #NHWC}> {
+    %0 = IE.Less(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+            tensor<1x1x1024x1024xf16, {order = #NHWC}>,
+            tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x1024x1024xi8, {order = #NHWC}>
+    return %0 : tensor<1x1x1024x1024xi8, {order = #NHWC}>
+
+    // CHECK: [[LESS:%.+]] = VPU.Less([[ARG0]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK-SAME: : tensor<1x1x1024x1024xf16, {order = #NHWC}>,
+    // CHECK-SAME:   tensor<1x1x1x1xf16, {order = #NHWC}> -> tensor<1x1x1024x1024xi8, {order = #NHWC}>
+    // CHECK: return [[LESS]] : tensor<1x1x1024x1024xi8, {order = #NHWC}>
+}
+
+// -----
+
+// CHECK-LABEL: @AvgPool16
+// CHECK-SAME:  ([[ARG0:%.+]]: tensor<1x2x5x5xf16>)
+func.func @AvgPool16(%arg0: tensor<1x2x5x5xf16>) -> tensor<1x2x1x1xf16> {
+    %0 = IE.AvgPool16(%arg0) {dilations = [2, 2], exclude_pads, kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x2x5x5xf16> -> tensor<1x2x1x1xf16>
+    return %0 : tensor<1x2x1x1xf16>
+    // CHECK:   [[AVGPOOL16:%.+]] = VPU.AvgPool16([[ARG0]]) {dilations = [2, 2], exclude_pads, kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x2x5x5xf16> -> tensor<1x2x1x1xf16>
+    // CHECK:   return [[AVGPOOL16]] : tensor<1x2x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @ReduceMeanSquare
+func.func @ReduceMeanSquare(%arg0: tensor<1x32x112x112xf16>) -> tensor<1x32x112x1xf16> {
+    %0 = IE.ReduceMeanSquare(%arg0) {axes_value = [3], keep_dims} : tensor<1x32x112x112xf16> -> tensor<1x32x112x1xf16>
+    return %0 : tensor<1x32x112x1xf16>
+
+    // CHECK: [[VAR0:%.+]] = VPU.ReduceMeanSquare(%arg0) {axes_value = [3], keep_dims} : tensor<1x32x112x112xf16> -> tensor<1x32x112x1xf16>
+    // CHECK: return [[VAR0]] : tensor<1x32x112x1xf16>
 }

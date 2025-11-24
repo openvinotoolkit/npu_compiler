@@ -17,7 +17,14 @@ struct AvgPoolQuantParams {
     std::optional<FakeQuantizeParams> outputQuant;
 };
 
-using AvgPoolWithActivationQuantTestParams = std::tuple<utils::ActivationTypes, AvgPoolQuantParams>;
+enum class ErrorType : uint8_t { ABSOLUTE, RELATIVE };
+struct Activation {
+    utils::ActivationTypes activationType;
+    ErrorType errorType;
+    float threshold{0};
+};
+
+using AvgPoolWithActivationQuantTestParams = std::tuple<Activation, AvgPoolQuantParams>;
 using AvgPoolWithSwishQuantTestParams = std::tuple<float, AvgPoolQuantParams>;
 
 //      [input]
@@ -40,7 +47,10 @@ class AvgPoolWithActivationQuantizedTest :
     }
 
     void SetUp() override {
-        const auto& [activationType, quantParams] = GetParam();
+        const auto& [activation, quantParams] = GetParam();
+        const auto& activationType = activation.activationType;
+        const auto& errorType = activation.errorType;
+        const auto& threshold = activation.threshold;
 
         init_input_shapes(static_shapes_to_test_representation({ov::Shape{1, 16, 16, 16}}));
 
@@ -54,6 +64,16 @@ class AvgPoolWithActivationQuantizedTest :
         }
 
         lastOutput = buildAvgPool(lastOutput);
+
+        if (threshold != 0) {
+            if (errorType == ErrorType::ABSOLUTE) {
+                abs_threshold = threshold;
+                rel_threshold = disable_threshold;
+            } else {
+                rel_threshold = threshold;
+                abs_threshold = disable_threshold;
+            }
+        }
 
         lastOutput = activationType == utils::Swish
                              ? utils::make_activation(lastOutput, ov::element::f16, activationType, ov::Shape{}, {1.f})
@@ -83,7 +103,7 @@ class AvgPoolWithActivationQuantizedTest :
 
 public:
     static std::string getTestCaseName(const testing::TestParamInfo<AvgPoolWithActivationQuantTestParams>& obj) {
-        const auto& [activationType, quantParams] = obj.param;
+        const auto& [activation, quantParams] = obj.param;
 
         const std::string sep = "_";
         std::ostringstream result;
@@ -95,7 +115,7 @@ public:
         if (quantParams.outputQuant.has_value()) {
             result << sep << "OQ=" << *quantParams.outputQuant;
         }
-        result << sep << "ActivationType=" << activationType;
+        result << sep << "ActivationType=" << activation.activationType;
 
         return result.str();
     };
@@ -168,7 +188,10 @@ public:
     };
 };
 
-const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu};
+const std::vector<Activation> activations = {{utils::Tanh, ErrorType::ABSOLUTE},
+                                             {utils::Sigmoid, ErrorType::ABSOLUTE},
+                                             {utils::Gelu, ErrorType::ABSOLUTE},
+                                             {utils::Exp, ErrorType::RELATIVE, 0.03f}};
 
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 

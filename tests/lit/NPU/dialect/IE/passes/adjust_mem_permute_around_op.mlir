@@ -123,18 +123,36 @@ func.func @NotAdjustMemPermutesAfterTile(%arg0: tensor<1x2x256x512xf16, {order =
     // CHECK:        return [[PERMUTE]] : tensor<1x2x512x512xf16>
 }
 
-// CHECK-LABEL: @NotAdjustMemPermutesLayoutNotSupport
-func.func @NotAdjustMemPermutesLayoutNotSupport(%arg0: tensor<1x32x16x16xf16>, %arg1: tensor<1x32x16x16xf16>) -> tensor<1x32x16x16xf16, {order = #NHWC}> {
+// CHECK-LABEL: @NotAdjustMemPermutesLayoutNotSupportInnerDimNotAligned
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<1x32x16x17xf16>, [[INPUT2:%.+]]: tensor<1x32x16x17xf16>
+func.func @NotAdjustMemPermutesLayoutNotSupportInnerDimNotAligned(%arg0: tensor<1x32x16x17xf16>, %arg1: tensor<1x32x16x17xf16>) -> tensor<1x32x16x17xf16, {order = #NHWC}> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x32x16x17xf16> -> tensor<1x32x16x17xf16, {order = #NHWC}>
+    %1 = IE.MemPermute(%arg1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x32x16x17xf16> -> tensor<1x32x16x17xf16, {order = #NHWC}>
+    %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x16x17xf16, {order = #NHWC}>, tensor<1x32x16x17xf16, {order = #NHWC}> -> tensor<1x32x16x17xf16, {order = #NHWC}>
+
+    return %2 : tensor<1x32x16x17xf16, {order = #NHWC}>
+
+    // CHECK:        [[PERMUTE0:%.+]] = IE.MemPermute([[INPUT1]])
+    // CHECK:        [[PERMUTE1:%.+]] = IE.MemPermute([[INPUT2]])
+    // CHECK:        [[ADD:%.+]] = IE.Add([[PERMUTE0]], [[PERMUTE1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:        return [[ADD]] : tensor<1x32x16x17xf16, {order = #NHWC}>
+}
+
+// CHECK-LABEL: @AdjustMemPermutesWithPermuteCast
+// CHECK-SAME: [[INPUT1:%.+]]: tensor<1x32x16x16xf16>, [[INPUT2:%.+]]: tensor<1x32x16x16xf16>
+func.func @AdjustMemPermutesWithPermuteCast(%arg0: tensor<1x32x16x16xf16>, %arg1: tensor<1x32x16x16xf16>) -> tensor<1x32x16x16xf16, {order = #NHWC}> {
     %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x32x16x16xf16> -> tensor<1x32x16x16xf16, {order = #NHWC}>
     %1 = IE.MemPermute(%arg1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x32x16x16xf16> -> tensor<1x32x16x16xf16, {order = #NHWC}>
     %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x32x16x16xf16, {order = #NHWC}>, tensor<1x32x16x16xf16, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
 
     return %2 : tensor<1x32x16x16xf16, {order = #NHWC}>
 
-    // CHECK:        [[PERMUTE0:%.*]] = IE.MemPermute(%arg0)
-    // CHECK:        [[PERMUTE1:%.*]] = IE.MemPermute(%arg1)
-    // CHECK:        [[ADD:%.*]] = IE.Add([[PERMUTE0]], [[PERMUTE1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-    // CHECK:        return [[ADD]] : tensor<1x32x16x16xf16, {order = #NHWC}>
+    // CHECK-NOT:    IE.MemPermute
+    // CHECK:        [[PERMUTE_CAST1:%.+]] = IE.PermuteCast([[INPUT1]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x16x16xf16> -> tensor<1x16x32x16xf16, {order = #NHWC}>
+    // CHECK:        [[PERMUTE_CAST2:%.+]] = IE.PermuteCast([[INPUT2]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x32x16x16xf16> -> tensor<1x16x32x16xf16, {order = #NHWC}>
+    // CHECK:        [[ADD:%.+]] = IE.Add([[PERMUTE_CAST1]], [[PERMUTE_CAST2]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
+    // CHECK:        [[PERMUTE:%.+]] = IE.MemPermute([[ADD]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x32x16xf16, {order = #NHWC}> -> tensor<1x32x16x16xf16, {order = #NHWC}>
+    // CHECK:        return [[PERMUTE]] : tensor<1x32x16x16xf16, {order = #NHWC}>
 }
 
 // CHECK-LABEL: @AdjustMemPermutesLayoutSubtract
@@ -219,14 +237,14 @@ func.func @AdjustForConcatToPermuteCast(%arg0: tensor<1x128x3000x1xf16>, %arg1: 
 // CHECK-LABEL: @AdjustForSoftmax
 // CHECK-SAME: ([[INPUT0:%.+]]: tensor<1x512x12x512xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x512x12x512xf16, {order = #NHWC}>)
 func.func @AdjustForSoftmax(%arg0: tensor<1x512x12x512xf16, {order = #NHWC}>, %arg1: tensor<1x512x12x512xf16, {order = #NHWC}>) -> tensor<1x12x512x512xf16> {
-    %add = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :  
+    %add = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
          tensor<1x512x12x512xf16, {order = #NHWC}>, tensor<1x512x12x512xf16, {order = #NHWC}>
          -> tensor<1x512x12x512xf16, {order = #NHWC}>
     %permute = IE.PermuteCast(%add) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x512x12x512xf16, {order = #NHWC}> -> tensor<1x12x512x512xf16>
     %softmax = IE.SoftMax(%permute) {axisInd = 3} : tensor<1x12x512x512xf16> -> tensor<1x12x512x512xf16>
     return %softmax : tensor<1x12x512x512xf16>
 
-    // CHECK:       [[ADD:%.+]] = IE.Add([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : 
+    // CHECK:       [[ADD:%.+]] = IE.Add([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
     // CHECK:            tensor<1x512x12x512xf16, {order = #NHWC}>, tensor<1x512x12x512xf16, {order = #NHWC}> -> tensor<1x512x12x512xf16, {order = #NHWC}>
     // CHECK:       [[SOFTMAX:%.+]] = IE.SoftMax([[ADD]])
     // CHECK:            {axisInd = 1 : i64} : tensor<1x512x12x512xf16, {order = #NHWC}> -> tensor<1x512x12x512xf16, {order = #NHWC}>
@@ -242,7 +260,7 @@ func.func @AdjustForSoftmax(%arg0: tensor<1x512x12x512xf16, {order = #NHWC}>, %a
 // CHECK-LABEL: @AdjustForSoftmaxWithShapeCast
 // CHECK-SAME: ([[INPUT0:%.+]]: tensor<1x12x512x512xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x12x512x512xf16, {order = #NHWC}>)
 func.func @AdjustForSoftmaxWithShapeCast(%arg0: tensor<1x12x512x512xf16, {order = #NHWC}>, %arg1: tensor<1x12x512x512xf16, {order = #NHWC}>) -> tensor<1x12x512x512xf16> {
-    %add = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :  
+    %add = IE.Add(%arg0, %arg1) { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
          tensor<1x12x512x512xf16, {order = #NHWC}>, tensor<1x12x512x512xf16, {order = #NHWC}>
          -> tensor<1x12x512x512xf16, {order = #NHWC}>
     %shapecast = IE.ShapeCast { shape = [1, 512, 12, 512] } inputs(%add : tensor<1x12x512x512xf16, {order = #NHWC}>) -> tensor<1x512x12x512xf16, {order = #NHWC}>
@@ -253,7 +271,7 @@ func.func @AdjustForSoftmaxWithShapeCast(%arg0: tensor<1x12x512x512xf16, {order 
     // CHECK:       [[SHAPECAST0:%.+]] = IE.ShapeCast {shape = [1, 512, 12, 512]}
     // CHECK:       [[SHAPECAST1:%.+]] = IE.ShapeCast {shape = [1, 512, 12, 512]}
 
-    // CHECK:       [[ADD:%.+]] = IE.Add([[SHAPECAST0]], [[SHAPECAST1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : 
+    // CHECK:       [[ADD:%.+]] = IE.Add([[SHAPECAST0]], [[SHAPECAST1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
     // CHECK:            tensor<1x512x12x512xf16, {order = #NHWC}>, tensor<1x512x12x512xf16, {order = #NHWC}> -> tensor<1x512x12x512xf16, {order = #NHWC}>
     // CHECK:       [[SOFTMAX:%.+]] = IE.SoftMax([[ADD]])
     // CHECK:            {axisInd = 1 : i64} : tensor<1x512x12x512xf16, {order = #NHWC}> -> tensor<1x512x12x512xf16, {order = #NHWC}>

@@ -81,6 +81,24 @@ void vpux::VPUIP::buildShaveCodeGenPipeline(mlir::OpPassManager& pm) {
 }
 
 //
+// OptimizeCopies
+//
+
+void vpux::VPUIP::buildOptimizeCopiesPipeline(mlir::OpPassManager& pm, const VPUIP::OptimizeCopiesOptionsBase& options,
+                                              Logger log) {
+    pm.addPass(VPUIP::createOptimizeCopiesPass(options.workloadManagementMode, log));
+    pm.addPass(VPUIP::createUniquifyWeightsTableCopiesPass(log));
+    pm.addPass(VPUIP::createOptimizeConcatViewCopiesPass(log));
+    pm.addPass(VPUIP::createFuseDDRCopiesIntoConcats(log));
+    pm.addPass(VPUIP::createOptimizeParallelCopiesPass(options.enableOptimizeConstCopies, log));
+    pm.addPass(VPUIP::createOptimizeSubviewCopiesPass(log));
+    pm.addPass(VPUIP::createFuseLastCopyPass(log));
+    if (options.enableOpsAsDMA) {
+        pm.addPass(VPUIP::createOptimizeTileOpAsNNDMAPass(log));
+    }
+}
+
+//
 // registerVPUIPPipelines
 //
 
@@ -92,7 +110,18 @@ void VPUIP::registerVPUIPPipelines() {
     mlir::PassPipelineRegistration<>("hardware-adaptation", "Hardware Adaptation", [](mlir::OpPassManager& pm) {
         VPUIP::buildHardwareAdaptationPipeline(pm);
     });
+
     mlir::PassPipelineRegistration<>("shavecodegen-vpuip", "ShaveCodeGen specific passes", [](mlir::OpPassManager& pm) {
         VPUIP::buildShaveCodeGenPipeline(pm);
+    });
+
+    mlir::PassPipelineRegistration<VPUIP::OptimizeCopiesOptionsBase>(
+            "optimize-copies-pipeline", "Optimize Copies Pipeline",
+            [](mlir::OpPassManager& pm, const VPUIP::OptimizeCopiesOptionsBase& options) {
+                VPUIP::buildOptimizeCopiesPipeline(pm, options);
+            });
+
+    mlir::PassPipelineRegistration<>("dma-unrolling", "DMA unrolling", [](mlir::OpPassManager& pm) {
+        VPUIP::buildDMAUnrollingPipeline(pm);
     });
 }

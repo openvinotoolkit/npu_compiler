@@ -3,13 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
+
+#include <mlir/Dialect/Arith/Utils/Utils.h>
+#include <mlir/IR/Location.h>
 
 using namespace vpux;
 
@@ -19,7 +26,7 @@ using namespace vpux;
 
 bool vpux::VPU::DepthToSpaceOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t numTiles) {
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
-    const auto inShape = inputType.getShape();
+    const auto inShape = getBoundedShape(inputType);
 
     if (strategy == VPU::MultiClusterStrategy::Clustering) {
         return false;
@@ -50,10 +57,10 @@ vpux::VPU::DistributionInfo vpux::VPU::DepthToSpaceOp::getExplicitDistributionIn
 }
 
 void vpux::VPU::DepthToSpaceOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
-                                      ::mlir::Value input, ::mlir::IntegerAttr block_size,
+                                      ::mlir::Value input, ::mlir::IntegerAttr blockSize,
                                       vpux::IE::DepthToSpaceModeAttr mode,
                                       /*optional*/ vpux::IE::ChannelPaddingAttr padded_channels) {
-    build(odsBuilder, odsState, input, block_size, mode, padded_channels, {});
+    build(odsBuilder, odsState, input, blockSize, mode, padded_channels, {});
 }
 
 //
@@ -98,7 +105,7 @@ mlir::LogicalResult vpux::VPU::DepthToSpaceOp::inferReturnTypes(
 
     const auto inShape = getShape(depthToSpace.getInput());
     const auto inType = mlir::cast<vpux::NDTypeInterface>(depthToSpace.getInput().getType());
-    const auto block_size = depthToSpace.getBlockSize();
+    const auto blockSize = depthToSpace.getBlockSize();
 
     const auto elemType = inType.getElementType();
     if (!(elemType.isF16() || elemType.isF32() || elemType.isUnsignedInteger(8) ||
@@ -110,24 +117,68 @@ mlir::LogicalResult vpux::VPU::DepthToSpaceOp::inferReturnTypes(
         return errorAt(loc, "Invalid input tensor shape, dimension must be greater than 2.");
     }
 
-    if (block_size <= 0) {
-        return errorAt(loc, "Invalid block size {0}, should be greater than zero", block_size);
+    if (blockSize <= 0) {
+        return errorAt(loc, "Invalid block size {0}, should be greater than zero", blockSize);
     }
 
-    if (inShape[Dims4D::Act::C] % (block_size * block_size) != 0) {
-        return errorAt(loc, "Invalid block size {0}, which is not divisible by input shape {1}", block_size,
+    if (inShape[Dims4D::Act::C] == mlir::ShapedType::kDynamic) {
+        return errorAt(loc, "Input channels dimension is dynamic, cannot infer output shape");
+    }
+    if (inShape[Dims4D::Act::N] == mlir::ShapedType::kDynamic) {
+        return errorAt(loc, "Input batch size dimension is dynamic, cannot infer output shape");
+    }
+
+    if (inShape[Dims4D::Act::C] % (blockSize * blockSize) != 0) {
+        return errorAt(loc, "Invalid block size {0}, which is not divisible by input shape {1}", blockSize,
                        inShape[Dims4D::Act::C]);
     }
 
-    size_t W_out = inShape[Dims4D::Act::W] * block_size;
-    size_t H_out = inShape[Dims4D::Act::H] * block_size;
-    size_t C_out = inShape[Dims4D::Act::C] / (block_size * block_size);
-    size_t N_out = inShape[Dims4D::Act::N];
+    int64_t paddedIC = 0;
+    int64_t paddedOC = 0;
 
-    SmallVector<int64_t> outShape{checked_cast<int64_t>(N_out), checked_cast<int64_t>(C_out),
-                                  checked_cast<int64_t>(H_out), checked_cast<int64_t>(W_out)};
+    auto blockSizeSquare = blockSize * blockSize;
+    auto paddedChannels = depthToSpace.getPaddedChannels();
+    if (paddedChannels.has_value()) {
+        paddedIC = paddedChannels.value().getInput() ? paddedChannels.value().getInput().getInt() : 0;
+        paddedOC = paddedChannels.value().getOutput() ? paddedChannels.value().getOutput().getInt() : 0;
 
-    auto outType = mlir::RankedTensorType::get(outShape, inType.getElementType(), createTensorAttrFromType(inType));
+        auto unpaddedChannels = inShape[Dims4D::Act::C] - paddedIC;
+        if (unpaddedChannels % blockSizeSquare != 0) {
+            return errorAt(loc, "Invalid block size {0}, which is not divisible by input shape {1}", blockSize,
+                           unpaddedChannels);
+        }
+    }
+
+    const int64_t outW = inShape[Dims4D::Act::W] == mlir::ShapedType::kDynamic
+                                 ? mlir::ShapedType::kDynamic
+                                 : checked_cast<int64_t>(inShape[Dims4D::Act::W] * blockSize);
+    const int64_t outH = inShape[Dims4D::Act::H] == mlir::ShapedType::kDynamic
+                                 ? mlir::ShapedType::kDynamic
+                                 : checked_cast<int64_t>(inShape[Dims4D::Act::H] * blockSize);
+    const int64_t outC = checked_cast<int64_t>((inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC);
+    const int64_t outN = checked_cast<int64_t>(inShape[Dims4D::Act::N]);
+
+    auto [outDesc, outShape] = callOnShapeOf(inType, [&](const auto& shape) {
+        const SmallVector<int64_t> outputShape{outN, outC, outH, outW};
+        if constexpr (std::is_same_v<std::decay_t<decltype(shape)>, BoundedShape>) {
+            const auto boundedShape = getBoundedShape(inType);
+            SmallVector<int64_t> outBounds{outputShape[Dims4D::Act::N.ind()], outputShape[Dims4D::Act::C.ind()],
+                                           static_cast<int64_t>(boundedShape[Dims4D::Act::H] * blockSize),
+                                           static_cast<int64_t>(boundedShape[Dims4D::Act::W] * blockSize)};
+            auto desc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), BoundsRef(outBounds));
+            return std::make_pair(std::move(desc), std::move(outputShape));
+        } else if constexpr (std::is_same_v<std::decay_t<decltype(shape)>, DimsMaskedShape>) {
+            auto inDynamicDimsMaskType = mlir::cast<Core::DynamicDimsMaskTensorType>(inType);
+            auto desc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), {},
+                                            inDynamicDimsMaskType.getDynamicDimsMask());
+            return std::make_pair(std::move(desc), std::move(outputShape));
+        } else {
+            auto desc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
+            return std::make_pair(std::move(desc), std::move(outputShape));
+        }
+    });
+
+    auto outType = mlir::RankedTensorType::get(outShape, elemType, outDesc);
 
     inferredReturnTypes.push_back(outType);
 
@@ -170,7 +221,7 @@ mlir::FailureOr<OutputTiling> getD2STilingStrategy(mlir::Operation* op, TilingMo
     auto tilingInfo = mlir::dyn_cast<VPU::TilingInfoOpInterface>(op);
 
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType());
-    const auto outputShape = outputType.getShape();
+    const auto outputShape = getBoundedShape(outputType);
 
     int64_t blockSize = 0;
     if (origOp.getBlockSizeAttr() != nullptr) {
@@ -265,5 +316,64 @@ mlir::LogicalResult VPU::DepthToSpaceOp::verify() {
     if (getBlockSize() <= 0) {
         return errorAt(*this, "Block size should be a positive integer, while it is {0}", getBlockSize());
     }
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::VPU::DepthToSpaceOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    auto loc = getLoc();
+    // Parse attributes
+    auto blockSize = getBlockSize();
+
+    const auto inputShapedType = mlir::cast<mlir::ShapedType>(getInput().getType());
+    const auto outputShapedType = mlir::cast<mlir::ShapedType>(getOutput().getType());
+
+    VPUX_THROW_WHEN(inputShapedType.getRank() != 4 || outputShapedType.getRank() != 4,
+                    "reify D2S: Unsupported input or output rank: {0} , {1}", inputShapedType.getRank(),
+                    outputShapedType.getRank());
+
+    auto makeIndex = [&](int64_t value) {
+        return builder.createOrFold<mlir::arith::ConstantIndexOp>(loc, value);
+    };
+
+    auto getInputDimVal = [&](int64_t idx, mlir::Location dimLoc) {
+        auto inputDim = reifyDim(builder, getInput(), idx, dimLoc);
+        auto inputDimVal = mlir::dyn_cast<mlir::Value>(inputDim);
+        VPUX_THROW_WHEN(inputDimVal == nullptr, "Failed to reify input dimension {0} for input {1} at location {2}",
+                        idx, getInput(), loc);
+
+        return inputDimVal;
+    };
+
+    // Use generator functions based on index for each output dimension
+    auto computeShapeForDim = [&](int64_t idx) -> mlir::OpFoldResult {
+        auto dimLoc = appendLoc(loc, llvm::StringLiteral("_dim_{0}"), idx);
+
+        if (idx == Dims4D::Act::N.ind()) {
+            return reifyDim(builder, getInput(), idx, dimLoc);
+        } else if (idx == Dims4D::Act::C.ind()) {
+            // outC = inC / (blockSize * blockSize)
+            auto inputDimVal = getInputDimVal(idx, dimLoc);
+            return builder.createOrFold<mlir::arith::DivSIOp>(dimLoc, inputDimVal, makeIndex(blockSize * blockSize));
+        } else if (idx == Dims4D::Act::H.ind() || idx == Dims4D::Act::W.ind()) {
+            // outHW = inHW * blockSize
+            auto inputDimVal = getInputDimVal(idx, dimLoc);
+
+            return builder.createOrFold<mlir::arith::MulIOp>(dimLoc, inputDimVal, makeIndex(blockSize));
+        } else {
+            VPUX_THROW("Unexpected dimension index {0}", idx);
+        }
+    };
+
+    SmallVector<mlir::OpFoldResult> outShape;
+    for (const auto dim : llvm::seq<int64_t>(0, outputShapedType.getRank())) {
+        if (outputShapedType.isDynamicDim(dim)) {
+            outShape.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, computeShapeForDim(dim)));
+        } else {
+            outShape.push_back(builder.getIndexAttr(outputShapedType.getDimSize(dim)));
+        }
+    }
+
+    reifiedReturnShapes.emplace_back(std::move(outShape));
     return mlir::success();
 }

@@ -12,52 +12,52 @@
 // CHECK-LABEL:   @DetectionOutputSortTiling
 // CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x1x11x76725xf16>)
 func.func @DetectionOutputSortTiling(%arg0: tensor<1x1x11x76725xf16>) -> (tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>) {
-    %cst = const.Declare tensor<1x1x32x256xsi32> = dense<0> : tensor<1x1x32x256xsi32>
+    %cst = const.Declare tensor<1x1x48x256xsi32> = dense<0> : tensor<1x1x48x256xsi32>
     %cst_0 = const.Declare tensor<1x1x11x76725xsi32> = dense<0> : tensor<1x1x11x76725xsi32>
-    
+
     %out_confidence, %out_indices, %out_sizes = VPU.DetectionOutputSort(%arg0, %cst_0, %cst) {
         confidence_threshold = 0.20000000298023224 : f64,
         multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>,
         tilingStrategy = [1,1,4,1],
         top_k = 100 : i64
-    } : tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x32x256xsi32> -> tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>
+    } : tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>
     return %out_confidence, %out_indices, %out_sizes : tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>
 
     // CHECK-DAG:       [[CT:%.+]] = const.Declare tensor<1x1x2x76725xsi32> = dense<0> : tensor<1x1x11x76725xsi32>, [#const.SubView<[0, 0, 9, 0], [1, 1, 2, 76725]>]
     // CHECK-DAG:       [[CT_0:%.+]] = const.Declare tensor<1x1x3x76725xsi32> = dense<0> : tensor<1x1x11x76725xsi32>, [#const.SubView<[0, 0, 6, 0], [1, 1, 3, 76725]>]
     // CHECK-DAG:       [[CT_1:%.+]] = const.Declare tensor<1x1x3x76725xsi32> = dense<0> : tensor<1x1x11x76725xsi32>, [#const.SubView<[0, 0, 3, 0], [1, 1, 3, 76725]>]
-    // CHECK-DAG:       [[CT_2:%.+]] = const.Declare tensor<1x1x48x256xsi32> = dense<0> : tensor<1x1x32x256xsi32>, [#const.SubView<[0, 0, 0, 0], [1, 1, 48, 256]>]
+    // CHECK-DAG:       [[CT_2:%.+]] = const.Declare tensor<1x1x48x256xsi32> = dense<0> : tensor<1x1x48x256xsi32>
     // CHECK-DAG:       [[CT_3:%.+]] = const.Declare tensor<1x1x3x76725xsi32> = dense<0> : tensor<1x1x11x76725xsi32>, [#const.SubView<[0, 0, 0, 0], [1, 1, 3, 76725]>]
-    
+
     // CHECK:       [[SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 1, 3, 76725] : tensor<1x1x11x76725xf16> to tensor<1x1x3x76725xf16>
-    // CHECK:       [[OUT_CONFIDENCE0:%.+]], [[OUT_INDICES0:%.+]], [[OUT_SIZES0:%.+]] = VPU.DetectionOutputSort([[SLICE0]], [[CT_3]], [[CT_2]]) 
+    // CHECK:       [[OUT_CONFIDENCE0:%.+]], [[OUT_INDICES0:%.+]], [[OUT_SIZES0:%.+]] = VPU.DetectionOutputSort([[SLICE0]], [[CT_3]], [[CT_2]])
     // CHECK-SAME:      : tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x3x1xsi32>
-    
+
     // CHECK:       [[SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 0, 3, 0] [1, 1, 3, 76725] : tensor<1x1x11x76725xf16> to tensor<1x1x3x76725xf16>
     // CHECK:       [[OUT_CONFIDENCE1:%.+]], [[OUT_INDICES1:%.+]], [[OUT_SIZES1:%.+]] = VPU.DetectionOutputSort([[SLICE1]], [[CT_1]], [[CT_2]])
     // CHECK-SAME:      : tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x3x1xsi32>
 
-    
+
     // CHECK:       [[SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 0, 6, 0] [1, 1, 3, 76725] : tensor<1x1x11x76725xf16> to tensor<1x1x3x76725xf16>
     // CHECK:       [[OUT_CONFIDENCE2:%.+]], [[OUT_INDICES2:%.+]], [[OUT_SIZES2:%.+]] = VPU.DetectionOutputSort([[SLICE2]], [[CT_0]], [[CT_2]])
     // CHECK-SAME:      : tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xsi32>, tensor<1x1x3x1xsi32>
-    
-    
+
+
     // CHECK:       [[SLICE3:%.+]] = VPU.Slice [[INPUT]] [0, 0, 9, 0] [1, 1, 2, 76725] : tensor<1x1x11x76725xf16> to tensor<1x1x2x76725xf16>
     // CHECK:       [[OUT_CONFIDENCE3:%.+]], [[OUT_INDICES3:%.+]], [[OUT_SIZES3:%.+]] = VPU.DetectionOutputSort([[SLICE3]], [[CT]], [[CT_2]])
     // CHECK-SAME:      : tensor<1x1x2x76725xf16>, tensor<1x1x2x76725xsi32>, tensor<1x1x48x256xsi32> -> tensor<1x1x2x76725xf16>, tensor<1x1x2x76725xsi32>, tensor<1x1x2x1xsi32>
-    
+
     // CHECK:       [[OUT_CONFIDENCE:%.+]] = VPU.Concat([[OUT_CONFIDENCE0]], [[OUT_CONFIDENCE1]], [[OUT_CONFIDENCE2]], [[OUT_CONFIDENCE3]])
     // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0]
     // CHECK-SAME:      : tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xf16>, tensor<1x1x3x76725xf16>, tensor<1x1x2x76725xf16> -> tensor<1x1x11x76725xf16>
-    
+
     // CHECK:       [[OUT_INDICES:%.+]] = VPU.Concat([[OUT_INDICES0]], [[OUT_INDICES1]], [[OUT_INDICES2]], [[OUT_INDICES3]])
     // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0]
     // CHECK-SAME:      : tensor<1x1x3x76725xsi32>, tensor<1x1x3x76725xsi32>, tensor<1x1x3x76725xsi32>, tensor<1x1x2x76725xsi32> -> tensor<1x1x11x76725xsi32>
-    
+
     // CHECK:       [[OUT_SIZES:%.+]] = VPU.Concat([[OUT_SIZES0]], [[OUT_SIZES1]], [[OUT_SIZES2]], [[OUT_SIZES3]])
     // CHECK-SAME:          [0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 6, 0], [0, 0, 9, 0]
     // CHECK-SAME:      : tensor<1x1x3x1xsi32>, tensor<1x1x3x1xsi32>, tensor<1x1x3x1xsi32>, tensor<1x1x2x1xsi32> -> tensor<1x1x11x1xsi32>
-    
+
     // CHECK:       return [[OUT_CONFIDENCE]], [[OUT_INDICES]], [[OUT_SIZES]] : tensor<1x1x11x76725xf16>, tensor<1x1x11x76725xsi32>, tensor<1x1x11x1xsi32>
 }

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/NPU40XX/dialect/VPU/impl/convert_ops_to_dma_for_performant_execution_strategy.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -61,6 +62,41 @@ mlir::Value handleNegativeIndices(mlir::Value indices, ShapeRef dataShape, const
     return indices;
 }
 
+// Verify if adaption passes tiled Gather op on the dim after gather axis
+bool hasTilingDoneToBenefitAbsAddressing(VPU::GatherOp origOp) {
+    const auto gatherAxis = origOp.getAxisValue().value();
+    if (auto concatOp = mlir::dyn_cast_or_null<VPU::ConcatOp>(*origOp->getUsers().begin())) {
+        auto concatAxes = VPU::getConcatAxes(concatOp);
+
+        // Check tiling over 1 axis
+        if (concatAxes.size() != 1) {
+            return false;
+        }
+        if (*concatAxes.begin() != gatherAxis + 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Verify if multiclustering is needed and can be done on dim after gather axis
+bool canHaveMulticlusteringToBenefitAbsAddressing(VPU::GatherDMAOp origOp) {
+    auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(origOp.getOperation());
+    const auto gatherAxis = origOp.getAxisValue().value();
+
+    size_t numTile = VPU::getNumTiles(origOp);
+    if (gatherAxis == Dims4D::Act::C.ind() &&
+        clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverHeight, numTile)) {
+        return true;
+    }
+    if (gatherAxis == Dims4D::Act::H.ind() &&
+        clusteredOp.checkStrategyCompatibility(VPU::MultiClusterStrategy::SplitOverWidth, numTile)) {
+        return true;
+    }
+
+    return false;
+}
+
 mlir::LogicalResult MovetoDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), origOp->getName(), origOp.getLoc());
 
@@ -94,10 +130,18 @@ mlir::LogicalResult MovetoDMAGather::matchAndRewrite(VPU::GatherOp origOp, mlir:
     auto convertIndicesOp = rewriter.createOrFold<VPU::ConvertOp>(origOp->getLoc(), reshapeIndicesOp,
                                                                   mlir::TypeAttr::get(requiredType64));
 
-    auto gatherDMAOp = rewriter.create<VPU::GatherDMAOp>(origOp.getLoc(), origOp.getInput(), convertIndicesOp,
-                                                         origOp.getAxis(), origOp.getAxisValueAttr(),
-                                                         origOp.getBatchDims(), /*multiClusterStrategy*/ nullptr);
+    auto gatherDMAOp = rewriter.create<VPU::GatherDMAOp>(
+            origOp.getLoc(), origOp.getInput(), convertIndicesOp, origOp.getAxis(), origOp.getAxisValueAttr(),
+            origOp.getBatchDims(), /*multiClusterStrategy*/ nullptr, /*addressingMode*/ nullptr);
 
+    // TODO (E#175972) Set ABSOLUTE Addressing mode when feature is enabled.
+    // Until then will set default value as INDEXED addressing mode.
+    // In order to set ABSOLUTE addressing mode we need to have tiling in order to satisfy HW requirements,
+    // multiclustering and also tiling to fit in CMX done on the dim exactly after gather axis
+    // (eg. for NCHW tensor : gather axis - C  tiling and multiclustering done on H)
+    if (hasTilingDoneToBenefitAbsAddressing(origOp) && canHaveMulticlusteringToBenefitAbsAddressing(gatherDMAOp)) {
+        gatherDMAOp.setAddressingMode(VPU::GatherAddressingMode::INDEXED);
+    }
     auto reshapeOutOp =
             reshapeOperand(gatherDMAOp.getOutput(), outputType.getShape(), takeOpLoc(origOp, "reshape_output"));
 

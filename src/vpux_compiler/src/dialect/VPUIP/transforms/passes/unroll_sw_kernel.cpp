@@ -12,8 +12,8 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
-#include "vpux/compiler/utils/shave.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 
 #include <mlir/Transforms/GreedyPatternRewriteDriver.h>
@@ -209,11 +209,10 @@ VPURT::TaskOp SwKernelRewriter::createNewTaskOp(VPUIP::SwKernelOp swKernelOp, VP
                     swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(), swKernelOp.getInputStridesAttr(),
                     swKernelOp.getOutputStridesAttr());
         }
-        return newSwKernelOp = VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
-                       rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs,
-                       newOutBuffers, newProfilingBuffer, swKernelOp.getKernelFunctionAttr(),
-                       swKernelOp.getTileIndexAttr(), swKernelOp.getInputStridesAttr(),
-                       swKernelOp.getOutputStridesAttr());
+        return VPURT::wrapIntoTaskOp<VPUIP::SwKernelOp>(
+                rewriter, origTaskOp.getWaitBarriers(), origTaskOp.getUpdateBarriers(), opLoc, newInputs, newOutBuffers,
+                newProfilingBuffer, swKernelOp.getKernelFunctionAttr(), swKernelOp.getTileIndexAttr(),
+                swKernelOp.getInputStridesAttr(), swKernelOp.getOutputStridesAttr());
     }();
 
     if (maybeProfMeta != nullptr) {
@@ -273,7 +272,7 @@ void UnrollSwKernelPass::safeRunOnFunc() {
 
     bool swKernelFifoPerShaveEngine = enableSwKernelFifoPerShaveEngine.hasValue()
                                               ? enableSwKernelFifoPerShaveEngine.getValue()
-                                              : VPU::isFifoPerShaveEngineEnabled(func);
+                                              : config::isFifoPerShaveEngineEnabled(func);
     mlir::RewritePatternSet patterns(&ctx);
     patterns.insert<SwKernelRewriter>(&ctx, swKernelFifoPerShaveEngine, _log);
 

@@ -3,10 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "single_op_tests/eltwise.hpp"
 #include "common_test_utils/node_builders/eltwise.hpp"
 #include "common_test_utils/ov_tensor_utils.hpp"
 #include "openvino/op/convert.hpp"
+#include "single_op_tests/eltwise.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 using ov::test::utils::EltwiseTypes;
@@ -16,7 +16,114 @@ using ov::test::utils::OpType;
 namespace ov {
 namespace test {
 
-class EltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
+class EltwiseLayerTestCommon : public EltwiseLayerTest, virtual public VpuOv2LayerTest {
+    void SetUp() override;
+    // Helper for filling base tensor for POWER operation.
+    // Force only positive base values for stability in POWER tests.
+    template <typename T>
+    void fill_power_base_tensor(ov::Tensor& tensor) {
+        auto* data = tensor.data<T>();
+        for (size_t i = 0; i < tensor.get_size(); ++i) {
+            float val = static_cast<float>(data[i]);
+            if (val == 0.0f) {
+                val = 1.0f;
+            }
+            val = std::abs(val);
+            data[i] = static_cast<T>(val);
+        }
+    }
+
+    // Helper for filling exponent tensor for POWER operation.
+    // Scalars default to 0.5 to stress the fractional exponent path, while
+    // vector tensors still cycle through a mix of integer and fractional values.
+    template <typename T>
+    void fill_power_exp_tensor(ov::Tensor& tensor) {
+        auto* data = tensor.data<T>();
+        constexpr float exponents[] = {2.0f, 3.0f, 0.5f, -1.0f, -0.5f, 0.0f};
+        if (tensor.get_size() == 1) {
+            data[0] = static_cast<T>(0.5f);
+        } else {
+            constexpr size_t exponents_size = sizeof(exponents) / sizeof(exponents[0]);
+            for (size_t i = 0; i < tensor.get_size(); ++i) {
+                data[i] = static_cast<T>(exponents[i % exponents_size]);
+            }
+        }
+    }
+
+    void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
+        const auto eltwiseType = std::get<1>(GetParam());
+        const auto secondInputType = std::get<2>(GetParam());
+        const auto netPrecision = std::get<4>(GetParam());
+
+        // This block generates test inputs for POWER with positive bases and fractional/integer exponents
+        // expTensor: covers integer and fractional exponents
+        // Create and fill base tensor with values in positive range
+        // f16 is more prone to precision issues on large magnitudes; keep values smaller
+        if (eltwiseType == EltwiseTypes::POWER &&
+            (netPrecision == ov::element::f16 || netPrecision == ov::element::f32) &&
+            targetInputStaticShapes.size() == 2) {
+            ov::Tensor baseTensor = [&]() {
+                if (netPrecision == ov::element::f16) {
+                    return ov::test::utils::create_and_fill_tensor(netPrecision, targetInputStaticShapes[0], 5, 1, 1);
+                } else {
+                    return ov::test::utils::create_and_fill_tensor(netPrecision, targetInputStaticShapes[0], 11, 1, 1);
+                }
+            }();
+            ov::Tensor expTensor(netPrecision, targetInputStaticShapes[1]);
+            if (netPrecision == ov::element::f16) {
+                fill_power_base_tensor<ov::float16>(baseTensor);
+                fill_power_exp_tensor<ov::float16>(expTensor);
+            } else if (netPrecision == ov::element::f32) {
+                fill_power_base_tensor<float>(baseTensor);
+                fill_power_exp_tensor<float>(expTensor);
+            }
+            inputs[function->get_parameters()[0]] = baseTensor;
+            if (secondInputType == InputLayerType::PARAMETER) {
+                inputs[function->get_parameters()[1]] = expTensor;
+            }
+        } else {
+            EltwiseLayerTest::generate_inputs(targetInputStaticShapes);
+        }
+    }
+};
+
+void EltwiseLayerTestCommon::SetUp() {
+    EltwiseLayerTest::SetUp();
+
+    const auto params = GetParam();
+    const auto eltwiseType = std::get<1>(params);
+    const auto secondInputType = std::get<2>(params);
+    const auto netPrecision = std::get<4>(params);
+
+    if (eltwiseType != EltwiseTypes::POWER || secondInputType != InputLayerType::CONSTANT ||
+        !(netPrecision == ov::element::f16 || netPrecision == ov::element::f32)) {
+        return;
+    }
+
+    auto orderedOps = function->get_ordered_ops();
+    auto constantIt = std::find_if(orderedOps.begin(), orderedOps.end(), [](const std::shared_ptr<ov::Node>& node) {
+        return std::dynamic_pointer_cast<ov::op::v0::Constant>(node) != nullptr &&
+               node->get_friendly_name() == "param1";
+    });
+
+    if (constantIt == orderedOps.end()) {
+        return;
+    }
+
+    auto constantNode = std::dynamic_pointer_cast<ov::op::v0::Constant>(*constantIt);
+    ov::Tensor expTensor(netPrecision, constantNode->get_shape());
+
+    if (netPrecision == ov::element::f16) {
+        fill_power_exp_tensor<ov::float16>(expTensor);
+    } else {
+        fill_power_exp_tensor<float>(expTensor);
+    }
+
+    auto newConstant = std::make_shared<ov::op::v0::Constant>(expTensor);
+    newConstant->set_friendly_name(constantNode->get_friendly_name());
+    ov::replace_node(constantNode, newConstant);
+    function->validate_nodes_and_infer_types();
+}
 
 class EltwiseLayerTestF32Common : public EltwiseLayerTestCommon {
     void configure_model() override {

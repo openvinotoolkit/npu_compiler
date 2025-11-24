@@ -7,6 +7,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -14,6 +15,7 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/IE/transposed_convolution_utils.hpp"
@@ -42,6 +44,9 @@ bool vpux::VPU::NCEConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize()};
 
     const auto op = getOperation();
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");
     }
@@ -123,20 +128,25 @@ Shape vpux::VPU::NCEConvolutionOp::inferAlignedFilterShape(NDTypeInterface input
     const auto KY = rawFilterShape[Dims4D::Filter::KY];
     const auto KX = rawFilterShape[Dims4D::Filter::KX];
 
-    const auto IC = input.getShape()[Dims4D::Act::C];
+    // When IDU autopad is used and the weight pointers are computed during the inference by the DPU, the weight set
+    // must have the input channels aligned to 16 as a hardware requirement. For this reason, the filter shape is larger
+    // than normally expected, even though there are fewer than 16 channels for the input (due to IDU autopad)
+    const auto usesIDUAutopad = input.getShape()[Dims4D::Act::C] < VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    const auto weightSetsNeedPaddedIC =
+            usesIDUAutopad && getWeightsTable() == nullptr && getWeightTableDataPtr() == nullptr;
+    const auto IC =
+            weightSetsNeedPaddedIC ? VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT : input.getShape()[Dims4D::Act::C];
     const auto OC = output.getShape()[Dims4D::Act::C];
 
     const auto alignment = NCEInvariant::getAlignment(filter.getElementType());
-
     const auto remainder = (IC * KY * KX) % alignment;
 
     // In case IDU autopad is used (i.e. IC<16), the filter shape is always flattened and aligned
-    if (IC >= VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT && remainder == 0) {
+    if (remainder == 0 && !usesIDUAutopad) {
         return Shape{OC, IC, KY, KX};
     }
 
     const auto padding = (remainder > 0) ? (alignment - remainder) : 0;
-
     return Shape{OC, 1, 1, IC * KY * KX + padding};
 }
 
@@ -245,10 +255,12 @@ vpux::InputTiling vpux::VPU::NCEConvolutionOp::backInferTileInfo(const vpux::Til
                 VPU::getWeightsTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableScale()) {
-        inputTiling.tiles.push_back(VPU::getScaleTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getScaleTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
     if (nceOp.getWeightTableBias()) {
-        inputTiling.tiles.push_back(VPU::getBiasTableTile(this, outputTile));
+        inputTiling.tiles.push_back(
+                VPU::getBiasTableTile(this, outputTile, VPU::getWeightsChannelsAutopad(getOperation())));
     }
 
     return inputTiling;
@@ -375,6 +387,9 @@ bool VPU::NCEConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis))};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     const auto op = getOperation();
     if (mlir::failed(NCEInvariant::getWeightTableBuffers(op, buffers, OC))) {
         VPUX_THROW("getWeightTableBuffers function failed");

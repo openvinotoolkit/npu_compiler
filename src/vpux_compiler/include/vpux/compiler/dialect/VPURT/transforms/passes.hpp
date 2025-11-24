@@ -35,8 +35,10 @@ void buildBarrierLegalizationPipeline(
 std::unique_ptr<mlir::Pass> createCheckWlmPageSplitConstraintsPass(
         WorkloadManagementMode workloadManagementMode = WorkloadManagementMode::PWLM_V2_PAGES,
         Logger log = Logger::global());
+
 std::unique_ptr<mlir::Pass> createOptimizeBarriersSlotsUsagePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWlmInsertDummyBarriersInPagesPass(Logger log = Logger::global());
+
 std::unique_ptr<mlir::Pass> createWlmLegalizePagesForBarrierDmasPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWlmLegalizeSplitGraphToPagesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createWlmSplitGraphToPagesPass(Logger log = Logger::global());

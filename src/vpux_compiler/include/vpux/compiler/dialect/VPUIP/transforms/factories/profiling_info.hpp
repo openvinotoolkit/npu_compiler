@@ -6,7 +6,6 @@
 #pragma once
 
 #include <mlir/IR/Types.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 
 namespace vpux::VPUIP {

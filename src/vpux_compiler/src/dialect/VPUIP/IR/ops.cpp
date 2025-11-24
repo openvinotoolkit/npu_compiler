@@ -885,8 +885,11 @@ void vpux::VPUIP::VPUIPDialect::setupExtraInterfaces(mlir::DialectRegistry& regi
         VPU::RoPEOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::SDPAExtendedOp::attachInterface<SoftwareLayerOpModel>(*ctx);
         VPU::ExternalKernelOp::attachInterface<SoftwareLayerOpModel>(*ctx);
-        VPU::IncrementalSDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::FlashSDPAOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::YuvToRgbOp::attachInterface<SoftwareLayerOpModel>(*ctx);
+        VPU::ReduceMeanSquareOp::attachInterface<SoftwareLayerOpModel>(*ctx);
     });
 
     // When implementing a new SW core, remove the corresponding operation from setupExtraInterfacesAdditional

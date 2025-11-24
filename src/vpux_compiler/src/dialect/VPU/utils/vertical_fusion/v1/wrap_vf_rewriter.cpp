@@ -5,7 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/wrap_vf_rewriter.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
-
+#include "vpux/compiler/utils/attributes.hpp"
 namespace vpux::VPU::VF::v1 {
 
 bool WrapVFRewriter::opNeedsTobeWrapped(VPU::VerticalFusionOpInterface op) const {

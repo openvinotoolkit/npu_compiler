@@ -25,6 +25,55 @@
 #include "mlir/Dialect/Arith/Transforms/BufferizableOpInterfaceImpl.h"
 using namespace vpux;
 
+bool vpux::canBeBufferizedToCopies(VPU::ConcatOp concatOp) {
+    auto outType = concatOp.getOutput().getType();
+    return !mlir::isa<Core::DynamicDimsMaskTensorType>(outType);
+}
+
+bool vpux::canBeBufferizedToCopies(VPU::StridedSliceOp stridedSliceOp) {
+    if (IE::hasDynamicTensors(stridedSliceOp)) {
+        return false;
+    }
+
+    auto attrToVector = [&](mlir::ArrayAttr attr) {
+        if (attr == nullptr) {
+            return SmallVector<int64_t>{};
+        }
+        return parseIntArrayAttr<int64_t>(attr);
+    };
+
+    const auto beginsVec = attrToVector(stridedSliceOp.getBeginsAttrAttr());
+    const auto stridesVec = attrToVector(stridedSliceOp.getStridesAttrAttr());
+
+    if (beginsVec.size() != stridesVec.size()) {
+        return false;
+    }
+
+    if (beginsVec.empty() || stridesVec.empty()) {
+        return false;
+    }
+
+    // This is an oversimplified way of computing the required striding level and does not account parameters that can
+    // modify the striding level, such as ends, begins_mask, ends_mask, strides_mask etc.
+    int64_t stridingLevel = 0;
+    for (size_t index = 0; index < beginsVec.size(); ++index) {
+        if (beginsVec[index] != 0 || stridesVec[index] > 1 || stridesVec[index] < -1) {
+            ++stridingLevel;
+        }
+    }
+
+    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(config::getArch(stridedSliceOp));
+
+    return stridingLevel <= dmaEngineLimits.getMaxStrideCount();
+}
+
+bool vpux::canBeBufferizedToCast(VPU::PermuteCastOp op) {
+    const auto inputType = op.getInput().getType();
+    const auto outputType = op.getOutput().getType();
+    return !mlir::isa<Core::DynamicDimsMaskTensorType>(inputType) &&
+           !mlir::isa<Core::DynamicDimsMaskTensorType>(outputType);
+}
+
 namespace {
 
 //
@@ -294,7 +343,8 @@ mlir::LogicalResult vpux::bufferizeSWLayerOp(mlir::RewriterBase& rewriter, mlir:
 
     SmallVector<mlir::Value> finalResults;
     for (auto&& result : swKernelOp.getResults()) {
-        if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getMemSpace() == memSpaceCMX) {
+        if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getMemSpace() == memSpaceCMX &&
+            !op->getResult(result.getResultNumber()).use_empty()) {
             // Copy outputs that were mapped to CMX back to DDR
             log.trace("Create DDR buffer for output: {0}", result.getLoc());
             const auto outputBuffer = allocateBuffer(log, op->getLoc(), rewriter, result, nullptr);
@@ -341,120 +391,109 @@ mlir::LogicalResult vpux::bufferizeDistributedSWLayerOp(mlir::RewriterBase& rewr
 
 namespace {
 
-//
-// ConcatOpBufferizeModel
-//
-
 class ConcatOpBufferizeModel : public BufferizableOpInterfaceExternalModelBase<ConcatOpBufferizeModel, VPU::ConcatOp> {
 public:
     mlir::LogicalResult bufferizeImpl(VPU::ConcatOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::ConcatOp::Adaptor adaptor) const;
-};
-
-bool isLegalConcatOp(VPU::ConcatOp concatOp) {
-    auto outType = concatOp.getOutput().getType();
-    return !mlir::isa<Core::DynamicDimsMaskTensorType>(outType);
-}
-
-mlir::LogicalResult ConcatOpBufferizeModel::bufferizeImpl(VPU::ConcatOp origOp, mlir::RewriterBase& rewriter,
-                                                          const mlir::bufferization::BufferizationOptions& options,
-                                                          VPU::ConcatOp::Adaptor adaptor) const {
-    if (isLegalConcatOp(origOp)) {
-        return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+                                      VPU::ConcatOp::Adaptor adaptor) const {
+        if (canBeBufferizedToCopies(origOp)) {
+            return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+        }
+        SoftwareLayerOpBufferizeModel<VPU::ConcatOp> concatOpSoftwareModel;
+        return concatOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
     }
-    SoftwareLayerOpBufferizeModel<VPU::ConcatOp> concatOpSoftwareModel;
-    return concatOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
-}
-
-//
-// StridedSliceOpBufferizeModel
-//
+};
 
 class StridedSliceOpBufferizeModel :
         public BufferizableOpInterfaceExternalModelBase<StridedSliceOpBufferizeModel, VPU::StridedSliceOp> {
 public:
     mlir::LogicalResult bufferizeImpl(VPU::StridedSliceOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::StridedSliceOp::Adaptor adaptor) const;
+                                      VPU::StridedSliceOp::Adaptor adaptor) const {
+        if (canBeBufferizedToCopies(origOp)) {
+            return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+        }
+
+        SoftwareLayerOpBufferizeModel<VPU::StridedSliceOp> stridedSliceOpSoftwareModel;
+        return stridedSliceOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
+    }
 };
-
-bool isLegalStridedSliceOp(VPU::StridedSliceOp stridedSliceOp) {
-    if (IE::hasDynamicTensors(stridedSliceOp)) {
-        return false;
-    }
-
-    auto attrToVector = [&](mlir::ArrayAttr attr) {
-        if (attr == nullptr) {
-            return SmallVector<int64_t>{};
-        }
-        return parseIntArrayAttr<int64_t>(attr);
-    };
-
-    const auto beginsVec = attrToVector(stridedSliceOp.getBeginsAttrAttr());
-    const auto stridesVec = attrToVector(stridedSliceOp.getStridesAttrAttr());
-
-    if (beginsVec.size() != stridesVec.size()) {
-        return false;
-    }
-
-    if (beginsVec.empty() || stridesVec.empty()) {
-        return false;
-    }
-
-    // This is an oversimplified way of computing the required striding level and does not account parameters that can
-    // modify the striding level, such as ends, begins_mask, ends_mask, strides_mask etc.
-    int64_t stridingLevel = 0;
-    for (size_t index = 0; index < beginsVec.size(); ++index) {
-        if (beginsVec[index] != 0 || stridesVec[index] > 1 || stridesVec[index] < -1) {
-            ++stridingLevel;
-        }
-    }
-
-    const auto& dmaEngineLimits = VPUIP::DMA::getEngineLimits(config::getArch(stridedSliceOp));
-
-    return stridingLevel <= dmaEngineLimits.getMaxStrideCount();
-}
-
-mlir::LogicalResult StridedSliceOpBufferizeModel::bufferizeImpl(
-        VPU::StridedSliceOp origOp, mlir::RewriterBase& rewriter,
-        const mlir::bufferization::BufferizationOptions& options, VPU::StridedSliceOp::Adaptor adaptor) const {
-    if (isLegalStridedSliceOp(origOp)) {
-        return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
-    }
-
-    SoftwareLayerOpBufferizeModel<VPU::StridedSliceOp> stridedSliceOpSoftwareModel;
-    return stridedSliceOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
-}
-
-//
-// PermuteCastOpBufferizeModel
-//
 
 class PermuteCastOpBufferizeModel :
         public BufferizableOpInterfaceExternalModelBase<PermuteCastOpBufferizeModel, VPU::PermuteCastOp> {
 public:
     mlir::LogicalResult bufferizeImpl(VPU::PermuteCastOp origOp, mlir::RewriterBase& rewriter,
                                       const mlir::bufferization::BufferizationOptions& options,
-                                      VPU::PermuteCastOp::Adaptor adaptor) const;
+                                      VPU::PermuteCastOp::Adaptor adaptor) const {
+        if (canBeBufferizedToCast(origOp)) {
+            return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+        }
+
+        SoftwareLayerOpBufferizeModel<VPU::PermuteCastOp> permuteCastOpSoftwareModel;
+        return permuteCastOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
+    }
 };
 
-bool isLegalPermuteCastOp(VPU::PermuteCastOp op) {
-    const auto inputType = op.getInput().getType();
-    const auto outputType = op.getOutput().getType();
-    return !mlir::isa<Core::DynamicDimsMaskTensorType>(inputType) &&
-           !mlir::isa<Core::DynamicDimsMaskTensorType>(outputType);
-}
+class ConvertOpBufferizeModel :
+        public BufferizableOpInterfaceExternalModelBase<ConvertOpBufferizeModel, VPU::ConvertOp> {
+public:
+    mlir::LogicalResult bufferizeImpl(VPU::ConvertOp origOp, mlir::RewriterBase& rewriter,
+                                      const mlir::bufferization::BufferizationOptions& options,
+                                      VPU::ConvertOp::Adaptor adaptor) const {
+        // If conversion can be done on DMA, bufferize it to DMA operation.
+        if (isConvertSupportedOnDMA<VPU::ConvertOp>(origOp)) {
+            return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+        }
 
-mlir::LogicalResult PermuteCastOpBufferizeModel::bufferizeImpl(VPU::PermuteCastOp origOp, mlir::RewriterBase& rewriter,
-                                                               const mlir::bufferization::BufferizationOptions& options,
-                                                               VPU::PermuteCastOp::Adaptor adaptor) const {
-    if (isLegalPermuteCastOp(origOp)) {
-        return vpux::bufferizeOp(origOp->getContext(), origOp, adaptor, rewriter);
+        // If ConvertOp can not be converted to DMA operation, bufferize it to software layer operation instead.
+        SoftwareLayerOpBufferizeModel<VPU::ConvertOp> convertOpSoftwareModel;
+        return convertOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
     }
+};
 
-    SoftwareLayerOpBufferizeModel<VPU::PermuteCastOp> permuteCastOpSoftwareModel;
-    return permuteCastOpSoftwareModel.bufferizeImpl(origOp, rewriter, options, adaptor);
+class FlashSDPAModel : public BufferizableOpInterfaceExternalModelBase<FlashSDPAModel, VPU::FlashSDPAOp> {
+public:
+    mlir::LogicalResult bufferizeImpl(VPU::FlashSDPAOp origOp, mlir::RewriterBase& rewriter,
+                                      const mlir::bufferization::BufferizationOptions& options,
+                                      VPU::FlashSDPAOp::Adaptor adaptor) const;
+};
+
+mlir::LogicalResult FlashSDPAModel::bufferizeImpl(VPU::FlashSDPAOp flashSdpaOp, mlir::RewriterBase& rewriter,
+                                                  const mlir::bufferization::BufferizationOptions&,
+                                                  VPU::FlashSDPAOp::Adaptor) const {
+    auto log = Logger::global().nest("one-shot-bufferize-FlashSDPAOp", 0);
+    log.trace("Got {0} at {1}", flashSdpaOp->getName(), flashSdpaOp->getLoc());
+
+    auto bufferizedOperands = vpux::bufferizeOperands(rewriter, flashSdpaOp->getOperands());
+
+    auto module = flashSdpaOp->getParentOfType<mlir::ModuleOp>();
+    if (module == nullptr) {
+        return errorAt(flashSdpaOp->getLoc(), "Operation {0} has no parent Module Op", flashSdpaOp->getName());
+    }
+    VPUIP::createRuntimeKernelDefinition(module, log.nest(), config::getArch(flashSdpaOp));
+
+    // The last output is aliased with the first input.
+    // It will re-use the input's buffer, instead of allocating a separate one
+    auto tensorsToBufferize = flashSdpaOp->getResults().drop_back();
+    auto outputBuffers = allocateBuffers(log, flashSdpaOp->getLoc(), rewriter, tensorsToBufferize,
+                                         /*individualBuffers=*/true);
+    auto queryBuffer = bufferizedOperands.front();
+    outputBuffers.push_back(queryBuffer);
+
+    auto layerOp = mlir::cast<VPU::LayerOpInterface>(flashSdpaOp.getOperation());
+    auto swLayerOp = mlir::cast<VPUIP::SoftwareLayerOpInterface>(flashSdpaOp.getOperation());
+    auto builtInFunction = createBuiltInFunction(module, layerOp, bufferizedOperands, outputBuffers,
+                                                 swLayerOp.getKernelInfo(), log.nest());
+
+    auto tileIndexAttr = getIntAttr(flashSdpaOp->getContext(), 0);
+    auto swKernelOp = rewriter.create<VPUIP::SwKernelOp>(flashSdpaOp->getLoc(), bufferizedOperands, outputBuffers,
+                                                         builtInFunction, tileIndexAttr);
+
+    vpux::VPUIP::initSwKernel(swKernelOp, bufferizedOperands, outputBuffers, swLayerOp.getKernelInfo().args, log.nest(),
+                              /*swKernelRunOp=*/nullptr);
+
+    mlir::bufferization::replaceOpWithBufferizedValues(rewriter, flashSdpaOp, swKernelOp.getResults());
+    return mlir::success();
 }
 
 }  // namespace
@@ -465,8 +504,10 @@ mlir::LogicalResult PermuteCastOpBufferizeModel::bufferizeImpl(VPU::PermuteCastO
 
 void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& registry) {
     registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*, VPUIP::VPUIPDialect*) {
+        VPU::ConcatOp::attachInterface<ConcatOpBufferizeModel>(*ctx);
         VPU::StridedSliceOp::attachInterface<StridedSliceOpBufferizeModel>(*ctx);
         VPU::PermuteCastOp::attachInterface<PermuteCastOpBufferizeModel>(*ctx);
+        VPU::ConvertOp::attachInterface<ConvertOpBufferizeModel>(*ctx);
         VPU::SigmoidOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SigmoidOp>>(*ctx);
         VPU::HardSigmoidOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::HardSigmoidOp>>(*ctx);
         VPU::GridSampleOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::GridSampleOp>>(*ctx);
@@ -638,7 +679,6 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::NonZeroOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::NonZeroOp>>(*ctx);
         VPU::DynamicReshapeOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicReshapeOp>>(*ctx);
         VPU::DynamicTileOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicTileOp>>(*ctx);
-        VPU::ConcatOp::attachInterface<ConcatOpBufferizeModel>(*ctx);
         VPU::RMSOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RMSOp>>(*ctx);
         VPU::InverseOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::InverseOp>>(*ctx);
         VPU::DeformableConvolutionOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DeformableConvolutionOp>>(
@@ -649,8 +689,10 @@ void vpux::registerSoftwareLayerBufferizableOpInterfaces(mlir::DialectRegistry& 
         VPU::ExternalKernelOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ExternalKernelOp>>(*ctx);
         VPU::RoPEOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::RoPEOp>>(*ctx);
         VPU::SDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SDPAOp>>(*ctx);
+        VPU::SDPAExtendedOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::SDPAExtendedOp>>(*ctx);
         VPU::DynamicDataMaskOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::DynamicDataMaskOp>>(*ctx);
-        VPU::IncrementalSDPAOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::IncrementalSDPAOp>>(*ctx);
+        VPU::FlashSDPAOp::attachInterface<FlashSDPAModel>(*ctx);
+        VPU::ReduceMeanSquareOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ReduceMeanSquareOp>>(*ctx);
     });
     mlir::linalg::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);

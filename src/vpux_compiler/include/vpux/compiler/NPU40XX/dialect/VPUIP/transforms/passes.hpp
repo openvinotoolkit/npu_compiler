@@ -5,10 +5,8 @@
 
 #pragma once
 
-#include "vpux/compiler/NPU37XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/NPU40XX/core/pipelines_options.hpp"
 
-#include "vpux/compiler/dialect/VPU/utils/dry_run_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPUIP/transforms/pipelines_options.hpp"
 
@@ -16,32 +14,6 @@ namespace vpux {
 namespace VPUIP {
 namespace arch40xx {
 
-//
-// Passes
-//
-
-std::unique_ptr<mlir::Pass> createComputeTaskStrippingPass(
-        Logger log = Logger::global(), VPU::DPUDryRunMode dryRunStripTarget = VPU::DPUDryRunMode::NONE,
-        bool shaveDryRun = false);
-
-std::unique_ptr<mlir::Pass> createComputeHaloRegionForDPUTaskOpPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDMATaskProfilingHwDdrPass(const std::string& enableDMAProfiling = "true",
-                                                            Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createConstantDpuProfHwpBasePass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createCompressSpillDmaPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDMAOutOfOrderOptimizationPass(
-        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
-
-std::unique_ptr<mlir::Pass> createUnrollDistributedOpsPass(Logger log = Logger::global(),
-                                                           bool enableSegmentedDmaFusion = false);
-std::unique_ptr<mlir::Pass> createOptimizeConvertDMAOpPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createAddStartBarrierPass(
-        std::optional<WorkloadManagementMode> workloadManagementMode = std::nullopt, Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createDetectDMASplitCandidatePass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createSplitDMAToBalanceLoadPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createFuseSegmentedDmaPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createLegalizeScheduleForPartialWlmFetchDmasPass(
-        const int virtualBarrierThreshold = VIRTUAL_BARRIER_THRESHOLD_WLM, Logger log = Logger::global());
 //
 // Memory allocation pipeline
 //
@@ -95,7 +67,6 @@ void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& o
 //
 
 void registerVPUIPPipelines();
-void registerPasses();
 
 }  // namespace arch40xx
 }  // namespace VPUIP

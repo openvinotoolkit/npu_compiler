@@ -33,30 +33,30 @@ mlir::LogicalResult vpux::IE::ReverseSequenceOp::inferReturnTypeComponents(
     }
 
     const auto seqShape = getShape(rev.getSeqLength());
-
-    if (seqShape.size() != 1) {
-        return errorAt(loc, "Second input tensor should be 1D Tensor. Got {0}D tensor", seqShape.size());
-    }
-
     const auto dataDims = checked_cast<int64_t>(dataShape.size());
+    const auto batchAxis = rev.getBatchAxis();
 
-    const auto batch_axis = rev.getBatchAxis();
-
-    if (batch_axis >= dataDims || batch_axis < -dataDims) {
+    if (batchAxis >= dataDims || batchAxis < -dataDims) {
         return errorAt(loc, "ReverseSequence Parameter batch axis {0} out of the tensor rank range [{1}, {2}].",
-                       batch_axis, -dataDims, dataDims - 1);
+                       batchAxis, -dataDims, dataDims - 1);
     }
 
-    const auto seq_axis = rev.getSeqAxis();
+    const auto seqAxis = rev.getSeqAxis();
 
-    if (seq_axis >= dataDims || seq_axis < -dataDims) {
+    if (seqAxis >= dataDims || seqAxis < -dataDims) {
         return errorAt(loc, "ReverseSequence Parameter sequence axis {0} out of the tensor rank range [{1}, {2}].",
-                       seq_axis, -dataDims, dataDims - 1);
+                       seqAxis, -dataDims, dataDims - 1);
     }
 
-    if (seqShape[Dims4D::Act::N] != dataShape[batch_axis]) {
+    const auto batchAxisNorm = (batchAxis < 0) ? (batchAxis + dataDims) : batchAxis;
+    const auto seqCheckAxis = (seqShape.size() == 1) ? Dim(0) : Dim(batchAxisNorm);
+    if (static_cast<size_t>(seqCheckAxis.ind()) >= seqShape.size()) {
+        return errorAt(loc, "Sequence-lengths axis check {0} exceeds sequence-lengths rank {1}", seqCheckAxis.ind(),
+                       seqShape.size());
+    }
+    if (seqShape[seqCheckAxis] != dataShape[batchAxisNorm]) {
         return errorAt(loc, "Sequence lengths input size {0} is not equal to batch axis dimension of data input {1}",
-                       seqShape[Dims4D::Act::N], dataShape[batch_axis]);
+                       seqShape[seqCheckAxis], dataShape[batchAxisNorm]);
     }
 
     const auto elementType = dataType.getElementType();

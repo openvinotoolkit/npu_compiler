@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/transforms/rewriters/propagate_transpose_affine_reshape_common.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -25,10 +26,105 @@ using namespace vpux;
 
 namespace {
 
+// These handle cases where weights have spatial dimensions that need to be moved to channel position for ScaleShift
+// H_EXPAND_PERMUTATION: For weights with shape [1, 1, H, 1] where H > 1
+// Transforms [N=1, C=1, H=spatial, W=1] -> [N=1, C=spatial, H=1, W=1] via permutation (0,2,1,3)
+// Example: [1, 1, 64, 1] -> [1, 64, 1, 1] to make it compatible with ScaleShift channel broadcasting
+constexpr std::array<unsigned, 4> H_EXPAND_PERMUTATION = {0, 2, 1, 3};  // [N, H, C, W]
+// W_EXPAND_PERMUTATION: For weights with shape [1, 1, 1, W] where W > 1
+// Transforms [N=1, C=1, H=1, W=spatial] -> [N=1, C=spatial, H=1, W=1] via permutation (0,3,1,2)
+// Example: [1, 1, 1, 128] -> [1, 128, 1, 1] to make it compatible with ScaleShift channel broadcasting
+constexpr std::array<unsigned, 4> W_EXPAND_PERMUTATION = {0, 3, 1, 2};  // [N, W, C, H]
+// H_EXPAND_INVERSE: Restores original layout after ScaleShift operation for H-expanded case
+// Since H_EXPAND_PERMUTATION is self-inverse (swaps positions 1 and 2), inverse is same as forward
+constexpr std::array<unsigned, 4> H_EXPAND_INVERSE = {0, 2, 1, 3};  // Same as forward for H
+// W_EXPAND_INVERSE: Restores original layout after ScaleShift operation for W-expanded case
+// Reverses W_EXPAND_PERMUTATION: [N=1, C=result, H=1, W=1] -> [N=1, C=1, H=1, W=result]
+constexpr std::array<unsigned, 4> W_EXPAND_INVERSE = {0, 2, 3, 1};  // Inverse for W
+
 // To explicitly control the patterns exec order to assure dependency
 // benefitLevels[0] is highest benefit level and represent the relative pattern is the first one to run
 const uint32_t levelCount = 2;
 SmallVector<mlir::PatternBenefit> benefitLevels = getBenefitLevels(levelCount);
+
+struct TransposeInfo {
+    SmallVector<unsigned> permutation;
+    SmallVector<unsigned> inverse;
+    bool isHExpanded;
+
+    TransposeInfo(bool hExpanded): isHExpanded(hExpanded) {
+        if (hExpanded) {
+            permutation = {H_EXPAND_PERMUTATION.begin(), H_EXPAND_PERMUTATION.end()};
+            inverse = {H_EXPAND_INVERSE.begin(), H_EXPAND_INVERSE.end()};
+        } else {
+            permutation = {W_EXPAND_PERMUTATION.begin(), W_EXPAND_PERMUTATION.end()};
+            inverse = {W_EXPAND_INVERSE.begin(), W_EXPAND_INVERSE.end()};
+        }
+    }
+};
+
+// Helper function to check if weights need spatial transpose
+std::optional<TransposeInfo> needsSpatialTranspose(ShapeRef weightsShape) {
+    static const auto N = Dims4D::Act::N;
+    static const auto C = Dims4D::Act::C;
+    static const auto H = Dims4D::Act::H;
+    static const auto W = Dims4D::Act::W;
+
+    if (weightsShape.size() != 4 || weightsShape[N] != 1 || weightsShape[C] != 1) {
+        return std::nullopt;
+    }
+
+    const bool hExpanded = (weightsShape[H] > 1 && weightsShape[W] == 1);
+    const bool wExpanded = (weightsShape[H] == 1 && weightsShape[W] > 1);
+
+    if (!hExpanded && !wExpanded) {
+        return std::nullopt;
+    }
+
+    return TransposeInfo(hExpanded);
+}
+
+// Helper function to compute transposed shape
+SmallVector<int64_t> computeTransposedShape(ShapeRef originalShape, const TransposeInfo& info) {
+    static const auto N = Dims4D::Act::N;
+    static const auto C = Dims4D::Act::C;
+    static const auto H = Dims4D::Act::H;
+    static const auto W = Dims4D::Act::W;
+
+    if (info.isHExpanded) {
+        return {originalShape[N], originalShape[H], originalShape[C], originalShape[W]};
+    } else {
+        return {originalShape[N], originalShape[W], originalShape[C], originalShape[H]};
+    }
+}
+
+// Helper function to validate if transpose operations would be feasible without creating them
+mlir::LogicalResult validateTransposeOperations(ShapeRef weightsShape, ShapeRef activationShape,
+                                                const TransposeInfo& transposeInfo) {
+    // Compute what the transposed shapes would be
+    auto transposedWeightsShape = computeTransposedShape(weightsShape, transposeInfo);
+    auto transposedActivationShape = computeTransposedShape(activationShape, transposeInfo);
+
+    // Check basic constraints that verifyAndBroadcastInput would enforce
+    if (transposedWeightsShape.size() != 4 || transposedActivationShape.size() != 4) {
+        return mlir::failure();
+    }
+
+    // Check if transposed weights shape would satisfy verifyAndBroadcastInput constraints
+    // For weights: [N, C, H, W] should be [1, ?, 1, 1] after transpose
+    if (transposedWeightsShape[0] != 1 || transposedWeightsShape[2] != 1 || transposedWeightsShape[3] != 1) {
+        return mlir::failure();
+    }
+
+    // Check channel compatibility between transposed weights and activation
+    // transposedWeightsShape[1] is the channel dimension after transpose
+    // transposedActivationShape[1] is the channel dimension after transpose
+    if (transposedWeightsShape[1] != transposedActivationShape[1] && transposedWeightsShape[1] != 1) {
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
 
 mlir::LogicalResult checkIfShapesAreBroadcastable(ArrayRef<int64_t> shape1, ArrayRef<int64_t> shape2,
                                                   IE::AutoBroadcastType broadcastType) {
@@ -96,27 +192,55 @@ bool checkIfNeedToCloneOpChain(mlir::Operation* chainOp, ShapeRef dataConstOpSha
     return false;
 }
 
-mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& input, vpux::ShapeRef inputShape,
-                                            vpux::ShapeRef outputShape, mlir::Value& newInput,
-                                            mlir::PatternRewriter& rewriter) {
+mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& input, Shape inputShape, Shape outputShape,
+                                            mlir::Value& newInput, mlir::PatternRewriter& rewriter,
+                                            mlir::Value activationInput = nullptr,
+                                            mlir::Value* transposedActivation = nullptr,
+                                            const std::optional<TransposeInfo>& transposeInfoValue = std::nullopt) {
     static const auto N = Dims4D::Act::N;
     static const auto C = Dims4D::Act::C;
     static const auto H = Dims4D::Act::H;
     static const auto W = Dims4D::Act::W;
 
-    if (outputShape.size() != 4 || inputShape.size() != 4) {
+    Shape newInputShape(std::move(inputShape));
+    Shape newOutputShape(std::move(outputShape));
+
+    // Handle spatial transpose if needed
+    if (transposeInfoValue.has_value() && activationInput && transposedActivation) {
+        auto transposeInfo = transposeInfoValue.value();
+        // For H/W-expanded weights requiring transpose, activation input must be constant or TransposeOp
+        auto preTransposeOp = activationInput.getDefiningOp<IE::TransposeOp>();
+        if (mlir::failed(IE::getConstParentOp(activationInput)) && preTransposeOp == nullptr) {
+            return mlir::failure();
+        }
+
+        // Validate that transpose operations would be feasible before creating them
+        auto activationShape = getShape(activationInput);
+        if (mlir::failed(validateTransposeOperations(newInputShape, activationShape, transposeInfo))) {
+            return mlir::failure();
+        }
+
+        // If transpose is needed, compute the transposed shapes for validation
+        SmallVector<int64_t> transposedActivationShape = computeTransposedShape(activationShape, transposeInfo);
+        SmallVector<int64_t> transposedWeightsShape = computeTransposedShape(newInputShape, transposeInfo);
+
+        newInputShape = Shape(transposedWeightsShape);
+        newOutputShape = Shape(transposedActivationShape);
+    }
+
+    if (newOutputShape.size() != 4 || newInputShape.size() != 4) {
         return mlir::failure();
     }
-    if (inputShape[N] != 1 || inputShape[H] != 1 || inputShape[W] != 1) {
+    if (newInputShape[N] != 1 || newInputShape[H] != 1 || newInputShape[W] != 1) {
         return mlir::failure();
     }
 
-    if (inputShape[C] != outputShape[C] && inputShape[C] != 1) {
+    if (newInputShape[C] != newOutputShape[C] && newInputShape[C] != 1) {
         return mlir::failure();
     }
 
     // Broadcast scalar for all channels
-    if (inputShape[C] != outputShape[C] && inputShape[C] == 1) {
+    if (newInputShape[C] != newOutputShape[C] && newInputShape[C] == 1) {
         SmallVector<mlir::Operation*> opsVec;
         Const::DeclareOp input2Const = nullptr;
         // Convert [Const] -> [optional several Reshapes]-> [optional FQ] -> [optional several Reshapes] ->
@@ -143,7 +267,7 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
             return mlir::failure();
         }
 
-        Const::ContentAttr dataAttr = input2Const.transformContentAttr().broadcast(C, outputShape[C]).get();
+        Const::ContentAttr dataAttr = input2Const.transformContentAttr().broadcast(C, newOutputShape[C]).get();
 
         if (dataAttr == nullptr) {
             return mlir::failure();
@@ -186,6 +310,28 @@ mlir::LogicalResult verifyAndBroadcastInput(mlir::Location loc, mlir::Value& inp
                 newInput = input;
             }
         }
+    }
+
+    // Create transpose operations if needed (after shape validation and broadcasting)
+    if (transposeInfoValue.has_value() && activationInput && transposedActivation) {
+        auto transposeInfo = transposeInfoValue.value();
+        auto transposeOrderAttr = mlir::AffineMapAttr::get(
+                mlir::AffineMap::getPermutationMap(transposeInfo.permutation, rewriter.getContext()));
+
+        // Lambda function to create transpose operations
+        auto createTransposeOp = [&](mlir::Value inputValue, mlir::Location opLoc) -> mlir::Value {
+            auto inputType = mlir::cast<mlir::ShapedType>(inputValue.getType());
+            auto transposedShape = computeTransposedShape(getShape(inputValue), transposeInfo);
+            auto outputType = inputType.clone(transposedShape);
+
+            auto transposeOp =
+                    rewriter.create<IE::TransposeOp>(opLoc, outputType, inputValue, nullptr, transposeOrderAttr);
+            return transposeOp.getResult();
+        };
+
+        // Create transpose operations using the lambda
+        *transposedActivation = createTransposeOp(activationInput, appendLoc(loc, "trans_activation"));
+        input = createTransposeOp(input, appendLoc(loc, "trans_weights"));
     }
 
     return mlir::success();
@@ -246,7 +392,9 @@ mlir::LogicalResult ConvertBiasToScaleShift<BiasTypeOp>::matchAndRewrite(BiasTyp
     auto biasesShape = getShape(biasInput);
 
     auto newInput = biasInput;
-    if (verifyAndBroadcastInput(biasOp.getLoc(), biasInput, biasesShape, mulOutShape, newInput, rewriter).failed()) {
+    if (verifyAndBroadcastInput(biasOp.getLoc(), biasInput, Shape(biasesShape), Shape(mulOutShape), newInput, rewriter,
+                                nullptr, nullptr, std::nullopt)
+                .failed()) {
         _log.nest().trace("op {0} input cannot be broadcast", biasOp->getName());
         return mlir::failure();
     }
@@ -335,21 +483,29 @@ bool isBeneficialToConvertMultiplyToScaleShift(ShapeRef activationShape, ShapeRe
 mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp mulOp,
                                                                  mlir::PatternRewriter& rewriter) const {
     _log.trace("Got op {0} at {1}", mulOp->getName(), mulOp->getLoc());
-    const auto lhsType = mlir::cast<mlir::ShapedType>(mulOp.getInput1().getType());
-    const auto outShapeRes = mlir::cast<mlir::ShapedType>(mulOp.getOutput().getType());
+    auto mulOutShape = getShape(mulOp.getOutput());
+    auto lhsShape = getShape(mulOp.getInput1());
+    auto rhsShape = getShape(mulOp.getInput2());
+
+    // Choose the input that matches the output shape as activation
+    bool lhsIsActivation = (lhsShape == mulOutShape);
+    bool rhsIsActivation = (rhsShape == mulOutShape);
+
+    // If neither input matches output shape exactly, or both match, fall back to original logic
+    if (!lhsIsActivation && !rhsIsActivation) {
+        return mlir::failure();
+    }
 
     // From the ops definition, scale shift can only support F16
-    const auto lhsElementType = lhsType.getElementType();
-    if (!(lhsElementType.isF16())) {
+    const auto lhsElementType = mlir::cast<mlir::ShapedType>(mulOp.getInput1().getType()).getElementType();
+    if (!lhsElementType.isF16()) {
         _log.trace("Could not convert to scale shift due to input data type is not FP16");
         return mlir::failure();
     }
 
-    bool lhsIsActivation = (lhsType == outShapeRes);
     mlir::Value activationInput = lhsIsActivation ? mulOp.getInput1() : mulOp.getInput2();
     mlir::Value weightsInput = lhsIsActivation ? mulOp.getInput2() : mulOp.getInput1();
 
-    auto mulOutShape = getShape(mulOp.getOutput());
     auto weightsShape = getShape(weightsInput);
     auto activationShape = getShape(activationInput);
 
@@ -363,31 +519,36 @@ mlir::LogicalResult ConvertMultiplyToScaleShift::matchAndRewrite(IE::MultiplyOp 
     }
 
     auto newInput = weightsInput;
-    if (verifyAndBroadcastInput(mulOp.getLoc(), weightsInput, weightsShape, mulOutShape, newInput, rewriter).failed()) {
+    mlir::Value transposedActivation = activationInput;
+    std::optional<TransposeInfo> transposeInfo = needsSpatialTranspose(weightsShape);
+
+    // Verify and broadcast input, handling transpose if needed
+    if (verifyAndBroadcastInput(mulOp.getLoc(), newInput, Shape(weightsShape), Shape(mulOutShape), newInput, rewriter,
+                                activationInput, &transposedActivation, transposeInfo)
+                .failed()) {
         return mlir::failure();
     }
 
-    // Convert:
-    //
-    // Tensor                 Const
-    //    |                     |
-    //    |                     |
-    //    |                     |
-    //     \_____MultiplyOp____/
-    //               |
-    //
-    // To:
-    //
-    // Tensor             NewConst
-    //    |                  |
-    //    |                  |
-    //    |                  |
-    //     \___ScaleShift___/
-    //              |
+    // Create ScaleShift operation
+    _log.nest().trace("Replacing {0} with ScaleShift", mulOp->getName());
+    auto scaleShiftOp = rewriter.create<IE::ScaleShiftOp>(
+            takeOpLoc(mulOp, "as_scaleshift"), transposedActivation.getType(), transposedActivation, newInput, nullptr);
 
-    _log.nest().trace("replaced op {0} with ScaleShift", mulOp->getName());
-    rewriter.replaceOpWithNewOp<IE::ScaleShiftOp>(mulOp, mulOp.getType(), activationInput, newInput, nullptr);
+    // Apply inverse transpose if we did spatial transpose earlier
+    mlir::Value finalOutput = scaleShiftOp.getOutput();
+    if (transposeInfo) {
+        auto inverseTransposeOrderAttr = mlir::AffineMapAttr::get(
+                mlir::AffineMap::getPermutationMap(transposeInfo->inverse, rewriter.getContext()));
 
+        auto inverseTransposeOp =
+                rewriter.create<IE::TransposeOp>(appendLoc(mulOp.getLoc(), "restore_layout"), mulOp.getType(),
+                                                 finalOutput, nullptr, inverseTransposeOrderAttr);
+        finalOutput = inverseTransposeOp.getOutput();
+
+        _log.trace("Applied inverse transpose to restore original layout");
+    }
+
+    rewriter.replaceOp(mulOp, finalOutput);
     return mlir::success();
 }
 

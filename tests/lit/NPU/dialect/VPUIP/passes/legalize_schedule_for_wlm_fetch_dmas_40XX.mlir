@@ -14,10 +14,10 @@
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @NoLegalizationDueToFIFOOrdering attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -130,10 +130,10 @@ module @NoLegalizationDueToFIFOOrdering attributes {config.compilationMode = #co
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeWithJustDMAs attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -249,10 +249,10 @@ module @LegalizeWithJustDMAs attributes {config.compilationMode = #config.compil
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeGroupThreeWithSharedBarrier attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -367,10 +367,10 @@ module @LegalizeGroupThreeWithSharedBarrier attributes {config.compilationMode =
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeGroupsWithBothSharedBarriers attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -509,10 +509,10 @@ module @LegalizeGroupsWithBothSharedBarriers attributes {config.compilationMode 
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeWithJustDMAWithWaitingDMABeforeGrandParent attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -638,10 +638,10 @@ module @LegalizeWithJustDMAWithWaitingDMABeforeGrandParent attributes {config.co
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeWithBarrierAndDMAWithWaitingDMABeforeGrandParent attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -763,10 +763,10 @@ module @LegalizeWithBarrierAndDMAWithWaitingDMABeforeGrandParent attributes {con
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeGroupThreeWithSharedBarrierMultiTile attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -935,10 +935,10 @@ module @LegalizeGroupThreeWithSharedBarrierMultiTile attributes {config.compilat
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @LegalizeWithoutAnyDMAPresent attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware

@@ -5,10 +5,10 @@
 
 #include "vpux/compiler/dialect/VPU/utils/workload_split_utils.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 
 #include <vpu_cost_model.h>
@@ -144,7 +144,7 @@ void generateWorkloads(mlir::OpBuilder& builder, VPU::NCEOpInterface origOp,
     auto splitPool = to_std_vector(splitPoolSet);
     VPUX_THROW_WHEN(splitPool.empty(), "Workload split pool is empty");
 
-    const auto isAutopadODUEnabled = hasAutoPaddingODU(getModuleOp(origOp));
+    const auto isAutopadODUEnabled = config::hasAutoPaddingODU(getModuleOp(origOp));
 
     std::vector<int64_t> splitPoolCosts(splitPool.size(), 0);
     for (const auto ind : irange(splitPool.size())) {

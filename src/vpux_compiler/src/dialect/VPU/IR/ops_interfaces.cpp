@@ -404,6 +404,7 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::AccumulateOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AccumulateOp>>(*ctx);
         VPU::RMSOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RMSOp>>(*ctx);
         VPU::SDPAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SDPAOp>>(*ctx);
+        VPU::SDPAExtendedOp::attachInterface<SwLayerTilingInfoOpModel<VPU::SDPAExtendedOp>>(*ctx);
         VPU::RandomUniformOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RandomUniformOp>>(*ctx);
         VPU::AcoshOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AcoshOp>>(*ctx);
         VPU::AcosOp::attachInterface<SwLayerTilingInfoOpModel<VPU::AcosOp>>(*ctx);
@@ -416,11 +417,11 @@ void vpux::VPU::registerSWTilingInfoOpInterfaceCommon(mlir::DialectRegistry& reg
         VPU::GRUGatesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::GRUGatesOp>>(*ctx);
         VPU::LSTMGatesOp::attachInterface<SwLayerTilingInfoOpModel<VPU::LSTMGatesOp>>(*ctx);
         VPU::RollOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RollOp>>(*ctx);
-
         VPU::MVN1NormalizeOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MVN1NormalizeOp>>(*ctx);
         VPU::RoPEOp::attachInterface<SwLayerTilingInfoOpModel<VPU::RoPEOp>>(*ctx);
         VPU::CumSumOp::attachInterface<SwLayerTilingInfoOpModel<VPU::CumSumOp>>(*ctx);
         VPU::MultiplyOp::attachInterface<SwLayerTilingInfoOpModel<VPU::MultiplyOp>>(*ctx);
+        VPU::FlashSDPAOp::attachInterface<SwLayerTilingInfoOpModel<VPU::FlashSDPAOp>>(*ctx);
     });
 }
 

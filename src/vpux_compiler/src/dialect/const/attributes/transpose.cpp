@@ -79,7 +79,8 @@ vpux::NDTypeInterface vpux::Const::TransposeAttr::inferOutputType(vpux::NDTypeIn
     auto elemType = input.getElementType();
     if (auto perAxisType = mlir::dyn_cast<mlir::quant::UniformQuantizedPerAxisType>(elemType)) {
         auto inQuantizeDim = perAxisType.getQuantizedDimension();
-        auto outQuantizeDim = order.dimAt(inQuantizeDim).ind();
+        auto inOrder = input.getDimsOrder();
+        auto outQuantizeDim = order.dimPos(inOrder.dimAt(inQuantizeDim));
         elemType = changeAxis(perAxisType, outQuantizeDim);
     }
 

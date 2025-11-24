@@ -8,7 +8,6 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/native_attributes/distribution_info.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
@@ -28,11 +27,13 @@ class SiblingOpsAnalysis;
 class SparseTensorType;
 class SWOpInterface;
 class UnrolledTypeOp;
+class GatherDMAOp;
 struct OverlapDistributionParams;
 }  // namespace vpux::VPU
 
 namespace vpux::VPUIP {
 enum class NCETaskType : uint64_t;
+class DistributedBufferType;
 }  // namespace vpux::VPUIP
 
 namespace vpux {
@@ -351,6 +352,78 @@ TensorDistributionMap getDistributionMapFromDistributedType(vpux::NDTypeInterfac
  */
 mlir::FailureOr<OverlapDistributionParams> getSupportedPerClusterShapesAndOffsetsForSEPDWConv(
         VPU::ClusteredOpInterface clusteredOp, ShapeRef shape, int64_t numClusters, Dim tileDim, bool isBroadcasted);
+
+mlir::LogicalResult sameLayout(VPU::DistributedTensorType inDistributedType,
+                               VPU::DistributedTensorType outDistributedType, LogCb logCb = emptyLogCb);
+mlir::LogicalResult sameLayout(VPUIP::DistributedBufferType inDistributedType,
+                               VPUIP::DistributedBufferType outDistributedType, LogCb logCb = emptyLogCb);
+
+bool arePerClusterDistributionMemoryShapeAndOffsetsEqual(vpux::NDTypeInterface srcType,
+                                                         VPU::DistributionInfo& sourceDistribution,
+                                                         vpux::NDTypeInterface targetType,
+                                                         VPU::DistributionInfo& targetDistribution);
+
+bool arePerClusterMemoryShapeAndOffsetsEqual(vpux::NDTypeInterface sourceType,
+                                             const VPU::DistributionInfo& sourceDistribution,
+                                             const VPU::DistributionInfo& targetDistribution);
+
+mlir::LogicalResult areDistributionsCompatible(vpux::NDTypeInterface srcType, VPU::DistributionInfo& sourceAttr,
+                                               vpux::NDTypeInterface targetType, VPU::DistributionInfo& targetAttr,
+                                               const bool allowDifferentPerClusterMemoryView = false);
+
+template <typename T, std::enable_if_t<or_<std::is_same<VPU::DistributedTensorType, T>,
+                                           std::is_same<VPUIP::DistributedBufferType, T>>::value,
+                                       bool> = true>
+mlir::LogicalResult areDistributionAttrsCompatible(T sourceType, T targetType,
+                                                   const bool allowDifferentPerClusterMemoryView = false) {
+    auto inDistribution = VPU::DistributionInfo::getClassFromAttr(sourceType.getDistribution());
+    auto outDistribution = VPU::DistributionInfo::getClassFromAttr(targetType.getDistribution());
+    auto inType = mlir::cast<vpux::NDTypeInterface>(sourceType);
+    auto outType = mlir::cast<vpux::NDTypeInterface>(targetType);
+    return areDistributionsCompatible(inType, inDistribution, outType, outDistribution,
+                                      allowDifferentPerClusterMemoryView);
+}
+
+template <typename T, std::enable_if_t<or_<std::is_same<VPU::DistributedTensorType, T>,
+                                           std::is_same<VPUIP::DistributedBufferType, T>>::value,
+                                       bool> = true>
+mlir::LogicalResult isDistributedCastCompatible(T inDistributedType, T outDistributedType, LogCb logCb = emptyLogCb) {
+    if (inDistributedType.getShape() != outDistributedType.getShape()) {
+        logCb(formatv("Mismatch between shapes for input ({0}) and output ({1}).", inDistributedType.getShape(),
+                      outDistributedType.getShape()));
+        return mlir::failure();
+    }
+
+    if (areDistributionElementTypesCompatible(inDistributedType.getElementType(), outDistributedType.getElementType())
+                .failed()) {
+        logCb(formatv("Mismatch between element types for input ({0}) and output ({1}).",
+                      inDistributedType.getElementType(), outDistributedType.getElementType()));
+        return mlir::failure();
+    }
+
+    if (inDistributedType.getMemSpace() != outDistributedType.getMemSpace()) {
+        logCb(formatv("Mismatch between memspaces for input ({0}) and output ({1}).", inDistributedType.getMemSpace(),
+                      outDistributedType.getMemSpace()));
+        return mlir::failure();
+    }
+
+    const auto sameLayoutCheck = sameLayout(inDistributedType, outDistributedType, logCb);
+    if (sameLayoutCheck.failed()) {
+        return mlir::failure();
+    }
+
+    auto inDistribution = VPU::DistributionInfo::getClassFromAttr(inDistributedType.getDistribution());
+    auto outDistribution = VPU::DistributionInfo::getClassFromAttr(outDistributedType.getDistribution());
+    auto inType = mlir::cast<vpux::NDTypeInterface>(inDistributedType);
+    auto outType = mlir::cast<vpux::NDTypeInterface>(outDistributedType);
+    if (areDistributionsCompatible(inType, inDistribution, outType, outDistribution).failed()) {
+        logCb(formatv("Mismatch between distributionAttr for input ({0}) and output ({1}).",
+                      inDistributedType.getDistribution(), outDistributedType.getDistribution()));
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
 
 }  // namespace VPU
 }  // namespace vpux

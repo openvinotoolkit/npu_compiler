@@ -532,3 +532,19 @@ func.func @foldSliceConcatWhenDifferentAxis(%arg0 : tensor<1x128x96x64xf16>, %ar
     // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 64], [0, 0, 0, 128]]} : tensor<1x64x96x64xf16>, tensor<1x64x96x64xf16>, tensor<1x64x96x128xf16> -> tensor<1x64x96x256xf16>
     // CHECK:               return [[CONCAT]] : tensor<1x64x96x256xf16>
 }
+
+// -----
+
+#NC = affine_map<(d0, d1) -> (d0, d1)>
+// CHECK-LABEL: @ConcatDifferentBounds
+// CHECK-SAME:      [[INPUT_0:%.+]]: tensor<?x4xf32, {bounds = #const.OpaqueI64Elements<[200, 4]> : tensor<2xsi64>, order = #NC}>
+// CHECK-SAME:      [[INPUT_1:%.+]]: tensor<?x1xf32, {bounds = #const.OpaqueI64Elements<[200, 1]> : tensor<2xsi64>, order = #NC}>
+func.func @ConcatDifferentBounds(%arg0: tensor<?x4xf32, {bounds = #const.OpaqueI64Elements<[200, 4]> : tensor<2xsi64>, order = #NC}>, %arg1: tensor<?x1xf32, {bounds = #const.OpaqueI64Elements<[200, 1]> : tensor<2xsi64>, order = #NC}>) -> tensor<?x5xf32, {bounds = #const.OpaqueI64Elements<[200, 5]> : tensor<2xsi64>, order = #NC}> {
+    %0 = IE.Concat(%arg0, %arg1) {per_axis = #IE.Concat<axis = 1 : i64>} : tensor<?x4xf32, {bounds = #const.OpaqueI64Elements<[200, 4]> : tensor<2xsi64>, order = #NC}>, tensor<?x1xf32, {bounds = #const.OpaqueI64Elements<[200, 1]> : tensor<2xsi64>, order = #NC}> -> tensor<?x5xf32, {bounds = #const.OpaqueI64Elements<[200, 5]> : tensor<2xsi64>, order = #NC}>
+    return %0 : tensor<?x5xf32, {bounds = #const.OpaqueI64Elements<[200, 5]> : tensor<2xsi64>, order = #NC}>
+    
+    // CHECK:               [[CONCAT:%.*]] = IE.Concat([[INPUT_0]], [[INPUT_1]])
+    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0], [0, 4]]}
+    // CHECK-SAME:          tensor<?x4xf32, {bounds = #const.OpaqueI64Elements<[200, 4]> : tensor<2xsi64>, order = #NC}>, tensor<?x1xf32, {bounds = #const.OpaqueI64Elements<[200, 1]> : tensor<2xsi64>, order = #NC}> -> tensor<?x5xf32, {bounds = #const.OpaqueI64Elements<[200, 5]> : tensor<2xsi64>, order = #NC}>
+    // CHECK:               return [[CONCAT]] : tensor<?x5xf32, {bounds = #const.OpaqueI64Elements<[200, 5]> : tensor<2xsi64>, order = #NC}>
+}

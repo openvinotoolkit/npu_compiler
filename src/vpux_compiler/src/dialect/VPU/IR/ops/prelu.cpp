@@ -25,12 +25,16 @@ mlir::LogicalResult vpux::VPU::PReluOp::verify() {
                        slopeShape.size());
     }
 
-    if (inShape[Dims4D::Act::C.ind()] != slopeShape[Dims4D::Act::C.ind()] ||
-        slopeShape[Dims4D::Act::C.ind()] != slopeType.getShape().totalSize()) {
+    const bool isSlopeIdentical = (inShape == slopeShape);
+    const bool isPerChannel = (slopeShape[Dims4D::Act::N.ind()] == 1 &&
+                               slopeShape[Dims4D::Act::C.ind()] == inShape[Dims4D::Act::C.ind()] &&
+                               slopeShape[Dims4D::Act::H.ind()] == 1 && slopeShape[Dims4D::Act::W.ind()] == 1);
+
+    if (!isSlopeIdentical && !isPerChannel) {
         return errorAt(*this,
-                       "4D slope shape should have the last dim equal to the channel input dim, as broadcast with "
-                       "numpy values is not supported: {0} != {1}",
-                       inShape[Dims4D::Act::C.ind()], slopeShape[Dims4D::Act::C.ind()]);
+                       "Channel slope should be equal to the channel input dim, as broadcast with numpy values is not "
+                       "supported, or have the slope and input identical. Got input {0} and slope {1}",
+                       inShape, slopeShape);
     }
 
     return mlir::success();
@@ -60,6 +64,7 @@ mlir::LogicalResult vpux::VPU::PReluOp::inferReturnTypes(mlir::MLIRContext* ctx,
 vpux::InputTiling vpux::VPU::PReluOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger) {
     TileInfo inputTile(getShape(getInput()));
     TileInfo slopeTile(getShape(getNegativeSlope()));
+
     inputTile = outputTile;
     if (outputTile.shape[Dims4D::Act::C] != slopeTile.shape[Dims4D::Act::C]) {
         // Tile slope by channel, align the offsets and axis to outputTile

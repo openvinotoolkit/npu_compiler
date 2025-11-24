@@ -38,11 +38,11 @@ func.func @ConstFold() -> tensor<4x4xf32> {
 func.func @SwapAffineReshapeSubView_Trivial() -> tensor<1x1x3xf32> {
     %cst = const.Declare tensor<1x2x3xf32> = dense<1.0> : tensor<1x2x3xf32>
     %affine_reshape = VPU.AffineReshape(%cst) {dim_mapping=[[0], [1], [2]], shape_value=[1, 2, 3]} : tensor<1x2x3xf32> -> tensor<1x2x3xf32>
-    %slice = VPU.Slice %affine_reshape [0, 0, 1] [1, 1, 3] : tensor<1x2x3xf32> to tensor<1x1x3xf32>
+    %slice = VPU.Slice %affine_reshape [0, 1, 0] [1, 1, 3] : tensor<1x2x3xf32> to tensor<1x1x3xf32>
     return %slice : tensor<1x1x3xf32>
     // CHECK-NOT: VPU.AffineReshape
     // CHECK-NOT: VPU.Slice
-    // CHECK:     [[CST:%.+]] = const.Declare tensor<1x1x3xf32> = dense<1.000000e+00> : tensor<1x2x3xf32>, [#const.SubView<[0, 0, 1], [1, 1, 3]>]
+    // CHECK:     [[CST:%.+]] = const.Declare tensor<1x1x3xf32> = dense<1.000000e+00> : tensor<1x2x3xf32>, [#const.SubView<[0, 1, 0], [1, 1, 3]>]
     // CHECK:     return [[CST]]
 }
 

@@ -216,15 +216,6 @@ static_assert(sizeof(VpuDPUVariant) == 224, "VpuDPUVariant size != 224");
 static_assert(offsetof(VpuDPUVariant, invariant_) % 8 == 0, "Alignment error");
 static_assert(offsetof(VpuDPUVariant, invariant_index_) % 4 == 0, "Alignment error");
 
-struct VPU_ALIGNED_STRUCT(4) VpuResourceRequirements {
-    uint32_t nn_slice_length_;
-    uint8_t deprecated_[6]; // Deprecated member, do not reuse until next API major version update
-    uint8_t nn_slice_count_;
-    uint8_t nn_barriers_;
-};
-
-static_assert(sizeof(VpuResourceRequirements) == 12, "VpuResourceRequirements size != 12");
-
 struct VPU_ALIGNED_STRUCT(32) VpuDMATask {
     DmaDescriptor transaction_;
     VpuTaskSchedulingBarrierConfig barriers_sched_;

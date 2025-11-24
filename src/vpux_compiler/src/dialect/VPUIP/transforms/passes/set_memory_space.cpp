@@ -28,7 +28,7 @@ namespace {
 
 class SetMemorySpacePass final : public VPUIP::impl::SetMemorySpaceBase<SetMemorySpacePass> {
 public:
-    SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, Logger log);
+    SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, bool setMemorySpaceForFunctionBoundaries, Logger log);
 
 public:
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
@@ -40,11 +40,13 @@ private:
 
 private:
     VPUIP::MemKindCreateFunc _memKindCb;
+    bool _setMemorySpaceForFunctionBoundaries;
     VPU::MemoryKind _memKind{};
 };
 
-SetMemorySpacePass::SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, Logger log)
-        : _memKindCb(std::move(memKindCb)) {
+SetMemorySpacePass::SetMemorySpacePass(VPUIP::MemKindCreateFunc memKindCb, bool setMemorySpaceForFunctionBoundaries,
+                                       Logger log)
+        : _memKindCb(std::move(memKindCb)), _setMemorySpaceForFunctionBoundaries(setMemorySpaceForFunctionBoundaries) {
     VPUX_THROW_UNLESS(_memKindCb != nullptr, "Missing memKindCb");
     Base::initLogger(log, Base::getArgumentName());
 }
@@ -57,6 +59,10 @@ mlir::LogicalResult SetMemorySpacePass::initialize(mlir::MLIRContext* ctx) {
     const auto maybeMemKind = _memKindCb(memSpaceName.getValue());
     if (!maybeMemKind.has_value()) {
         return mlir::failure();
+    }
+
+    if (setMemorySpaceForFunctionBoundaries.hasValue()) {
+        _setMemorySpaceForFunctionBoundaries = setMemorySpaceForFunctionBoundaries.getValue();
     }
 
     _memKind = maybeMemKind.value();
@@ -134,7 +140,11 @@ void SetMemorySpacePass::safeRunOnModule() {
         }
 
         auto& aliasInfo = getChildAnalysis<AliasesInfo>(funcOp);
-        updateFunction(funcOp, aliasInfo);
+        // note: This is disabled in host-compile pipeline because the nestCallOp and host-side memrefs do not have
+        // memory space locations.
+        if (_setMemorySpaceForFunctionBoundaries) {
+            updateFunction(funcOp, aliasInfo);
+        }
 
         const auto allocOpCallback = [&](mlir::memref::AllocOp allocOp) {
             _log.trace("Got Alloc Operation '{0}'", allocOp->getLoc());
@@ -184,6 +194,8 @@ void SetMemorySpacePass::safeRunOnModule() {
 
 }  // namespace
 
-std::unique_ptr<mlir::Pass> vpux::VPUIP::createSetMemorySpacePass(MemKindCreateFunc memKindCb, Logger log) {
-    return std::make_unique<SetMemorySpacePass>(std::move(memKindCb), log);
+std::unique_ptr<mlir::Pass> vpux::VPUIP::createSetMemorySpacePass(MemKindCreateFunc memKindCb,
+                                                                  bool setMemorySpaceForFunctionBoundaries,
+                                                                  Logger log) {
+    return std::make_unique<SetMemorySpacePass>(std::move(memKindCb), setMemorySpaceForFunctionBoundaries, log);
 }

@@ -1942,7 +1942,7 @@ TEST_F(MLIR_ClusterShapeUtilsDeathTest, AlignedTensorDistribution) {
 
     const auto numClustersAttr = getIntAttr(&ctx, 4);
 
-    const auto elemType = mlir::Float16Type::get(&ctx);
+    const mlir::Type elemType = mlir::Float16Type::get(&ctx);
     const auto dimsOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(&ctx));
     const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
 
@@ -1958,17 +1958,11 @@ TEST_F(MLIR_ClusterShapeUtilsDeathTest, AlignedTensorDistribution) {
     const auto distributedAttr = VPU::DistributionInfoAttr::get(&ctx, distributionModeAttr, numTilesAttr, kernel, pads,
                                                                 strides, numClustersAttr, alignment, nullptr, nullptr,
                                                                 nullptr, nullptr, nullptr, nullptr);
+    const Const::OpaqueI64ElementsAttr dynamicDimsMask = nullptr;
 
-#if !defined(NDEBUG)
-    EXPECT_DEATH(VPU::DistributedTensorType::get(&ctx, shape, elemType, dimsOrder, dimsSpace, distributedAttr),
-                 "Overlapped cluster tiling does not support alignment on the same axis used for tiling");
-#else
-    const auto distributedType =
-            VPU::DistributedTensorType::get(&ctx, shape, elemType, dimsOrder, dimsSpace, distributedAttr);
-    EXPECT_TRUE(VPU::verify(mlir::detail::getDefaultDiagnosticEmitFn(&ctx), distributedType.getDistribution(),
-                            distributedType.getShape().raw())
-                        .failed());
-#endif
+    EXPECT_EQ(VPU::DistributedTensorType::getChecked(mlir::UnknownLoc::get(&ctx), &ctx, ArrayRef(shape), elemType,
+                                                     dimsOrder, dimsSpace, distributedAttr, dynamicDimsMask),
+              nullptr);
 }
 
 TEST_F(MLIR_NDTypeInterface, SubByteSegmentedDistributedTensorType) {

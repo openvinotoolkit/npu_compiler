@@ -5,10 +5,10 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_constraint_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -85,14 +85,14 @@ void SetupTilingConstraintPass::initializeFromOptions() {
 void SetupTilingConstraintPass::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    auto pipelineOptionsOp = VPU::getPipelineOptionsOp(getContext(), moduleOp);
+    auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     optionsBuilder =
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 
     auto largeFilterRatio =
             vpux::VPU::getFragmentationAvoidRatioPipeliningLargeWeights(config::getArch(getOperation()));
 
-    addConstant(optionsBuilder, pipelineOptionsOp, VPU::FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS,
+    addConstant(optionsBuilder, pipelineOptionsOp, config::FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS,
                 largeFilterRatio, _allowCustomValues);
 }
 

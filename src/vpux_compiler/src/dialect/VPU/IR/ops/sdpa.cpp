@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
@@ -99,13 +100,6 @@ bool vpux::VPU::SDPAOp::supportCycleCostCalculation() {
 // TilingBuilderOpInterface
 //
 
-void transferTilingInfo(vpux::TileInfo& dst, const vpux::TileInfo& src, SmallVector<vpux::Dim> dimsToTransfer) {
-    for (auto dim : dimsToTransfer) {
-        dst.shape[dim] = src.shape[dim];
-        dst.offsets[dim] = src.offsets[dim];
-    }
-}
-
 InputTiling vpux::VPU::SDPAOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger /*log*/) {
     TileInfo inQTile(getShape(getInputQ()));
     TileInfo inKTile(getShape(getInputK()));
@@ -165,4 +159,28 @@ mlir::FailureOr<OutputTiling> vpux::VPU::SDPAOp::getTilingStrategy(TilingMode ti
     SmallVector<int64_t> maxNumTiles;
     maxNumTiles = getMaxNumTilesWithAxesExclusion(op, /*axis:*/ {checked_cast<int64_t>(outputRank - 1)});
     return vpux::getSWLayerTilingStrategy(op, tilingMode, log, maxNumTiles);
+}
+
+SmallVector<mlir::Value> VPU::SDPAOp::getAuxiliaryBuffers() {
+    return {getDataStorage()};
+}
+
+mlir::LogicalResult VPU::SDPAOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
+    if (buffers.size() != 1 || buffers.front() == nullptr) {
+        return mlir::failure();
+    }
+    getDataStorageMutable().assign(buffers.front());
+    return mlir::success();
+}
+
+SmallVector<mlir::Type> VPU::SDPAOp::getBufferTypes() {
+    const auto inputVType = mlir::cast<vpux::NDTypeInterface>(getInputV().getType());
+    const auto outputType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+    const auto inputVShape = inputVType.getShape();
+    const auto outputShape = outputType.getShape();
+    const auto vH = inputVShape[Dim(3)];
+    const auto numHeads = outputShape[Dim(1)];
+    const auto oH = outputShape[Dim(2)];
+    const auto auxBuffType = mlir::RankedTensorType::get({1, numHeads, oH, 4 * vH}, getUInt8Type(getContext()));
+    return {auxBuffType};
 }

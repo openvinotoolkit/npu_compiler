@@ -874,4 +874,3 @@ func.func @DontUnrollMatMulForDequantize(%INPUT: tensor<1x1024x3584x!qElemType>,
 
     // CHECK:   return [[GEMM]]
 }
-

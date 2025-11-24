@@ -17,9 +17,7 @@ namespace test {
 
 class RandomLayerTestCommon : public RandomUniformLayerTest, virtual public VpuOv2LayerTest {
     // TODO: E#92001 Resolve the dependency of dummy parameter for layer with all constant inputs
-    // OpenVino 'SetUp' builds the test-ngraph without any Parameter (since inputs are Constants) => Exception:
-    // "/vpux-plugin/src/vpux_imd_backend/src/infer_request.cpp:73 No information about network's output/input"
-    // So cloning locally 'SetUp' and providing a 'dummy' Parameter
+    // OpenVino 'SetUp' builds the test-ngraph without any Parameter (since inputs are Constants)
 
     template <ov::element::Type_t e>
     std::shared_ptr<ov::op::v0::Constant> createRangeConst(const fundamental_type_for<e>& value) {

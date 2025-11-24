@@ -191,7 +191,7 @@ mlir::RankedTensorType FuseConstants::getFusedConstantType(vpux::ConstantFusing:
     // use F16 type if the fused constant
     // is to be dominated by this type
     if (jointF16ConstantSize * 2 > totalTensorSize) {
-        auto fusedConstantElementType = mlir::FloatType::getF16(rewriter.getContext());
+        auto fusedConstantElementType = mlir::Float16Type::get(rewriter.getContext());
         SmallVector<int64_t> fusedConstShape({1, 1, 1, totalTensorSize / 2});
         fusedTensorType = mlir::RankedTensorType::get(fusedConstShape, fusedConstantElementType);
     } else {

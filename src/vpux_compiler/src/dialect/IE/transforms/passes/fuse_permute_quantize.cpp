@@ -164,10 +164,12 @@ void FusePermuteQuantizeForAdd::replaceByNewOp(mlir::Operation* opNce, mlir::Val
     // In that case, qType1 must be set for IE.PermuteQuantize.
     // IE.QuantizeCast to qType2 must remain in the graph to maintain the integrity:
     // IE.PermuteQuantize qType1 -> IE.QuantizeCast qType2 -> IE.Dequantize
-    auto orginalQuantizeCast = mlir::dyn_cast<IE::QuantizeCastOp>(*opNce->getResult(0).getUsers().begin());
-    auto quantCast =
-            rewriter.create<IE::QuantizeCastOp>(opNce->getLoc(), input, orginalQuantizeCast.getDstElemTypeAttr());
-    rewriter.replaceOp(orginalQuantizeCast, quantCast.getOutput());
+    for (auto user : make_early_inc_range(opNce->getResult(0).getUsers())) {
+        auto originalQuantizeCast = mlir::dyn_cast<IE::QuantizeCastOp>(user);
+        auto quantCast =
+                rewriter.create<IE::QuantizeCastOp>(opNce->getLoc(), input, originalQuantizeCast.getDstElemTypeAttr());
+        rewriter.replaceOp(originalQuantizeCast, quantCast.getOutput());
+    }
 }
 
 // ======================================================================================
@@ -230,8 +232,8 @@ bool FusePermuteQuantizeBase::isCompatibleWithDPU(mlir::Type addInput, mlir::Typ
 
 class FusePermuteQuantizePass final : public IE::impl::FusePermuteQuantizeBase<FusePermuteQuantizePass> {
 public:
-    explicit FusePermuteQuantizePass(const bool dpuOnly, Logger log): _dpuOnly(dpuOnly), _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FusePermuteQuantizePass(const bool dpuOnly, Logger log): _dpuOnly(dpuOnly) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 public:
@@ -242,7 +244,6 @@ private:
 
 private:
     bool _dpuOnly;
-    Logger _log;
 };
 
 mlir::LogicalResult FusePermuteQuantizePass::initialize(mlir::MLIRContext* ctx) {

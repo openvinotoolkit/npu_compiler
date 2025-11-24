@@ -4,26 +4,55 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
+#include <vpux/compiler/utils/infer_output_shape.hpp>
 #include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include "mlir/IR/Attributes.h"
 
 using namespace vpux::VPU;
 
+// Constants for container sizes
+static constexpr size_t DEFAULT_OPERATION_SET_SIZE = 32;
+static constexpr size_t DEFAULT_NEIGHBOR_SET_SIZE = 16;
+
+mlir::LogicalResult vpux::VPU::getResultTileBounds(mlir::Operation* operation, unsigned resultNumber,
+                                                   DimArrRef tilingDims, ArrayRef<mlir::OpFoldResult> sizes,
+                                                   Bounds& resultBounds) {
+    if (tilingDims.empty() || sizes.empty()) {
+        return mlir::failure();
+    }
+
+    auto outputType = mlir::cast<mlir::ShapedType>(operation->getResult(resultNumber).getType());
+    auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(outputType);
+    if (boundedType == nullptr) {
+        return mlir::failure();
+    }
+
+    resultBounds = boundedType.getBounds().toValues();
+
+    const auto strategy =
+            Shape(parseIntArrayAttr<int64_t>(mlir::cast<mlir::ArrayAttr>(operation->getAttr(tilingStrategy))));
+    SmallVector<mlir::Operation*> operationList = {operation};
+    const auto tiles = fillDividedTiles(operationList, strategy, ShapeRef(boundedType.getBounds().raw()));
+    if (mlir::failed(tiles)) {
+        return mlir::failure();
+    }
+    for (auto dim : tilingDims) {
+        resultBounds[dim] = tiles.value()[resultNumber].shape[dim];
+    }
+
+    return mlir::success();
+}
+
 mlir::OpFoldResult vpux::VPU::getDimValue(mlir::OpBuilder& builder, mlir::Operation* operation, int64_t dim) {
     const auto outputType = mlir::cast<mlir::ShapedType>(operation->getResult(0).getType());
-    if (!outputType.hasStaticShape() && !operation->getOperand(0).hasOneUse()) {
-        auto dimUser = llvm::find_if(operation->getOperand(0).getUsers(), [](auto* user) {
-            return mlir::isa<mlir::tensor::DimOp>(user);
-        });
-
-        if (dimUser != operation->getOperand(0).getUsers().end()) {
-            return dimUser->getResult(0);
-        }
-    }
 
     mlir::ReifiedRankedShapedTypeDims resultShape;
     if (mlir::failed(reifyResultShapes(builder, operation, resultShape))) {
@@ -49,9 +78,26 @@ mlir::Value vpux::VPU::generateTile(mlir::Location loc, mlir::OpBuilder& builder
             appendLoc(loc, "extractSlice"), origInput, inputTileInfo.offsets, inputTileInfo.shape, defaultStrides);
 
     auto newShape = getShape(extractTile.getResult());
+
+    /*For cases where we cannot evenly divide tensor with static shapes into pieces of equal size, SCF tiling
+     * generates dynamic shapes for extract and pad from static shapes. For such cases setting the bounds here
+     * based on the original input shape. For other cases bounds are inferred from available input bounds*/
+
     auto newType = origType.changeShape(ShapeRef(newShape));
-    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(newType)) {
-        newType = boundedType.changeBounds(inputTileInfo.bounds);
+    if (newShape.isDynamic()) {
+        if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(newType)) {
+            newType = boundedType.changeBounds(inputTileInfo.bounds);
+        } else {
+            auto origInputShape = to_small_vector(getShape(origInput));
+            SmallVector<int64_t, 4> boundsValue(newShape.begin(), newShape.end());
+            for (size_t ind = 0, sz = boundsValue.size(); ind < sz; ++ind) {
+                if (boundsValue[ind] == mlir::ShapedType::kDynamic) {
+                    boundsValue[ind] = origInputShape[ind];
+                }
+            }
+            auto newBounds = vpux::BoundsRef(ArrayRef<int64_t>(boundsValue.data(), boundsValue.size()));
+            newType = Core::BoundedTensorType::get(newType, newBounds);
+        }
     }
 
     // by default output type loses NPU-specific attributes so we have to set it manually
@@ -217,11 +263,13 @@ bool vpux::VPU::isNceOpWithPadAttr(mlir::Operation* op) {
     return (mlir::isa<mlir::TilingInterface>(op) && mlir::isa<VPU::NCEOpInterface>(op) && op->hasAttr("pad"));
 }
 
-void iterativeDfs(llvm::ArrayRef<mlir::Operation*> startNodes,
-                  llvm::function_ref<llvm::SmallSetVector<mlir::Operation*, 16>(mlir::Operation*)> getNeighbors,
-                  llvm::function_ref<void(mlir::Operation*)> visitPostOrder,
-                  llvm::function_ref<bool(mlir::Operation*)> stopCheckFn) {
-    llvm::SmallPtrSet<mlir::Operation*, 32> visited;
+void iterativeDfs(
+        llvm::ArrayRef<mlir::Operation*> startNodes,
+        llvm::function_ref<llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE>(mlir::Operation*)>
+                getNeighbors,
+        llvm::function_ref<void(mlir::Operation*)> visitPostOrder,
+        llvm::function_ref<bool(mlir::Operation*)> stopCheckFn) {
+    llvm::SmallPtrSet<mlir::Operation*, DEFAULT_OPERATION_SET_SIZE> visited;
     struct Node {
         mlir::Operation* operation;
         bool visited;
@@ -268,21 +316,12 @@ void iterativeDfs(llvm::ArrayRef<mlir::Operation*> startNodes,
 
 llvm::SmallVector<mlir::Operation*> vpux::VPU::collectOpsInTopologicalOrder(
         llvm::ArrayRef<mlir::Operation*> startNodes,
-        llvm::function_ref<llvm::SmallSetVector<mlir::Operation*, 16>(mlir::Operation*)> getNeighbors,
+        llvm::function_ref<llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE>(mlir::Operation*)>
+                getNeighbors,
         llvm::function_ref<bool(mlir::Operation*)> stopCheckFn) {
-    auto defGetNeighbors = [&](mlir::Operation* op) -> llvm::SmallSetVector<mlir::Operation*, 16> {
-        llvm::SmallSetVector<mlir::Operation*, 16> neighbors;
-        for (auto operand : op->getOperands()) {
-            if (auto definingOp = operand.getDefiningOp()) {
-                neighbors.insert(definingOp);
-            }
-        }
-        return neighbors;
-    };
-
     llvm::SmallVector<mlir::Operation*> sortedOps;
     iterativeDfs(
-            startNodes, getNeighbors ? getNeighbors : defGetNeighbors,
+            startNodes, getNeighbors,
             [&](mlir::Operation* op) {
                 sortedOps.push_back(op);
             },
@@ -326,42 +365,55 @@ int64_t AffineChainUtils::getAffineResult(mlir::Operation* op, llvm::ArrayRef<in
     VPUX_THROW("Unsupported affine operation type: {0}", op->getName());
 }
 
-std::optional<int64_t> AffineChainUtils::getIntegerFromValue(mlir::Value value) {
-    auto getConstantInt = [](mlir::Value val) -> std::optional<int64_t> {
-        if (auto constOp = mlir::dyn_cast_or_null<mlir::arith::ConstantOp>(val.getDefiningOp())) {
-            if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValue())) {
-                return intAttr.getInt();
-            }
-        }
-        return std::nullopt;
-    };
-
-    if (auto dimOp = mlir::dyn_cast_or_null<mlir::tensor::DimOp>(value.getDefiningOp())) {
-        auto dimIdx = getConstantInt(dimOp.getIndex());
-        if (!dimIdx.has_value()) {
-            _log.warning("Dim index is not a constant!");
-            return std::nullopt;
-        }
-
-        if (auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(dimOp.getSource().getType())) {
-            const auto dimIndex = dimIdx.value();
-            if (rankedType.hasStaticShape() && dimIndex < rankedType.getRank()) {
-                return rankedType.getShape()[dimIndex];
-            }
-
-            if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(rankedType)) {
-                _log.trace("Got BoundedTensorType for dim value extraction. Use bounds attribute for shape extraction");
-                auto bounds = boundedType.getBounds().raw();
-                if (dimIndex < static_cast<int64_t>(bounds.size())) {
-                    return bounds[dimIndex];
-                }
-            }
-        }
-
+// Use bounds attribute on the dimOp for fetching integer value
+std::optional<int64_t> AffineChainUtils::getIntValueFromDimOp(mlir::tensor::DimOp dimOp) {
+    auto dimIdx = getConstantInt(dimOp.getIndex());
+    if (!dimIdx.has_value()) {
+        _log.warning("Dim index is not a constant!");
         return std::nullopt;
     }
 
-    return getConstantInt(value);
+    if (auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(dimOp.getSource().getType())) {
+        const auto dimIndex = dimIdx.value();
+        if (rankedType.hasStaticShape() && dimIndex < rankedType.getRank()) {
+            return rankedType.getShape()[dimIndex];
+        }
+
+        if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(rankedType)) {
+            _log.trace("Got BoundedTensorType for dim value extraction. Use bounds attribute for shape extraction");
+            auto bounds = boundedType.getBounds().raw();
+            if (dimIndex < static_cast<int64_t>(bounds.size())) {
+                return bounds[dimIndex];
+            }
+        }
+    }
+
+    return std::nullopt;
+}
+
+std::optional<int64_t> AffineChainUtils::getIntegerFromValue(mlir::Value value, bool processOpChain) {
+    if (auto dimOp = mlir::dyn_cast_or_null<mlir::tensor::DimOp>(value.getDefiningOp())) {
+        return getIntValueFromDimOp(dimOp);
+    }
+
+    auto intVal = getConstantInt(value);
+    if (intVal.has_value()) {
+        return intVal;
+    }
+
+    // Special case to handle the opChain
+    if (processOpChain) {
+        llvm::DenseMap<mlir::Value, int64_t> localOperandMap;
+        auto opChain = collectAffineOpsChain(value);
+
+        if (evaluateOpChain(opChain, localOperandMap)) {
+            if (localOperandMap.contains(value)) {
+                return localOperandMap[value];
+            }
+        }
+    }
+
+    return std::nullopt;
 }
 
 void AffineChainUtils::updateChainCache(mlir::Value val, const llvm::SmallSetVector<mlir::Operation*, 4>& chain) const {
@@ -383,11 +435,11 @@ llvm::SmallSetVector<mlir::Operation*, 4> AffineChainUtils::collectAffineOpsChai
         return mlir::isa<mlir::tensor::DimOp>(op);
     };
 
-    auto getNeighbors = [](mlir::Operation* op) -> llvm::SmallSetVector<mlir::Operation*, 16> {
-        llvm::SmallSetVector<mlir::Operation*, 16> neighbors;
+    auto getNeighbors = [&](mlir::Operation* op) -> llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> {
+        llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> neighbors;
         for (auto operand : op->getOperands()) {
             if (auto definingOp = operand.getDefiningOp()) {
-                if (!mlir::isa<mlir::tensor::DimOp>(definingOp)) {
+                if (!stopSearch(definingOp)) {
                     neighbors.insert(definingOp);
                 }
             }
@@ -402,8 +454,122 @@ llvm::SmallSetVector<mlir::Operation*, 4> AffineChainUtils::collectAffineOpsChai
     return affineChain;
 }
 
-std::optional<int64_t> AffineChainUtils::processAffineCallChain(
-        mlir::Value val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap) {
+bool AffineChainUtils::processAffineOp(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap) {
+    auto [affineMap, mapOperands] = getAffineMapAndOperands(op);
+    SmallVector<mlir::Attribute> operandAttrs;
+    bool success = true;
+    for (auto operand : mapOperands) {
+        int64_t operandValue;
+        auto it = valueMap.find(operand);
+        if (it != valueMap.end()) {
+            operandValue = it->second;
+        } else {
+            auto intVal = getIntegerFromValue(operand);
+            if (!intVal.has_value()) {
+                success = false;
+                break;
+            }
+            operandValue = intVal.value();
+            valueMap[operand] = operandValue;
+        }
+        operandAttrs.push_back(mlir::IntegerAttr::get(operand.getType(), operandValue));
+    }
+
+    if (!success) {
+        return false;
+    }
+
+    SmallVector<mlir::Attribute> resultsAttrs;
+    if (affineMap.constantFold(operandAttrs, resultsAttrs).failed()) {
+        return false;
+    }
+
+    SmallVector<int64_t> results;
+    for (auto attr : resultsAttrs) {
+        results.push_back(mlir::cast<mlir::IntegerAttr>(attr).getInt());
+    }
+
+    int64_t result = getAffineResult(op, results);
+    valueMap[op->getResult(0)] = result;
+    return true;
+}
+
+bool AffineChainUtils::processArithOp(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap) {
+    if (auto constOp = mlir::dyn_cast<mlir::arith::ConstantOp>(op)) {
+        if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValueAttr())) {
+            valueMap[op->getResult(0)] = intAttr.getInt();
+            return true;
+        }
+
+        return false;
+    }
+
+    for (auto operand : op->getOperands()) {
+        if (!valueMap.contains(operand)) {
+            auto intVal = getIntegerFromValue(operand);
+            if (intVal.has_value()) {
+                valueMap[operand] = intVal.value();
+            } else {
+                return false;
+            }
+        }
+    }
+
+    return llvm::TypeSwitch<mlir::Operation*, bool>(op)
+            .Case<mlir::arith::AddIOp>([&](auto op) {
+                auto addOp = mlir::cast<mlir::arith::AddIOp>(op);
+                auto resultValue = valueMap[addOp.getLhs()] + valueMap[addOp.getRhs()];
+                valueMap[op->getResult(0)] = resultValue;
+                return true;
+            })
+            .Case<mlir::arith::SubIOp>([&](auto op) {
+                auto subOp = mlir::cast<mlir::arith::SubIOp>(op);
+                auto resultValue = valueMap[subOp.getLhs()] - valueMap[subOp.getRhs()];
+                valueMap[op->getResult(0)] = resultValue;
+                return true;
+            })
+            .Case<mlir::arith::DivSIOp>([&](auto op) {
+                auto divOp = mlir::cast<mlir::arith::DivSIOp>(op);
+                if (divOp.getRhs() == 0) {
+                    _log.trace("Division by zero encountered in DivSIOp");
+                    return false;
+                }
+                auto resultValue = valueMap[divOp.getLhs()] / valueMap[divOp.getRhs()];
+                valueMap[op->getResult(0)] = resultValue;
+                return true;
+            })
+            .Default([&](mlir::Operation* op) {
+                _log.trace("Unsupported arith operation encountered while evaluating op chain: {0}", op->getName());
+                return false;
+            });
+}
+
+bool AffineChainUtils::evaluateOpChain(llvm::SmallSetVector<mlir::Operation*, 4>& opChain,
+                                       llvm::DenseMap<mlir::Value, int64_t>& localOperandMap) {
+    for (auto op : opChain) {
+        if (mlir::isa<mlir::affine::AffineDialect>(op->getDialect())) {
+            auto result = processAffineOp(op, localOperandMap);
+            if (!result) {
+                _log.trace("Failed to process affine operation: {0}", op->getName());
+                return false;
+            }
+        } else if (mlir::isa<mlir::arith::ArithDialect>(op->getDialect())) {
+            auto result = processArithOp(op, localOperandMap);
+            if (!result) {
+                _log.trace("Failed to process arith operation: {0}", op->getName());
+                return false;
+            }
+        } else {
+            _log.trace("Unsupported dialect ({0}) encountered while evaluating op chain", op->getDialect());
+            return false;
+        }
+    }
+
+    return true;
+}
+
+std::optional<llvm::SmallVector<int64_t>> AffineChainUtils::processAffineCallChain(
+        mlir::Value val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap, AffineChainUtils::MODE mode) {
     auto callChain = collectAffineOpsChain(val);
     if (callChain.empty()) {
         _log.trace("Empty affine chain for value");
@@ -425,34 +591,40 @@ std::optional<int64_t> AffineChainUtils::processAffineCallChain(
         return std::nullopt;
     }
 
-    // valueMap contains the values for block operands to use during evaluation.
-    // If no values are found, initialize with default values obtained from the scf::ForOp bounds.
-    if (valueMap.empty()) {
-        if (blockOperands.size() != 1) {
-            _log.trace("Multiple block operands found, cannot initialize default values");
-            return std::nullopt;
-        }
+    if (blockOperands.size() != 1) {
+        _log.trace("Multiple block operands found in the opChain. Analysis does not support this usecase");
+        return std::nullopt;
+    }
 
+    // valueMap contains the values for block operands to use during evaluation.
+    // If no values are computed, initialize with default values obtained from the scf::ForOp bounds.
+    if (valueMap.empty()) {
         auto blockOperand = *blockOperands.begin();
         if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(blockOperand)) {
             if (auto forOp = mlir::dyn_cast<mlir::scf::ForOp>(blockArg.getOwner()->getParentOp())) {
                 auto low = getIntegerFromValue(forOp.getLowerBound());
                 auto step = getIntegerFromValue(forOp.getStep());
-                // For upper bound, if the defining op is tensor::DimOp, get the value from bounds attribute if
-                // available
-                auto high = getIntegerFromValue(forOp.getUpperBound());
+                // For upper bound, there are three possible cases:
+                // 1. If the defining op is tensor::DimOp, get the value from bounds attribute if available
+                // 2. If the defining op is a constant, get the value directly
+                // 3. If the defining op is chain of ops, evaluate op chain
+                auto high = getIntegerFromValue(forOp.getUpperBound(), true);
 
+                _log.trace("ForOp bounds: low = {0}, step = {1}, high = {2}", low, step, high);
                 SmallVector<int64_t> vals;
                 if (low.has_value() && step.has_value() && high.has_value() && step.value() > 0) {
                     for (int64_t i = low.value(); i < high.value(); i += step.value()) {
                         vals.push_back(i);
                     }
+                } else {
+                    _log.trace("Failed to get bounds for ForOp. Defaulting to 0");
                 }
                 valueMap[blockOperand] = vals.empty() ? SmallVector<int64_t>{0} : vals;
             } else {
                 valueMap[blockOperand] = SmallVector<int64_t>{0};
             }
         } else {
+            _log.warning("Owner of Block operand is not forOp. Use default value of 0");
             valueMap[blockOperand] = SmallVector<int64_t>{0};
         }
     }
@@ -479,49 +651,7 @@ std::optional<int64_t> AffineChainUtils::processAffineCallChain(
     for (int64_t value : valueRange) {
         llvm::DenseMap<mlir::Value, int64_t> localOperandMap;
         localOperandMap[primaryOperand] = value;
-
-        bool success = true;
-        for (auto currentOp : callChain) {
-            auto [affineMap, mapOperands] = getAffineMapAndOperands(currentOp);
-            SmallVector<mlir::Attribute> operandAttrs;
-
-            for (auto operand : mapOperands) {
-                int64_t operandValue;
-                auto it = localOperandMap.find(operand);
-                if (it != localOperandMap.end()) {
-                    operandValue = it->second;
-                } else {
-                    auto intVal = getIntegerFromValue(operand);
-                    if (!intVal.has_value()) {
-                        success = false;
-                        break;
-                    }
-                    operandValue = intVal.value();
-                    localOperandMap[operand] = operandValue;
-                }
-                operandAttrs.push_back(mlir::IntegerAttr::get(operand.getType(), operandValue));
-            }
-
-            if (!success) {
-                break;
-            }
-
-            SmallVector<mlir::Attribute> resultsAttrs;
-            if (affineMap.constantFold(operandAttrs, resultsAttrs).failed()) {
-                success = false;
-                break;
-            }
-
-            SmallVector<int64_t> results;
-            for (auto attr : resultsAttrs) {
-                results.push_back(mlir::cast<mlir::IntegerAttr>(attr).getInt());
-            }
-
-            int64_t result = getAffineResult(currentOp, results);
-            localOperandMap[currentOp->getResult(0)] = result;
-        }
-
-        if (!success) {
+        if (!evaluateOpChain(callChain, localOperandMap)) {
             return std::nullopt;
         }
 
@@ -533,14 +663,23 @@ std::optional<int64_t> AffineChainUtils::processAffineCallChain(
         }
     }
 
-    return resultRange.empty() ? std::nullopt : std::make_optional(*llvm::max_element(resultRange));
+    if (resultRange.empty()) {
+        return std::nullopt;
+    }
+
+    if (mode == MODE::MAX_VALUE) {
+        return llvm::SmallVector<int64_t>({*llvm::max_element(resultRange)});
+    }
+
+    return resultRange;
 }
 
-std::optional<int64_t> AffineChainUtils::getOpFoldResultValue(
-        mlir::OpFoldResult val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap) {
+std::optional<llvm::SmallVector<int64_t>> AffineChainUtils::getOpFoldResultValue(
+        mlir::OpFoldResult val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap,
+        AffineChainUtils::MODE mode) {
     if (auto attr = mlir::dyn_cast<mlir::Attribute>(val)) {
         if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(attr)) {
-            return intAttr.getInt();
+            return llvm::SmallVector<int64_t>{intAttr.getInt()};
         }
         return std::nullopt;
     }
@@ -548,11 +687,88 @@ std::optional<int64_t> AffineChainUtils::getOpFoldResultValue(
     if (auto value = mlir::dyn_cast<mlir::Value>(val)) {
         if (auto constantOp = value.getDefiningOp<mlir::arith::ConstantOp>()) {
             if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(constantOp.getValueAttr())) {
-                return intAttr.getInt();
+                return llvm::SmallVector<int64_t>{intAttr.getInt()};
             }
         }
-        return processAffineCallChain(value, valueMap);
+        return processAffineCallChain(value, valueMap, mode);
     }
 
     return std::nullopt;
+}
+
+/**
+ * @brief Clones an existing MLIR function operation with optional type modification
+ *
+ * This function creates a deep copy of an MLIR function operation, allowing for optional
+ * function type changes. It performs a complete clone of the function body, including
+ * all blocks, operations, and value mappings. When a new function type is provided,
+ * it also performs type inference for VPU dialect operations and updates the function's
+ * return types based on the terminator operations.
+ *
+ * @param originalFunc The source function operation to be cloned
+ * @param newName The name for the newly created function
+ * @param moduleOp The target module where the new function will be inserted
+ * @param newFuncType Optional new function type for the cloned function. If nullptr,
+ *                    the original function's type is preserved
+ *
+ * @return The newly created function operation that is a clone of the original
+ *
+ * @note The cloned function is positioned immediately after the original function
+ *       in the module. When newFuncType is provided, VPU dialect operations undergo
+ *       shape inference and the function's return types are updated based on the
+ *       actual terminator operand types.
+ */
+mlir::func::FuncOp vpux::VPU::cloneFuncOp(mlir::func::FuncOp originalFunc, const std::string& newName,
+                                          mlir::FunctionType newFuncType) {
+    assert(newFuncType != nullptr && "newFuncType should be a valid FunctionType");
+    auto moduleOp = vpux::getModuleOp(originalFunc);
+    mlir::OpBuilder builder(moduleOp.getContext());
+    auto newFunc = builder.create<mlir::func::FuncOp>(takeOpLoc(originalFunc, newName), newName, newFuncType);
+    moduleOp.push_back(newFunc);
+    newFunc->moveAfter(originalFunc);
+
+    mlir::DenseMap<mlir::Value, mlir::Value> oldToNewMap;
+    for (auto& oldBlock : originalFunc.getBody()) {
+        auto* newBlock = newFunc.addEntryBlock();
+        for (auto [oldArg, newArg] : llvm::zip(oldBlock.getArguments(), newBlock->getArguments())) {
+            oldToNewMap[oldArg] = newArg;
+        }
+
+        builder.setInsertionPointToStart(newBlock);
+        for (auto& oldOp : oldBlock.getOperations()) {
+            mlir::IRMapping mapper;
+            for (auto operand : oldOp.getOperands()) {
+                mapper.map(operand, oldToNewMap[operand]);
+            }
+
+            auto newOp = builder.clone(oldOp, mapper);
+            if (mlir::isa<VPU::VPUDialect>(newOp->getDialect())) {
+                vpux::inferReturnTypes(newOp, vpux::InferShapedTypeMode::SHAPE);
+            }
+
+            for (size_t i = 0; i < oldOp.getNumResults(); ++i) {
+                oldToNewMap[oldOp.getResult(i)] = newOp->getResult(i);
+            }
+        }
+    }
+
+    SmallVector<mlir::Type> newReturnTypes;
+    for (auto& block : newFunc.getBody()) {
+        auto terminatorOp = block.getTerminator();
+        for (auto operands : terminatorOp->getOperands()) {
+            newReturnTypes.push_back(operands.getType());
+        }
+    }
+
+    auto modifiedType =
+            mlir::FunctionType::get(newFunc.getContext(), newFunc.getFunctionType().getInputs(), newReturnTypes);
+    newFunc.setType(modifiedType);
+    return newFunc;
+}
+
+mlir::RankedTensorType vpux::VPU::removeBoundsAttr(mlir::RankedTensorType type) {
+    auto ndType = mlir::cast<vpux::NDTypeInterface>(type);
+    const auto tensorType = vpux::getTensorType(ndType.getShape(), ndType.getElementType(), ndType.getDimsOrder(),
+                                                ndType.getMemSpace(), {}, {});
+    return tensorType;
 }

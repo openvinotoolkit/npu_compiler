@@ -10,10 +10,12 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
 
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/Operation.h>
@@ -112,7 +114,7 @@ private:
         ConvertOp (IntegerType to Float16Type)
 
     to:
-   Input                                Const (changeShapeAndElemTypeAttr, IntegerType to Float16Type)
+   Input                                Const (CastElemType to Float16Type)
       |                                   |
   ConvertOp (IntegerType to Float16Type)  |
        \                                 /
@@ -152,8 +154,7 @@ mlir::LogicalResult SwapConvertWithEltwiseOp<EltwiseOp>::matchAndRewrite(Eltwise
     auto newConvert = rewriter.create<IE::ConvertOp>(convertOp->getLoc(), origOp.getInput1(), convertOutElemType);
 
     auto constInput = origOp.getInput2().template getDefiningOp<Const::DeclareOp>();
-    auto biasContentAttr =
-            constInput.transformContentAttr().changeShapeAndElemType(getShape(constInput), convertOutElemType).get();
+    auto biasContentAttr = constInput.transformContentAttr().castElemType(convertOutElemType).get();
     auto newBiasValue =
             rewriter.create<Const::DeclareOp>(origOp.getLoc(), biasContentAttr.getType(), std::move(biasContentAttr))
                     .getResult();
@@ -173,27 +174,23 @@ mlir::LogicalResult SwapConvertWithEltwiseOp<EltwiseOp>::matchAndRewrite(Eltwise
 
 class SwapConvertWithSWOp final : public IE::impl::SwapConvertWithSWOpBase<SwapConvertWithSWOp> {
 public:
-    explicit SwapConvertWithSWOp(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit SwapConvertWithSWOp(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void SwapConvertWithSWOp::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
-
     const auto isLegalOp = [](IE::ConvertOp op) -> bool {
         auto inputElemType = mlir::cast<NDTypeInterface>(op.getInput().getType()).getElementType();
         auto outputElemType = mlir::cast<NDTypeInterface>(op.getOutput().getType()).getElementType();
 
-        auto outShape = getShape(op.getOutput());
-        if (outShape.isDynamic() || outShape.totalSize() < EXPERIMENTAL_F32_FUSION_THRESHOLD) {
+        auto outShape = getBoundedShape(op.getOutput());
+        if (outShape.totalSize() < EXPERIMENTAL_F32_FUSION_THRESHOLD) {
             return true;
         }
 
@@ -220,18 +217,19 @@ void SwapConvertWithSWOp::safeRunOnFunc() {
             return true;
         }
 
-        const auto inputShape = getShape(parentOp->getOperand(0));
+        auto convertOutType = op.getOutput().getType().getElementType();
+        if (auto interpolateOp = mlir::dyn_cast<IE::InterpolateOp>(parentOp)) {
+            // Check if it's beneficial to fuse our ConvertOp into InterpolateOp
+            return !IE::isFusingConvertIntoBilinearInterpolateOnDpuBeneficial(interpolateOp, convertOutType);
+        }
+
+        if (mlir::failed(VPU::NCEInvariant::isSupported(parentOp))) {
+            return true;
+        }
+
+        const auto inputShape = getBoundedShape(parentOp->getOperand(0));
         // This will cause an error, because of EnsureNCEOpsSizeRequirementsPass.
-        if (inputShape[Dims4D::Act::C] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT) {
-            return true;
-        }
-
-        // SplitSEOpsPass will cause a compilation error for Interpolate.
-        if (mlir::isa_and_nonnull<IE::InterpolateOp>(parentOp)) {
-            return true;
-        }
-
-        return mlir::failed(VPU::NCEInvariant::isSupported(parentOp));
+        return inputShape[Dims4D::Act::C] > VPU::NCEInvariant::VPU_DIMENSION_LIMIT;
     };
 
     mlir::ConversionTarget target(ctx);

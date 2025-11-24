@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -10,11 +11,16 @@
 #include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/adjust_layout_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+#include "vpux/compiler/utils/types.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
+#include <mlir/IR/Location.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -73,21 +79,16 @@ private:
                                         mlir::Type convOutElemType, mlir::PatternRewriter& rewriter) const;
     mlir::Value composeWeights(IE::SliceOp origOp, const mlir::Type convolutionInputType,
                                const int64_t convolutionAlignment, mlir::PatternRewriter& rewriter) const;
-    bool isBeneficialToConvert(IE::SliceOp origOp) const;
 
     Logger _log;
 };
 
-bool SliceOpConverter::isBeneficialToConvert(IE::SliceOp sliceOp) const {
-    const auto sliceOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr());
-    if (sliceOffset.size() != 4) {
-        _log.trace("Slice at {0} has {1}-d start padding. Only 4-d shapes are supported", sliceOp.getLoc(),
-                   sliceOffset.size());
+bool isBeneficialToConvertSliceToConv(NDTypeInterface sliceInType, NDTypeInterface sliceOutType, mlir::Location loc,
+                                      const Logger& log) {
+    if (sliceInType.getRank() != 4 || sliceOutType.getRank() != 4) {
         return false;
     }
 
-    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
-    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getResult().getType());
     const auto sliceInShape = sliceInType.getShape();
     const auto supportedLayout = DimsOrder::NHWC;
     const auto sliceInLayout = sliceInType.getDimsOrder();
@@ -95,16 +96,16 @@ bool SliceOpConverter::isBeneficialToConvert(IE::SliceOp sliceOp) const {
     const auto inputW = sliceInShape[Dims4D::Act::W];
 
     if (sliceInLayout != supportedLayout) {
-        _log.trace("Slice at {0} has {1} input layout, expected {2}", sliceOp.getLoc(), sliceInLayout, supportedLayout);
+        log.trace("Slice at {0} has {1} input layout, expected {2}", loc, sliceInLayout, supportedLayout);
         return false;
     }
 
-    const auto inputShape = getShape(sliceOp.getSource()).raw();
-    const auto outputShape = getShape(sliceOp.getResult()).raw();
+    const auto inputShape = sliceInType.getShape().raw();
+    const auto outputShape = sliceOutType.getShape().raw();
     // Only slice on the lowest dim(channel, NHWC layout) will be converted
     for (auto i : irange(inputShape.size())) {
         if (inputShape[i] != outputShape[i] && i != checked_cast<uint32_t>(Dims4D::Act::C.ind())) {
-            _log.trace("Slice at {1} is not slice on channel", sliceOp.getLoc());
+            log.trace("Slice at {1} is not slice on channel", loc);
             return false;
         }
     }
@@ -117,7 +118,7 @@ bool SliceOpConverter::isBeneficialToConvert(IE::SliceOp sliceOp) const {
     };
     // If slice with NHWC layout and channel is small, it's efficient to convert it to Convolution.
     if (!checkShape()) {
-        _log.trace("Slice at {0} is not efficient to convert", sliceOp.getLoc());
+        log.trace("Slice at {0} is not efficient to convert", loc);
         return false;
     }
 
@@ -127,19 +128,19 @@ bool SliceOpConverter::isBeneficialToConvert(IE::SliceOp sliceOp) const {
     }
 
     if (inputN != 1) {
-        _log.trace("Slice at {0} has batch {1}. Expected to have 1", sliceOp.getLoc(), inputN);
+        log.trace("Slice at {0} has batch {1}. Expected to have 1", loc, inputN);
         return false;
     }
 
     // For quantized input, we can remove this and add another rewrite pattern for composed weights and activation.
     if (!sliceInType.getElementType().isF16()) {
-        _log.trace("Slice at {0} has {1} element type. Only float16 types are supported", sliceOp.getLoc(),
-                   sliceInType.getElementType());
+        log.trace("Slice at {0} has {1} element type. Only float16 types are supported", loc,
+                  sliceInType.getElementType());
         return false;
     }
 
     const auto channelAlignment = VPU::NCEInvariant::getAlignment(sliceInType.getElementType());
-    const auto origIC = getShape(sliceOp.getSource())[Dims4D::Act::C];
+    const auto origIC = inputShape[Dims4D::Act::C.ind()];
     // Slicing on the inner most dimension C with very few channel numbers has very poor performance, will need to
     // convert such Slice layer into Convolution
     if (origIC >= channelAlignment) {
@@ -147,12 +148,12 @@ bool SliceOpConverter::isBeneficialToConvert(IE::SliceOp sliceOp) const {
     }
 
     const auto convolutionAlignment = calculateAlignmentFactor(sliceInType, sliceOutType);
-    const int64_t kernelOutputChannels = getShape(sliceOp.getResult())[Dims4D::Act::C] * convolutionAlignment;
+    const int64_t kernelOutputChannels = outputShape[Dims4D::Act::C.ind()] * convolutionAlignment;
     // Here we need to ensure we can borrow factor from W for channel alignment. And if a factor borrowed from W which
     // still cannot satisfy output channel alignment, we need a bigger factor from W to C. It's unefficient because the
     // Conv's channel will be very big
     if (inputW % convolutionAlignment != 0 || kernelOutputChannels % channelAlignment != 0) {
-        _log.trace("Slice at {0} cannot borrow suitable factor from W for alignment", sliceOp.getLoc());
+        log.trace("Slice at {0} cannot borrow suitable factor from W for alignment", loc);
         return false;
     }
 
@@ -278,14 +279,15 @@ mlir::Value SliceOpConverter::composeWeights(IE::SliceOp origOp, const mlir::Typ
 mlir::LogicalResult SliceOpConverter::matchAndRewrite(IE::SliceOp origOp, mlir::PatternRewriter& rewriter) const {
     _log.trace("Got Slice op at {0}", origOp->getLoc());
 
-    if (!isBeneficialToConvert(origOp)) {
+    const auto sliceInput = origOp.getSource();
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceInput.getType());
+    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
+
+    if (!isBeneficialToConvertSliceToConv(sliceInType, sliceOutType, origOp->getLoc(), _log)) {
         _log.trace("Cannot or is not beneficial to convert Slice to Conv");
         return mlir::failure();
     }
 
-    const auto sliceInput = origOp.getSource();
-    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceInput.getType());
-    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(origOp.getResult().getType());
     const auto convolutionAlignment = calculateAlignmentFactor(sliceInType, sliceOutType);
 
     auto reshapeIn = reshapeConvInput(origOp.getLoc(), sliceInput, convolutionAlignment, rewriter);
@@ -636,6 +638,147 @@ mlir::LogicalResult FuseSliceWithConvRewriter::matchAndRewrite(IE::SliceOp slice
 }
 
 //
+// SliceOpWithLayoutConverter
+//
+
+class SliceOpWithLayoutConverter final : public mlir::OpRewritePattern<IE::SliceOp> {
+public:
+    SliceOpWithLayoutConverter(mlir::MLIRContext* ctx, mlir::PatternBenefit benefit, Logger log)
+            : mlir::OpRewritePattern<IE::SliceOp>(ctx, benefit), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::SliceOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    bool isSliceOnInnermostDim(IE::SliceOp sliceOp) const;
+    bool canConvertToNHWC(IE::SliceOp sliceOp) const;
+    bool wouldNHWCSliceBeBeneficial(IE::SliceOp sliceOp) const;
+
+    Logger _log;
+};
+
+bool SliceOpWithLayoutConverter::isSliceOnInnermostDim(IE::SliceOp sliceOp) const {
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    const auto sliceInLayout = sliceInType.getDimsOrder();
+    const auto inputShape = getShape(sliceOp.getSource()).raw();
+    const auto outputShape = getShape(sliceOp.getResult()).raw();
+
+    // Check if slice is only on the innermost dimension
+    const auto innermostDim = sliceInLayout.dimAt(sliceInLayout.numDims() - 1);
+    for (auto i : irange(inputShape.size())) {
+        if (inputShape[i] != outputShape[i] && i != checked_cast<uint32_t>(innermostDim.ind())) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool SliceOpWithLayoutConverter::canConvertToNHWC(IE::SliceOp sliceOp) const {
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    const auto sliceInShape = sliceInType.getShape();
+    const auto sliceInLayout = sliceInType.getDimsOrder();
+
+    // Must be 4D tensor
+    if (sliceInShape.size() != 4) {
+        return false;
+    }
+
+    // Skip if already NHWC
+    if (sliceInLayout == DimsOrder::NHWC) {
+        return false;
+    }
+
+    // Only support common layouts that can be converted to NHWC
+    if (sliceInLayout != DimsOrder::NCHW && sliceInLayout != DimsOrder::NWHC && sliceInLayout != DimsOrder::NCWH) {
+        return false;
+    }
+
+    // Check if the slice is on innermost dimension
+    if (!isSliceOnInnermostDim(sliceOp)) {
+        return false;
+    }
+
+    // Check if the converted NHWC slice would be beneficial for SliceOpConverter
+    return wouldNHWCSliceBeBeneficial(sliceOp);
+}
+
+bool SliceOpWithLayoutConverter::wouldNHWCSliceBeBeneficial(IE::SliceOp sliceOp) const {
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getSource().getType());
+    const auto sliceOutType = mlir::cast<vpux::NDTypeInterface>(sliceOp.getResult().getType());
+    const auto originalLayout = sliceInType.getDimsOrder();
+
+    // Simulate the NHWC layout input and output types
+    auto origInMemShape = originalLayout.toMemoryOrder(sliceInType.getShape());
+    auto nhwcInShape = DimsOrder::NHWC.toLogicalOrder(origInMemShape);
+    auto origOutMemShape = originalLayout.toMemoryOrder(sliceOutType.getShape());
+    auto nhwcOutShape = DimsOrder::NHWC.toLogicalOrder(origOutMemShape);
+    const auto nhwcInType = sliceInType.changeDimsOrder(DimsOrder::NHWC).changeShape(nhwcInShape);
+    const auto nhwcOutType = sliceOutType.changeDimsOrder(DimsOrder::NHWC).changeShape(nhwcOutShape);
+
+    return isBeneficialToConvertSliceToConv(nhwcInType, nhwcOutType, sliceOp->getLoc(), _log);
+}
+
+mlir::LogicalResult SliceOpWithLayoutConverter::matchAndRewrite(IE::SliceOp origOp,
+                                                                mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got non-NHWC Slice op at {0}", origOp->getLoc());
+
+    if (!canConvertToNHWC(origOp)) {
+        _log.trace("Cannot convert Slice to NHWC layout");
+        return mlir::failure();
+    }
+
+    const auto ctx = rewriter.getContext();
+    const auto sliceInType = mlir::cast<vpux::NDTypeInterface>(origOp.getSource().getType());
+    const auto originalLayout = sliceInType.getDimsOrder();
+    const auto nhwcOrder = DimsOrder::NHWC;
+
+    // Step 1: Convert input to NHWC using PermuteCast
+    auto inputToNHWC =
+            rewriter.create<IE::PermuteCastOp>(appendLoc(origOp.getLoc(), "_input_to_nhwc"), origOp.getSource(),
+                                               mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(ctx)),
+                                               mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
+
+    // Step 2: Calculate new slice parameters for NHWC layout
+    const auto sliceOffset = parseIntArrayAttr<int64_t>(origOp.getStaticOffsetsAttr());
+    const auto sliceSize = parseIntArrayAttr<int64_t>(origOp.getStaticSizesAttr());
+
+    // Find the innermost dimension in the original layout
+    const auto innermostDimOrig = originalLayout.dimAt(originalLayout.numDims() - 1);
+    const auto innermostOffsetOrig = sliceOffset[innermostDimOrig.ind()];
+    const auto innermostSizeOrig = sliceSize[innermostDimOrig.ind()];
+
+    // In NHWC, the channel dimension (C) is the innermost
+    SmallVector<int64_t> nhwcSliceOffset(4, 0);
+    SmallVector<int64_t> nhwcSliceSize = to_small_vector(getShape(inputToNHWC.getResult()));
+
+    nhwcSliceOffset[Dims4D::Act::C.ind()] = innermostOffsetOrig;
+    nhwcSliceSize[Dims4D::Act::C.ind()] = innermostSizeOrig;
+
+    // Step 3: Create new SliceOp on NHWC tensor
+    const auto nhwcSliceOffsetAttr = getIntArrayAttr(ctx, nhwcSliceOffset);
+    const auto nhwcSliceSizeAttr = getIntArrayAttr(ctx, nhwcSliceSize);
+
+    const auto nhwcSliceOutShape = ShapeRef(nhwcSliceSize);
+    const auto nhwcSliceOutType = sliceInType.changeDimsOrder(nhwcOrder).changeShape(nhwcSliceOutShape);
+
+    auto nhwcSliceOp = rewriter.create<IE::SliceOp>(appendLoc(origOp.getLoc(), "_nhwc_slice"), nhwcSliceOutType,
+                                                    inputToNHWC.getResult(), nhwcSliceOffsetAttr, nhwcSliceSizeAttr);
+
+    // Step 4: Convert output back to original layout using PermuteCast
+    auto outputToOriginal = rewriter.create<IE::PermuteCastOp>(
+            appendLoc(origOp.getLoc(), "_output_to_original"), nhwcSliceOp.getResult(),
+            mlir::AffineMapAttr::get(originalLayout.toAffineMap(ctx)),
+            mlir::AffineMapAttr::get(DimsOrder::NCHW.toAffineMap(ctx)));
+
+    _log.trace("Successfully converted non-NHWC SliceOp at {0} to use NHWC layout internally", origOp->getLoc());
+
+    rewriter.replaceOp(origOp, outputToOriginal.getResult());
+
+    return mlir::success();
+}
+
+//
 // OptimizeSliceWithStridePass
 //
 
@@ -655,7 +798,8 @@ void OptimizeSliceWithStridePass::safeRunOnFunc() {
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<SliceConcatRewriter>(&ctx, benefitLevels[0], _log);
     patterns.add<FuseSliceWithConvRewriter>(&ctx, benefitLevels[0], _log);
-    patterns.add<SliceOpConverter>(&ctx, benefitLevels[1], _log);
+    patterns.add<SliceOpWithLayoutConverter>(&ctx, benefitLevels[1], _log);
+    patterns.add<SliceOpConverter>(&ctx, benefitLevels[2], _log);
 
     auto func = getOperation();
 

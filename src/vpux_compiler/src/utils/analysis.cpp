@@ -119,17 +119,3 @@ mlir::ModuleOp vpux::getModuleOp(mlir::Operation* op) {
                       op->getLoc());
     return module;
 }
-
-mlir::ModuleOp vpux::getTopModuleOp(mlir::Operation* op) {
-    mlir::ModuleOp parent;
-    while ((parent = op->getParentOfType<mlir::ModuleOp>()) != nullptr) {
-        op = parent;
-    }
-
-    // The while loop might never execute. That's why we check if op is ModuleOp.
-    auto topModuleOp = mlir::dyn_cast<mlir::ModuleOp>(op);
-    VPUX_THROW_UNLESS(topModuleOp != nullptr,
-                      "Operation '{0}' has no parent of type mlir::ModuleOp and is no mlir::ModuleOp itself",
-                      op->getName(), op->getLoc());
-    return topModuleOp;
-}

@@ -1119,7 +1119,7 @@ func.func @SparseConcatWithExplicitDistributedAttr(%arg0: !InputTensorDistribute
     // CHECK:       [[COPY_1_RES:%.+]] = VPUIP.Copy
     // CHECK-SAME:         inputs([[ALLOC_IN1_SPARSE_BUF]]
     // CHECK-SAME:         outputs([[SUBVIEW_1_RES]]
-    // CHECK-SAme:         -> !VPUIP.SparseBuffer<
+    // CHECK-SAME:         -> !VPUIP.SparseBuffer<
     // CHECK-SAME:               data=!VPUIP.DistributedBuffer<1x32x16x16xf16, {order = #NHWC, strides = [16384, 1, 512, 32]}, @CMX_NN,
     // CHECK-SAME:                  {mode = "OVERLAPPED", num_tiles = [1, 1, 1, 2], num_clusters = 2 : i64
     // CHECK-SAME{LITERAL}:          compute_shapes = [[1, 32, 16, 8], [1, 32, 16, 8]],

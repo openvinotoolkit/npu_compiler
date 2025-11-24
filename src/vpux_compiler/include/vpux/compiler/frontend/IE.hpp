@@ -22,6 +22,7 @@
 #include <openvino/opsets/opset12.hpp>
 #include <openvino/opsets/opset13.hpp>
 #include <openvino/opsets/opset14.hpp>
+#include <openvino/opsets/opset15.hpp>
 #include <openvino/opsets/opset16.hpp>
 #include <openvino/opsets/opset2.hpp>
 #include <openvino/opsets/opset3.hpp>
@@ -82,7 +83,11 @@ public:
                                                      ArrayRef<mlir::Attribute> concatOutputVector,
                                                      ArrayRef<mlir::Attribute> invariantOutputVector);
     static bool isOpSupported(const std::shared_ptr<ov::Node>& op);
-    void saveInfoAboutBounds(mlir::OpBuilder& builder, const OrigNodePtr& origNode);
+
+    // Bounds related logic
+    void saveBoundsInfoForInput(::mlir::BlockArgument& funcInputVal, const ov::PartialShape& partialShape);
+    bool isUpperBoundsMissing(const OrigNodePtr& origNode);
+    static bool hasValidBounds(const ov::PartialShape& partialShape);
 
 private:
     using NodeOutputMap = std::unordered_map<ov::Output<OrigNode>, mlir::Value>;
@@ -266,6 +271,7 @@ private:
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset9::RDFT>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset7::IDFT>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset9::IRDFT>& origNode);
+    void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset15::STFT>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset8::If>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::ShapeOf>& origNode);
     void parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset4::Range>& origNode);

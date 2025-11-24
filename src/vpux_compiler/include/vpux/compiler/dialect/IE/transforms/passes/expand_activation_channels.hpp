@@ -10,7 +10,9 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/utils/expand_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/checked_cast.hpp"
 #include "vpux/utils/core/func_ref.hpp"
 
@@ -112,8 +114,9 @@ mlir::LogicalResult EltwiseRewriter<ConcreteOp>::matchAndRewrite(ConcreteOp orig
             const auto padsEnd = IE::calcPadsEnd(origShape, extendedShape);
 
             auto sliceOp = origOp.getInput1().template getDefiningOp<IE::SliceOp>();
-            expandedInput2 =
-                    IE::expandWithOffset(rewriter, origOp, sliceOp, origOp.getInput2(), padsEnd, Dims4D::Act::C.ind());
+            auto newLoc = takeOpLoc(origOp, "_expand_input2");
+            expandedInput2 = IE::expandWithOffset(newLoc, rewriter, origOp, sliceOp, origOp.getInput2(), padsEnd,
+                                                  Dims4D::Act::C.ind());
         }
 
         const Shape outPadBefore(checked_cast<size_t>(origOp.getType().getRank()), 0);
@@ -228,6 +231,23 @@ public:
     }
 
     mlir::LogicalResult matchAndRewrite(IE::SoftMaxOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+//
+// SDPAExtendedRewriter
+//
+
+class SDPAExtendedRewriter final : public mlir::OpRewritePattern<IE::SDPAExtendedOp> {
+public:
+    SDPAExtendedRewriter(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::SDPAExtendedOp>(ctx), _log(log) {
+        setDebugName("SDPAExtendedRewriter");
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::SDPAExtendedOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;

@@ -6,7 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 

@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -149,6 +150,15 @@ bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType,
         return false;
     }
 
+    const auto inputElementType = inputType.getElementType();
+    if (const auto inputQuantType = mlir::dyn_cast<mlir::quant::QuantizedType>(inputElementType)) {
+        const bool is16BitsQuantization = (inputQuantType.getStorageType().getIntOrFloatBitWidth() == 16);
+        if (is16BitsQuantization) {
+            log.trace("NCE MaxPool does not support quantized 16 bits input");
+            return false;
+        }
+    }
+
     const auto inShape = inputType.getShape();
     const auto inMemShape = inputType.getMemShape();
 
@@ -158,8 +168,8 @@ bool isLegalConvertToPool(NDTypeInterface inputType, NDTypeInterface outputType,
         log.trace("NCE MaxPool does not support signed or unsigned integer");
         return false;
     }
-    if (mlir::isa<mlir::FloatType>(elementType) &&
-        mlir::cast<mlir::FloatType>(elementType).getWidth() != mlir::Float16Type::get(ctx).getWidth()) {
+    if (mlir::isa<mlir::FloatType>(elementType) && mlir::cast<mlir::FloatType>(elementType).getIntOrFloatBitWidth() !=
+                                                           mlir::Float16Type::get(ctx).getIntOrFloatBitWidth()) {
         log.trace("NCE MaxPool does not support float type width different from 16 bits");
         return false;
     }
@@ -339,9 +349,12 @@ mlir::LogicalResult ConvertMemPermuteToMaxPool::matchAndRewrite(IE::MemPermuteOp
     } else {
         auto conversionMap = calculateConversions(targetInShape, alignedChannel, targetOrder);
         auto latestInput = inPermuteCastOp.getResult();
-        for (const auto& item : conversionMap) {
-            auto shapeCastTmp = rewriter.createOrFold<IE::ShapeCastOp>(origOp.getLoc(), latestInput,
-                                                                       getIntArrayAttr(ctx, item.first.raw()));
+        for (const auto& elem : conversionMap | indexed) {
+            const auto idx = elem.index();
+            const auto& item = elem.value();
+            auto shapeCastTmp =
+                    rewriter.createOrFold<IE::ShapeCastOp>(appendLoc(origOp.getLoc(), std::to_string(idx)), latestInput,
+                                                           getIntArrayAttr(ctx, item.first.raw()));
             const auto layoutCastType = mlir::cast<vpux::NDTypeInterface>(shapeCastTmp.getType());
             const auto outType = layoutCastType.changeDimsOrder(item.second);
             auto maxPool = IE::createIdentityMaxPool(shapeCastTmp, outType, rewriter);
@@ -512,12 +525,18 @@ mlir::LogicalResult ConvertMemPermuteWithShapeCast::matchAndRewrite(IE::MemPermu
     if (mergedLogicShape == inputType.getShape() && memPerm == newMemPermAttr) {
         return matchFailed(_log.nest(), rewriter, origOp, "No need to shape cast");
     }
-    // Check whether it is legal to convert with new memPerm
+
+    auto module = getModuleOp(origOp.getOperation());
+    const auto dmaPortNum = config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
     auto newMemPermuteInput = inputType.changeShape(mergedLogicShape);
     auto newMemPermuteOutput = inferNewTypeWithMemPerm(newMemPermuteInput, newMemPermAttr, outputType.getDimsOrder());
+
     if (!isLegalConvertToPool(newMemPermuteInput, newMemPermuteOutput, nullptr, newMemPermAttr, ctx, _numClusters,
-                              getDebugName(), arch, _log.nest())) {
-        return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool");
+                              getDebugName(), arch, _log.nest()) &&
+        !(VPUIP::isBeneficialForUsingPermuteDMA(config::getArch(origOp.getOperation()), newMemPermuteInput,
+                                                newMemPermuteOutput, newMemPermAttr, dmaPortNum, _log) &&
+          inputType.getShape()[Dims4D::Act::N] != 1)) {
+        return matchFailed(_log.nest(), rewriter, origOp, "Not legal to convert MemPermute to Pool or PermuteDMA");
     }
 
     // Create input ShapeCast
@@ -761,15 +780,12 @@ mlir::LogicalResult ConvertMemPermuteToPermuteQuantize::matchAndRewrite(IE::MemP
 
 class ConvertMemPermuteToOpPass final : public IE::impl::ConvertMemPermuteToOpPassBase<ConvertMemPermuteToOpPass> {
 public:
-    explicit ConvertMemPermuteToOpPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertMemPermuteToOpPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ConvertMemPermuteToOpPass::safeRunOnFunc() {

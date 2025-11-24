@@ -26,6 +26,11 @@ public:
     virtual ~IPassesRegistry() = default;
 };
 
+class EmptyPassesRegistry final : public IPassesRegistry {
+public:
+    void registerPasses() override;
+};
+
 //
 // createPassesRegistry
 //

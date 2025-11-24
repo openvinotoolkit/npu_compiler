@@ -21,6 +21,10 @@ public:
         return false;
     }
 
+    bool isNNCacheStatisticsSupported() const override {
+        return false;
+    }
+
     bool isMultiDimPipelineTilingSupported() const override {
         return false;
     }

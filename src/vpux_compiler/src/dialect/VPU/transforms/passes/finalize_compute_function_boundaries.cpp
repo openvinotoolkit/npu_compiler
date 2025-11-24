@@ -227,6 +227,7 @@ void FinalizeComputeFunctionBoundariesPass::safeRunOnModule() {
     target.addDynamicallyLegalOp<mlir::tensor::InsertSliceOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::EmptyOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::tensor::DimOp>(isLegalOp);
+    target.addDynamicallyLegalOp<mlir::tensor::CastOp>(isLegalOp);
 
     target.addDynamicallyLegalOp<mlir::func::ReturnOp>(isLegalOp);
     target.addDynamicallyLegalOp<mlir::func::CallOp>(isLegalOp);

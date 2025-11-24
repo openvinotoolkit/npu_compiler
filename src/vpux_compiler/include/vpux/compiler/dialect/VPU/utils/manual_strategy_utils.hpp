@@ -23,5 +23,5 @@ constexpr StringLiteral verticalFusionHash = "verticalFusionHash";
 constexpr StringLiteral layerTypeName = "layerType";
 constexpr StringLiteral updatedVFTiling = "updatedVFTiling";
 constexpr StringLiteral outputPipelining = "outputPipelining";
-
+constexpr StringLiteral outputPipeliningMinFragmentation = "outputPipeliningMinFragmentation";
 }  // namespace vpux

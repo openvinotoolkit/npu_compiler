@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW" --dpu-profiling %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch% compilation-mode=DefaultHW allow-custom-values=true" --dpu-profiling %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
@@ -200,6 +200,9 @@ module @DpuProfilingWithMulticlustering  {
 
 // CHECK-LABEL: @DpuProfilingMultipleOps
 module @DpuProfilingMultipleOps  {
+  config.Resources 1 of @NCE at 1.700000e+03 MHz {
+    config.MemoryResource  26214400 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+  }
 
   net.NetworkInfo entryPoint : @main inputsInfo :  {
     DataInfo "input" : tensor<1x3x224x224xf16>
@@ -400,6 +403,7 @@ module @DpuProfilingMultipleOps  {
     //CHECK-SAME:   memref<[[PROFDATA_INFO_TENSOR_SIZE]]x[[PROFDATA_INFO_TENSOR_TYPE]]>
   }
 }
+
 
 // -----
 

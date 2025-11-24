@@ -79,7 +79,7 @@ module @DynamicBroadcastShapeSubgraph {
   func.func @main(%arg0: tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>, %arg1: tensor<?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 5]> : tensor<2xsi64>}>) -> tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}> {
     %cst_0 = const.Declare tensor<2xsi64> = dense<[0, 2]> : tensor<2xsi64>
     %0 = IE.ShapeOf(%arg0) {dstElemType = si64} : tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}> -> tensor<3xsi64>
-    %1 = IE.DynamicBroadcast(%arg1, %0, %cst_0) {mode = #IE.broadcast_type<EXPLICIT>, output_bounds = [2, 3, 4], output_shape = [-9223372036854775808, -9223372036854775808, -9223372036854775808]} : tensor<?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 5]> : tensor<2xsi64>}>, tensor<3xsi64>, tensor<2xsi64> -> tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>
+    %1 = IE.DynamicBroadcast(%arg1, %0, %cst_0) {mode = #IE.broadcast_type<EXPLICIT>, output_bounds = [3, 4, 5], output_shape = [-9223372036854775808, -9223372036854775808, -9223372036854775808]} : tensor<?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 5]> : tensor<2xsi64>}>, tensor<3xsi64>, tensor<2xsi64> -> tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>
     return %1 : tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>
 
     // CHECK:               [[CONST:%.+]] = const.Declare tensor<3xsi32> = dense<[-1, 1, -1]> : tensor<3xsi32>
@@ -87,7 +87,7 @@ module @DynamicBroadcastShapeSubgraph {
     // CHECK-NOT:           IE.Broadcast
     // CHECK-NOT:           IE.DynamicBroadcast
     // CHECK:               [[RESHAPE:%.+]] = IE.DynamicReshape([[ARG1]], [[CONST]]) {output_bounds = [3, 1, 5], output_shape = [-9223372036854775808, 1, -9223372036854775808]} : tensor<?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 5]> : tensor<2xsi64>}>, tensor<3xsi32> -> tensor<?x1x?xf32, {bounds = #const.OpaqueI64Elements<[3, 1, 5]> : tensor<3xsi64>, order = #CHW}>
-    // CHECK:               [[TILE:%.+]] = IE.DynamicTile([[RESHAPE]], [[SHAPEOF]]) {output_bounds = [2, 3, 4], output_shape = [-9223372036854775808, -9223372036854775808, -9223372036854775808]} : tensor<?x1x?xf32, {bounds = #const.OpaqueI64Elements<[3, 1, 5]> : tensor<3xsi64>, order = #CHW}>, tensor<3xsi64> -> tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>
+    // CHECK:               [[TILE:%.+]] = IE.DynamicTile([[RESHAPE]], [[SHAPEOF]]) {output_bounds = [3, 4, 5], output_shape = [-9223372036854775808, -9223372036854775808, -9223372036854775808]} : tensor<?x1x?xf32, {bounds = #const.OpaqueI64Elements<[3, 1, 5]> : tensor<3xsi64>, order = #CHW}>, tensor<3xsi64> -> tensor<?x?x?xf32, {bounds = #const.OpaqueI64Elements<[3, 4, 5]> : tensor<3xsi64>}>
     // CHECK:               return [[TILE]]
   }
 }

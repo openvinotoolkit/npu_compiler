@@ -246,7 +246,7 @@ using WsArgumentCache = vpux::utils::ArgumentCache<vpux::VPU::ConstArg>;
 
 class IntroduceInitFunctionPass final : public VPU::impl::IntroduceInitFunctionBase<IntroduceInitFunctionPass> {
 public:
-    enum class Mode { Unspecified, GenerateMain, GenerateInit, GenerateAll };
+    enum class Mode { Unspecified, GenerateMain, GenerateInit };
 
     explicit IntroduceInitFunctionPass(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -288,10 +288,6 @@ public:
     // entry-point. the behaviour is to be considered equivalent to setting the
     // entry-point to init.
     void setNetworkEntryPointToMain(net::NetworkInfoOp netInfo, const WsArgumentCache& topLevelMainArgCache);
-    // creates new main that calls init and main in sequence. this function
-    // becomes the new entry-point.
-    mlir::func::CallOp buildWrapperOpForInitAndMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFuncOp,
-                                                    mlir::func::FuncOp initFuncOp, const WsArgumentCache& initArgCache);
 
     mlir::LogicalResult initialize(mlir::MLIRContext* context) final;
     mlir::LogicalResult deferredInitialize(mlir::ModuleOp moduleOp);
@@ -308,13 +304,18 @@ public:
 void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp netInfo, mlir::func::FuncOp initFuncOp,
                                                            const WsArgumentCache& argCache,
                                                            const InitResults& initResults) {
-    netInfo.setEntryPoint(initFuncOp.getSymName());
-
     mlir::OpBuilder::Listener listener;
-    mlir::OpBuilder builder(&getContext(), &listener);
+    mlir::OpBuilder builder(netInfo, &listener);
+    // We replace the old netInfo with a new one where all the sections are cleared. Especially, the profiling sections
+    // are not supported for @init().
+    // TODO E#176454: Revert to the previous logic.
+    const auto entrySymbol = mlir::FlatSymbolRefAttr::get(&getContext(), initFuncOp.getSymName());
+    auto newNetInfo = builder.create<net::NetworkInfoOp>(netInfo.getLoc(), entrySymbol, /*withProfiling=*/false);
+    net::setupSections(newNetInfo, false);
+    netInfo->erase();
 
     // update input types
-    auto& inputsRegion = netInfo.getInputsInfo();
+    auto& inputsRegion = newNetInfo.getInputsInfo();
     net::eraseSectionEntries(inputsRegion);
     builder.setInsertionPointToStart(&inputsRegion.front());
 
@@ -322,17 +323,17 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToInit(net::NetworkInfoOp ne
         const auto& [entry, blockArg] = *it;
         const auto type = blockArg.getType();
         const auto name = getResourceName(entry.content);
-        builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), name), name, type);
+        builder.create<net::DataInfoOp>(appendLoc(newNetInfo.getLoc(), name), name, type);
     }
 
     // update output types
-    auto& outputsRegion = netInfo.getOutputsInfo();
+    auto& outputsRegion = newNetInfo.getOutputsInfo();
     net::eraseSectionEntries(outputsRegion);
     builder.setInsertionPointToStart(&outputsRegion.front());
 
     for (const auto& [entry, value] : initResults) {
         const auto outputName = entry.getUniqueName();
-        builder.create<net::DataInfoOp>(appendLoc(netInfo.getLoc(), outputName), outputName, value.getType());
+        builder.create<net::DataInfoOp>(appendLoc(newNetInfo.getLoc(), outputName), outputName, value.getType());
     }
 }
 
@@ -352,9 +353,10 @@ class MainFunctionUpdater final : public VPU::CallChainTree::Visitor {
         const auto& calleeArgDeduplicator = _argCaches.at(calleeOp);
         for (auto it : calleeArgDeduplicator.getSortedArgs()) {
             const auto& [entry, blockArg] = *it;
+            const auto uniqueLoc = appendLoc(blockArg.getLoc(), "from_{0}", calleeOp.getSymName());
             // propagate the argument from child to parent - there's nothing
             // else that has to be done just yet
-            std::ignore = callerArgDeduplicator.addArgument(entry, blockArg.getType());
+            std::ignore = callerArgDeduplicator.addArgument(uniqueLoc, entry, blockArg.getType());
         }
     }
 
@@ -423,10 +425,10 @@ public:
             auto idx = it.index();
             VPU::TransformationsSplit split(declareOp);
             auto projection = split.take(VPU::WeightsSeparationSchedule::Main);
-            auto mainArg = mainArgDeduplicator.addArgument(VPU::ConstArg(projection), projection.argType);
-            auto valueInMain =
-                    funcConverter.convertToIrForm(appendLoc(declareOp.getLoc(), "main_cstIdx_{0}", idx), projection,
-                                                  mainArg, mainIoAdaptor, VPU::WeightsSeparationSchedule::Main);
+            const auto uniqueLoc = appendLoc(split.getLoc(), "main_cst{0}", idx);
+            auto mainArg = mainArgDeduplicator.addArgument(uniqueLoc, VPU::ConstArg(projection), projection.argType);
+            auto valueInMain = funcConverter.convertToIrForm(uniqueLoc, projection, mainArg, mainIoAdaptor,
+                                                             VPU::WeightsSeparationSchedule::Main);
 
             _log.trace("Replacing '{0}' with '{1}'", declareOp, valueInMain);
             declareOp.replaceAllUsesWith(valueInMain);
@@ -560,9 +562,10 @@ std::tuple<WsArgumentCache, IntroduceInitFunctionPass::InitResults> IntroduceIni
 
     for (const auto& [idx, split] : splits | indexed) {
         auto projection = split.take(VPU::WeightsSeparationSchedule::Init);
-        auto initArg = initArgDeduplicator.addArgument(VPU::ConstArg(projection), projection.argType);
-        auto valueInInit = initConverter.convertToIrForm(appendLoc(split.getLoc(), "init_cstIdx_{0}", idx), projection,
-                                                         initArg, initIoAdaptor, VPU::WeightsSeparationSchedule::Init);
+        const auto uniqueLoc = appendLoc(split.getLoc(), "init_cst{0}", idx);
+        auto initArg = initArgDeduplicator.addArgument(uniqueLoc, VPU::ConstArg(projection), projection.argType);
+        auto valueInInit = initConverter.convertToIrForm(uniqueLoc, projection, initArg, initIoAdaptor,
+                                                         VPU::WeightsSeparationSchedule::Init);
         addInitResult(split, valueInInit);
     }
 
@@ -584,14 +587,9 @@ IntroduceInitFunctionPass::buildInitFunction(mlir::func::FuncOp mainFuncOp,
 IntroduceInitFunctionPass::SplitSlice IntroduceInitFunctionPass::collectSplitsAccordingToSettings(
         const VPU::WeightsSeparationInfo& wsAnalysis) {
     auto splits = wsAnalysis.getCollectedSplits();
-    if (_mode == Mode::GenerateAll) {
-        // when generating everything, constant collection is aligned to
-        // gen-main to ensure init results are aligned to main inputs.
-        return {std::move(splits), /*initIsSliced=*/false};
-    }
 
     // when generating init, acknowledge init part and memory limit
-    assert(_mode == Mode::GenerateInit && "Init generation only happens in gen-all and gen-init");
+    assert(_mode == Mode::GenerateInit && "Init generation only happens in gen-init");
     VPUX_THROW_WHEN(splits.empty(), "Cannot generate empty init schedule");
     // Note: sort "globally" to prepare for slicing
     llvm::sort(splits);
@@ -632,72 +630,6 @@ void IntroduceInitFunctionPass::setNetworkEntryPointToMain(net::NetworkInfoOp ne
     }
 }
 
-mlir::func::CallOp IntroduceInitFunctionPass::buildWrapperOpForInitAndMain(net::NetworkInfoOp netInfo,
-                                                                           mlir::func::FuncOp mainFuncOp,
-                                                                           mlir::func::FuncOp initFuncOp,
-                                                                           const WsArgumentCache& initArgCache) {
-    const auto mainFuncType = mainFuncOp.getFunctionType();
-    const auto initFuncType = initFuncOp.getFunctionType();
-    // Note: expect the below to never fail
-    VPUX_THROW_WHEN(mainFuncType.getNumInputs() < initFuncType.getNumResults(),
-                    "Main must be already updated to accept all init's outputs as additional inputs");
-    // inputs of main are original inputs + init outputs:
-    const auto inputs = mainFuncType.getInputs().drop_back(initFuncOp.getFunctionType().getNumResults());
-    // results of main are untouched
-    const auto results = mainFuncType.getResults();
-
-    OpBuilderLogger builderLog(_log.nest());
-    auto wrapperFuncOp = [&]() {
-        mlir::OpBuilder moduleBuilder(&getContext(), &builderLog);
-        moduleBuilder.setInsertionPointAfter(mainFuncOp);
-        auto loc = appendLoc(mainFuncOp.getLoc(), "_wrapper");
-        auto wrapperFuncType = mlir::FunctionType::get(&getContext(), inputs, results);
-        return moduleBuilder.create<mlir::func::FuncOp>(loc, ("wrapper_" + mainFuncOp.getSymName()).str(),
-                                                        wrapperFuncType);
-    }();
-
-    const auto locBase = wrapperFuncOp.getLoc();
-    auto bodyBlock = wrapperFuncOp.addEntryBlock();
-    auto builder = mlir::OpBuilder::atBlockEnd(bodyBlock, &builderLog);
-
-    // create the declare ops without their transformations
-    SmallVector<mlir::Value> inputValues;
-    inputValues.reserve(initFuncType.getNumInputs());
-    for (auto it : initArgCache.getSortedArgs()) {
-        const auto& [entry, blockArg] = *it;
-        auto baseContent = entry.content;
-        inputValues.push_back(builder.create<Const::DeclareOp>(appendLoc(locBase, "_cst_{0}", blockArg.getArgNumber()),
-                                                               baseContent.getType(),
-                                                               Const::ContentAttr::get(baseContent)));
-    }
-
-    auto initCallOp = builder.create<mlir::func::CallOp>(appendLoc(locBase, "_call_init"), initFuncOp.getSymNameAttr(),
-                                                         initFuncType.getResults(), inputValues);
-
-    auto mainInputValues = [&]() {
-        const auto blockArgs = bodyBlock->getArguments();
-        const auto initResults = initCallOp.getResults();
-
-        // main arguments go as follows: first original arguments (unmodified),
-        // then new arguments (results of init)
-        SmallVector<mlir::Value> values;
-        values.reserve(bodyBlock->getNumArguments() + initCallOp.getNumResults());
-        values.append(blockArgs.begin(), blockArgs.end());
-        values.append(initResults.begin(), initResults.end());
-        return values;
-    }();
-    builder.setInsertionPointAfter(initCallOp);
-    auto mainCallOp = builder.create<mlir::func::CallOp>(appendLoc(locBase, "_call_main"), mainFuncOp.getSymNameAttr(),
-                                                         mainFuncType.getResults(), mainInputValues);
-
-    builder.setInsertionPointToEnd(bodyBlock);
-    builder.create<mlir::func::ReturnOp>(appendLoc(locBase, "_return"), mainCallOp.getResults());
-
-    netInfo.setEntryPoint(wrapperFuncOp.getSymName());
-
-    return initCallOp;
-}
-
 mlir::LogicalResult IntroduceInitFunctionPass::initialize(mlir::MLIRContext*) {
     if (wsExtractionMode.hasValue()) {
         auto modeString = wsExtractionMode.getValue();
@@ -706,8 +638,6 @@ mlir::LogicalResult IntroduceInitFunctionPass::initialize(mlir::MLIRContext*) {
             _mode = Mode::GenerateMain;
         } else if (modeString == "gen-init") {
             _mode = Mode::GenerateInit;
-        } else if (modeString == "gen-all") {
-            _mode = Mode::GenerateAll;
         } else {
             return mlir::failure();
         }
@@ -734,13 +664,6 @@ mlir::LogicalResult IntroduceInitFunctionPass::deferredInitialize(mlir::ModuleOp
             return mlir::failure();
         }
         break;
-    }
-    case Mode::GenerateAll: {
-        if (limitSpecified) {
-            moduleOp->emitError(formatv("{0} is not supported in monolithic mode", memoryLimit.getArgStr()));
-            return mlir::failure();
-        }
-        [[fallthrough]];
     }
     case Mode::GenerateMain: {
         if (initPartSpecified) {
@@ -827,14 +750,6 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
         return std::make_unique<InitSpecificNullLogger>();
     }();
 
-    // Don't let PackNestedModulesPass put @main and other functions into a submodule.
-    auto applyNoNestingToAllFunctions = [&]() {
-        auto ctx = moduleOp.getContext();
-        moduleOp.walk([&](mlir::func::FuncOp funcOp) {
-            funcOp->setAttr("do_not_nest", mlir::UnitAttr::get(ctx));
-        });
-    };
-
     switch (_mode) {
     case Mode::GenerateInit: {
         auto [initFuncOp, initArgCache, initResults] = buildInitFunction(mainFuncOp, wsAnalysis);
@@ -848,28 +763,6 @@ void IntroduceInitFunctionPass::safeRunOnModule() {
     case Mode::GenerateMain: {
         auto mainArgCache = updateMainAndOutlinedFunctions(moduleOp, mainFuncOp, tree);
         setNetworkEntryPointToMain(netInfo, mainArgCache);
-        break;
-    }
-    case Mode::GenerateAll: {
-        applyNoNestingToAllFunctions();
-        auto [initFuncOp, initArgCache, initResults] = buildInitFunction(mainFuncOp, wsAnalysis);
-        std::ignore = updateMainAndOutlinedFunctions(moduleOp, mainFuncOp, tree);
-        initFuncOp.setPrivate();
-        mainFuncOp.setPrivate();
-
-        auto initCallOp = buildWrapperOpForInitAndMain(netInfo, mainFuncOp, initFuncOp, initArgCache);
-
-        // Note: erase empty init to avoid issues further in the pipeline (e.g.
-        // with feasible allocation)
-        if (bool emptyInit = initCallOp->getOperands().empty() && initCallOp->getResults().empty(); emptyInit) {
-            _log.info("[WSMonolithic] when generating init schedule, empty init was produced");
-            initFuncOp.erase();
-            initCallOp.erase();
-            break;
-        }
-
-        statisticsLogger->analyzeInitFunction(initFuncOp);
-        statisticsLogger->print(_log);
         break;
     }
     default: {

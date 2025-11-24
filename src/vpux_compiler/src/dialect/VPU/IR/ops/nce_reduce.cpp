@@ -8,8 +8,10 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
@@ -58,7 +60,7 @@ mlir::LogicalResult vpux::VPU::NCEReduceOp::verify() {
 
 bool vpux::VPU::NCEReduceOp::isSupported(mlir::Operation* op, LogCb logCb, bool checkLayout,
                                          bool checkChannelAlignment) {
-    if (!isReduceOpSupportedOnNCE(op) || !vpux::VPU::isNCEReduceSupported(op, logCb)) {
+    if (!config::isReduceOpSupportedOnNCE(op) || !vpux::VPU::isNCEReduceSupported(op, logCb)) {
         return false;
     }
 
@@ -94,6 +96,8 @@ bool vpux::VPU::NCEReduceOp::isSupported(mlir::Operation* op, LogCb logCb, bool 
 
 bool vpux::VPU::NCEReduceOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface output, Byte reservedMem) {
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();

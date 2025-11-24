@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/IRMapping.h>
 #include <mlir/Transforms/DialectConversion.h>
@@ -54,10 +55,10 @@ std::tuple<mlir::Value, Shape, Shape> getInputConcatAndPadding(mlir::PatternRewr
         zeroConstShape[Dims4D::Act::H] = isDimX ? getShape(inputConcat)[Dims4D::Act::H] : (pad - kernel / 2);
         const auto zeroType = mlir::RankedTensorType::get(
                 zeroConstShape.raw(), mlir::cast<NDTypeInterface>(input.getType()).getElementType());
-        auto zeroConst = Const::createZerosConst(rewriter, origOp->getLoc(), zeroType);
+        auto zeroConst = Const::createZerosConst(rewriter, takeOpLoc(origOp, "_pad_zero"), zeroType);
         const auto dataOrder = mlir::cast<NDTypeInterface>(input.getType()).getDimsOrder();
         const auto orderMap = dataOrder.toAffineMap(rewriter.getContext());
-        return rewriter.createOrFold<IE::ReorderOp>(origOp->getLoc(), zeroConst, orderMap);
+        return rewriter.createOrFold<IE::ReorderOp>(takeOpLoc(origOp, "_reorder"), zeroConst, orderMap);
     };
 
     if (padLeft > KX / 2) {
@@ -70,8 +71,9 @@ std::tuple<mlir::Value, Shape, Shape> getInputConcatAndPadding(mlir::PatternRewr
         newPadEnd[Dims4D::PadsEnd::Right] = KX / 2;
     }
 
-    inputConcat =
-            rewriter.create<IE::ConcatOp>(origOp->getLoc(), mlir::ValueRange(concats), Dims4D::Act::W)->getResult(0);
+    inputConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "_input_concat0"), mlir::ValueRange(concats),
+                                                Dims4D::Act::W)
+                          ->getResult(0);
 
     concats.clear();
 
@@ -85,8 +87,9 @@ std::tuple<mlir::Value, Shape, Shape> getInputConcatAndPadding(mlir::PatternRewr
         newPadEnd[Dims4D::PadsEnd::Bottom] = KY / 2;
     }
 
-    inputConcat =
-            rewriter.create<IE::ConcatOp>(origOp->getLoc(), mlir::ValueRange(concats), Dims4D::Act::H)->getResult(0);
+    inputConcat = rewriter.create<IE::ConcatOp>(takeOpLoc(origOp, "_input_concat1"), mlir::ValueRange(concats),
+                                                Dims4D::Act::H)
+                          ->getResult(0);
 
     return std::make_tuple(inputConcat, newPadStart, newPadEnd);
 }

@@ -9,6 +9,8 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 
@@ -16,7 +18,6 @@
 
 namespace vpux::VPU {
 enum class MultiClusterStrategy : uint64_t;
-class NCEConvolutionOp;
 class TransposedConvolutionOp;
 }  // namespace vpux::VPU
 
@@ -47,6 +48,13 @@ mlir::LogicalResult verifyConvUtil(mlir::Location loc, mlir::Operation* op, Shap
                                    std::optional<ShapeRef> weightsTableShape, mlir::Value output);
 
 PadInfo shrinkPadsForDilatedConvolution(const PadInfo& pads, const ArrayRef<int64_t> dilations);
+
+mlir::Value splitNCEConvolutionOverIC(VPU::NCEConvolutionOp origOp, mlir::Value weightInput,
+                                      SmallVector<VPU::NCEConvolutionOp>& convOps,
+                                      SmallVector<VPU::NCEEltwiseOp>& addOps,
+                                      SmallVector<VPU::DequantizeOp>& dequantizeOps, const OutputTiling& tiles,
+                                      VPU::DequantizeOp weightDequantizeOp, mlir::PatternRewriter& rewriter,
+                                      Logger log);
 
 template <typename ConvTypeOp>
 static bool areConvInputOutputs4d(ConvTypeOp convOp, LogCb logCb) {

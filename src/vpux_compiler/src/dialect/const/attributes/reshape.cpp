@@ -85,7 +85,8 @@ bool vpux::Const::ReshapeAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeI
 //
 
 Const::Content vpux::Const::ReshapeAttr::transform(vpux::Const::Content& input) const {
-    return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
+    const auto outputType = inferOutputType(input.getType());
+    return Const::Content::moveBuffer(outputType, std::move(input));
 }
 
 //

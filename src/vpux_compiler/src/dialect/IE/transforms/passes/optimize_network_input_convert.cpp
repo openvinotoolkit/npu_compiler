@@ -33,15 +33,12 @@ namespace {
 class OptimizeNetworkInputConvertPass final :
         public IE::impl::OptimizeNetworkInputConvertBase<OptimizeNetworkInputConvertPass> {
 public:
-    explicit OptimizeNetworkInputConvertPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit OptimizeNetworkInputConvertPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 // Search for FloatInput in the following patterns

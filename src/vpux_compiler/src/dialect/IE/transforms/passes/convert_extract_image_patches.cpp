@@ -79,7 +79,8 @@ mlir::LogicalResult replaceExtractImagePatchesWithTranspose(IE::ExtractImagePatc
     // The equivalent permutation order
     log.trace("ExtractImagePatches op is replaced with a Transpose op - '{0}'", op->getLoc());
     const auto orderOutputAttr = mlir::AffineMapAttr::get(vpux::DimsOrder::NWHC.toAffineMap(ctx));
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(op, op.getType(), op.getData(), nullptr, orderOutputAttr);
+    auto newOp = rewriter.replaceOpWithNewOp<IE::TransposeOp>(op, op.getType(), op.getData(), nullptr, orderOutputAttr);
+    extendOpLoc(newOp, "as_transpose");
     return mlir::success();
 }
 
@@ -346,15 +347,12 @@ mlir::LogicalResult ConvertToSliceConcatRewriter::matchAndRewrite(IE::ExtractIma
 class ConvertExtractImagePatchesPass final :
         public IE::impl::ConvertExtractImagePatchesBase<ConvertExtractImagePatchesPass> {
 public:
-    explicit ConvertExtractImagePatchesPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertExtractImagePatchesPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ConvertExtractImagePatchesPass::safeRunOnFunc() {

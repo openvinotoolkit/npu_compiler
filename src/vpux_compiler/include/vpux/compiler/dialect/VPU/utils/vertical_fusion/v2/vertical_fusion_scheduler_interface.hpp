@@ -106,6 +106,23 @@ protected:
     void reduceCostWithPrefetchedDMA(StrategyCost& parentCost, const StrategyCost& prefetchCost,
                                      const size_t index) const;
 
+    /*
+      Check if the VF can support shared weights
+    */
+    virtual bool isSharedWeightsSupported(VFConfig& config) const;
+
+    /*
+      Calculate shared size across different tiles
+    */
+    Byte calculateSharedSize(VFConfig& config, mlir::Operation* operation,
+                             const vpux::VPU::VFOperationTiling& inputOutputTiling) const;
+
+    /*
+      Calculate total shared size cross different tiles
+    */
+    Byte getSharedSizeByAllTiles(ArrayRef<mlir::Operation*> operations, VFConfig& config,
+                                 const TilingOperationStorage::UPtr& tilingInfo) const;
+
 protected:
     Logger _log;
     bool _prefetching = true;

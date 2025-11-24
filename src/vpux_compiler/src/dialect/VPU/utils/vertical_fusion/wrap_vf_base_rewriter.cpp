@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/wrap_vf_base_rewriter.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/control_flow.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU::VF {
 

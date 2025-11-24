@@ -3,6 +3,7 @@
 //
 
 #include "single_op_tests/convolution.hpp"
+#include "pretty_test_arguments.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 using namespace ov::test::utils;
@@ -11,6 +12,7 @@ namespace ov {
 namespace test {
 
 class ConvolutionLayerTestCommon : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {};
+class ConvolutionLayerTest_HostCompile : public ConvolutionLayerTest, virtual public VpuOv2LayerTest {};
 
 class ConvolutionLayerTest_NPU3720_SCM : public ConvolutionLayerTestCommon {};
 class ConvolutionLayerTest_NPU3720_HW : public ConvolutionLayerTestCommon {};
@@ -99,6 +101,18 @@ TEST_P(ConvolutionLayerTest_MULTI_BATCH_HW, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+
+TEST_P(ConvolutionLayerTest_HostCompile, NPU4000_HC) {
+    rel_threshold = 0.02;
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU4000);
+}
+
 }  // namespace test
 }  // namespace ov
 
@@ -681,6 +695,24 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_PadBeginEnd_Stride, Convo
                                             ::testing::Values(test_utils::TARGET_DEVICE)),
                          ConvolutionLayerTest::getTestCaseName);
 
+const auto conv2DParams_ShapeCast_Kernel1x1_Stride =
+        ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // kernels
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 2}}),     // strides
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padBegins
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{0, 0}}),  // padEnds
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // dilations
+                           ::testing::Values(3),                                   // numOutChannels
+                           ::testing::Values(ov::op::PadType::EXPLICIT)            // padType
+        );
+
+INSTANTIATE_TEST_SUITE_P(smoke_Convolution2D_ShapeCast_Kernel1x1_Stride, ConvolutionLayerTest_NPU4000_HW,
+                         ::testing::Combine(conv2DParams_ShapeCast_Kernel1x1_Stride,  //
+                                            ::testing::Values(ov::element::f16),      // netPrc
+                                            ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
+                                                    1, 3, 320, 639}})}),  // inputShapes
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         ConvolutionLayerTest::getTestCaseName);
+
 const auto conv3DParams =
         ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{1, 1, 1}}),                // kernels
                            ::testing::ValuesIn<std::vector<size_t>>({{1, 1, 1}}),                // strides
@@ -732,5 +764,29 @@ INSTANTIATE_TEST_SUITE_P(smoke_Convolution3D_ComplexStrides, ConvolutionLayerTes
                                             ::testing::ValuesIn({static_shapes_to_test_representation({ov::Shape{
                                                     1, 3, 64, 64, 64}})}),  // inputShapes
                                             ::testing::Values(test_utils::TARGET_DEVICE)),
+                         ConvolutionLayerTest::getTestCaseName);
+
+// Conv 2D with dynamic dimensions
+const auto conv2DParams_2DynDims =
+        ::testing::Combine(::testing::ValuesIn<std::vector<size_t>>({{3, 3}}),     // kernels
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // strides
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{1, 1}}),  // padBegins
+                           ::testing::ValuesIn<std::vector<ptrdiff_t>>({{1, 1}}),  // padEnds
+                           ::testing::ValuesIn<std::vector<size_t>>({{1, 1}}),     // dilations
+                           ::testing::Values(16),                                  // numOutChannels
+                           ::testing::Values(ov::op::PadType::EXPLICIT)            // padType
+        );
+
+const std::vector<std::vector<ov::test::InputShape>> in2DShape = {{generateTestShape(1, 16, 1280_Dyn, 1280)},
+                                                                  {generateTestShape(1, 16, 1280_Dyn, 1280_Dyn)},
+                                                                  {generateTestShape(1, 3, 1280_Dyn, 1280)},
+                                                                  {generateTestShape(1, 3, 1280_Dyn, 1280_Dyn)}};
+
+const auto DynamicShapesHostCompile_Conv_params =
+        ::testing::Combine(conv2DParams_2DynDims,                //
+                           ::testing::Values(ov::element::f16),  // netPrc
+                           ::testing::ValuesIn(in2DShape), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, ConvolutionLayerTest_HostCompile, DynamicShapesHostCompile_Conv_params,
                          ConvolutionLayerTest::getTestCaseName);
 }  // namespace

@@ -14,8 +14,7 @@ add_npu_library(npu_compiler_conversion
         npu_llvm_utils
         npu_profiling_utils
         npu_elf
-        flatbuffers
-        # E#98178: remove depedency on firmware headers
+        # E#98178: remove dependency on firmware headers
         npu_37xx_firmware_headers
         npu_40xx_firmware_headers
         npu_compiler_dialect_npureg40xx

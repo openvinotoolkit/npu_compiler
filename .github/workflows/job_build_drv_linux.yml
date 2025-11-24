@@ -1,0 +1,160 @@
+name: Linux NPU Driver Build
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: 'OS that is used for building in the form of "ubuntu_20_04"'
+        type: string
+        required: true
+      build-runner:
+        description: 'Machine on which the builds will run'
+        type: string
+        required: true
+      driver-cmake-options:
+        description: 'Custom CMake options for NPU Driver build'
+        type: string
+        required: false
+      build-cache:
+        description: 'Whether to take previously built Driver package'
+        type: boolean
+        required: false
+        default: false
+      build-cache-key-suffix:
+        description: 'Cache package suffix'
+        type: string
+        required: false
+    outputs:
+      build-package:
+        description: 'Driver build package name to be stored as the action artifact'
+        value: ${{ jobs.Build.outputs.build-package }}
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  statuses: read
+
+jobs:
+  Build:
+    name: Build
+    runs-on: ${{ inputs.build-runner }}
+    timeout-minutes: 240
+    outputs:
+      build-package: ${{ steps.set-build-package-name.outputs.build-package }} 
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      NPU_ACTIONS_DIR: ./npu_actions
+      NPU_COMPILER_REPO: ./npu_compiler
+      NPU_DRIVER_REPO: ./npu_driver
+      NPU_DRIVER_BUILD_DIR: ./npu_driver_build
+      NPU_DRIVER_INSTALL_DIR: ./npu_driver_install
+      NPU_DRIVER_BUILD_PACKAGE: l_drv_${{ inputs.os }}_npu_${{ github.sha }}
+    steps:
+      - name: Get cache key
+        if: ${{ inputs.build-cache }}
+        id: cache-key
+        run: |
+          cache_key="l_drv_${{ inputs.os }}_cache_${{ inputs.build-cache-key-suffix || github.sha }}"
+          echo "cache-key=$cache_key" >> $GITHUB_OUTPUT
+
+      - name: Restore Driver package from cache
+        if: ${{ inputs.build-cache }}
+        id: cache-restore
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          key: ${{ steps.cache-key.outputs.cache-key }}
+          path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
+
+      - name: Checkout versions action
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        with:
+          path: ${{ env.NPU_ACTIONS_DIR }}
+          sparse-checkout: |
+            .github/actions/versions
+          sparse-checkout-cone-mode: false
+
+      - name: Get versions
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: ./npu_actions/.github/actions/versions
+        id: versions
+
+      - name: Clone Linux NPU Driver
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5.0.1
+        timeout-minutes: 15
+        with:
+          repository: ${{ steps.versions.outputs.npu-linux-driver-repository }}
+          path: ${{ env.NPU_DRIVER_REPO }}
+          submodules: true
+          ref: ${{ steps.versions.outputs.npu-linux-driver-sha }}
+
+      - name: System info
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        uses: openvinotoolkit/openvino/.github/actions/system_info@44526285f241251e9543276572676365fbe542a4 # 2025.3.0
+
+      - name: Install system packages
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          sudo apt update
+          sudo apt install -y build-essential git git-lfs cmake libudev-dev libboost-all-dev libssl-dev libtbb12
+
+      - name: Configure OpenVINO and NPU Compiler versions
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          sed -i "s|^set(OPENVINO_REPOSITORY .*|set(OPENVINO_REPOSITORY https://github.com/${{ steps.versions.outputs.openvino-repository }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          sed -i '/GIT_REPOSITORY/{n;s|https://github.com/openvinotoolkit/npu_compiler.git|https://github.com/${{ steps.versions.outputs.npu-compiler-repository }}.git|}' ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          sed -i "s|^set(NPU_COMPILER_TAG .*|set(NPU_COMPILER_TAG ${{ steps.versions.outputs.npu-compiler-tag }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          sed -i "s|^set(NPU_COMPILER_REVISION .*|set(NPU_COMPILER_REVISION ${{ steps.versions.outputs.npu-compiler-sha }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          sed -i "s|^set(NPU_COMPILER_OPENVINO_REVISION .*|set(NPU_COMPILER_OPENVINO_REVISION ${{ steps.versions.outputs.openvino-sha }})|" ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+          cat ${NPU_DRIVER_REPO}/compiler/compiler_source.cmake
+
+      - name: CMake configure - Linux NPU Driver
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          cmake \
+            ${{ inputs.driver-cmake-options }} \
+            -DENABLE_OPENVINO_PACKAGE=ON \
+            -DENABLE_NPU_COMPILER_BUILD=ON \
+            -DENABLE_OFFLINE_COMPILATION_SUPPORT=ON \
+            -DCMAKE_INSTALL_PREFIX=$(realpath ${NPU_DRIVER_INSTALL_DIR}) \
+            -S ${NPU_DRIVER_REPO} \
+            -B ${NPU_DRIVER_BUILD_DIR}
+
+      - name: CMake build - Linux NPU Driver - deb packages
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          cmake \
+            --build ${NPU_DRIVER_BUILD_DIR} \
+            --parallel $(nproc) \
+            --target package
+
+      - name: Copy packages
+        if: ${{ !steps.cache-restore.outputs.cache-hit }}
+        run: |
+          mkdir -p ${NPU_DRIVER_INSTALL_DIR}/external
+          mkdir -p ${NPU_DRIVER_INSTALL_DIR}/internal
+          mv ${NPU_DRIVER_BUILD_DIR}/intel-{level-zero-npu,fw-npu,driver-compiler-npu}*.*deb ${NPU_DRIVER_INSTALL_DIR}/external/
+          mv ${NPU_DRIVER_BUILD_DIR}/*.*deb ${NPU_DRIVER_INSTALL_DIR}/internal/
+
+      - name: Cache artifacts
+        if: ${{ inputs.build-cache && !steps.cache-restore.outputs.cache-hit }}
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
+          key: ${{ steps.cache-key.outputs.cache-key }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          path: ${{ env.NPU_DRIVER_INSTALL_DIR }}
+          name: ${{ env.NPU_DRIVER_BUILD_PACKAGE }}
+
+      - name: Set build package name to outputs
+        id: set-build-package-name
+        run: |
+          echo "build-package=${NPU_DRIVER_BUILD_PACKAGE}" >> $GITHUB_OUTPUT

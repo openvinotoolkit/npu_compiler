@@ -11,25 +11,10 @@
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
 
 #include <mlir/Dialect/Quant/QuantOps.h>
-#include <cstdint>
 
 using namespace vpux;
-
-mlir::LogicalResult VPUASM::convertFromAttribute(KernelParamsProperty& kParams, mlir::Attribute attr,
-                                                 llvm::function_ref<mlir::InFlightDiagnostic()>) {
-    auto arrayAttr = llvm::dyn_cast_if_present<::mlir::ArrayAttr>(attr);
-    if (!arrayAttr) {
-        return mlir::failure();
-    }
-    kParams.setStorage(parseIntArrayAttr<uint8_t>(arrayAttr));
-    return mlir::success();
-}
-mlir::Attribute VPUASM::convertToAttribute(mlir::MLIRContext* ctx, const KernelParamsProperty& kernelParams) {
-    return getIntArrayAttr(ctx, kernelParams.getStorage());
-}
 
 //
 // initialize

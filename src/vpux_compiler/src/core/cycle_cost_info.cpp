@@ -84,4 +84,5 @@ void CycleCostInfo::resetNNCacheCounter() {
 
 void CycleCostInfo::printNNCacheStatistics(Logger& log) const {
     log.info("[NN Cache statistics]  {0}", _costModel->getPreloadedCacheCounter().printString());
+    log.info("[NN Cache statistics Shave]  {0}", _costModel->getPreloadedShaveCacheCounter().printString());
 }

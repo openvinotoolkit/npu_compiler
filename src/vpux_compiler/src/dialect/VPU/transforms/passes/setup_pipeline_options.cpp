@@ -8,8 +8,8 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
+#include "vpux/compiler/dialect/config/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -85,13 +85,16 @@ void SetupPipelineOptionsPass::initializeFromOptions() {
 
     // Register the default cost model factory singleton
     VPU::CostModelConfig::setFactory(_arch);
+    // Create the ShaveUtil based on how Factory was generated
+    VPU::CostModelConfig::setCMShaveUtils(_arch);
 }
 
 void SetupPipelineOptionsPass::safeRunOnModule() {
     auto& ctx = getContext();
     auto moduleOp = getModuleOp(getOperation());
 
-    const auto hasPipelineOptions = moduleOp.lookupSymbol<config::PipelineOptionsOp>(VPU::PIPELINE_OPTIONS) != nullptr;
+    const auto hasPipelineOptions =
+            moduleOp.lookupSymbol<config::PipelineOptionsOp>(config::PIPELINE_OPTIONS) != nullptr;
     VPUX_THROW_WHEN(!_allowCustomValues && hasPipelineOptions,
                     "PipelineOptions operation is already defined, probably you run '--init-compiler' twice");
 
@@ -101,7 +104,7 @@ void SetupPipelineOptionsPass::safeRunOnModule() {
 
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
     auto pipelineOptionsOp =
-            optionsBuilder.create<config::PipelineOptionsOp>(mlir::UnknownLoc::get(&ctx), VPU::PIPELINE_OPTIONS);
+            optionsBuilder.create<config::PipelineOptionsOp>(mlir::UnknownLoc::get(&ctx), config::PIPELINE_OPTIONS);
     pipelineOptionsOp.getOptions().emplaceBlock();
 }
 

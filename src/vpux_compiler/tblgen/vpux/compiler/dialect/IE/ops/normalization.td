@@ -255,6 +255,8 @@ def IE_RMSOp :
    let results = (outs
         RankedTensorOf<[F16, F32, F64]>:$output
     );
+
+    let hasCanonicalizer = 1;
 }
 
 #endif

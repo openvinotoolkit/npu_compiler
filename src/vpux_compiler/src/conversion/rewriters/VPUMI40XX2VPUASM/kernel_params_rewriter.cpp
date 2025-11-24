@@ -5,7 +5,6 @@
 
 #include "vpux/compiler/conversion/rewriters/VPUMI40XX2VPUASM/kernel_params_rewriter.hpp"
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux {
 namespace vpumi40xx2vpuasm {
@@ -39,7 +38,7 @@ mlir::FailureOr<SymbolizationResult> KernelParamsRewriter::symbolize(VPUMI40XX::
 
     auto [inputsShapeAttr, outputsShapeAttr] = processDynamicShapes(context, inputShapes, outputShapes);
 
-    auto kernelParams = VPUASM::KernelParamsProperty(parseIntArrayAttr<uint8_t>(op.getKernelParams()));
+    auto kernelParams = parseIntArrayAttr<uint8_t>(op.getKernelParams());
     auto newOp = rewriter.create<VPUASM::KernelParamsOp>(
             op.getLoc(), symName, inputsAttr, outputsAttr, inputsShapeAttr, outputsShapeAttr, op.getKernelTypeAttr(),
             std::move(kernelParams), op.getIsOutputBroadcastedAttr(), op.getIsJitCompiledAttr());

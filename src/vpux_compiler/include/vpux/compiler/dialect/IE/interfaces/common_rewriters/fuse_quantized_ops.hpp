@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/IE/utils/reduce_infer.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/BuiltinAttributes.h>
@@ -381,13 +382,17 @@ mlir::LogicalResult FuseWithReduce<ConcreteOp>::matchAndRewrite(IE::QuantizeOp q
         return mlir::failure();
     }
 
+    auto users = reduceOp.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(reduceOp, llvm::formatv("_{0}", userSize));
+
     auto axes = getIntArrayAttr(this->getContext(), IE::extractAxes(reduceOp->getLoc(), reduceOp));
     rewriter.replaceOpWithNewOp<ConcreteOp>(quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(),
                                             /*axes*/ nullptr,
                                             /*axes_value*/ axes,
                                             /*keep_dims*/ mlir::UnitAttr::get(quantizeOp.getContext()),
                                             reduceOp.getOutputPaddingAttr(), reduceOp.getInputPaddingAttr())
-            ->setLoc(reduceOp->getLoc());
+            ->setLoc(newLoc);
     return mlir::success();
 }
 
@@ -489,12 +494,15 @@ mlir::LogicalResult FuseWithEltwiseConverter<ConcreteOp>::matchAndRewrite(IE::Qu
     if (mlir::failed(_checkInputTypes(input1Type, input2Type, _opType))) {
         return mlir::failure();
     }
+    auto users = eltwiseOp.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(eltwiseOp, llvm::formatv("_{0}", userSize));
 
     rewriter.replaceOpWithNewOp<ConcreteOp>(quantizeOp, quantizeOp.getType(), input1DequantizeOp.getInput(),
                                             input2DequantizeOp.getInput(), eltwiseOp.getAutoBroadcastAttr(),
                                             eltwiseOp.getPostOpAttr(), eltwiseOp.getClampAttr(),
                                             eltwiseOp.getOutputPaddingAttr(), eltwiseOp.getInputPaddingAttr())
-            ->setLoc(eltwiseOp->getLoc());
+            ->setLoc(newLoc);
 
     return mlir::success();
 }

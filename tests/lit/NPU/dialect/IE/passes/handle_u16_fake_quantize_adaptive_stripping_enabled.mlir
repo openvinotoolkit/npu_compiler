@@ -10,9 +10,9 @@
 // CHECK-LABEL: func.func @RemoveFQU16
 // CHECK-SAME:        [[INPUT:%arg0]]: tensor<1x4x640x640xf16>
 func.func @RemoveFQU16(%arg0: tensor<1x4x640x640xf16>) -> tensor<1x4x640x640xf16> {
-    %cst = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
-    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
+    %low = const.Declare tensor<1x1x1x1xf16> = dense<0.000000e+00> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %high = const.Declare tensor<1x1x1x1xf16> = dense<57.1374702> : tensor<1x1x1x1xf32>, [#const.CastElemType<f16>]
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x4x640x640xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x4x640x640xf16>
     %1 = IE.Sigmoid(%0) : tensor<1x4x640x640xf16> -> tensor<1x4x640x640xf16>
     return %1 : tensor<1x4x640x640xf16>
 
@@ -156,13 +156,13 @@ func.func @ReplaceDoubleFQU16WithReLU(%arg0: tensor<1x512x51x39xf32>, %arg1: ten
 // CHECK-LABEL: @ReplaceDoubleFQU16WithReLUDifferentValues
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
 func.func @ReplaceDoubleFQU16WithReLUDifferentValues(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x25x19xf32> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
-    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<14.7559032> : tensor<1x1x1x1xf32>
+    %fq1_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %fq1_high = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
+    %fq2_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+    %fq2_high = const.Declare tensor<1x1x1x1xf32> = dense<14.7559032> : tensor<1x1x1x1xf32>
 
-    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.FakeQuantize(%0, %cst_1, %cst_2, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %0 = IE.FakeQuantize(%arg0, %fq1_low, %fq1_high, %fq1_low, %fq1_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.FakeQuantize(%0, %fq2_low, %fq2_high, %fq2_low, %fq2_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
     %conv = IE.Convolution(%1, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
     return %conv : tensor<1x512x25x19xf32>
 
@@ -176,69 +176,19 @@ func.func @ReplaceDoubleFQU16WithReLUDifferentValues(%arg0: tensor<1x512x51x39xf
 // CHECK-LABEL: @ReplaceDoubleFQU16WithReLUDifferentValuesSecondFQ
 // CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
 func.func @ReplaceDoubleFQU16WithReLUDifferentValuesSecondFQ(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x25x19xf32> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
-    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_2 = const.Declare tensor<1x1x1x1xf32> = dense<14.7559032> : tensor<1x1x1x1xf32>
+    %fq2_low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %fq1_high = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
+    %fq1_low = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+    %fq2_high = const.Declare tensor<1x1x1x1xf32> = dense<14.7559032> : tensor<1x1x1x1xf32>
 
-    %0 = IE.FakeQuantize(%arg0, %cst_1, %cst_0, %cst_1, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.FakeQuantize(%0, %cst, %cst_2, %cst, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %0 = IE.FakeQuantize(%arg0, %fq1_low, %fq1_high, %fq1_low, %fq1_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.FakeQuantize(%0, %fq2_low, %fq2_high, %fq2_low, %fq2_high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
     %conv = IE.Convolution(%1, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
     return %conv : tensor<1x512x25x19xf32>
 
     // CHECK:    [[RELU:%.+]] = IE.ReLU([[ARG0]]) : tensor<1x512x51x39xf32> -> tensor<1x512x51x39xf32>
     // CHECK:    [[CONV:%.+]] = IE.Convolution([[RELU]], [[ARG1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
     // CHECK:    return [[CONV]] : tensor<1x512x25x19xf32>
-}
-
-// -----
-
-// CHECK-LABEL: @RemoveFQU16WithOutputConv
-// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
-func.func @RemoveFQU16WithOutputConv(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x25x19xf32> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
-
-    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.Convolution(%0, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
-    return %1 : tensor<1x512x25x19xf32>
-
-    // CHECK:    [[CONV:%.+]] = IE.Convolution([[ARG0]], [[ARG1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
-    // CHECK:    return [[CONV]] : tensor<1x512x25x19xf32>
-}
-
-// -----
-
-// CHECK-LABEL: @RemoveFQU16WithOutputGroupConv
-// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
-func.func @RemoveFQU16WithOutputGroupConv(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x51x39xf32> {
-    %cst = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
-
-    %0 = IE.FakeQuantize(%arg0, %cst, %cst_0, %cst, %cst_0) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.GroupConvolution(%0, %arg1) {dilations = [1, 1], groups = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x51x39xf32>
-    return %1 : tensor<1x512x51x39xf32>
-
-    // CHECK:    [[GROUPCONV:%.+]] = IE.GroupConvolution([[ARG0]], [[ARG1]]) {dilations = [1, 1], groups = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x51x39xf32>
-    // CHECK:    return [[GROUPCONV]] : tensor<1x512x51x39xf32>
-}
-
-// -----
-
-// CHECK-LABEL: @RemoveFQU16WithOutputMatmul
-// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>)
-func.func @RemoveFQU16WithOutputMatmul(%arg0: tensor<1x512x51x39xf32>) -> tensor<51x512x51x5xf32> {
-    %cst = const.Declare tensor<51x512x39x5xf32> = dense<1.000000e+00> : tensor<51x512x39x5xf32>
-    %cst_0 = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    %cst_1 = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-
-    %0 = IE.FakeQuantize(%arg0, %cst_0, %cst_1, %cst_0, %cst_1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
-    %1 = IE.MatMul(%0, %cst) : tensor<1x512x51x39xf32>, tensor<51x512x39x5xf32> -> tensor<51x512x51x5xf32>
-    return %1 : tensor<51x512x51x5xf32>
-
-    // CHECK:    [[CST:%.+]] = const.Declare tensor<51x512x39x5xf32> = dense<1.000000e+00> : tensor<51x512x39x5xf32>
-    // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[CST]]) : tensor<1x512x51x39xf32>, tensor<51x512x39x5xf32> -> tensor<51x512x51x5xf32>
-    // CHECK:    return [[MATMUL]] : tensor<51x512x51x5xf32>
 }
 
 // -----
@@ -257,4 +207,54 @@ func.func @AsymmetricFakeQuantizeOpToScaleShiftOp(%arg0: tensor<1x128x32x64xf32>
     // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<6.553500e+04> : tensor<1x1x1x1xf32>
     // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x32x64xf32>, tensor<1x1x1x1xf32> -> tensor<1x128x32x64xf32>
     // CHECK: return [[MULTIPLY]] : tensor<1x128x32x64xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @RemoveFQU16WithOutputConv
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
+func.func @RemoveFQU16WithOutputConv(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x25x19xf32> {
+    %low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %high = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
+
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.Convolution(%0, %arg1) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
+    return %1 : tensor<1x512x25x19xf32>
+
+    // CHECK:    [[CONV:%.+]] = IE.Convolution([[ARG0]], [[ARG1]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [2, 2]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x25x19xf32>
+    // CHECK:    return [[CONV]] : tensor<1x512x25x19xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @RemoveFQU16WithOutputGroupConv
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>, [[ARG1:%.+]]: tensor<512x512x3x3xf32>)
+func.func @RemoveFQU16WithOutputGroupConv(%arg0: tensor<1x512x51x39xf32>, %arg1: tensor<512x512x3x3xf32>) -> tensor<1x512x51x39xf32> {
+    %low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %high = const.Declare tensor<1x1x1x1xf32> = dense<12.7559032> : tensor<1x1x1x1xf32>
+
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.GroupConvolution(%0, %arg1) {dilations = [1, 1], groups = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x51x39xf32>
+    return %1 : tensor<1x512x51x39xf32>
+
+    // CHECK:    [[GROUPCONV:%.+]] = IE.GroupConvolution([[ARG0]], [[ARG1]]) {dilations = [1, 1], groups = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x512x51x39xf32>, tensor<512x512x3x3xf32> -> tensor<1x512x51x39xf32>
+    // CHECK:    return [[GROUPCONV]] : tensor<1x512x51x39xf32>
+}
+
+// -----
+
+// CHECK-LABEL: @RemoveFQU16WithOutputMatmul
+// CHECK-SAME:     ([[ARG0:%.+]]: tensor<1x512x51x39xf32>)
+func.func @RemoveFQU16WithOutputMatmul(%arg0: tensor<1x512x51x39xf32>) -> tensor<51x512x51x5xf32> {
+    %cst = const.Declare tensor<51x512x39x5xf32> = dense<1.000000e+00> : tensor<51x512x39x5xf32>
+    %low = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    %high = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+
+    %0 = IE.FakeQuantize(%arg0, %low, %high, %low, %high) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x512x51x39xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x512x51x39xf32>
+    %1 = IE.MatMul(%0, %cst) : tensor<1x512x51x39xf32>, tensor<51x512x39x5xf32> -> tensor<51x512x51x5xf32>
+    return %1 : tensor<51x512x51x5xf32>
+
+    // CHECK:    [[CST:%.+]] = const.Declare tensor<51x512x39x5xf32> = dense<1.000000e+00> : tensor<51x512x39x5xf32>
+    // CHECK:    [[MATMUL:%.+]] = IE.MatMul([[ARG0]], [[CST]]) : tensor<1x512x51x39xf32>, tensor<51x512x39x5xf32> -> tensor<51x512x51x5xf32>
+    // CHECK:    return [[MATMUL]] : tensor<51x512x51x5xf32>
 }

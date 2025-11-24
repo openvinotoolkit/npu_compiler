@@ -10,6 +10,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <mlir/IR/BuiltinTypes.h>
 
 using namespace vpux;
 
@@ -88,7 +89,31 @@ TEST_F(NPU37xxPpeIfcUnitTest, IntPPE_Adapters) {
     EXPECT_EQ(updatedPpe.getClampLow().getValue().getSExtValue(), -7872);
     EXPECT_EQ(updatedPpe.getClampHigh().getValue().getSExtValue(), 14);
 
-    const auto adapterScale = dynamic_cast<const vpux::VPU::IPpeAdapterScale*>(_ppeIfc.get());
+    updatedPpe = mlir::dyn_cast<vpux::VPU::PPEIntAttr>(clampAdapter->discardClamp(updatedPpe, getF16Type()));
+    ASSERT_NE(updatedPpe, nullptr);
+    EXPECT_EQ(updatedPpe.getClampLow().getValue().getSExtValue(), std::numeric_limits<int32_t>::min());
+    // packed fp16 min & fp16 max
+    EXPECT_EQ(updatedPpe.getClampHigh().getValue().getSExtValue(), 2147483647);
+
+    updatedPpe = mlir::dyn_cast<vpux::VPU::PPEIntAttr>(
+            clampAdapter->discardClamp(updatedPpe, mlir::BFloat16Type::get(&_ctx)));
+    ASSERT_NE(updatedPpe, nullptr);
+    EXPECT_EQ(updatedPpe.getClampLow().getValue().getSExtValue(), std::numeric_limits<int32_t>::min());
+    // packed bf16 min & bf16 max
+    EXPECT_EQ(updatedPpe.getClampHigh().getValue().getSExtValue(), 2147483647);
+
+    constexpr int64_t bitWidth = 8;
+    const auto storageMin = mlir::quant::QuantizedType::getDefaultMinimumForInteger(true, bitWidth);
+    const auto storageMax = mlir::quant::QuantizedType::getDefaultMaximumForInteger(true, bitWidth);
+    const auto storageType = mlir::IntegerType::get(&_ctx, bitWidth, mlir::IntegerType::Signed);
+    auto quantType = mlir::quant::UniformQuantizedType::get(mlir::quant::QuantizationFlags::Signed, storageType,
+                                                            getF16Type(), 1.2, 0, storageMin, storageMax);
+    updatedPpe = mlir::dyn_cast<vpux::VPU::PPEIntAttr>(clampAdapter->discardClamp(updatedPpe, quantType));
+    ASSERT_NE(updatedPpe, nullptr);
+    EXPECT_EQ(updatedPpe.getClampLow().getValue().getSExtValue(), storageMin);
+    EXPECT_EQ(updatedPpe.getClampHigh().getValue().getSExtValue(), storageMax);
+
+    const auto adapterScale = dynamic_cast<const vpux::VPU::IPpeAdapterScaleBias*>(_ppeIfc.get());
     ASSERT_NE(adapterScale, nullptr);
     updatedPpe = mlir::dyn_cast<vpux::VPU::PPEIntAttr>(adapterScale->updateScale(intPpeAttr, {0.1}));
     ASSERT_NE(updatedPpe, nullptr);

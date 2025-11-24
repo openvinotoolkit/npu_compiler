@@ -157,14 +157,57 @@ func.func @ComposeStridedSlicesOneStridedSliceConnectToTwoStridedSlice(%arg0: te
 // -----
 
 // CHECK-LABEL: @ConvertNegStrideStridedSlice2Reverse
-func.func @ConvertNegStrideStridedSlice2Reverse(%arg0: tensor<1x50x128xf16>) -> tensor<1x50x128xf16> {
-    %cst = const.Declare tensor<2xsi64> = dense<[0, -1]> : tensor<2xsi64>
-    %cst_0 = const.Declare tensor<2xsi64> = dense<[0, -9223372036854775807]> : tensor<2xsi64>
-    %cst_1 = const.Declare tensor<2xsi64> = dense<[1, -1]> : tensor<2xsi64>
-    %slice = IE.StridedSlice(%arg0, %cst, %cst_0, %cst_1) {begin_mask = [1, 0], ellipsis_mask = [], end_mask = [1, 0], new_axis_mask = [], operandSegmentSizes = array<i32: 1, 1, 1, 1>, shrink_axis_mask = []} : tensor<1x50x128xf16>, tensor<2xsi64>, tensor<2xsi64>, tensor<2xsi64> -> tensor<1x50x128xf16>
-    return %slice : tensor<1x50x128xf16>
+// CHECK: [[INPUT:%.+]]: tensor<1x3x50x128xf16>
+func.func @ConvertNegStrideStridedSlice2Reverse(%arg0: tensor<1x3x50x128xf16>) -> tensor<1x3x50x128xf16> {
+    %cst = const.Declare tensor<4xsi64> = dense<[0, 0, -1, 0]> : tensor<4xsi64>
+    %cst_0 = const.Declare tensor<4xsi64> = dense<[0, 3, -9223372036854775807, 128]> : tensor<4xsi64>
+    %cst_1 = const.Declare tensor<4xsi64> = dense<[1, 1, -1, 1]> : tensor<4xsi64>
+    %slice = IE.StridedSlice(%arg0, %cst, %cst_0, %cst_1) {
+            begin_mask = [1, 0, 0, 0],
+            ellipsis_mask = [],
+            end_mask = [1, 0, 0, 0],
+            new_axis_mask = [],
+            operandSegmentSizes = array<i32: 1, 1, 1, 1>,
+            shrink_axis_mask = []
+        } : tensor<1x3x50x128xf16>, tensor<4xsi64>, tensor<4xsi64>, tensor<4xsi64> -> tensor<1x3x50x128xf16>
+    return %slice : tensor<1x3x50x128xf16>
 
     // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1xsi32> = dense<50> : tensor<1xsi64>, [#const.CastElemType<si32>]
-    // CHECK:     [[REVERSE_SEQ:%.+]] = IE.ReverseSequence(%arg0, [[CST]]) {batch_axis = 0 : i64, seq_axis = 1 : i64} : tensor<1x50x128xf16>, tensor<1xsi32> -> tensor<1x50x128xf16>
-    // CHECK:     return [[REVERSE_SEQ]] : tensor<1x50x128xf16>
+    // CHECK:     [[REVERSE_SEQ:%.+]] = IE.ReverseSequence([[INPUT]], [[CST]]) {batch_axis = 0 : i64, seq_axis = 2 : i64} : tensor<1x3x50x128xf16>, tensor<1xsi32> -> tensor<1x3x50x128xf16>
+
+    // CHECK:     return [[REVERSE_SEQ]] : tensor<1x3x50x128xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @NoReverseForFirstNonOneAxis
+// CHECK: [[INPUT:%.+]]: tensor<1x3x128x128xf16>
+func.func @NoReverseForFirstNonOneAxis(%arg0: tensor<1x3x128x128xf16>) -> tensor<1x3x128x128xf16> {
+    %begins = const.Declare tensor<4xsi64> = dense<[0, -1, 0, 0]> : tensor<4xsi64>
+    %ends = const.Declare tensor<4xsi64> = dense<[0, -9223372036854775807, 128, 128]> : tensor<4xsi64>
+    %strides = const.Declare tensor<4xsi64> = dense<[1, -1, 1, 1]> : tensor<4xsi64>
+
+    %slice = IE.StridedSlice(%arg0, %begins, %ends, %strides) {
+        begin_mask = [1, 0, 0, 0],
+        end_mask = [1, 0, 0, 0],
+        new_axis_mask = [0, 0, 0, 0],
+        shrink_axis_mask = [0, 0, 0, 0],
+        ellipsis_mask = [0, 0, 0, 0],
+        operandSegmentSizes = array<i32: 1, 1, 1, 1>
+    } : tensor<1x3x128x128xf16>, tensor<4xsi64>, tensor<4xsi64>, tensor<4xsi64> -> tensor<1x3x128x128xf16>
+    return %slice : tensor<1x3x128x128xf16>
+
+    // CHECK: [[STRIDED_SLICE:%.+]] = IE.StridedSlice([[INPUT]]) {
+    // CHECK-SAME: begin_mask = [1, 0, 0, 0],
+    // CHECK-SAME: begins_attr = [0, -1, 0, 0],
+    // CHECK-SAME: ellipsis_mask = [0, 0, 0, 0],
+    // CHECK-SAME: end_mask = [1, 0, 0, 0],
+    // CHECK-SAME: ends_attr = [0, -9223372036854775807, 128, 128],
+    // CHECK-SAME: new_axis_mask = [0, 0, 0, 0],
+    // CHECK-SAME: operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+    // CHECK-SAME: shrink_axis_mask = [0, 0, 0, 0],
+    // CHECK-SAME: strides_attr = [1, -1, 1, 1]
+    // CHECK-SAME: } : tensor<1x3x128x128xf16> -> tensor<1x3x128x128xf16>
+
+    // CHECK: return [[STRIDED_SLICE]] : tensor<1x3x128x128xf16>
 }

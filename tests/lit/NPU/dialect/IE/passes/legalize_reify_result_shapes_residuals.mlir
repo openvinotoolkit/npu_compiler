@@ -51,8 +51,8 @@ func.func @LegalizeTensorDimAndDivSI(
 ) -> tensor<1xsi64> {
     %c2 = arith.constant 2 : index
     %c3 = arith.constant 3 : index
-    %0 = IE.MaxPool(%arg0) {kernel_size = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]} : tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
-    %dim = tensor.dim %0, %c3 : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %0 = IE.MaxPool(%arg0) {kernel_size = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]} : tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}> -> tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 32]> : tensor<4xsi64>, order = #NCHW}>
+    %dim = tensor.dim %0, %c3 : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 32]> : tensor<4xsi64>, order = #NCHW}>
     %1 = arith.divsi %dim, %c2 : index
     %2 = arith.index_cast %1 : index to i64
     %from_elements = tensor.from_elements %2 : tensor<1xi64>

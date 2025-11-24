@@ -11,7 +11,6 @@ add_npu_library(npu_compiler_dialect_vpu
         npu_compiler_utils
         npu_llvm_utils
         npu_ov_utils
-        flatbuffers
         npu_elf
         #TODO:#-95278 remove dependency on VPUIP
         npu_compiler_dialect_vpuip
@@ -19,6 +18,4 @@ add_npu_library(npu_compiler_dialect_vpu
         npu_compiler_dialect_vpuip_utils
         #TODO:#-102154 remove this dependency
         npu_compiler_dialect_vpu_utils
-        inferenceStatic
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)

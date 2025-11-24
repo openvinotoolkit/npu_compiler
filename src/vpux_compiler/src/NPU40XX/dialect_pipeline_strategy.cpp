@@ -26,13 +26,14 @@ public:
     // Expose setupOptionsImpl() to OptionsSetup
     friend Base::Base;
 
-    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options) {
-        Base::setupLitTestOptionsImpl(options);
+    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        Base::setupLitTestOptionsImpl(options, initCompilerOptions);
         setupOptionsCommon(options);
     }
 
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
         if (config.get<intel_npu::TURBO>()) {
             overwriteIfUnset(options.optimizationLevel, 3);
         }
@@ -50,8 +51,9 @@ public:
     using Base = OptionsSetupBase<ReferenceSWSetup40XX, DefaultHWOptions40XX>;
     using Base::Base;
 
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
         setupOptionsCommon(options);
         setupPWLMParams(options, getLogLevel(config));
     }
@@ -64,14 +66,13 @@ public:
         overwriteIfUnset(options.fuseMvn6ScaleBias, false);
         overwriteIfUnset(options.enableConvertFCToConv, false);
         overwriteIfUnset(options.enableAdjustNonZeroFakeQuant, false);
-        overwriteIfUnset(options.enableQDQOptimizationAggressive, false);
-        overwriteIfUnset(options.enableAdaptiveStripping, false);
         overwriteIfUnset(options.enableExtraStaticShapeOps, false);
         overwriteIfUnset(options.enableOptimizeReorders, false);
         overwriteIfUnset(options.enableVPUNNPreSplit, false);
         overwriteIfUnset(options.enableRuntimeDequant, false);
 
         overwriteIfUnset(options.enableConvertFFTToConv, false);
+        overwriteIfUnset(options.enableConvertToSdpaExtended, false);
         overwriteIfUnset(options.enableDecomposeGRUSequence, false);
     }
 };
@@ -84,16 +85,17 @@ public:
     friend Base::Base;
 
 private:
-    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options) {
+    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
         // DefaultHW options
-        DefaultHWSetup40XX::setupLitTestOptionsImpl(options);
+        DefaultHWSetup40XX::setupLitTestOptionsImpl(options, initCompilerOptions);
 
         setupOptionsCommon(options);
     }
 
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
         // DefaultHW options
-        DefaultHWSetup40XX::setupOptionsImpl(options, config);
+        DefaultHWSetup40XX::setupOptionsImpl(options, initCompilerOptions, config);
 
         // HostCompileSetup40XX common options
         setupOptionsCommon(options, getLogLevel(config));
@@ -102,34 +104,20 @@ private:
     static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
         // DefaultHW specific options
         DefaultHWSetup40XX::setupOptionsCommon(options, logLevel);
+
         // HostCompile specific options
         overwriteIfUnset(options.enableDynamicShapeTransformationsPipeline, false);
         overwriteIfUnset(options.enableSCFTiling, true);
         overwriteIfUnset(options.enableScfComputeOpsOutlining, true);
         overwriteIfUnset(options.useMemrefForHostFunctionBufferization, true);
         overwriteIfUnset(options.disablePassOnEntryFunctionForHostCompile, true);
-    }
-};
-class WSMonolithicSetup40XX final : public WSMonolithicSetupBase<WSMonolithicSetup40XX, DefaultHWOptions40XX> {
-public:
-    using Base = WSMonolithicSetupBase<WSMonolithicSetup40XX, DefaultHWOptions40XX>;
-    using Base::Base;
-    friend Base::Base;
+        overwriteIfUnset(options.enableD2SToTransposedConvConversion, false);
+        overwriteIfUnset(options.setMemorySpaceForFunctionBoundaries, false);
+        overwriteIfUnset(options.enableFuseD2SExpand, true);
 
-private:
-    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options) {
-        Base::setupLitTestOptionsImpl(options);
-        setupOptionsCommon(options);
-    }
-
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
-        setupOptionsCommon(options, getLogLevel(config));
-    }
-
-    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
-        setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
-        setupPWLMParams(options, logLevel);
+        // tiling over channels is not supported for HostCompile, so we disable propagation of permute through eltwise
+        overwriteIfUnset(options.enablePropagateMemPermuteThroughEltwise, false);
+        overwriteIfUnset(options.enableAdjustMemPermuteAroundOp, false);
     }
 };
 
@@ -140,14 +128,44 @@ public:
     friend Base::Base;
 
 private:
-    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options) {
-        Base::setupLitTestOptionsImpl(options);
-        setupPWLMParams(options);
+    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        Base::setupLitTestOptionsImpl(options, initCompilerOptions);
+        setupOptionsCommon(options);
     }
 
-    static void setupOptionsImpl(DefaultHWOptions40XX& options, const intel_npu::Config& config) {
-        Base::setupOptionsImpl(options, config);
-        setupPWLMParams(options, getLogLevel(config));
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
+        setupOptionsCommon(options, getLogLevel(config));
+    }
+
+    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
+        setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
+        setupPWLMParams(options, logLevel);
+    }
+};
+
+class WSMainSetup40XX final : public WSMainSetupBase<WSMainSetup40XX, DefaultHWOptions40XX> {
+public:
+    using Base = WSMainSetupBase<WSMainSetup40XX, DefaultHWOptions40XX>;
+    using Base::Base;
+    friend Base::Base;
+
+private:
+    static void setupLitTestOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions) {
+        Base::setupLitTestOptionsImpl(options, initCompilerOptions);
+        setupOptionsCommon(options);
+    }
+
+    static void setupOptionsImpl(DefaultHWOptions40XX& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                 const intel_npu::Config& config) {
+        Base::setupOptionsImpl(options, initCompilerOptions, config);
+        setupOptionsCommon(options, getLogLevel(config));
+    }
+
+    static void setupOptionsCommon(DefaultHWOptions40XX& options, LogLevel logLevel = LogLevel::None) {
+        setupParamsAccordingToOptimizationLevel(options.optimizationLevel, options, options.workloadManagementEnable);
+        setupPWLMParams(options, logLevel);
     }
 };
 
@@ -268,11 +286,11 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
     case config::CompilationMode::HostCompile: {
         return std::make_unique<DialectPipelineStrategy40XX<HostCompileSetup40XX>>(config);
     }
-    case config::CompilationMode::WSMonolithic: {
-        return std::make_unique<DialectPipelineStrategy40XX<WSMonolithicSetup40XX>>(config);
-    }
     case config::CompilationMode::WSInit: {
         return std::make_unique<DialectPipelineStrategy40XX<WSInitSetup40XX>>(config);
+    }
+    case config::CompilationMode::WSMain: {
+        return std::make_unique<DialectPipelineStrategy40XX<WSMainSetup40XX>>(config);
     }
     default:
         VPUX_THROW("Unsupported compilation mode '{0}'", compilationMode);
@@ -304,13 +322,13 @@ std::unique_ptr<IDialectPipelineStrategy> vpux::createDialectPipelineStrategy40X
         config::CompilationMode compilationMode, const VPU::InitCompilerOptions* initCompilerOptions,
         const DefaultHWOptions40XX* options) {
     switch (compilationMode) {
-    case config::CompilationMode::WSMonolithic: {
-        auto wrapper = std::make_unique<WSMonolithicSetup40XX>(initCompilerOptions, options);
-        return std::make_unique<DialectPipelineStrategy40XX<WSMonolithicSetup40XX>>(std::move(wrapper));
-    }
     case config::CompilationMode::WSInit: {
         auto wrapper = std::make_unique<WSInitSetup40XX>(initCompilerOptions, options);
         return std::make_unique<DialectPipelineStrategy40XX<WSInitSetup40XX>>(std::move(wrapper));
+    }
+    case config::CompilationMode::WSMain: {
+        auto wrapper = std::make_unique<WSMainSetup40XX>(initCompilerOptions, options);
+        return std::make_unique<DialectPipelineStrategy40XX<WSMainSetup40XX>>(std::move(wrapper));
     }
     default:
         VPUX_THROW("Unsupported compilation mode {0} for Monolithic WS.", config::stringifyEnum(compilationMode));

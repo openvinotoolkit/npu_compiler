@@ -194,9 +194,9 @@ Const::Content Const::SparsifyAttr::transform(Const::Content& input) const {
         return sparsify<vpux::type::bfloat16>(input, sparsifyValues, inputType, outputType, isOutputSplat);
     } else if (inputElementType.isF32()) {
         return sparsify<float>(input, sparsifyValues, inputType, outputType, isOutputSplat);
-    } else if (inputElementType.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(inputElementType)) {
         return sparsify<vpux::type::float8_e5m2>(input, sparsifyValues, inputType, outputType, isOutputSplat);
-    } else if (inputElementType.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(inputElementType)) {
         return sparsify<vpux::type::float8_e4m3>(input, sparsifyValues, inputType, outputType, isOutputSplat);
     }
     VPUX_THROW("Unexpected weights data type: {0}", inputElementType);

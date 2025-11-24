@@ -205,12 +205,6 @@ VPU::VF::v2::VFCase getVFCaseWithTiling(
     auto maxTiles = maxNumCalc(dim, split);
     auto mergedCase = VPU::VF::v2::VFCase(config, split);
 
-    if (maxTiles < 0) {
-        mergedCase.setTilingNumber(dim, minTiles);
-        mergedCase.setScheduling(vfSchedulingChecks.front());
-        return mergedCase;
-    }
-
     auto schedulingChecks = vfSchedulingChecks;
 
     TilingOperationStorage::UPtr maxStorage = nullptr;

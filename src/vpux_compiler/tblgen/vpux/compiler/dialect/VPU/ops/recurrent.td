@@ -277,8 +277,9 @@ def VPU_LSTMGatesOp :
 
     let extraClassDeclaration = [{
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
-
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+
+        OutputTiling getOutputTiling(const vpux::TileInfo& outputTile, vpux::Logger log);
     }] # baseExtraClassDeclaration;
 
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];

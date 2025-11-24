@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_factory.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/cost_model_shave_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 #include <mutex>
@@ -21,6 +22,7 @@ namespace vpux::VPU {
 class CostModelConfig {
 private:
     static std::map<config::ArchKind, std::unique_ptr<ICostModelFactory>>& _getFactories();
+    static std::map<config::ArchKind, std::unique_ptr<IShaveCostModelUtils>>& _getCMShaveUtils();
 
     static std::mutex& _getCostModelFactoryMutex() {
         static std::mutex mtx;
@@ -44,6 +46,13 @@ public:
     static void setFactory(config::ArchKind arch);
 
     /**
+     * @brief Set the cmUtils for the specified architecture
+     *
+     * @param arch Architecture kind
+     */
+    static void setCMShaveUtils(config::ArchKind arch);
+
+    /**
      * @brief Create a cost model for the specified architecture
      *
      * @param arch Architecture kind
@@ -62,6 +71,14 @@ public:
     static std::shared_ptr<VPUNN::VPULayerCostModel> createLayerCostModel(config::ArchKind arch) {
         return getFactory(arch).createLayerCostModel();
     }
+
+    /**
+     * @brief Get the Shave Cost Model Utils Interface for the specified architecture
+     *
+     * @param arch Architecture kind
+     * @return const IShaveCostModelUtils&
+     */
+    static const IShaveCostModelUtils& getShaveCostModelUtilsInterface(config::ArchKind arch);
 };
 
 }  // namespace vpux::VPU

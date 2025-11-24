@@ -35,8 +35,7 @@ void BackendPipelineStrategy40XX::buildELFPipeline(mlir::OpPassManager& pm, cons
                       "build ELF pipeline failed to parse BACKEND_COMPILATION_PARAMS: {0}",
                       config.get<intel_npu::BACKEND_COMPILATION_PARAMS>());
 
-    if (compilationMode == config::CompilationMode::DefaultHW ||
-        compilationMode == config::CompilationMode::WSMonolithic) {
+    if (compilationMode == config::CompilationMode::DefaultHW) {
         auto options = parseCompilationModeParams<DefaultHWOptions40XX>(
                 config.get<intel_npu::COMPILATION_MODE_PARAMS>(), getArchKind(config));
         VPUX_THROW_UNLESS(options != nullptr, "build ELF pipeline failed to parse COMPILATION_MODE_PARAMS: {0}",

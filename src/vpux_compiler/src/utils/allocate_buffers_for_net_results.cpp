@@ -14,7 +14,7 @@
 
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
 #include <mlir/IR/Operation.h>
-
+#include <mlir/Interfaces/CallInterfaces.h>
 #include <functional>
 
 using namespace vpux;
@@ -114,14 +114,14 @@ void updateReturnOps(mlir::func::FuncOp func, ArrayRef<mlir::BlockArgument> appe
 }
 
 // Updates call op
-void updateCallOp(ArrayRef<mlir::func::CallOp> callOps, vpux::Logger& log) {
+void updateCallOp(ArrayRef<mlir::CallOpInterface> callOps, vpux::Logger& log) {
     for (auto callOp : llvm::make_early_inc_range(callOps)) {
         mlir::OpBuilder builder(callOp);
 
         SmallVector<mlir::Value> outParams;
         SmallVector<mlir::Value> currentResults;
         SmallVector<mlir::Type> resultTypes;
-        for (auto result : callOp.getResults()) {
+        for (auto result : callOp->getResults()) {
             mlir::Type resType = result.getType();
             // E-140551: add support for VPUIP.SparseBuffer, allocateBuffersOfType has the allocation logic for
             // VPUIP.SparseBuffer. Need real use cases. Remove the following VPUX_THROW_WHEN to check if it works.
@@ -136,15 +136,14 @@ void updateCallOp(ArrayRef<mlir::func::CallOp> callOps, vpux::Logger& log) {
             resultTypes.push_back(resType);
         }
 
-        auto newOperands = to_vector(callOp.getOperands());
+        auto newOperands = to_vector(callOp->getOperands());
         newOperands.append(outParams.begin(), outParams.end());
 
-        auto newCallOp =
-                builder.create<mlir::func::CallOp>(callOp.getLoc(), callOp.getCalleeAttr(), resultTypes, newOperands);
+        auto newCallOp = callOp->clone();
+        newCallOp->setOperands(newOperands);
+        builder.insert(newCallOp);
 
-        for (const auto& [result, newResult] : zip(currentResults, newCallOp.getResults())) {
-            result.replaceAllUsesWith(newResult);
-        }
+        callOp->replaceAllUsesWith(newCallOp->getResults());
 
         newCallOp->setAttrs(callOp->getAttrs());
         callOp.erase();
@@ -154,7 +153,7 @@ void updateCallOp(ArrayRef<mlir::func::CallOp> callOps, vpux::Logger& log) {
 }  // namespace
 
 template <typename CopyOp>
-void vpux::allocateBuffersForNetResults(ArrayRef<mlir::func::CallOp> callOps, ArrayRef<mlir::func::FuncOp> funcOps,
+void vpux::allocateBuffersForNetResults(ArrayRef<mlir::CallOpInterface> callOps, ArrayRef<mlir::func::FuncOp> funcOps,
                                         vpux::Logger& log) {
     for (auto func : funcOps) {
         SmallVector<mlir::BlockArgument> appendedEntryArgs;
@@ -165,8 +164,8 @@ void vpux::allocateBuffersForNetResults(ArrayRef<mlir::func::CallOp> callOps, Ar
     updateCallOp(callOps, log);
 }
 
-template void vpux::allocateBuffersForNetResults<VPUIP::CopyOp>(ArrayRef<mlir::func::CallOp> callOps,
+template void vpux::allocateBuffersForNetResults<VPUIP::CopyOp>(ArrayRef<mlir::CallOpInterface> callOps,
                                                                 ArrayRef<mlir::func::FuncOp> funcOps, Logger& log);
-template void vpux::allocateBuffersForNetResults<mlir::memref::CopyOp>(ArrayRef<mlir::func::CallOp> callOps,
+template void vpux::allocateBuffersForNetResults<mlir::memref::CopyOp>(ArrayRef<mlir::CallOpInterface> callOps,
                                                                        ArrayRef<mlir::func::FuncOp> funcOps,
                                                                        Logger& log);

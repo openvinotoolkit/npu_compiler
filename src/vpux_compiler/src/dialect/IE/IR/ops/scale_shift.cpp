@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -128,22 +130,30 @@ mlir::LogicalResult FuseScaleShifts::matchAndRewrite(IE::ScaleShiftOp scaleShift
     }
 
     auto getContentAttr = [&](ArrayRef<float> values, mlir::Type orgType) {
-        auto baseType = mlir::cast<mlir::RankedTensorType>(orgType);
+        // Store the content in FP32 element type precision for more accurate representation and cast back to the
+        // original constant element type
+        auto fp32ElemType = mlir::Float32Type::get(rewriter.getContext());
+        auto ndOrgType = mlir::cast<vpux::NDTypeInterface>(orgType);
+        auto baseElemType = ndOrgType.getElementType();
+        auto baseType = mlir::cast<mlir::RankedTensorType>(ndOrgType.changeElemType(fp32ElemType));
         auto newAttr = vpux::Const::createConstContent(baseType, values);
         auto newContentAttr = Const::ContentAttr::get(newAttr);
+        if (baseElemType != fp32ElemType) {
+            newContentAttr = newContentAttr.transform().castElemType(baseElemType).get();
+        }
         return newContentAttr;
     };
 
     auto newWeightsContentAttr = getContentAttr(newWeightsVec, origWeightsConst.getType());
-    auto newWeghtsOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origWeightsConst, origWeightsConst.getType(),
-                                                                     std::move(newWeightsContentAttr));
-    auto newBiasesContentAttr = getContentAttr(newBiasesVec, origBiasesConst.getType());
+    auto newWeightsOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origWeightsConst, origWeightsConst.getType(),
+                                                                      std::move(newWeightsContentAttr));
 
+    auto newBiasesContentAttr = getContentAttr(newBiasesVec, origBiasesConst.getType());
     auto newBiasesOp = rewriter.replaceOpWithNewOp<Const::DeclareOp>(origBiasesConst, origBiasesConst.getType(),
                                                                      std::move(newBiasesContentAttr));
 
     rewriter.replaceOpWithNewOp<IE::ScaleShiftOp>(scaleShiftOp, scaleShiftOp.getType(), inScaleShiftOp.getInput(),
-                                                  newWeghtsOp, newBiasesOp);
+                                                  newWeightsOp, newBiasesOp);
 
     return mlir::success();
 }
@@ -161,8 +171,11 @@ mlir::LogicalResult vpux::IE::ScaleShiftOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(scaleShift.getInput().getType());
-    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType());
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(scaleShift.getInput().getType());
+    auto inShapeInfo = ShapeInfo::fromNDType(inputType);
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(inShapeInfo.bounds));
+    inferredReturnShapes.emplace_back(inShapeInfo.shape, inputType.getElementType(), outDesc);
 
     return mlir::success();
 }

@@ -53,6 +53,7 @@ mlir::LogicalResult ActKernelInvocationRewriter::matchAndRewrite(VPUASM::ActKern
     descriptor.write<Fields::mask_act>(barrier_mask);
     descriptor.write<Registers::act_invo_barriers_sched, Fields::start_after_>(origOp.getStartAfter());
     descriptor.write<Registers::act_invo_barriers_sched, Fields::clean_after_>(origOp.getCleanAfter());
+    descriptor.write<Fields::invo_index>(origOp.getTaskIndex().getValue());
     descriptor.write<Fields::invo_tile>(origOp.getTile());
     descriptor.write<Fields::kernel_range_index>(kernelRangeIndex);
     descriptor.write<Fields::perf_packet_out>(perfPacketTileMask);

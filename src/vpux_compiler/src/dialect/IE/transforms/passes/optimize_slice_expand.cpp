@@ -20,6 +20,7 @@
 #include "vpux/compiler/dialect/IE/utils/shape_infer.hpp"
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -544,7 +545,7 @@ mlir::LogicalResult vpux::IE::genericOptimizeSliceImplicitExpand(IE::ExpandOp ex
         return mlir::isa_and_present<IE::ConvolutionOp>(userOp);
     });
     if (hasConvUser && VPU::inputCompatibleWithAutoPad(expandOp.getInput().getType()) &&
-        VPU::hasAutoPaddingIDU(getModuleOp(expandOp))) {
+        config::hasAutoPaddingIDU(getModuleOp(expandOp))) {
         innerLog.trace("Skip as user can use autopad");
         return mlir::failure();
     }

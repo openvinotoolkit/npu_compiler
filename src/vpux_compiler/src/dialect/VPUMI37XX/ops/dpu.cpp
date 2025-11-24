@@ -14,12 +14,8 @@
 
 #include <npu_37xx_nnrt.hpp>
 
-#include <stdint.h>
-#include <stdio.h>
 #include <algorithm>
-#include <array>
-#include <string>
-#include <vector>
+#include <cstdint>
 
 #include "external/runtime_dpu_parser_imports.cpp.inc"
 
@@ -30,44 +26,40 @@ using namespace npu37xx;
     (2 * 1024 * 1024)  // TODO: E#54008	Don't hardcode this . Check if we can do it via relocation from CMX symbol size?
 
 void vpux::VPUMI37XX::DPUInvariantOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    vpux::Logger logger("DPU_Serializer", vpux::LogLevel::Debug);
-
-    VPUMI37XX::BlobWriter writer(logger);
-
     nn_public::VpuDPUInvariant taskWrapper{};
     nn_public::VpuDPUInvariantRegisters& registers = taskWrapper.registers_;
 
     memset(reinterpret_cast<void*>(&registers), 0, sizeof(registers));
 
-    SetupInput(writer, *this, registers);
-    SetupWeights(writer, *this, registers);
+    SetupInput(*this, registers);
+    SetupWeights(*this, registers);
     SetupKernel(*this, registers);
-    SetupOutput(writer, *this, registers);
+    SetupOutput(*this, registers);
 
     auto taskType = getNceTaskType();
     switch (taskType) {
     case VPUIP::NCETaskType::CONV:
-        SetupInvariant_Convolution(writer, *this, registers);
+        SetupInvariant_Convolution(*this, registers);
         break;
     case VPUIP::NCETaskType::MAXPOOL:
-        SetupInvariant_MaxPool(writer, *this, registers);
+        SetupInvariant_MaxPool(*this, registers);
         break;
     case VPUIP::NCETaskType::AVEPOOL:
         registers.elops_wload.elops_wload_bf.pool_wt_rd_dis = 1;
-        SetupInvariant_DwConvolution(writer, *this, registers);
+        SetupInvariant_DwConvolution(*this, registers);
         break;
     case VPUIP::NCETaskType::DWCONV:
-        SetupInvariant_DwConvolution(writer, *this, registers);
+        SetupInvariant_DwConvolution(*this, registers);
         break;
     case VPUIP::NCETaskType::ELTWISE:
-        SetupInvariant_Eltwise(writer, *this, registers);
+        SetupInvariant_Eltwise(*this, registers);
         break;
     default:
         VPUX_THROW("Unsupported task type {0}", taskType);
         break;
     }
 
-    Setup_PPE(writer, *this, registers);
+    Setup_PPE(*this, registers);
 
     // imported from update_invariant
     {
@@ -178,17 +170,13 @@ vpux::VPURT::BufferSection vpux::VPUMI37XX::DPUInvariantOp::getMemorySpace() {
 }
 
 void vpux::VPUMI37XX::DPUVariantOp::serialize(elf::writer::BinaryDataSection<uint8_t>& binDataSection) {
-    vpux::Logger logger("DPU_Serializer", vpux::LogLevel::Debug);
-
-    VPUMI37XX::BlobWriter writer(logger);
-
     auto invariant = getInvariant().getDefiningOp<vpux::VPUMI37XX::DPUInvariantOp>();
     VPUX_THROW_WHEN(invariant == nullptr, "variant not pointing to an invariant");
 
     nn_public::VpuDPUVariant taskWrapper{};
     memset(reinterpret_cast<void*>(&taskWrapper), 0, sizeof(taskWrapper));
 
-    parseVariant(*this, invariant, taskWrapper, writer);
+    parseVariant(*this, invariant, taskWrapper);
 
     taskWrapper.invariant_index_ = invariant.getType().getValue();
     taskWrapper.invariant_ = invariant.getType().getValue();

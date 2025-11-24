@@ -109,3 +109,42 @@ module @TwoFunctions {
         // CHECK: return [[ARG1]], [[ARG2]] : memref<1x4x60x60xf16>, memref<1x2x60x60xf16>
     }
 }
+
+// -----
+
+// CHECK-LABEL: @NestedFunction
+module @NestedFunction {
+    net.NetworkInfo entryPoint : @main
+    inputsInfo : {
+        DataInfo "input" : tensor<1x1000xf16> loc(fused<{name = "input", type = "Parameter"}>["input"])
+    } outputsInfo : {
+        DataInfo "output" : tensor<1x1000xf16> loc(fused<{name = "output", type = "Result"}>["output"])
+    }
+
+    // CHECK: module [[NESTED_MODULE_NAME:@.+]] {
+    module @Module1 {
+        net.NetworkInfo entryPoint : @SingleLayer
+        inputsInfo : {
+            DataInfo "input" : tensor<1x1000xf16> loc(fused<{name = "input", type = "Parameter"}>["input"])
+        } outputsInfo : {
+            DataInfo "output" : tensor<1x1000xf16> loc(fused<{name = "output", type = "Result"}>["output"])
+        }
+        // CHECK: func.func [[FUNC_NAME:@.+]]([[ARG0:%.*]]: memref<1x1000xf16>, [[ARG1:%.*]]: memref<1x1000xf16>) -> memref<1x1000xf16> {
+        func.func @SingleLayer(%arg0: memref<1x1000xf16>) -> memref<1x1000xf16> {
+            return %arg0 : memref<1x1000xf16>
+
+            // CHECK: [[RESULT_COPY:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x1000xf16>) outputs([[ARG1]] : memref<1x1000xf16>) -> memref<1x1000xf16>
+            // CHECK: [[RESULT_COPY]] : memref<1x1000xf16>
+        }
+    }
+
+    // CHECK: func.func @main([[ARG0:%.*]]: memref<1x1000xf16>, [[ARG1:%.*]]: memref<1x1000xf16>) -> memref<1x1000xf16> {
+    func.func @main(%arg0: memref<1x1000xf16>) -> memref<1x1000xf16> {
+        %0 = Core.NestedCall @Module1::@SingleLayer(%arg0) : (memref<1x1000xf16>) -> memref<1x1000xf16>
+        return %0 : memref<1x1000xf16>
+        // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x1000xf16>
+        // CHECK: [[NESTED_CALL:%.+]] = Core.NestedCall [[NESTED_MODULE_NAME]]::[[FUNC_NAME]]([[ARG0]], [[ALLOC]]) : (memref<1x1000xf16>, memref<1x1000xf16>) -> memref<1x1000xf16>
+        // CHECK: memref.copy [[NESTED_CALL]], [[ARG1]] : memref<1x1000xf16> to memref<1x1000xf16>
+        // CHECK: return [[ARG1]] : memref<1x1000xf16>
+    }
+}

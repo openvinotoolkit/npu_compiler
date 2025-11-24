@@ -27,8 +27,11 @@ namespace vpux {
 // This one is also used in memory check of long-term spilling.
 static constexpr double FRAGMENTATION_AVOID_RATIO = 0.9;
 
-// Experimental number to avoid memory fragmentation when pipelining
-static constexpr double FRAGMENTATION_AVOID_RATIO_PIPELINING = 0.85;
+// Experimental number to avoid big memory fragmentation when pipelining
+static constexpr double FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING = 0.85;
+
+// Experimental number to avoid small memory fragmentation when pipelining
+static constexpr double FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING = 0.95;
 
 // Experimental number to avoid memory fragmentation caused by large activations (input & output) when pipelining
 static constexpr double FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_ACTIVATION = 0.27;
@@ -177,8 +180,17 @@ using OutputTiling = SmallVector<TileInfo>;
 // can be specified per each dimension.
 mlir::FailureOr<OutputTiling> fillDividedTiles(ShapeRef divisors, ShapeRef orig,
                                                std::optional<ArrayRef<int64_t>> alignment = std::nullopt,
-                                               bool unrollSpatialFirst = false);
+                                               bool unrollSpatialFirst = false,
+                                               std::optional<ArrayRef<int64_t>> customChannelSplit = std::nullopt);
 mlir::FailureOr<OutputTiling> fillDividedTiles(mlir::Operation* op, ShapeRef divisors, ShapeRef shape);
+
+// YUV-specific tiling function that ensures even-dimension alignment for color conversion operations
+mlir::FailureOr<OutputTiling> fillDividedTilesYuvToRgbOp(ShapeRef divisors, ShapeRef shape);
+
+// fill tiles taken into consideration restrictions of every operation in the list.
+// This function is used for VF tile size calculation
+mlir::FailureOr<OutputTiling> fillDividedTiles(ArrayRef<mlir::Operation*> operations, ShapeRef divisors,
+                                               ShapeRef shape);
 
 bool isSpatialFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
 bool isWeightsFirstNestedTiling(mlir::Operation* op, ShapeRef divisors);
@@ -374,6 +386,14 @@ InputTiling backInferGatherElementsTile(const vpux::TileInfo& outputTile, const 
 //
 InputTiling backInferGridSampleTile(const vpux::TileInfo& outputTile, ShapeRef origInputShape, ShapeRef origGridShape,
                                     vpux::Logger);
+
+//
+// DeformableConvolutionOp tiling
+//
+InputTiling backInferDeformableConvolutionTile(const vpux::TileInfo& outputTile, ShapeRef origInputShape,
+                                               ShapeRef origOffsetShape, ShapeRef origKernelShape,
+                                               ShapeRef origMaskShape, ArrayRef<int64_t> initialOutputOffsets,
+                                               vpux::Logger log);
 
 //
 // Pad tiling
@@ -591,4 +611,9 @@ SmallVector<OutputTiling> getAllHWLayerTilingStrategies(mlir::Operation* op, Til
                                                         DimArrRef tileDimOrder, Logger log);
 
 SmallVector<int64_t> divideChannelForSEPDWConv(mlir::Operation* op, int64_t channelSize, int64_t channelDivisor);
+
+/*
+ * Transfer tiling information from source to destination
+ */
+void transferTilingInfo(vpux::TileInfo& dst, const vpux::TileInfo& src, SmallVector<vpux::Dim> dimsToTransfer);
 }  // namespace vpux

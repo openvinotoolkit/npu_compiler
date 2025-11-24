@@ -16,8 +16,10 @@
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 #include <openvino/op/convolution.hpp>
@@ -44,6 +46,9 @@ bool vpux::VPU::NCECompressConvolutionOp::fitIntoCMX(vpux::NDTypeInterface input
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize(),
                                  NCEInvariant::getWeightsTableSize(OC)};
 
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     VPUX_THROW_UNLESS(inOrder == DimsOrder::NHWC, "[{0}] Unsupported input layout '{1}'", getLoc(), inOrder);
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
@@ -62,7 +67,7 @@ bool vpux::VPU::NCECompressConvolutionOp::isSupported(IE::ConvolutionOp op, LogC
                                                       bool checkChannelAlignment) {
     auto inputType = mlir::cast<NDTypeInterface>(op.getInput().getType());
     auto canUseIDUAutopad =
-            VPU::inputCompatibleWithAutoPad(inputType) && VPU::hasAutoPaddingIDU(getModuleOp(op.getOperation()));
+            VPU::inputCompatibleWithAutoPad(inputType) && config::hasAutoPaddingIDU(getModuleOp(op.getOperation()));
     // IDU autopad can support the IC=4 configuration represented by NCECompressConvolution, along with multiple others.
     // Therefore, we should avoid using NCECompressConvolution when IDU autopad can be used
     if (canUseIDUAutopad) {
@@ -322,6 +327,9 @@ bool VPU::NCECompressConvolutionOp::doesLayerFitIntoCMX(VPU::MultiClusterStrateg
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis)),
             NCEInvariant::getWeightsTableSize(OC)};
+
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     VPUX_THROW_UNLESS(inOrder == DimsOrder::NHWC, "[{0}] Unsupported input layout '{1}'", getLoc(), inOrder);
 

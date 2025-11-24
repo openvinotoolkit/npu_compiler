@@ -228,10 +228,10 @@ void foldSingleConstant(Const::DeclareOp& origOp) {
         // Final design to also include a mechanism to FREEZE constants
         // from accepting future transformations due to the fact of packed
         // sub byte values stored, which would require an unpacking and a repacking
-        // TODO: #-164571 Remove Const::ChangeShapeAndElemType if possible.
-        origOp.getProperties().content = Const::ContentAttr::get(
-                denseAttr, Const::ContentSetup(denseAttr.getType())
-                                   .changeShapeAndElemType(origType.getShape(), origType.getElementType()));
+        origOp.getProperties().content =
+                Const::ContentAttr::get(denseAttr, Const::ContentSetup(denseAttr.getType())
+                                                           .reshape(origType.getShape())
+                                                           .castElemType(origType.getElementType()));
     } else {
         origOp.getProperties().content = Const::ContentAttr::get(denseAttr);
     }

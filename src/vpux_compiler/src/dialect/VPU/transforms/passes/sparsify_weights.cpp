@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/sparsity_strategy.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 #include "vpux/compiler/utils/analysis.hpp"
@@ -111,7 +112,7 @@ void SparsifyWeightsPass::safeRunOnFunc() {
     auto func = getOperation();
     auto& ctx = getContext();
     auto moduleOp = func->getParentOfType<mlir::ModuleOp>();
-    const auto autoPaddingIDUEnabled = VPU::hasAutoPaddingIDU(moduleOp);
+    const auto autoPaddingIDUEnabled = config::hasAutoPaddingIDU(moduleOp);
 
     // fragmentation prevention config
     int64_t numTiles = 0;

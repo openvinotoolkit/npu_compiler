@@ -16,8 +16,10 @@ void vpux::VPU::arch40xx::registerSCFTilingOpsInterfaces(mlir::DialectRegistry& 
         VPU::NCEDepthConvolutionOp::attachInterface<vpux::VPU::SCFTilingDepthConvModelOp>(*ctx);
         VPU::NCEPermuteOp::attachInterface<vpux::VPU::SCFTilingPermuteModelOp>(*ctx);
 
+        VPU::DepthToSpaceOp::attachInterface<vpux::VPU::SCFDepthToSpaceModelOp>(*ctx);
         VPU::ConvertOp::attachInterface<vpux::VPU::SCFTilingEltwiseLikeModelOp<VPU::ConvertOp>>(*ctx);
 
         VPU::LayoutCastOp::attachInterface<vpux::VPU::SCFLayoutCastTilingModelOp>(*ctx);
+        VPU::PermuteCastOp::attachInterface<vpux::VPU::SCFPermuteCastTilingModelOp>(*ctx);
     });
 }

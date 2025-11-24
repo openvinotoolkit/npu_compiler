@@ -287,10 +287,6 @@ std::optional<bool> getEnableVerifiers(const intel_npu::Config& config) {
         return std::nullopt;
     }
 
-    // TODO: E174237, need to enable verifiers for WSMonolithic compilation mode
-    if (getCompilationMode(config) == config::CompilationMode::WSMonolithic) {
-        return std::nullopt;
-    }
     return options->enableVerifiers;
 }
 

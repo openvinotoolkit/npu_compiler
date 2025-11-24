@@ -43,10 +43,10 @@
 
 module @NoInsertionNeeded attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 1 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -189,10 +189,10 @@ module @NoInsertionNeeded attributes {config.compilationMode = #config.compilati
 
 module @NoInsertionNeededMultiTile attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -372,10 +372,10 @@ module @NoInsertionNeededMultiTile attributes {config.compilationMode = #config.
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @InsertBarriersWhereNeeded attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 8
-    config.Option @VPU.MetadataMaxInvariantCount : 4
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 8
+    config.Option @config.MetadataMaxInvariantCount : 4
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -543,10 +543,10 @@ module @InsertBarriersWhereNeeded attributes {config.compilationMode = #config.c
 
 module @InsertBarriersWhereNeededMultiTile attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 12
-    config.Option @VPU.MetadataMaxInvariantCount : 6
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 12
+    config.Option @config.MetadataMaxInvariantCount : 6
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
   config.Resources 2 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware

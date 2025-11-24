@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -145,204 +146,11 @@ public:
             : mlir::OpRewritePattern<VPU::NCEConvolutionOp>(ctx), _log(log) {
         this->setDebugName("EnsureConvICRequirements");
     }
-    bool splitNCEConvolutionWithLegacyWeightTable(VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput,
-                                                  SmallVector<VPU::NCEConvolutionOp>& convOps,
-                                                  const OutputTiling& tiles, int64_t maxTiles,
-                                                  VPU::DequantizeOp& weightDequantizeOp, VPU::PPEAttr& strippedPpeAttr,
-                                                  mlir::PatternRewriter& rewriter) const;
-    bool splitNCEConvolutionWithNewWeightTable(VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput,
-                                               SmallVector<VPU::NCEConvolutionOp>& convOps, const OutputTiling& tiles,
-                                               int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-                                               VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const;
     mlir::LogicalResult matchAndRewrite(VPU::NCEConvolutionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     Logger _log;
 };
-
-bool EnsureConvICRequirements::splitNCEConvolutionWithLegacyWeightTable(
-        VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput, SmallVector<VPU::NCEConvolutionOp>& convOps,
-        const OutputTiling& tiles, int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-        VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const {
-    // Get the NCEConvolutionOp's input and kernel sizes
-    const auto inputShape = getShape(origOp.getInput());
-    auto inputW = inputShape[Dims4D::Act::W];
-    auto inputH = inputShape[Dims4D::Act::H];
-    auto inputN = inputShape[Dims4D::Act::N];
-
-    const auto kernelShape = getShape(origOp.getFilter());
-    auto kernelW = kernelShape[Dims4D::Filter::KX];
-    auto kernelH = kernelShape[Dims4D::Filter::KY];
-    auto kernelN = kernelShape[Dims4D::Filter::OC];
-
-    auto filterType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
-    auto filterElemType = filterType.getElementType();
-
-    auto weightsTable = origOp.getWeightsTable();
-    auto weightsTableConst = weightsTable.getDefiningOp<Const::DeclareOp>();
-    if (weightsTableConst == nullptr) {
-        _log.trace("Could not extract constant from weights table.");
-        return false;
-    }
-    auto weightsTableContent = weightsTableConst.getContent();
-    auto weightsTableValues = weightsTableContent.getValues<int32_t>();
-    auto weightsTableVecSize = weightsTableValues.size();
-    std::vector<int32_t> weightsTableVec(weightsTableVecSize);
-    std::copy(weightsTableValues.begin(), weightsTableValues.end(), weightsTableVec.begin());
-
-    // TODO: E#70371 - Remaining opens for InputChannels 8K size
-    for (auto tile = 0; tile < maxTiles; tile++) {
-        auto offsetIC = tiles[tile].offsets[Dims4D::Act::C];
-        auto sizeIC = tiles[tile].shape[Dims4D::Act::C];
-        _log.nest().trace("Slicing channels {0} - {1}", offsetIC, sizeIC);
-
-        // Slice inputs
-        const Shape inSliceOffsets{0, offsetIC, 0, 0};
-        const Shape inSliceShape{inputN, sizeIC, inputH, inputW};
-        auto convInput = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origOp.getInput(),
-                                                       getIntArrayAttr(rewriter, inSliceOffsets.raw()),
-                                                       getIntArrayAttr(rewriter, inSliceShape.raw()));
-
-        // Slice kernels
-        const Shape kernelSliceOffsets{0, offsetIC, 0, 0};
-        const Shape kernelSliceShape{kernelN, sizeIC, kernelH, kernelW};
-        const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
-        auto weightSlice = rewriter.create<VPU::SliceOp>(origOp.getLoc(), weightInput,
-                                                         getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
-                                                         getIntArrayAttr(rewriter, kernelSliceShape.raw()));
-        auto weightSliceResult = weightSlice.getResult();
-        if (weightDequantizeOp != nullptr) {
-            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
-                                                                      weightDequantizeOp.getDstElemTypeAttr());
-            weightSliceResult = dequantizeSlice.getResult();
-        }
-
-        // Adjust the weights table pointers to correspond to the new offsets of the slices
-        const auto noOfBits = vpux::getElemTypeSize(filterElemType);
-        const auto weightSetSize = alignMemSize(kernelH * kernelW * sizeIC * noOfBits,
-                                                Byte(VPU::NCEInvariant::VPU_WEIGHT_SET_BYTE_ALIGNMENT))
-                                           .to<Byte>()
-                                           .count();
-        const auto sparsitySetSize =
-                alignValUp(divUp(kernelH * kernelW * sizeIC, CHAR_BIT * getValuesPerSparsityBit(filterElemType)),
-                           static_cast<int64_t>(VPU::NCEInvariant::VPU_WEIGHT_SET_BYTE_ALIGNMENT));
-
-        // Apply bias for the first convolution only
-        if (tile != 0) {
-            // Set the bias values to 0
-            for (size_t i = 3; i < weightsTableVecSize; i += VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC) {
-                weightsTableVec[i] = checked_cast<int32_t>(0);
-            }
-        }
-
-        // Adjust the weight pointers
-        for (size_t i = 0; i < weightsTableVecSize; i += VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC) {
-            weightsTableVec[i] =
-                    checked_cast<int32_t>((i / VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC) * weightSetSize);
-        }
-
-        // Adjust the sparsity pointers
-        for (size_t i = 1; i < weightsTableVecSize; i += VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC) {
-            weightsTableVec[i] =
-                    checked_cast<int32_t>((i / VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC) * sparsitySetSize);
-        }
-
-        auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
-        auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                origOp.getLoc(), origOp.getType(), convInput.getResult(), weightSliceResult, weightsTable,
-                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
-                origOp.getWeightTableBias(), origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(),
-                strippedPpeAttr, origOp.getMpeEngineAttr(), rawKernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-
-        convOps.push_back(convOp);
-    }
-
-    return true;
-}
-
-bool EnsureConvICRequirements::splitNCEConvolutionWithNewWeightTable(
-        VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput, SmallVector<VPU::NCEConvolutionOp>& convOps,
-        const OutputTiling& tiles, int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-        VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const {
-    // Get the NCEConvolutionOp's input and kernel sizes
-    const auto inputShape = getShape(origOp.getInput());
-    auto inputW = inputShape[Dims4D::Act::W];
-    auto inputH = inputShape[Dims4D::Act::H];
-    auto inputN = inputShape[Dims4D::Act::N];
-
-    const auto kernelShape = getShape(origOp.getFilter());
-    auto kernelW = kernelShape[Dims4D::Filter::KX];
-    auto kernelH = kernelShape[Dims4D::Filter::KY];
-    auto kernelN = kernelShape[Dims4D::Filter::OC];
-
-    auto biasTable = origOp.getWeightTableBias();
-    std::vector<float> biasTableVec;
-    auto biasTableVecSize = biasTableVec.size();
-    if (biasTable != nullptr) {
-        auto biasTableConst = biasTable.getDefiningOp<Const::DeclareOp>();
-        if (biasTableConst == nullptr) {
-            _log.trace("Could not extract constant from bias table.");
-            return false;
-        }
-        auto biasTableContent = biasTableConst.getContent();
-        auto biasTableValues = biasTableContent.getValues<float>();
-        biasTableVecSize = biasTableValues.size();
-        biasTableVec.resize(biasTableVecSize, 0);
-        std::copy(biasTableValues.begin(), biasTableValues.end(), biasTableVec.begin());
-    }
-
-    // TODO: E#70371 - Remaining opens for InputChannels 8K size
-    for (auto tile = 0; tile < maxTiles; tile++) {
-        auto offsetIC = tiles[tile].offsets[Dims4D::Act::C];
-        auto sizeIC = tiles[tile].shape[Dims4D::Act::C];
-        _log.nest().trace("Slicing channels {0} - {1}", offsetIC, sizeIC);
-
-        // Slice inputs
-        const Shape inSliceOffsets{0, offsetIC, 0, 0};
-        const Shape inSliceShape{inputN, sizeIC, inputH, inputW};
-        auto convInput = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origOp.getInput(),
-                                                       getIntArrayAttr(rewriter, inSliceOffsets.raw()),
-                                                       getIntArrayAttr(rewriter, inSliceShape.raw()));
-
-        // Slice kernels
-        const Shape kernelSliceOffsets{0, offsetIC, 0, 0};
-        const Shape kernelSliceShape{kernelN, sizeIC, kernelH, kernelW};
-        const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
-        auto weightSlice = rewriter.create<VPU::SliceOp>(origOp.getLoc(), weightInput,
-                                                         getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
-                                                         getIntArrayAttr(rewriter, kernelSliceShape.raw()));
-        auto weightSliceResult = weightSlice.getResult();
-        if (weightDequantizeOp != nullptr) {
-            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
-                                                                      weightDequantizeOp.getDstElemTypeAttr());
-            weightSliceResult = dequantizeSlice.getResult();
-        }
-
-        // Apply bias for the first convolution only
-        if (tile != 0) {
-            // Set the bias values to 0
-            for (size_t i = 0; i < biasTableVecSize; i++) {
-                biasTableVec[i] = checked_cast<float>(0);
-            }
-        }
-
-        auto newBiasTable = biasTable == nullptr
-                                    ? origOp.getWeightTableBias()
-                                    : VPU::createNewWeightsTableTensor<float>(rewriter, origOp->getLoc(), biasTableVec,
-                                                                              rewriter.getF32Type());
-        auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                origOp.getLoc(), origOp.getType(), convInput.getResult(), weightSliceResult, origOp.getWeightsTable(),
-                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
-                newBiasTable, origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(), strippedPpeAttr,
-                origOp.getMpeEngineAttr(), rawKernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-
-        convOps.push_back(convOp);
-    }
-
-    return true;
-}
 
 mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutionOp origOp,
                                                               mlir::PatternRewriter& rewriter) const {
@@ -392,13 +200,6 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
         return mlir::failure();
     }
 
-    // A stripped PPE is generated, ignoring post-op's and per-tensor scale/bias (since NCEConvolutionOp is not a
-    // LayerWithPostOp and scale/bias info is discarded)
-    auto strippedPpeAttr = VPU::PpeVersionConfig::retrievePPEAttribute(origOp);
-    // The original PPE attribute of the convolution (containing post-op and per-tensor scale/bias info), ends up in the
-    // final Add
-    auto finalPpeAttr = origOp.getPpeAttr();
-
     auto weightInput = origOp.getFilter();
     // check for parent weight shave dequantize op
     auto weightDequantizeOp = weightInput.getDefiningOp<VPU::DequantizeOp>();
@@ -407,78 +208,12 @@ mlir::LogicalResult EnsureConvICRequirements::matchAndRewrite(VPU::NCEConvolutio
     }
 
     SmallVector<VPU::NCEConvolutionOp> convOps;
-    if (origOp.getWeightsTable()) {
-        if (!splitNCEConvolutionWithLegacyWeightTable(origOp, weightInput, convOps, tiles.value(), maxTiles,
-                                                      weightDequantizeOp, strippedPpeAttr, rewriter)) {
-            return mlir::failure();
-        }
-    } else {
-        if (!splitNCEConvolutionWithNewWeightTable(origOp, weightInput, convOps, tiles.value(), maxTiles,
-                                                   weightDequantizeOp, strippedPpeAttr, rewriter)) {
-            return mlir::failure();
-        }
-    }
-
-    // Add the outputs of the convolutions with NCEEltwise Add operations. This is needed because NCEConvolutionOp
-    // accumulates all its input channels into 1 output channel. Splitting the Convolutions into smaller Convolutions,
-    // the outputs have to be added together.
-    auto output = origOp->getResult(0);
-    auto targetEltwiseOutputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
-    const auto opType = VPU::EltwiseType::ADD;
     SmallVector<VPU::NCEEltwiseOp> addOps;
-    VPU::NCEEltwiseOp addResult;
+    SmallVector<VPU::DequantizeOp> dequantizeOps;
+    mlir::Value result = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps,
+                                                        tiles.value(), weightDequantizeOp, rewriter, _log.nest());
 
-    // Elwise-ops do not have a weights table, thus per-channel scale/bias need to be applied through Convolutions. The
-    // PPE for the generated Add's must reflect this by setting neutral values to scale and bias.
-    // TODO: E#150106, a similar logic is also needed for IntPPE
-    if (const auto wtInfoAdapter = VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterWeightsTableInfo*>()) {
-        finalPpeAttr = wtInfoAdapter->discardWeightsTableIfPresent(finalPpeAttr);
-        strippedPpeAttr = wtInfoAdapter->discardWeightsTableIfPresent(strippedPpeAttr);
-    }
-
-    for (size_t index = 0; index < convOps.size() - 1; index++) {
-        auto addOperand = index == 0 ? convOps[index].getOutput() : addResult.getOutput();
-
-        // NCEEltwise inType and outType are always same with ConvOp outType
-        addResult = rewriter.create<VPU::NCEEltwiseOp>(
-                origOp->getLoc(), targetEltwiseOutputType, addOperand, convOps[index + 1].getOutput(), opType,
-                (index == convOps.size() - 2 ? finalPpeAttr : strippedPpeAttr), nullptr, nullptr,
-                origOp.getOutputPaddingAttr(), origOp.getOutputPaddingAttr());
-
-        // change NCEConv's output layout to supported NCEEltwise input layout
-        // Eg: if NCEConv (inL=NHWC,outL=NCHW) splits into 3 small NCEConv:
-        //   NCEConv (inL=NHWC,out=NHWC)    NCEConv (inL=NHWC,out=NHWC)     NCEConv (inL=NHWC,out=NHWC)
-        //              \                         /                                     /
-        //               NCEElt (inL=NHWC,out=NHWC)                                    /
-        //                             \                                              /
-        //                                         NCEElt (inL=NHWC,out=NCHW)
-        if (auto iface = mlir::dyn_cast<IE::LayoutInfoOpInterface>(addResult.getOperation())) {
-            auto orderInfo = iface.getLayoutInfo();
-            iface.inferLayoutInfo(orderInfo, /*seOpsEnabled=*/false, /*seExperimentalOpsEnabled=*/false);
-            const auto supportOrder1 = orderInfo.getInput(0);
-            const auto supportOrder2 = orderInfo.getInput(1);
-            const auto inputOrder1 = DimsOrder::fromValue(addResult.getInput1());
-            const auto inputOrder2 = DimsOrder::fromValue(addResult.getInput2());
-
-            if (supportOrder1 != inputOrder1 && supportOrder2 != inputOrder2) {
-                const auto newInput1Type = mlir::dyn_cast<vpux::NDTypeInterface>(addResult.getInput1().getType())
-                                                   .changeDimsOrder(supportOrder1);
-                const auto newInput2Type = mlir::dyn_cast<vpux::NDTypeInterface>(addResult.getInput2().getType())
-                                                   .changeDimsOrder(supportOrder2);
-
-                auto input1Op = addResult.getInput1().getDefiningOp();
-                auto input2Op = addResult.getInput2().getDefiningOp();
-                input1Op->getResult(0).setType(newInput1Type);
-                input2Op->getResult(0).setType(newInput2Type);
-
-                addResult.getOperation()->setOperands({input1Op->getResult(0), input2Op->getResult(0)});
-            }
-        }
-
-        addOps.push_back(addResult);
-    }
-
-    rewriter.replaceOp(origOp, addResult.getOutput());
+    rewriter.replaceOp(origOp, result);
 
     return mlir::success();
 }

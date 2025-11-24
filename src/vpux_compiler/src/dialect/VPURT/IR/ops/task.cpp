@@ -27,14 +27,14 @@ mlir::Operation* vpux::VPURT::TaskOp::getInnerTaskOp() {
 void vpux::VPURT::TaskOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                 mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers) {
     build(odsBuilder, odsState, nullptr, waitBarriers, updateBarriers, nullptr, /*isTrailingSWLayer*/ false,
-          /*wlmPage*/ nullptr);
+          /*wlmPage*/ nullptr, /* start_after */ nullptr, /* clean_after */ nullptr);
 }
 
 void vpux::VPURT::TaskOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState,
                                 mlir::ValueRange waitBarriers, mlir::ValueRange updateBarriers,
                                 mlir::Value enqueueBarrier) {
     build(odsBuilder, odsState, nullptr, waitBarriers, updateBarriers, enqueueBarrier, /*isTrailingSWLayer*/ false,
-          /*wlmPage*/ nullptr);
+          /*wlmPage*/ nullptr, /* start_after */ nullptr, /* clean_after */ nullptr);
 }
 
 VPU::ExecutorKind vpux::VPURT::TaskOp::getExecutorKind() {

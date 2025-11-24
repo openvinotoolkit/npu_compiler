@@ -9,7 +9,7 @@
 
 using namespace vpux;
 
-mlir::LogicalResult vpux::VPU::ExperimentalDetectronROIFeatureExtractorOp::inferReturnTypes(
+mlir::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::inferReturnTypes(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueRange operands,
         mlir::DictionaryAttr attrs, mlir::OpaqueProperties prop, mlir::RegionRange /*regions*/,
         mlir::SmallVectorImpl<mlir::Type>& inferredReturnTypes) {
@@ -52,4 +52,45 @@ mlir::LogicalResult vpux::VPU::ExperimentalDetectronROIFeatureExtractorOp::infer
     inferredReturnTypes.push_back(outTypeROI);
 
     return mlir::success();
+}
+
+SmallVector<mlir::Value> VPU::ExperimentalDetectronROIFeatureExtractorOp::getAuxiliaryBuffers() {
+    return {getReorderedRois(), getOriginalRoiMap(), getOutputRoisFeaturesTemp(), getLevels()};
+}
+
+mlir::LogicalResult VPU::ExperimentalDetectronROIFeatureExtractorOp::setAuxiliaryBuffers(
+        ArrayRef<mlir::Value> buffers) {
+    if (buffers.size() != 4 || llvm::any_of(buffers, [](mlir::Value buffer) {
+            return buffer == nullptr;
+        })) {
+        return mlir::failure();
+    }
+    getReorderedRoisMutable().assign(buffers[0]);
+    getOriginalRoiMapMutable().assign(buffers[1]);
+    getOutputRoisFeaturesTempMutable().assign(buffers[2]);
+    getLevelsMutable().assign(buffers[3]);
+    return mlir::success();
+}
+
+SmallVector<mlir::Type> VPU::ExperimentalDetectronROIFeatureExtractorOp::getBufferTypes() {
+    const auto shapeROI = getShape(getInputs()[0]);
+    const auto shapeFeature = getShape(getInputs()[1]);
+    const auto outputSize = getAttr().getOutputSize().getInt();
+
+    const auto reorderedRoisBuffSize = static_cast<int32_t>(4 * shapeROI[Dim(0)]);
+    const auto reorderedRoisType =
+            mlir::RankedTensorType::get(reorderedRoisBuffSize, mlir::Float32Type::get(getContext()));
+
+    const auto originalRoiMapBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
+    const auto originalRoiMapType = mlir::RankedTensorType::get(originalRoiMapBuffSize, getUInt32Type(getContext()));
+
+    const auto outputRoisFeaturesTempBuffSize =
+            static_cast<int32_t>(shapeFeature[Dim(1)] * outputSize * outputSize * shapeROI[Dim(0)]);
+    const auto outputRoisFeaturesTempType =
+            mlir::RankedTensorType::get(outputRoisFeaturesTempBuffSize, mlir::Float32Type::get(getContext()));
+
+    const auto levelsBuffSize = static_cast<int32_t>(shapeROI[Dim(0)]);
+    const auto levelsType = mlir::RankedTensorType::get(levelsBuffSize, getUInt32Type(getContext()));
+
+    return {reorderedRoisType, originalRoiMapType, outputRoisFeaturesTempType, levelsType};
 }

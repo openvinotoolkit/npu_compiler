@@ -81,9 +81,9 @@ Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content&
         return convertQuantizedToQuantizedWithSingleZeroPoint(input, qTypeIn, qTypeOut, outNDType);
     }
 
-    if (auto qElemType = mlir::dyn_cast<mlir::quant::QuantizedType>(inElementType)) {
+    if (mlir::isa<mlir::quant::QuantizedType, vpux::type::QuantileFloatType>(inElementType)) {
         // TODO: Support dequantization transformation
-        VPUX_THROW("Unsupported conversion: {0} -> {1}", qElemType, outElementType);
+        VPUX_THROW("Unsupported conversion: {0} -> {1}", inElementType, outElementType);
     }
 
     auto bitWidth = inType.getElemTypeSize().count();
@@ -91,7 +91,6 @@ Const::Content vpux::Const::ConvertElemTypeAttr::transform(vpux::Const::Content&
             (inElementType.isSignedInteger() && outElementType.isSignedInteger()) ||
             (inElementType.isUnsignedInteger() && outElementType.isUnsignedInteger()) ||
             (inElementType.isSignlessIntOrIndex() && outElementType.isSignlessIntOrIndex()) ||
-            (mlir::isa<vpux::type::QuantileFloatType>(inElementType) && outElementType.isUnsignedInteger()) ||
             bitWidth == 1;  // Don't care sign type when bitWidth is 1
 
     // For subbyte type, we unpack the data

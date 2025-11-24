@@ -85,10 +85,6 @@ mlir::OpFoldResult vpux::IE::MultiplyOp::fold(FoldAdaptor adaptor) {
     }
 
     if (lhsAttr && rhsAttr) {
-        // Note: Rescale doesn't support scalar * tensor
-        if (lhsAttr.isSplat() && !rhsAttr.isSplat()) {
-            return rhsAttr.transform().rescale(lhsAttr).get();
-        }
         return lhsAttr.transform().rescale(rhsAttr).get();
     }
     return nullptr;

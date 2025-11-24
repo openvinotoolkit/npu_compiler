@@ -57,13 +57,14 @@ public:
 private:
     bool checkInput(mlir::Value tensor, int64_t origChannels) const;
     mlir::Value getExpandedInput(mlir::PatternRewriter& rewriter, IE::ShapeCastOp shapeCast, IE::ExpandOp expandOp,
-                                 Shape expandedShape) const;
+                                 Shape expandedShape, mlir::Location loc) const;
 
     Logger _log;
 };
 
 mlir::Value EltwiseShapeCastRewriter::getExpandedInput(mlir::PatternRewriter& rewriter, IE::ShapeCastOp shapeCast,
-                                                       IE::ExpandOp expandOp, Shape expandedShape) const {
+                                                       IE::ExpandOp expandOp, Shape expandedShape,
+                                                       mlir::Location loc) const {
     auto tensor = shapeCast.getSource();
     if (auto permuteQuantize = mlir::dyn_cast_or_null<IE::PermuteQuantizeOp>(tensor.getDefiningOp())) {
         rewriter.setInsertionPointAfter(permuteQuantize);
@@ -74,12 +75,12 @@ mlir::Value EltwiseShapeCastRewriter::getExpandedInput(mlir::PatternRewriter& re
             return user != shapeCast.getOperation();
         });
 
-        auto expand = rewriter.create<IE::ExpandOp>(expandOp.getLoc(), permuteQuantize.getOutput(),
-                                                    expandOp.getPadsBegin(), expandOp.getPadsEnd());
+        auto expand = rewriter.create<IE::ExpandOp>(loc, permuteQuantize.getOutput(), expandOp.getPadsBegin(),
+                                                    expandOp.getPadsEnd());
 
         if (!otherUsers.empty()) {
             auto sliceOp = rewriter.create<IE::SliceOp>(
-                    expandOp.getLoc(), expand.getOutput(), expandOp.getPadsBegin(),
+                    appendLoc(loc, "_slice"), expand.getOutput(), expandOp.getPadsBegin(),
                     getIntArrayAttr(rewriter.getContext(), getShape(permuteQuantize.getOutput()).raw()));
             for (auto user : otherUsers) {
                 user->replaceUsesOfWith(permuteQuantize.getOutput(), sliceOp.getResult());
@@ -87,13 +88,13 @@ mlir::Value EltwiseShapeCastRewriter::getExpandedInput(mlir::PatternRewriter& re
         }
 
         auto newShapeCast = rewriter.create<IE::ShapeCastOp>(
-                expandOp.getLoc(), expand.getOutput(), getIntArrayAttr(expandOp.getContext(), expandedShape.raw()));
+                loc, expand.getOutput(), getIntArrayAttr(expandOp.getContext(), expandedShape.raw()));
 
         return newShapeCast;
     } else if (auto depthToSpace = mlir::dyn_cast_or_null<IE::DepthToSpaceOp>(tensor.getDefiningOp())) {
         rewriter.setInsertionPoint(expandOp);
-        auto expand = rewriter.create<IE::ExpandOp>(expandOp.getLoc(), depthToSpace.getOutput(),
-                                                    expandOp.getPadsBegin(), expandOp.getPadsEnd());
+        auto expand = rewriter.create<IE::ExpandOp>(loc, depthToSpace.getOutput(), expandOp.getPadsBegin(),
+                                                    expandOp.getPadsEnd());
 
         return rewriter.create<IE::ShapeCastOp>(expandOp.getLoc(), expand.getOutput(),
                                                 getIntArrayAttr(expandOp.getContext(), expandedShape.raw()));
@@ -220,9 +221,11 @@ mlir::LogicalResult EltwiseShapeCastRewriter::matchAndRewrite(IE::ExpandOp expan
         expandOp = newExpandOp;
     }
 
-    auto expandedInput1 = getExpandedInput(rewriter, firstInput, expandOp, expandedShape.value());
-    auto expandedInput2 =
-            !equalInputs ? getExpandedInput(rewriter, secondInput, expandOp, expandedShape.value()) : expandedInput1;
+    auto expandedInput1 =
+            getExpandedInput(rewriter, firstInput, expandOp, expandedShape.value(), takeOpLoc(expandOp, "_input1"));
+    auto expandedInput2 = !equalInputs ? getExpandedInput(rewriter, secondInput, expandOp, expandedShape.value(),
+                                                          takeOpLoc(expandOp, "_input2"))
+                                       : expandedInput1;
     rewriter.setInsertionPoint(expandOp);
 
     auto outputType =
@@ -403,8 +406,10 @@ mlir::LogicalResult DepthToSpaceSliceRewriter::matchAndRewrite(IE::ExpandOp expa
                 IE::ChannelPaddingAttr::get(expandOp.getContext(), getIntAttr(expandOp.getContext(), paddedIC),
                                             getIntAttr(expandOp.getContext(), paddedOC));
 
+        auto loc = depthToSpace.getLoc();
         rewriter.replaceOpWithNewOp<IE::DepthToSpaceOp>(expandOp, slice.getSource(), depthToSpace.getBlockSize(),
-                                                        depthToSpace.getMode(), paddedChannels);
+                                                        depthToSpace.getMode(), paddedChannels)
+                ->setLoc(loc);
     } else {
         auto paddedInput = getConcatResult(rewriter, slice.getSource(), depthToSpace.getBlockSize());
         auto d2sTensor = createConvforD2S(rewriter, paddedInput, depthToSpace.getBlockSize(), expandOp);
@@ -480,7 +485,10 @@ mlir::Value DepthToSpaceSliceRewriter::getConcatResult(mlir::PatternRewriter& re
     SmallVector<mlir::Value> interlacedInputs;
     interlacedInputs.push_back(input);
     interlacedInputs.push_back(constTensor);
-    return rewriter.create<IE::ConcatOp>(loc, mlir::ValueRange(interlacedInputs), axis, offset, blockSize).getOutput();
+    return rewriter
+            .create<IE::ConcatOp>(appendLoc(loc, "_concat"), mlir::ValueRange(interlacedInputs), axis, offset,
+                                  blockSize)
+            .getOutput();
 }
 /*
 Creates filter with following patter for each channel :
@@ -562,9 +570,9 @@ mlir::Value DepthToSpaceSliceRewriter::createConvforD2S(mlir::PatternRewriter& r
                                               return checked_cast<int64_t>(val);
                                           }));
     auto output = outputType.changeShape(ShapeRef(shapeI64)).changeDimsOrder(DimsOrder::NHWC);
-    return rewriter.create<IE::ConvolutionOp>(input.getLoc(), output, input, convFilter, nullptr, newStrides,
-                                              newPadsBegin, newPadsEnd, newDilations, nullptr, nullptr, nullptr,
-                                              nullptr, nullptr);
+    return rewriter.create<IE::ConvolutionOp>(appendLoc(input.getLoc(), "_as_convolution"), output, input, convFilter,
+                                              nullptr, newStrides, newPadsBegin, newPadsEnd, newDilations, nullptr,
+                                              nullptr, nullptr, nullptr, nullptr);
 }
 //
 // SpaceToDepthSliceRewriter
@@ -640,9 +648,9 @@ mlir::Value SpaceToDepthSliceRewriter::createDPUOperation(mlir::PatternRewriter&
     const auto ndType = mlir::cast<vpux::NDTypeInterface>(s2dOp.getType());
     const auto newOutputType = ndType.pad(outPadBefore, outPadAfter);
 
-    return rewriter.create<IE::ConvolutionOp>(s2dOp.getLoc(), newOutputType, input, convFilter, nullptr, newStrides,
-                                              newPadsBegin, newPadsEnd, newDilations, nullptr, nullptr, nullptr,
-                                              nullptr, nullptr);
+    return rewriter.create<IE::ConvolutionOp>(takeOpLoc(s2dOp, "_as_convolution"), newOutputType, input, convFilter,
+                                              nullptr, newStrides, newPadsBegin, newPadsEnd, newDilations, nullptr,
+                                              nullptr, nullptr, nullptr, nullptr);
 }
 
 void SpaceToDepthSliceRewriter::createPaddedConvolution(mlir::PatternRewriter& rewriter, mlir::Value input,

@@ -12,6 +12,7 @@
 #include "vpux/compiler/NPU37XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU37XX/dialect/VPUIPDPU/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/conversion/passes/VPU2VPUIP/bufferizable_op_interface.hpp"
+#include "vpux/compiler/NPU40XX/dialect/IE/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/NPU40XX/dialect/VPUIPDPU/ops_interfaces.hpp"
@@ -23,6 +24,8 @@ namespace vpux {
 void InterfacesRegistry40XX::registerInterfaces(mlir::DialectRegistry& registry) {
     // NB: arch37xx::ElemTypeInfoOpModel can be re-used for 40XX
     IE::arch37xx::registerElemTypeInfoOpInterfaces(registry);
+    // NB: arch40xx uses its own ExecutorOpModel logic
+    IE::arch40xx::registerExecutorOpInterfaces(registry);
     // NB: arch37xx::LayerWithPostOpModel can be re-used for 40XX
     VPU::arch37xx::registerLayerWithPostOpModelInterface(registry);
     // NB: arch37xx::LayoutInfo can be re-used for 40XX

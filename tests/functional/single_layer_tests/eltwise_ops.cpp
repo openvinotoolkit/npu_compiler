@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <shared_test_classes/single_op/eltwise.hpp>
 #include "common_test_utils/ov_tensor_utils.hpp"
 #include "openvino/opsets/opset1_decl.hpp"
+#include "pretty_test_arguments.hpp"
 #include "vpu_ov2_layer_test.hpp"
 
 #include "openvino/op/add.hpp"
@@ -78,6 +80,7 @@ TEST_F(EltwiseMultiplyLayerTest, NPU4000_HW) {
     run(Platform::NPU4000);
 }
 typedef Eltwise2InputLayerTest<ov::op::v1::Add> EltwiseAddLayerTest;
+class EltwiseAddLayerTest_HostCompile : public EltwiseLayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_F(EltwiseAddLayerTest, NPU3720_HW) {
     setDefaultHardwareMode();
@@ -88,5 +91,44 @@ TEST_F(EltwiseAddLayerTest, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+
+TEST_P(EltwiseAddLayerTest_HostCompile, NPU4000_HC) {
+    setSkipInferenceCallback([](std::stringstream& skip) {
+        skip << "Host Pipeline does not support inference yet: C#164943";
+    });
+
+    setHostCompileMode();
+    setMLIRCompilerType();
+    run(Platform::NPU4000);
+}
+
+const std::vector<std::vector<ov::test::InputShape>> dynamicShapes = {
+        {generateTestShape(1, 16, 1280_Dyn, 1280)},
+        {generateTestShape(1, 16, 1280_Dyn, 1280_Dyn)},
+        {generateTestShape(1, 3, 1280_Dyn, 1280)},
+        {generateTestShape(1, 3, 1280_Dyn, 1280_Dyn)},
+};
+
+const auto dynamicAddParams =
+        ::testing::Combine(::testing::ValuesIn(dynamicShapes), ::testing::ValuesIn({utils::EltwiseTypes::ADD}),
+                           ::testing::ValuesIn({utils::InputLayerType::PARAMETER}),
+                           ::testing::ValuesIn({utils::OpType::VECTOR}), ::testing::ValuesIn({ElementType::f16}),
+                           ::testing::Values(ov::element::dynamic), ::testing::Values(ov::element::dynamic),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::AnyMap()));
+
+INSTANTIATE_TEST_SUITE_P(smoke_DynamicShapes, EltwiseAddLayerTest_HostCompile, dynamicAddParams,
+                         EltwiseAddLayerTest_HostCompile::getTestCaseName);
+
+const std::vector<std::vector<ov::test::InputShape>> staticShapes = {{generateTestShape(1, 16, 1280, 1280)},
+                                                                     {generateTestShape(1, 3, 1280, 1280)}};
+const auto staticAddParams =
+        ::testing::Combine(::testing::ValuesIn(staticShapes), ::testing::ValuesIn({utils::EltwiseTypes::ADD}),
+                           ::testing::ValuesIn({utils::InputLayerType::PARAMETER}),
+                           ::testing::ValuesIn({utils::OpType::VECTOR}), ::testing::ValuesIn({ElementType::f16}),
+                           ::testing::Values(ov::element::f16), ::testing::Values(ov::element::f16),
+                           ::testing::Values(test_utils::TARGET_DEVICE), ::testing::Values(ov::AnyMap()));
+
+INSTANTIATE_TEST_SUITE_P(smoke, EltwiseAddLayerTest_HostCompile, staticAddParams,
+                         EltwiseAddLayerTest_HostCompile::getTestCaseName);
 
 }  // namespace ov::test

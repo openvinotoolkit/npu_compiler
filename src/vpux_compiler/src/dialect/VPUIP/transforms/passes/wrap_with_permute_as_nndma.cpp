@@ -440,10 +440,18 @@ bool checkPattern(mlir::Operation* op, ShapeRef expandInputShape, mlir::ArrayAtt
         return nceTask != nullptr && nceTask.getTaskType() != VPUIP::NCETaskType::CONV;
     };
 
+    // Because of ODU autopad, now after a NCE op with autopad we do not have SubView.
+    // NCE ops with ODU autopad are marked as superdense.
+    const auto isNceOpWithSuperDense = [&](mlir::Operation* op) -> bool {
+        auto nceTask = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op);
+        return nceTask != nullptr && nceTask.getIsSuperdense();
+    };
+
     auto returnFlag = true;
     for (auto& child : op->getUses()) {
         auto childOp = child.getOwner();
-        if (isCopyOp(childOp) || isNceButNotConvOp(childOp) || isPermuteCastOp(childOp)) {
+        if (!isNceOpWithSuperDense(op) &&
+            (isCopyOp(childOp) || isNceButNotConvOp(childOp) || isPermuteCastOp(childOp))) {
             returnFlag = returnFlag && checkPattern(childOp, expandInputShape, expandPadBegin);
         } else {
             returnFlag = returnFlag && checkLastChild(childOp, expandInputShape, expandPadBegin);

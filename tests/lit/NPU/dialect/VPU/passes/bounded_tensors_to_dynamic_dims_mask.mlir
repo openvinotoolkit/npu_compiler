@@ -49,4 +49,18 @@ func.func @OpWithTensorRepresentationAttr(%arg0: tensor<1x3x16x?xf16, {bounds = 
   // CHECK: return [[RESULT]] : tensor<1x3x16x29xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 0, 1]> : tensor<4xsi64>, order = #NCHW}>
 }
 
+// -----
 
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!inputDynamicType = tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+!outputDynamicType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 3200, 5120]> : tensor<4xsi64>, order = #NHWC}>
+
+// CHECK-LABEL: @D2SWithBounds
+// CHECK-SAME: [[ARG0:%.+]]: tensor<1x12x1600x2560xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
+func.func @D2SWithBounds(%arg0: !inputDynamicType) -> !outputDynamicType {
+  %0 = VPU.DepthToSpace(%arg0) {block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>} : !inputDynamicType ->  !outputDynamicType
+  return %0 : !outputDynamicType
+
+  // CHECK: [[RESULT:%.+]] = VPU.DepthToSpace([[ARG0]])
+  // CHECK: return [[RESULT]] : tensor<1x3x3200x5120xf16, {dynamic_dims_mask = #const.OpaqueI64Elements<[0, 0, 1, 1]> : tensor<4xsi64>, order = #NHWC}>
+}

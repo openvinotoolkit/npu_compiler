@@ -179,10 +179,12 @@ mlir::LogicalResult UpstreamSlicePass::GenericSliceUpstreaming::matchAndRewrite(
         for (auto& operand : opOperands) {
             operand.set(newSlice->getResult(0));
         }
+        extendOpLoc(newSlice, llvm::formatv("_{0}", opOperands[0].getOperandNumber()));
     } else {
         for (auto& operand : opOperands) {
             auto newSlice = mlir::cast<mlir::InferTypeOpInterface>(rewriter.clone(*origOp));
             newSlice->setOperand(0, operand.get());
+            extendOpLoc(newSlice, llvm::formatv("_{0}", operand.getOperandNumber()));
             inferReturnTypes(newSlice, InferShapedTypeMode::ALL);
             operand.set(newSlice->getResult(0));
             // For FakeQuantize the activation input is represented by first operand

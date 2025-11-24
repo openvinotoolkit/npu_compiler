@@ -594,6 +594,12 @@ def IE_GeluAttr : IE_Attr<"Gelu", [
     ] > {
 }
 
+def IE_ExpAttr : IE_Attr<"Exp", [
+        DeclareAttrInterfaceMethods<IE_PostOpAttrInterface>,
+        IE_ChannelAgnosticAttr
+    ] > {
+}
+
 //
 // ConcatAttr
 //

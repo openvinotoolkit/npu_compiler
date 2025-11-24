@@ -78,9 +78,9 @@ SmallVector<int64_t> vpux::countNonSparseElementsPerOC(const Const::Content& con
         numActualElements = countValue<vpux::type::bfloat16>(sparsifyValues, content, elementType.getContext());
     } else if (elementType.isF32()) {
         numActualElements = countValue<float>(sparsifyValues, content, elementType.getContext());
-    } else if (elementType.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(elementType)) {
         numActualElements = countValue<vpux::type::float8_e4m3>(sparsifyValues, content, elementType.getContext());
-    } else if (elementType.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(elementType)) {
         numActualElements = countValue<vpux::type::float8_e5m2>(sparsifyValues, content, elementType.getContext());
     } else {
         VPUX_THROW("Unexpected weights data type: {0}", elementType);

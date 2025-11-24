@@ -122,4 +122,35 @@ def VPUMI40XX_PermuteDMAAttr : VPUMI40XX_Attr<"PermuteDMATransaction",
     );
 }
 
+//
+// ExpandDMATransactionAttr
+//
+
+def VPUMI40XX_ExpandDMAAttr : VPUMI40XX_Attr<"ExpandDMATransaction",
+    [DeclareAttrInterfaceMethods<VPUMI40XX_DMATransactionAttrInterface>]> {
+
+    let parameters = (ins
+        "mlir::Type":$inputType,
+        "mlir::Type":$outputType,
+        // Only support pads end: E65670
+        "mlir::ArrayAttr":$padsBegin,
+        "mlir::ArrayAttr":$padsEnd
+    );
+}
+
+//
+// PerAxisTileDMATransactionAttr
+//
+
+def VPUMI40XX_PerAxisTileDMAAttr : VPUMI40XX_Attr<"PerAxisTileDMATransaction",
+    [DeclareAttrInterfaceMethods<VPUMI40XX_DMATransactionAttrInterface>]> {
+
+    let parameters = (ins
+        "mlir::Type":$inputType,
+        "mlir::Type":$outputType,
+        "mlir::IntegerAttr":$axis,
+        "mlir::IntegerAttr":$tiles
+    );
+}
+
 #endif

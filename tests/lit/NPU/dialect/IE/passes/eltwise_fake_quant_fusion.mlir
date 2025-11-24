@@ -190,8 +190,8 @@ func.func @DoNotAddFakeQuantizeFusionDPUParentOp(%arg0: tensor<1x12x32x32xf32>) 
     // CHECK-DAG:   [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<2.000000e+00> : tensor<1x1x1x1xf32>
     // CHECK-DAG:   [[CST_1:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.200000e+01> : tensor<1x1x1x1xf32>
     // CHECK-DAG:   [[FILTER:%.+]] = const.Declare tensor<12x12x1x1xf32> = dense<1.000000e+00> : tensor<12x12x1x1xf32>
-    // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], [[FILTER]]) 
-    // CHECK-SAME       tensor<1x12x32x32xf32>, tensor<12x12x1x1xf32> -> tensor<1x12x32x32xf32>
+    // CHECK:       [[CONV:%.+]] = IE.Convolution([[INPUT]], [[FILTER]])
+    // CHECK-SAME:      tensor<1x12x32x32xf32>, tensor<12x12x1x1xf32> -> tensor<1x12x32x32xf32>
     // CHECK:       [[ADD_0:%.+]] = IE.Add([[CONV]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x32x32xf32>, tensor<1xf32> -> tensor<1x12x32x32xf32>
     // CHECK:       [[FQ:%.+]] = IE.FakeQuantize([[ADD_0]], [[CST_0]], [[CST_1]], [[CST_0]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 256 : i64} : tensor<1x12x32x32xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x32x32xf32>
     // CHECK:       return [[FQ]] : tensor<1x12x32x32xf32>

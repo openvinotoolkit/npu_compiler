@@ -162,7 +162,7 @@ TEST_P(DynamicTensorIteratorNPUTest, NPU4000_HW_TestKindSubgraph) {
 std::vector<InputShape> input_shapes = {
         InputShape(ov::PartialShape({1, ov::Dimension(1, 35), 512}), {{1, 30, 512}, {1, 10, 512}, {1, 5, 512}})};
 
-std::vector<int32_t> hidden_sizes = {128};
+std::vector<int32_t> hidden_sizes = {128, 512};
 
 std::vector<ov::element::Type> model_types = {ov::element::f32};
 

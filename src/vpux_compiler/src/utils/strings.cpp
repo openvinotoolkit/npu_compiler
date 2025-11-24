@@ -7,8 +7,6 @@
 #include "vpux/utils/core/error.hpp"
 #include "vpux/utils/profiling/location.hpp"
 
-#include <iostream>
-
 using namespace vpux;
 
 namespace {
@@ -151,4 +149,34 @@ std::string vpux::getLayerTypeFromLocation(mlir::Location location) {
         return "<Unknown>";
     }
     return getLayerTypeFromMeta(meta);
+}
+
+/**
+ * Utility function to split string with delimiter and trim whitespace
+ * e.g. " str1, str2 , str3 " -> {"str1", "str2", "str3"}
+ */
+std::vector<std::string> vpux::splitAndTrimStringByDelimiter(const std::string& str, char delimiter) {
+    std::vector<std::string> result;
+    std::stringstream ss{str};
+    std::string token;
+
+    while (std::getline(ss, token, delimiter)) {
+        auto start = token.find_first_not_of(" \t");
+        if (start == std::string::npos) {
+            continue;
+        }
+        auto end = token.find_last_not_of(" \t");
+        if (end == std::string::npos) {
+            end = token.length() - 1;
+        }
+
+        token = token.substr(start, end - start + 1);
+        if (token.empty()) {
+            continue;
+        }
+
+        result.push_back(std::move(token));
+    }
+
+    return result;
 }

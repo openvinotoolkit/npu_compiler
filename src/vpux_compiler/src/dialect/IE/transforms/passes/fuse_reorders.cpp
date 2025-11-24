@@ -131,15 +131,12 @@ mlir::LogicalResult ReorderRewriter::matchAndRewrite(IE::ReorderOp origOp, mlir:
 
 class FuseReordersPass final : public IE::impl::FuseReordersPassBase<FuseReordersPass> {
 public:
-    explicit FuseReordersPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FuseReordersPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void FuseReordersPass::safeRunOnFunc() {

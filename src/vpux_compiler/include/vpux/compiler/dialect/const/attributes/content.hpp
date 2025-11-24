@@ -196,12 +196,16 @@ constexpr const char* IMPORTED_WEIGHT_PREFIX = "vpux_ow_";
     external to the compiler. As the memory is explicitly external, it is *not*
     owned by the created content (users must ensure the lifetime of the data is
     longer than the lifetime of the created content).
+    An additional input flag deepCopyConstData was added to actually allow
+    to copy and own the data internally. This is an exception to the normal usage
+    and it's only intended for debug purposes (in particular for vpux-translate),
+    as it can considerably increase memory consumption.
 
     @note This function is required instead of manual content creation since it
     performs additional optimizations not done by MLIR.
  */
 mlir::DenseResourceElementsAttr createExternalConstContent(mlir::ShapedType type, ArrayRef<char> rawData,
-                                                           StringRef resourcePrefix);
+                                                           StringRef resourcePrefix, bool deepCopyConstData = false);
 
 namespace detail {
 mlir::DenseElementsAttr createConstContentWithConversion(mlir::ShapedType type, ArrayRef<float> values);

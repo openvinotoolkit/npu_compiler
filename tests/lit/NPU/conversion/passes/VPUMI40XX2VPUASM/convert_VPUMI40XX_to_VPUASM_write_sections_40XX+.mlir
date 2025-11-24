@@ -48,7 +48,6 @@ module @Test attributes {config.arch = #config.arch_kind<NPU40XX>} {
 
     VPUMI40XX.MappedInference dmas((%11, %12) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>)) actKernelRanges((%13): (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%14): (!VPURegMapped.Index<0:0:0>)) barriers(%9: !VPURegMapped.Index<0:0:0>) dmaCount([[1, 1]]) invariantCount([0]) variantCount([0]) actKernelRangesCount([[1, 0]]) actKernelInvocationsCount([[1, 0]]) mediaCount(0) barrierCount(2) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

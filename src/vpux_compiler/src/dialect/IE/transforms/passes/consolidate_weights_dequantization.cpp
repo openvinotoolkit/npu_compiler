@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/fake_quantize_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -109,9 +110,10 @@ private:
 
 template <typename ConcreteOp>
 bool WeightsDequantizeRewriter<ConcreteOp>::isSupportedInputElemType(mlir::Type elemType) const {
-    // The only supported weights data types are I8, U8, I4, U4, I2, U2, FP8 and NF4
+    // The only supported weights data types are I16, U16, I8, U8, I4, U4, I2, U2, FP8 and NF4
     return elemType.isSignedInteger(2) || elemType.isUnsignedInteger(2) || elemType.isSignedInteger(4) ||
            elemType.isUnsignedInteger(4) || elemType.isSignedInteger(8) || elemType.isUnsignedInteger(8) ||
+           elemType.isSignedInteger(16) || elemType.isUnsignedInteger(16) || elemType.isSignlessInteger(16) ||
            isFloat8(elemType) || mlir::isa_and_nonnull<vpux::type::QuantileFloatType>(elemType);
 }
 
@@ -194,8 +196,9 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::staticMatchAndRewrite
     auto inputValue = rewriter.create<IE::QuantizeCastOp>(loc, IE::getTrueInputValue(origOp, rewriter), quantElemType)
                               .getOutput();
     if (auto transposeOp = mlir::dyn_cast_or_null<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
-        inputValue =
-                rewriter.create<IE::TransposeOp>(loc, inputValue, nullptr, transposeOp.getOrderValueAttr()).getOutput();
+        inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
+                                                      transposeOp.getOrderValueAttr())
+                             .getOutput();
     }
 
     mlir::Operation* dequantizeOp = nullptr;
@@ -266,14 +269,17 @@ mlir::LogicalResult WeightsDequantizeRewriter<ConcreteOp>::dynamicMatchAndRewrit
         if (auto convertOp = mlir::dyn_cast_or_null<ConcreteOp>(*scale.user_begin())) {
             scale = convertOp.getOutput();
             rewriter.setInsertionPointAfter(convertOp);
+        } else if (auto stridedSliceOp = mlir::dyn_cast_or_null<IE::StridedSliceOp>(scale.getDefiningOp())) {
+            rewriter.setInsertionPointAfter(stridedSliceOp);
         }
     }
 
     auto inputValue = rewriter.create<IE::QuantizeCastOp>(loc, IE::getTrueInputValue(origOp, rewriter), quantElemType)
                               .getOutput();
     if (auto transposeOp = mlir::dyn_cast_or_null<IE::TransposeOp>(wdInfo.getInput().getDefiningOp())) {
-        inputValue =
-                rewriter.create<IE::TransposeOp>(loc, inputValue, nullptr, transposeOp.getOrderValueAttr()).getOutput();
+        inputValue = rewriter.create<IE::TransposeOp>(appendLoc(loc, "transpose_in"), inputValue, nullptr,
+                                                      transposeOp.getOrderValueAttr())
+                             .getOutput();
     }
 
     auto shift = wdInfo.hasShift() ? wdInfo.getDynamicShift() : nullptr;
@@ -333,49 +339,32 @@ class ConsolidateWeightsDequantizationPass final :
         public IE::impl::ConsolidateWeightsDequantizationBase<ConsolidateWeightsDequantizationPass> {
 public:
     ConsolidateWeightsDequantizationPass() = default;
-    explicit ConsolidateWeightsDequantizationPass(const IE::LowPrecisionTransformOptions& options, Logger log) {
+    explicit ConsolidateWeightsDequantizationPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
 
-        Base::copyOptionValuesFrom(options);
         initializeFromOptions();
     }
 
 private:
-    mlir::LogicalResult initializeOptions(
-            StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) final;
     void initializeFromOptions();
 
     void safeRunOnFunc() final;
-
-private:
-    bool _enableWeightsDynamicDequantization = false;
 };
 
-mlir::LogicalResult ConsolidateWeightsDequantizationPass::initializeOptions(
-        StringRef options, llvm::function_ref<mlir::LogicalResult(const llvm::Twine&)> errorHandler) {
-    if (mlir::failed(Base::initializeOptions(options, errorHandler))) {
-        return mlir::failure();
-    }
-
-    initializeFromOptions();
-
-    return mlir::success();
-}
-
 void ConsolidateWeightsDequantizationPass::initializeFromOptions() {
-    if (enableWeightsDynamicDequantization.hasValue()) {
-        _enableWeightsDynamicDequantization = enableWeightsDynamicDequantization.getValue();
-    }
 }
 
 void ConsolidateWeightsDequantizationPass::safeRunOnFunc() {
-    auto func = getOperation();
     auto& ctx = getContext();
+    auto func = getOperation();
+    auto module = getModuleOp(func);
+    auto enableWeightsDynamicDequantization = config::hasEnableWeightsDynamicDequantization(module);
+
     mlir::RewritePatternSet patterns(&ctx);
 
     IE::ConvertOp::getCanonicalizationPatterns(patterns, &ctx);  // Ensures Convert chains are folded
-    patterns.add<WeightsDequantizeRewriter<IE::ConvertOp>>(&ctx, _enableWeightsDynamicDequantization, _log);
-    patterns.add<WeightsDequantizeRewriter<Const::DeclareOp>>(&ctx, _enableWeightsDynamicDequantization, _log);
+    patterns.add<WeightsDequantizeRewriter<IE::ConvertOp>>(&ctx, enableWeightsDynamicDequantization, _log);
+    patterns.add<WeightsDequantizeRewriter<Const::DeclareOp>>(&ctx, enableWeightsDynamicDequantization, _log);
 
     auto config = getDefaultGreedyRewriteConfig();
     config.maxIterations = mlir::GreedyRewriteConfig::kNoLimit;
@@ -390,11 +379,6 @@ void ConsolidateWeightsDequantizationPass::safeRunOnFunc() {
 // createConsolidateWeightsDequantizationPass
 //
 
-std::unique_ptr<mlir::Pass> vpux::IE::createConsolidateWeightsDequantizationPass() {
-    return std::make_unique<ConsolidateWeightsDequantizationPass>();
-}
-
-std::unique_ptr<mlir::Pass> vpux::IE::createConsolidateWeightsDequantizationPass(
-        const IE::LowPrecisionTransformOptions& options, Logger log) {
-    return std::make_unique<ConsolidateWeightsDequantizationPass>(options, log);
+std::unique_ptr<mlir::Pass> vpux::IE::createConsolidateWeightsDequantizationPass(Logger log) {
+    return std::make_unique<ConsolidateWeightsDequantizationPass>(log);
 }

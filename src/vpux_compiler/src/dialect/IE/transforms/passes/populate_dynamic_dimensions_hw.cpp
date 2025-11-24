@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reify_shape.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Bufferization/IR/Bufferization.h>
 
@@ -47,7 +48,7 @@ void populateDynamicOperand(mlir::Operation* op, const unsigned operandIdx, Logg
     }
 
     SmallVector<mlir::Value> dynamicOperands{};
-    mlir::OpBuilder builder(op);
+    IE::DynamicDimOpBuilder builder(op);
     mlir::bufferization::populateDynamicDimSizes(builder, producer->getLoc(), operand, dynamicOperands);
     auto newShapeValue = buildConcat(producer->getLoc(), builder, getShape(producer->getResult(0)), dynamicOperands);
     auto newResult = repackDynamicTensor(builder, producer, operandType, newShapeValue);
@@ -91,15 +92,12 @@ namespace {
 class PopulateDynamicDimensionsHWPass final :
         public IE::impl::PopulateDynamicDimensionsHWBase<PopulateDynamicDimensionsHWPass> {
 public:
-    explicit PopulateDynamicDimensionsHWPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PopulateDynamicDimensionsHWPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PopulateDynamicDimensionsHWPass::safeRunOnFunc() {

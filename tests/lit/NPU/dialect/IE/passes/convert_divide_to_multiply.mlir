@@ -155,6 +155,99 @@ func.func @ConvertDivideWithConstQuantizedDivisor(%arg0: tensor<1x3x768x1152xf16
 
 // -----
 
+!qElemType = !quant.uniform<ui8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[ORIGINAL_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[NEW_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.0067992747440273043:64>
+
+// CHECK: @ConvertDivideWithConstDequantizedDivisor
+// CHECK-SAME: ([[ARG:%.+]]: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16>
+func.func @ConvertDivideWithConstDequantizedDivisor(%arg0: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16> {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<132.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1 : tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<1x3x1x1x[[NEW_QELEMTYPE]]> = dense<1.320000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>, #const.Add<-1.280000e+02 : f64>, #const.CastElemType<f32>, #const.ScalarMultInverse, #const.Rescale<2.560000e+02 : f64>, #const.Add<6.400000e+01 : f64>, #const.CastElemType<ui8>]
+    // CHECK-DAG:       [[DQ:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<1x3x1x1x[[NEW_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[MULTIPLY:%.+]] = IE.Multiply([[ARG]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[MULTIPLY]] : tensor<1x3x768x1152xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i4:f16, 1.000000e+00:8>
+// CHECK-DAG: [[QELEMTYPE:!.+]] = !quant.uniform<i4:f16, 1.000000e+00:8>
+
+// CHECK: @DoNotConvertDivideWithConstDequantizedDivisorI4
+// CHECK-SAME: ([[ARG:%.+]]: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16>
+func.func @DoNotConvertDivideWithConstDequantizedDivisorI4(%arg0: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16> {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<132.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<i4>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1 : tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<1x3x1x1x[[QELEMTYPE]]> = dense<1.320000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<i4>, #const.CastElemType<[[QELEMTYPE]]>]
+    // CHECK-DAG:       [[DQ:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<1x3x1x1x[[QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DIVIDE:%.+]] = IE.Divide([[ARG]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[DIVIDE]] : tensor<1x3x768x1152xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
+// CHECK-DAG: [[QELEMTYPE:!.+]] = !quant.uniform<f8E4M3FN:f16, 1.000000e+00>
+
+// CHECK: @DoNotConvertDivideWithConstDequantizedDivisorFP8
+// CHECK-SAME: ([[ARG:%.+]]: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16>
+func.func @DoNotConvertDivideWithConstDequantizedDivisorFP8(%arg0: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16> {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<132.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<f8E4M3FN>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1 : tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<1x3x1x1x[[QELEMTYPE]]> = dense<1.320000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<f8E4M3FN>, #const.CastElemType<[[QELEMTYPE]]>]
+    // CHECK-DAG:       [[DQ:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<1x3x1x1x[[QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DIVIDE:%.+]] = IE.Divide([[ARG]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[DIVIDE]] : tensor<1x3x768x1152xf16>
+}
+
+// -----
+
+!qElemType = !quant.uniform<i8:f32:1, {0.10000000149011612:100, 0.20000000298023224:100, 0.30000001192092896:100}>
+// CHECK-DAG: [[QELEMTYPE:!.+]] = !quant.uniform<i8:f32:1, {0.10000000149011612:100,0.20000000298023224:100,0.30000001192092896:100}>
+
+// CHECK: @DoNotConvertDivideWithConstDequantizedDivisorPerAxisQuant
+// CHECK-SAME: ([[ARG:%.+]]: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16>
+func.func @DoNotConvertDivideWithConstDequantizedDivisorPerAxisQuant(%arg0: tensor<1x3x768x1152xf16>) -> tensor<1x3x768x1152xf16> {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<132.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<i8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1 : tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<1x3x1x1x[[QELEMTYPE]]> = dense<1.320000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<i8>, #const.CastElemType<[[QELEMTYPE]]>]
+    // CHECK-DAG:       [[DQ:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<1x3x1x1x[[QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DIVIDE:%.+]] = IE.Divide([[ARG]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[DIVIDE]] : tensor<1x3x768x1152xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @ConvertMultipleDivideOpsWithConstQuantizedDivisor
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x3x768x1152xf16>, [[ARG1:%.+]]: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>)
 func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor(%arg0: tensor<1x3x768x1152xf16>, %arg1: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>) {
@@ -188,6 +281,35 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor(%arg0: tensor<1x3x7
     // CHECK:           [[MULTIPLY0:%.+]] = IE.Multiply([[ARG0]], [[FAKE_QUANTIZE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           [[MULTIPLY1:%.+]] = IE.Multiply([[ARG1]], [[FAKE_QUANTIZE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
     // CHECK:           return [[MULTIPLY0]], [[MULTIPLY1]]
+}
+
+// -----
+
+!qElemType = !quant.uniform<ui8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[ORIGINAL_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[NEW_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.0067992747440273043:-2>
+
+// CHECK: @ConvertMultipleDivideOpsWithConstDequantizedDivisor
+// CHECK-SAME: ([[ARG_0:%.+]]: tensor<1x3x768x1152xf16>, [[ARG_1:%.+]]: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>)
+func.func @ConvertMultipleDivideOpsWithConstDequantizedDivisor(%arg0: tensor<1x3x768x1152xf16>, %arg1: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>) {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<1.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    %2 = IE.Divide(%arg1, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1, %2 : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST:%.+]] = const.Declare tensor<1x3x1x1x[[NEW_QELEMTYPE]]> = dense<1.000000e+00> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>, #const.Add<-1.280000e+02 : f64>, #const.CastElemType<f32>, #const.ScalarMultInverse, #const.Rescale<2.560000e+02 : f64>, #const.Add<-2.000000e+00 : f64>, #const.CastElemType<ui8>]
+    // CHECK-DAG:       [[DQ:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16} : tensor<1x3x1x1x[[NEW_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[MULTIPLY_0:%.+]] = IE.Multiply([[ARG_0]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       [[MULTIPLY_1:%.+]] = IE.Multiply([[ARG_1]], [[DQ]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[MULTIPLY_0]], [[MULTIPLY_1]] : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
 }
 
 // -----
@@ -240,6 +362,37 @@ func.func @ConvertMultipleDivideOpsWithConstQuantizedDivisor_NotOnlyDivideUsers(
 
 // -----
 
+!qElemType = !quant.uniform<ui8:f16, 0.57450980392156858:128>
+//CHECK-DAG: [[ORIGINAL_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.57450980392156858:128>
+//CHECK-DAG: [[NEW_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.0067992747440273043:-2>
+
+// CHECK: @ConvertMultipleDivideOpsWithConstDequantizedDivisor_NotOnlyDivideUsers
+// CHECK-SAME: ([[ARG_0:%.+]]: tensor<1x3x768x1152xf16>, [[ARG_1:%.+]]: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>)
+func.func @ConvertMultipleDivideOpsWithConstDequantizedDivisor_NotOnlyDivideUsers(%arg0: tensor<1x3x768x1152xf16>, %arg1: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>) {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<0.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Add(%arg0, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    %2 = IE.Divide(%arg1, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1, %2 : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST_0:%.+]] = const.Declare tensor<1x3x1x1x[[NEW_QELEMTYPE]]> = dense<0.000000e+00> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>, #const.Add<-1.280000e+02 : f64>, #const.CastElemType<f32>, #const.ScalarMultInverse, #const.Rescale<2.560000e+02 : f64>, #const.Add<-2.000000e+00 : f64>, #const.CastElemType<ui8>]
+    // CHECK-DAG:       [[CST_1:%.+]] = const.Declare tensor<1x3x1x1x[[ORIGINAL_QELEMTYPE]]> = dense<0.000000e+00> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>]
+    // CHECK-DAG:       [[DQ_0:%.+]] = IE.Dequantize([[CST_0]]) {dstElemType = f16} : tensor<1x3x1x1x[[NEW_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DQ_1:%.+]] = IE.Dequantize([[CST_1]]) {dstElemType = f16} : tensor<1x3x1x1x[[ORIGINAL_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[ADD:%.+]] = IE.Add([[ARG_0]], [[DQ_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       [[MULTIPLY:%.+]] = IE.Multiply([[ARG_1]], [[DQ_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[ADD]], [[MULTIPLY]] : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @ConvertMultipleDivideOpsWithQuantizedDivisor_NotSecondInput
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x3x768x1152xf16>, [[ARG1:%.+]]: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>)
 func.func @ConvertMultipleDivideOpsWithQuantizedDivisor_NotSecondInput(%arg0: tensor<1x3x768x1152xf16>, %arg1: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>) {
@@ -288,6 +441,37 @@ func.func @ConvertMultipleDivideOpsWithQuantizedDivisor_NotSecondInput(%arg0: te
 
 // -----
 
+!qElemType = !quant.uniform<ui8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[ORIGINAL_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.57450980392156858:128>
+// CHECK-DAG: [[NEW_QELEMTYPE:!.+]] = !quant.uniform<u8:f16, 0.0067992747440273043:2>
+
+// CHECK: @ConvertMultipleDivideOpsWithDequantizedDivisor_NotSecondInput
+// CHECK-SAME: ([[ARG_0:%.+]]: tensor<1x3x768x1152xf16>, [[ARG_1:%.+]]: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>)
+func.func @ConvertMultipleDivideOpsWithDequantizedDivisor_NotSecondInput(%arg0: tensor<1x3x768x1152xf16>, %arg1: tensor<1x3x768x1152xf16>) -> (tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>) {
+    %input = const.Declare tensor<1x3x1x1x!qElemType> = dense<256.0> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
+    %0 = IE.Dequantize(%input) {dstElemType = f16} : tensor<1x3x1x1x!qElemType> -> tensor<1x3x1x1xf16>
+
+    %1 = IE.Divide(%0, %arg0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x1x1xf16>, tensor<1x3x768x1152xf16> -> tensor<1x3x768x1152xf16>
+
+    %2 = IE.Divide(%arg1, %0)
+        {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} :
+        tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+
+    return %1, %2 : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
+
+    // CHECK-DAG:       [[CST_0:%.+]] = const.Declare tensor<1x3x1x1x[[NEW_QELEMTYPE]]> = dense<2.560000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>, #const.Add<-1.280000e+02 : f64>, #const.CastElemType<f32>, #const.ScalarMultInverse, #const.Rescale<2.560000e+02 : f64>, #const.Add<2.000000e+00 : f64>, #const.CastElemType<ui8>]
+    // CHECK-DAG:       [[CST_1:%.+]] = const.Declare tensor<1x3x1x1x[[ORIGINAL_QELEMTYPE]]> = dense<2.560000e+02> : tensor<1x3x1x1xf16>, [#const.CastElemType<ui8>, #const.CastElemType<[[ORIGINAL_QELEMTYPE]]>]
+    // CHECK-DAG:       [[DQ_0:%.+]] = IE.Dequantize([[CST_0]]) {dstElemType = f16} : tensor<1x3x1x1x[[NEW_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DQ_1:%.+]] = IE.Dequantize([[CST_1]]) {dstElemType = f16} : tensor<1x3x1x1x[[ORIGINAL_QELEMTYPE]]> -> tensor<1x3x1x1xf16>
+    // CHECK-DAG:       [[DIVIDE:%.+]] = IE.Divide([[DQ_1]], [[ARG_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x1x1xf16>, tensor<1x3x768x1152xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       [[MULTIPLY:%.+]] = IE.Multiply([[ARG_1]], [[DQ_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x3x768x1152xf16>, tensor<1x3x1x1xf16> -> tensor<1x3x768x1152xf16>
+    // CHECK-DAG:       return [[DIVIDE]], [[MULTIPLY]] : tensor<1x3x768x1152xf16>, tensor<1x3x768x1152xf16>
+}
+
+// -----
+
 // CHECK-LABEL: @NonConstDivisorConvert
 // CHECK-SAME: ([[ARG0:%.+]]: tensor<1x12x512x512xf32>, [[ARG1:%.+]]: tensor<1x1x1x1xf32>) -> tensor<1x12x512x512xf32>
 func.func @NonConstDivisorConvert(%arg0: tensor<1x12x512x512xf32>, %arg1: tensor<1x1x1x1xf32>) -> tensor<1x12x512x512xf32> {
@@ -295,8 +479,8 @@ func.func @NonConstDivisorConvert(%arg0: tensor<1x12x512x512xf32>, %arg1: tensor
         : tensor<1x12x512x512xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x512x512xf32>
     return %0 : tensor<1x12x512x512xf32>
 
-    // CHECK: [[CST:%.+]] = const.Declare tensor<1xf32> = dense<1.000000e+00> : tensor<1xf32>
-    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[CST]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1x1xf32>
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[CST]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x1x1x1xf32>
 
     // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG0]], [[DIVIDE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x12x512x512xf32>, tensor<1x1x1x1xf32> -> tensor<1x12x512x512xf32>
     // CHECK:   return   [[MULTIPLY]]
@@ -325,23 +509,9 @@ func.func @ConvertWhenDivisorNeedsBroadcast(%arg0: tensor<1x1x8192x2048xf16>, %a
 
     return %0 : tensor<1x1x8192x2048xf16>
 
-    // CHECK: [[CST:%.+]] = const.Declare tensor<1xf16> = dense<1.000000e+00> : tensor<1xf16>
-    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[CST]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1xf16>, tensor<1x1x8192x1xf16> -> tensor<1x1x8192x1xf16>
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x8192x1xf16> = dense<1.000000e+00> : tensor<1x1x8192x1xf16>
+    // CHECK: [[DIVIDE:%.+]] = IE.Divide([[CST]], [[ARG1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x8192x1xf16>, tensor<1x1x8192x1xf16> -> tensor<1x1x8192x1xf16>
 
     // CHECK: [[MULTIPLY:%.+]] = IE.Multiply([[ARG0]], [[DIVIDE]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x8192x2048xf16>, tensor<1x1x8192x1xf16> -> tensor<1x1x8192x2048xf16>
     // CHECK:   return   [[MULTIPLY]]
-}
-
-// -----
-
-// CHECK-LABEL: @NotConvertForSmallDivideOutputRatio
-// CHECK-SAME: ([[ARG0:%.+]]: tensor<1x151x1x768xf16>, [[ARG1:%.+]]: tensor<1x151x1x1xf16>) -> tensor<1x151x1x768xf16>
-func.func @NotConvertForSmallDivideOutputRatio(%arg0: tensor<1x151x1x768xf16>, %arg1: tensor<1x151x1x1xf16>) -> tensor<1x151x1x768xf16> {
-    %0 = IE.Divide(%arg0, %arg1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>}
-        : tensor<1x151x1x768xf16>, tensor<1x151x1x1xf16> -> tensor<1x151x1x768xf16>
-
-    return %0 : tensor<1x151x1x768xf16>
-
-    // CHECK: [[DIVIDE:%.+]] = IE.Divide
-    // CHECK:   return   [[DIVIDE]]
 }

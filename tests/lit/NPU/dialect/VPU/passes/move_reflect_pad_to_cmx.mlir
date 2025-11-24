@@ -143,9 +143,9 @@ func.func @dontMoveReflectPadToCmxPaddingWithMoreThan1(%arg0: tensor<1x32x32x3x!
 
     %quantize_cast = VPU.QuantizeCast(%input_copy_to_ddr) {dstElemType = !qElemType1} : tensor<1x32x32x3x!qElemType, {order = #NHWC}> -> tensor<1x32x32x3x!qElemType1, {order = #NHWC}>
 
-    %input_pad_0 = VPU.Slice %quantize_cast [0, 0, 0, 1] [1, 32, 32, 1]: tensor<1x32x32x3x!qElemType1, {order = #NHWC}>
+    %input_pad_0 = VPU.Slice %quantize_cast [0, 0, 0, 0] [1, 32, 32, 1]: tensor<1x32x32x3x!qElemType1, {order = #NHWC}>
                                 to tensor<1x32x32x1x!qElemType1, {order = #NHWC}>
-    %input_pad_1 = VPU.Slice %quantize_cast [0, 0, 0, 2] [1, 32, 32, 2]: tensor<1x32x32x3x!qElemType1, {order = #NHWC}>
+    %input_pad_1 = VPU.Slice %quantize_cast [0, 0, 0, 1] [1, 32, 32, 2]: tensor<1x32x32x3x!qElemType1, {order = #NHWC}>
                                 to tensor<1x32x32x2x!qElemType1, {order = #NHWC}>
 
     %concat_view = VPU.Concat (%input_pad_0, %quantize_cast, %input_pad_1)

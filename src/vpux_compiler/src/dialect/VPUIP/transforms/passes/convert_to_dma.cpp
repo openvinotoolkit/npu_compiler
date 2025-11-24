@@ -795,15 +795,52 @@ mlir::LogicalResult ConvertToDMAPass::SwKernelPerAxisTileConverter::matchAndRewr
         DimArr diffDimsOut;
 
         const auto inputOrder = inType.getDimsOrder();
+        const auto inShape = inType.getShape();
+
+        const size_t INTERMEDIATE_SIZE_THRESHOLD = 100000;
 
         for (const auto dim : dims) {
             diffDimsOrder.push_back({dim, inputOrder.dimPos(dim)});
         }
 
-        // Skip the case of 1x1x1x512 -> 1x2x512x512 as the intermdediate tensor@1x2x1x512
-        // has smaller element number than tensor@1x1x512x512
+        // Sort dimensions: prefer smaller intermediate tensor size first,
+        // then prefer inner dimensions (higher memory position) to avoid strideDMA
         std::sort(diffDimsOrder.begin(), diffDimsOrder.end(), [&](const auto& lhs, const auto& rhs) {
-            return lhs.second > rhs.second && !(outShape[lhs.first] > outShape[rhs.first]);
+            // Calculate intermediate tensor sizes for both tile orders
+            size_t lhsIntermediateSize = 1;
+            size_t rhsIntermediateSize = 1;
+
+            // Calculate intermediate size if we tile lhs.first dimension first
+            for (size_t d = 0; d < inShape.size(); ++d) {
+                if (static_cast<int32_t>(d) == lhs.first.ind()) {
+                    lhsIntermediateSize *= outShape[lhs.first];
+                } else {
+                    lhsIntermediateSize *= inShape[Dim(d)];
+                }
+            }
+
+            // Calculate intermediate size if we tile rhs.first dimension first
+            for (size_t d = 0; d < inShape.size(); ++d) {
+                if (static_cast<int32_t>(d) == rhs.first.ind()) {
+                    rhsIntermediateSize *= outShape[rhs.first];
+                } else {
+                    rhsIntermediateSize *= inShape[Dim(d)];
+                }
+            }
+
+            // If either intermediate tensor is very large, prefer the smaller one
+            if (lhsIntermediateSize > INTERMEDIATE_SIZE_THRESHOLD ||
+                rhsIntermediateSize > INTERMEDIATE_SIZE_THRESHOLD) {
+                return lhsIntermediateSize < rhsIntermediateSize;
+            }
+
+            // If both intermediate tensors are reasonable size, prefer inner dimensions first
+            if (lhs.second != rhs.second) {
+                return lhs.second > rhs.second;
+            }
+
+            // Default: prefer smaller output size for same memory position
+            return outShape[lhs.first] < outShape[rhs.first];
         });
 
         for (const auto& [dim, pos] : diffDimsOrder) {

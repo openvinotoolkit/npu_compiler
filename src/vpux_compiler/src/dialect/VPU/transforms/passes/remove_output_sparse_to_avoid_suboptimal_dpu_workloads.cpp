@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -29,7 +30,7 @@ void removeOutputSparse(VPU::NCEOpInterface nceOp, Logger log) {
     log.trace("{0} at {1}: removing output sparsity", nceOp->getName(), nceOp->getLoc());
 
     auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(nceOp.getOperation());
-    const auto dataType = clusteredOp->getResult(0).getType();
+    const auto dataType = mlir::cast<VPU::SparseTensorType>(clusteredOp->getResult(0).getType()).getData();
 
     auto recursivelyRemoveSparseOutput = [&](VPU::ClusteredOpInterface clusteredOp) -> void {
         clusteredOp->getResult(0).setType(dataType);
@@ -40,10 +41,15 @@ void removeOutputSparse(VPU::NCEOpInterface nceOp, Logger log) {
             auto currentOp = users.back();
             users.pop_back();
             if (auto unrolledTypeOp = mlir::dyn_cast_or_null<VPU::UnrolledTypeOp>(currentOp)) {
+                auto outputSparseType = mlir::dyn_cast<VPU::SparseTensorType>(unrolledTypeOp.getOutput().getType());
+                if (outputSparseType != nullptr) {
+                    unrolledTypeOp->getResult(0).setType(outputSparseType.getData());
+                }
+
                 auto nextOps = to_small_vector(unrolledTypeOp->getUsers());
                 users.insert(users.end(), nextOps.begin(), nextOps.end());
-            } else if (mlir::isa_and_nonnull<vpux::VPU::ViewLikeOpInterface>(currentOp)) {
-                vpux::inferReturnTypes(currentOp, vpux::InferShapedTypeMode::ALL);
+            } else if (mlir::isa_and_nonnull<VPU::ViewLikeOpInterface>(currentOp)) {
+                inferReturnTypes(currentOp, InferShapedTypeMode::ALL);
                 auto nextOps = to_small_vector(currentOp->getUsers());
                 users.insert(users.end(), nextOps.begin(), nextOps.end());
             }

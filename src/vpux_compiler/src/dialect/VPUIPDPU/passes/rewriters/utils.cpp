@@ -104,11 +104,11 @@ mlir::Type getBaseType(mlir::Type type, bool isPalletModeEnabled) {
 
     auto quantType = mlir::cast<mlir::quant::QuantizedType>(type);
     auto quantStorageType = quantType.getStorageType();
-    if (quantStorageType.isFloat8E5M2()) {
+    if (mlir::isa<mlir::Float8E5M2Type>(quantStorageType)) {
         return mlir::Float8E5M2Type::get(type.getContext());
     }
 
-    if (quantStorageType.isFloat8E4M3FN()) {
+    if (mlir::isa<mlir::Float8E4M3FNType>(quantStorageType)) {
         return mlir::Float8E4M3FNType::get(type.getContext());
     }
 
@@ -179,9 +179,9 @@ std::optional<ODUDataBitWidth> getOutDataWidth(mlir::Type outDataType) {
         return ODUDataBitWidth::ODU_DTYPE_16BIT;
     } else if (outDataType.isBF16()) {
         return ODUDataBitWidth::ODU_DTYPE_16BIT;
-    } else if (outDataType.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(outDataType)) {
         return ODUDataBitWidth::ODU_DTYPE_8BIT;
-    } else if (outDataType.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(outDataType)) {
         return ODUDataBitWidth::ODU_DTYPE_8BIT;
     } else if (outDataType.isSignedInteger(CHAR_BIT * sizeof(int32_t))) {
         return ODUDataBitWidth::ODU_DTYPE_32BIT;

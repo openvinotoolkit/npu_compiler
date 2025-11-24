@@ -131,15 +131,12 @@ mlir::LogicalResult AffineReshapePermuteCastRewriter::matchAndRewrite(IE::Dynami
 class MoveDynamicDequantizeToUserPass final :
         public vpux::IE::impl::MoveDynamicDequantizeToUserBase<MoveDynamicDequantizeToUserPass> {
 public:
-    explicit MoveDynamicDequantizeToUserPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit MoveDynamicDequantizeToUserPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void MoveDynamicDequantizeToUserPass::safeRunOnFunc() {

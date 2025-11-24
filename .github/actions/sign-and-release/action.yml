@@ -1,0 +1,90 @@
+name: Attest, sign and release artifacts
+description: Generate build provenance attestation, verify it, cosign-sign the artifact, verify and upload to release
+
+inputs:
+  artifact-path:
+    description: "Path to artifact to sign and upload"
+    type: string
+    required: true
+  release-tag:
+    description: "Tag assigned to this release"
+    type: string
+    required: true
+  repository:
+    description: "Repository full name: fork/repo"
+    type: string
+    required: true
+  release-token:
+    description: "Token with permission to upload release assets (contents:write on target repo)"
+    type: string
+    required: true
+  workflow-path:
+    description: "Signing workflow path, example: .github/workflows/build.yml"
+    type: string
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install cosign
+      uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+
+    - name: Generate build provenance attestation
+      uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3.0.0
+      with:
+        subject-path: ${{ inputs.artifact-path }}
+
+    - name: Verify build provenance attestation
+      env:
+        ARTIFACT: ${{ inputs.artifact-path }}
+        TAG: ${{ inputs.release-tag }}
+        REPO: ${{ inputs.repository }}
+        WORKFLOW: ${{ inputs.workflow-path }}
+        GITHUB_TOKEN: ${{ inputs.release-token }}
+      shell: bash
+      run: |
+        set -e
+        gh attestation verify "$ARTIFACT" \
+          --repo "$REPO" \
+          --source-ref "refs/tags/$TAG" \
+          --signer-workflow "github.com/$REPO/$WORKFLOW@refs/tags/$TAG"
+
+    - name: Sign artifact with cosign
+      env:
+        ARTIFACT: ${{ inputs.artifact-path }}
+      shell: bash
+      run: |
+        set -e
+        cosign sign-blob \
+          --yes \
+          --bundle "${ARTIFACT}.sigstore.json" \
+          "${ARTIFACT}"
+
+    - name: Verify artifact bundle (keyless)
+      env:
+        ARTIFACT: ${{ inputs.artifact-path }}
+        TAG: ${{ inputs.release-tag }}
+        REPO: ${{ inputs.repository }}
+        WORKFLOW: ${{ inputs.workflow-path }}
+      shell: bash
+      run: |
+        set -e
+        cosign verify-blob \
+          --bundle "${ARTIFACT}.sigstore.json" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          --certificate-identity "https://github.com/$REPO/$WORKFLOW@refs/tags/$TAG" \
+          "${ARTIFACT}"
+
+    - name: Upload asset to existing release tag
+      env:
+        ARTIFACT: ${{ inputs.artifact-path }}
+        TAG: ${{ inputs.release-tag }}
+        REPO: ${{ inputs.repository }}
+        GITHUB_TOKEN: ${{ inputs.release-token }}
+      shell: bash
+      run: |
+        set -e
+        ARTIFACT_BUNDLE="${ARTIFACT}.sigstore.json"
+
+        gh release upload "$TAG" "$ARTIFACT" "$ARTIFACT_BUNDLE" --clobber --repo "$REPO"
+        echo "Uploaded $ARTIFACT with $ARTIFACT_BUNDLE to release $TAG"

@@ -95,15 +95,12 @@ mlir::Operation* insertAvgPool(mlir::Operation* concreteOp, mlir::PatternRewrite
 class InsertIdentityPoolBeforeOpPass final :
         public IE::impl::InsertIdentityPoolBeforeOpBase<InsertIdentityPoolBeforeOpPass> {
 public:
-    explicit InsertIdentityPoolBeforeOpPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit InsertIdentityPoolBeforeOpPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void InsertIdentityPoolBeforeOpPass::safeRunOnFunc() {

@@ -15,7 +15,8 @@ VPU::NCESparsity::IntOrFloatType VPU::arch37xx::getScale(uint8_t shift, int16_t 
                                                          mlir::Type inputType) {
     // VPUX37XX expects scale in IEEE754 format in NCE_DPU_PPE_FP_SCALE register in case input has FP16/BF16 type
     auto inStorageType = mlir::quant::QuantizedType::castToStorageType(inputType);
-    if (mlir::isa<mlir::FloatType>(inputType) || inStorageType.isFloat8E5M2() || inStorageType.isFloat8E4M3FN()) {
+    if (mlir::isa<mlir::FloatType>(inputType) ||
+        mlir::isa<mlir::Float8E5M2Type, mlir::Float8E4M3FNType>(inStorageType)) {
         return VPU::NCESparsity::toHex(rescale);
     }
 
@@ -27,6 +28,30 @@ VPU::NCESparsity::IntOrFloatType VPU::arch37xx::getScale(uint8_t shift, int16_t 
     int32_t PPE_MULT_VALUE = mult;
 
     return (PPE_SHIFT_VALUE << PPE_SHIFT_OFFSET) | (PPE_MULT_VALUE << PPE_MULT_OFFSET);
+}
+
+double VPU::arch37xx::retrieveScaleFromTable(VPU::NCESparsity::IntOrFloatType val, mlir::Type inputType) {
+    // VPUX37XX expects scale in IEEE754 format in NCE_DPU_PPE_FP_SCALE register in case input has FP16/BF16 type
+    const auto realVal = std::get<int32_t>(val);
+    auto inStorageType = mlir::quant::QuantizedType::castToStorageType(inputType);
+    if (mlir::isa<mlir::FloatType>(inputType) || inStorageType.isFloat8E5M2() || inStorageType.isFloat8E4M3FN()) {
+        return static_cast<double>(llvm::bit_cast<float>(realVal));
+    }
+
+    constexpr int32_t PPE_SHIFT_OFFSET = 8;
+    constexpr int32_t PPE_SHIFT_MASK = 0xFF;
+    const int32_t shift = (realVal >> PPE_SHIFT_OFFSET) & PPE_SHIFT_MASK;
+
+    constexpr int32_t PPE_MULT_OFFSET = 16;
+    constexpr int32_t PPE_MULT_MASK = 0xFFFF;
+    const auto mult = static_cast<int16_t>((realVal >> PPE_MULT_OFFSET) & PPE_MULT_MASK);
+
+    // Applying reverse transformation done by QuantizationApproximation
+    constexpr uint8_t bits = 15;
+    const auto doubleMult = static_cast<double>(mult) / static_cast<double>(1 << bits);
+    const auto exponent = bits - shift;
+
+    return ldexp(doubleMult, exponent);
 }
 
 VPU::NCESparsity::IntOrFloatType VPU::arch37xx::getBias(double realVal, mlir::Type inputType) {

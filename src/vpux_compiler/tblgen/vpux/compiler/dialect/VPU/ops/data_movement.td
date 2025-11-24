@@ -191,7 +191,8 @@ def VPU_DepthToSpaceOp :
                 DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
-                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>,
+                DeclareOpInterfaceMethods<ReifyRankedShapedTypeOpInterface>
             ]
         > {
     let summary = "DepthToSpace VPU layer";
@@ -433,7 +434,8 @@ def VPU_GatherDMAOp :
         OptionalAttr<IntAttr>:$axis_value,
         IntAttr:$batch_dims,
 
-        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy,
+        OptionalAttr<VPU_GatherAddressingMode>:$addressing_mode
     );
 
     let results = (outs
@@ -747,7 +749,7 @@ def VPU_ReverseSequenceOp :
 
     let arguments = (ins
         AnyRankedTensor:$data,
-        1DTensorOf<[AnyInteger]>:$seq_length,
+        RankedTensorOf<[AnyInteger]>:$seq_length,
 
         IntAttr:$seq_axis,
         IntAttr:$batch_axis
@@ -894,6 +896,7 @@ def VPU_SliceOp :
 
     let hasFolder = 1;
     let hasCanonicalizer = 1;
+    let hasVerifier = 1;
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 
     let extraClassDeclaration = [{

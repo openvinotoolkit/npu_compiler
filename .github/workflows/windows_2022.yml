@@ -1,0 +1,32 @@
+name: Windows (2022)
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: windows-${{ github.event_name }}-${{ github.ref_name }}-2022
+  cancel-in-progress: true
+
+permissions: read-all
+
+jobs:
+  Windows2022:
+    name: Main Trigger
+    uses: ./.github/workflows/job_windows.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      statuses: read
+      security-events: write
+      id-token: write
+      attestations: write
+    with:
+      os: windows_2022
+      build-runner: windows-2022-16-core
+      build-cache: true
+      build-cache-key-suffix: ${{ github.sha }}
+      build-cid: true

@@ -6,9 +6,9 @@
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/max_kernel_size_constant.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -85,14 +85,14 @@ void SetupMaxKernelSizePass::initializeFromOptions() {
 void SetupMaxKernelSizePass::safeRunOnModule() {
     auto moduleOp = getModuleOp(getOperation());
     auto optionsBuilder = mlir::OpBuilder::atBlockBegin(moduleOp.getBody());
-    auto pipelineOptionsOp = VPU::getPipelineOptionsOp(getContext(), moduleOp);
+    auto pipelineOptionsOp = config::getPipelineOptionsOp(getContext(), moduleOp);
     optionsBuilder =
             mlir::OpBuilder::atBlockBegin(&pipelineOptionsOp.getOptions().front(), optionsBuilder.getListener());
 
     auto maxKernelSizeConstant = vpux::VPU::getMaxKernelSizeConstant(config::getArch(getOperation()));
     auto maxKernelSize = maxKernelSizeConstant.getMaxKernelSize();
 
-    addConstant(optionsBuilder, pipelineOptionsOp, VPU::MAX_KERNEL_SIZE, maxKernelSize, _allowCustomValues);
+    addConstant(optionsBuilder, pipelineOptionsOp, config::MAX_KERNEL_SIZE, maxKernelSize, _allowCustomValues);
 }
 
 }  // namespace

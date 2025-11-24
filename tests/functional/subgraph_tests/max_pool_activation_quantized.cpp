@@ -168,7 +168,7 @@ public:
     };
 };
 
-const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu};
+const std::vector<utils::ActivationTypes> activations = {utils::Tanh, utils::Sigmoid, utils::Gelu, utils::Exp};
 
 const std::vector<float> betas = {1.0f, 1.7f, 10.0f};
 

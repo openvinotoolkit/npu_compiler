@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -62,29 +63,10 @@ IE::MemPermuteOp getSupportedOutputMemPermute(mlir::Value output) {
     return outputMemPermuteOp;
 }
 
-//
-// AdjustForEltwise
-//
-// This pattern tries to adjust the mempermutes around an eltwise to find the solution
-// with least number of nontrivial permutes
-class AdjustForEltwise final : public mlir::OpInterfaceRewritePattern<IE::LayerOpInterface> {
-public:
-    AdjustForEltwise(mlir::MLIRContext* ctx, Logger log)
-            : mlir::OpInterfaceRewritePattern<IE::LayerOpInterface>(ctx), _log(log) {
-        setDebugName("AdjustForEltwise");
-    }
-
-public:
-    mlir::LogicalResult matchAndRewrite(IE::LayerOpInterface origOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    Logger _log;
-};
-
 // Calculate the number of non-trivial permutes around the eltwise if inserting
 // mempermutes with given permutation for all inputs of the layerOp
-int64_t calcNumNonTrivialPermutesAroundEltwiseWithMemPerm(IE::LayerOpInterface layerOp, mlir::AffineMap newMemPerm) {
-    auto ctx = layerOp.getContext();
+int64_t calcNumNonTrivialPermutesAroundEltwiseWithMemPerm(mlir::Operation* layerOp, mlir::AffineMap newMemPerm) {
+    auto ctx = layerOp->getContext();
     auto idMap = mlir::AffineMap::getMultiDimIdentityMap(newMemPerm.getNumDims(), ctx);
     int64_t totalNumNonTrivialPermutes = 0;
     // calculate number of mempermutes on input side
@@ -118,21 +100,9 @@ int64_t calcNumNonTrivialPermutesAroundEltwiseWithMemPerm(IE::LayerOpInterface l
     return totalNumNonTrivialPermutes;
 }
 
-mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origOp,
-                                                      mlir::PatternRewriter& rewriter) const {
-    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
-
-    auto ctx = getContext();
-
-    if (!origOp->hasTrait<IE::EltwiseOp>()) {
-        return matchFailed(rewriter, origOp, "LayerOp is not Eltwise");
-    }
-
-    const auto outType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType());
+mlir::AffineMap getBestMemPerm(mlir::Operation* origOp, vpux::NDTypeInterface outType, mlir::AffineMap idMap,
+                               Logger log) {
     const auto outOrder = outType.getDimsOrder();
-    const auto rank = outType.getRank();
-    const auto idMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<unsigned>(rank), getContext());
-
     auto bestMemPerm = idMap;
     auto bestNumNonTrivialPermutes = calcNumNonTrivialPermutesAroundEltwiseWithMemPerm(origOp, bestMemPerm);
     const auto checkBetterMemPerm = [&](mlir::AffineMap newMemPerm,
@@ -149,7 +119,7 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
         // input order should be same as output order
         auto inOrder = DimsOrder::fromValue(input);
         if (inOrder != outOrder) {
-            return mlir::failure();
+            return idMap;
         }
         // get input mempermute op
         auto inputMemPermuteOp = getSupportedInputPermuteLikeOp(input);
@@ -161,7 +131,8 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
         // chance to be executed
         auto inputMemPermuteParentOp = inputMemPermuteOp->getOperand(0).getDefiningOp();
         if (mlir::isa_and_nonnull<IE::MemPermuteOp>(inputMemPermuteParentOp)) {
-            return matchFailed(rewriter, origOp, "Unfused MemPermute ops on input chain");
+            log.trace("Unfused MemPermute ops on input chain");
+            return idMap;
         }
         // need to permute back to input of the parent mempermute
         auto memPerm = getMemPermFromPermuteLikeOp(inputMemPermuteOp);
@@ -180,7 +151,8 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
         // chance to be executed
         auto outputMemPermuteChildOp = *outputMemPermuteOp.getOutput().getUsers().begin();
         if (mlir::isa_and_nonnull<IE::MemPermuteOp>(outputMemPermuteChildOp)) {
-            return matchFailed(rewriter, origOp, "Unfused MemPermute ops on output chain");
+            log.trace("Unfused MemPermute ops on output chain");
+            return idMap;
         }
 
         auto memPerm = outputMemPermuteOp.getMemPerm();
@@ -191,6 +163,43 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
         }
     }
 
+    return bestMemPerm;
+}
+
+//
+// AdjustForEltwise
+//
+// This pattern tries to adjust the mempermutes around an eltwise to find the solution
+// with least number of nontrivial permutes
+class AdjustForEltwise final : public mlir::OpInterfaceRewritePattern<IE::LayerOpInterface> {
+public:
+    AdjustForEltwise(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpInterfaceRewritePattern<IE::LayerOpInterface>(ctx), _log(log) {
+        setDebugName("AdjustForEltwise");
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::LayerOpInterface origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origOp,
+                                                      mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), origOp->getName(), origOp->getLoc());
+
+    auto ctx = getContext();
+
+    if (!origOp->hasTrait<IE::EltwiseOp>()) {
+        return matchFailed(rewriter, origOp, "LayerOp is not Eltwise");
+    }
+
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType());
+    const auto rank = outType.getRank();
+    const auto idMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<unsigned>(rank), getContext());
+
+    auto bestMemPerm = getBestMemPerm(origOp.getOperation(), outType, idMap, _log);
     if (bestMemPerm == idMap) {
         return matchFailed(rewriter, origOp, "Already the best solution");
     }
@@ -212,8 +221,9 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
     }
 
     for (auto& inputOperand : origOp->getOpOperands()) {
-        auto inMemPermuteOp = rewriter.createOrFold<IE::MemPermuteOp>(origOp->getLoc(), inputOperand.get(),
-                                                                      newOrder.toAffineMap(ctx), bestMemPerm);
+        auto inMemPermuteOp = rewriter.createOrFold<IE::MemPermuteOp>(
+                takeOpLoc(origOp, llvm::formatv("_input_{0}", inputOperand.getOperandNumber())), inputOperand.get(),
+                newOrder.toAffineMap(ctx), bestMemPerm);
         inputOperand.set(inMemPermuteOp);
     }
 
@@ -225,8 +235,8 @@ mlir::LogicalResult AdjustForEltwise::matchAndRewrite(IE::LayerOpInterface origO
 
     // add permutes to output
     rewriter.setInsertionPointAfter(origOp);
-    auto outMemPermuteOp = rewriter.create<IE::MemPermuteOp>(origOp->getLoc(), output, origOrder.toAffineMap(ctx),
-                                                             mlir::inversePermutation(bestMemPerm));
+    auto outMemPermuteOp = rewriter.create<IE::MemPermuteOp>(
+            takeOpLoc(origOp, "_output"), output, origOrder.toAffineMap(ctx), mlir::inversePermutation(bestMemPerm));
     output.replaceAllUsesExcept(outMemPermuteOp.getOutput(), outMemPermuteOp);
 
     rewriter.finalizeOpModification(origOp);
@@ -587,14 +597,132 @@ mlir::LogicalResult AdjustForConcat::matchAndRewrite(IE::ConcatOp concatOp, mlir
             inferDimAfterPermutation(concatAxis.value(), outPermuteInOrder, outPermuteOutOrder, outPermuteMemPerm);
 
     SmallVector<mlir::Value> newConcatInputs;
-    for (const auto& input : concatOp.getInputs()) {
-        auto newInPermuteOp = rewriter.createOrFold<IE::MemPermuteOp>(concatOp->getLoc(), input,
-                                                                      outMemPermuteOp.getDstOrder(), outPermuteMemPerm);
+    for (const auto& item : concatOp.getInputs() | indexed) {
+        const auto& input = item.value();
+        const auto& idx = item.index();
+        auto newInPermuteOp =
+                rewriter.createOrFold<IE::MemPermuteOp>(takeOpLoc(concatOp, llvm::formatv("_input_{0}", idx)), input,
+                                                        outMemPermuteOp.getDstOrder(), outPermuteMemPerm);
         newConcatInputs.push_back(newInPermuteOp);
     }
 
     auto newConcat = rewriter.create<IE::ConcatOp>(concatOp->getLoc(), newConcatInputs, concatInferDim);
     rewriter.replaceOp(outMemPermuteOp, newConcat);
+
+    return mlir::success();
+}
+
+//
+// AdjustForNCEEltwise
+//
+
+template <typename ConcreteOp>
+class AdjustForNCEEltwise final : public mlir::OpRewritePattern<ConcreteOp> {
+public:
+    AdjustForNCEEltwise(mlir::MLIRContext* ctx, Logger log): mlir::OpRewritePattern<ConcreteOp>(ctx), _log(log) {
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+template <typename ConcreteOp>
+mlir::LogicalResult AdjustForNCEEltwise<ConcreteOp>::matchAndRewrite(ConcreteOp origOp,
+                                                                     mlir::PatternRewriter& rewriter) const {
+    _log.trace("Got '{0}' at '{1}'", origOp->getName(), origOp->getLoc());
+
+    auto ctx = origOp.getContext();
+
+    auto output = origOp->getResult(0);
+    const auto outType = mlir::cast<vpux::NDTypeInterface>(output.getType());
+    const auto rank = outType.getRank();
+    const auto idMap = mlir::AffineMap::getMultiDimIdentityMap(checked_cast<unsigned>(rank), ctx);
+
+    auto bestMemPerm = getBestMemPerm(origOp.getOperation(), outType, idMap, _log);
+    if (bestMemPerm == idMap) {
+        return matchFailed(rewriter, origOp, "Already the best solution");
+    }
+
+    rewriter.startOpModification(origOp);
+    rewriter.setInsertionPoint(origOp);
+
+    auto shape = getShape(origOp->getResult(0));
+    const auto origOrder = DimsOrder::fromValue(origOp->getResult(0));
+    const auto newOrder = applyPermutation(origOrder, DimsOrder::fromAffineMap(bestMemPerm));
+
+    const auto canConvertToNCE = [&]() {
+        auto input1 = origOp->getOperand(0);
+        auto input2 = origOp->getOperand(1);
+        auto input1Type = mlir::cast<vpux::NDTypeInterface>(input1.getType());
+        auto input2Type = mlir::cast<vpux::NDTypeInterface>(input2.getType());
+
+        if (input1Type.getShape() != input2Type.getShape()) {
+            return false;
+        }
+
+        auto isQuantizedInput = [](vpux::NDTypeInterface value) {
+            return mlir::isa<mlir::quant::QuantizedType>(value.getElementType());
+        };
+
+        const auto mixedInputs = (isQuantizedInput(input1Type) && !isQuantizedInput(input2Type)) ||
+                                 (!isQuantizedInput(input1Type) && isQuantizedInput(input2Type));
+        if (mixedInputs) {
+            return false;
+        }
+
+        if ((shape.size() != 4) || (shape[Dims4D::Act::N] != 1)) {
+            return false;
+        }
+
+        if (auto iface = mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation())) {
+            auto alignment = iface.getOutputChannelAlignment();
+            auto memShape = newOrder.toMemoryOrder(shape);
+            auto innerMostDimSize = memShape.back();
+            return innerMostDimSize % alignment == 0;
+        }
+
+        return true;
+    };
+
+    if (!canConvertToNCE()) {
+        return matchFailed(rewriter, origOp, "Cannot convert to NCE");
+    }
+
+    // Add permutes to inputs
+    const auto expectedLayout = DimsOrder::NHWC;
+    const auto dstOrder = expectedLayout.toAffineMap(ctx);
+    int index = 0;  // Initialize a counter for unique identifiers
+    for (auto& inputOperand : origOp->getOpOperands()) {
+        auto inMemPermuteOp =
+                rewriter.create<IE::MemPermuteOp>(appendLoc(origOp->getLoc(), "_input_permute" + std::to_string(index)),
+                                                  inputOperand.get(), newOrder.toAffineMap(ctx), bestMemPerm);
+        // Create permute cast to satisfy type requirement of NCE Eltwise
+        auto inputPermuteCastOp = rewriter.create<IE::PermuteCastOp>(
+                appendLoc(origOp->getLoc(), "_input_permute_cast" + std::to_string(index)),
+                inMemPermuteOp->getResult(0), dstOrder, idMap);
+        inputOperand.set(inputPermuteCastOp->getResult(0));
+        index++;
+    }
+
+    // Change output type of layerOp
+    auto originalElementType = outType.getElementType();
+    auto newInputType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
+    auto newOutputType = newInputType.changeElemType(originalElementType);
+    output.setType(newOutputType);
+
+    rewriter.setInsertionPointAfter(origOp);
+    auto outputPermuteCastOp = rewriter.create<IE::PermuteCastOp>(appendLoc(origOp->getLoc(), "_output_permute_cast"),
+                                                                  output, newOrder.toAffineMap(ctx), idMap);
+    // Add permutes to output
+    auto outMemPermuteOp = rewriter.create<IE::MemPermuteOp>(
+            appendLoc(origOp->getLoc(), "_output_permute"), outputPermuteCastOp->getResult(0),
+            origOrder.toAffineMap(ctx), mlir::inversePermutation(bestMemPerm));
+    output.replaceAllUsesExcept(outMemPermuteOp.getOutput(), outputPermuteCastOp);
+
+    rewriter.finalizeOpModification(origOp);
 
     return mlir::success();
 }
@@ -622,6 +750,7 @@ void AdjustMemPermuteAroundOpPass::safeRunOnFunc() {
     patterns.add<AdjustForConvert>(&ctx, _log);
     patterns.add<AdjustForSoftmax>(&ctx, _log);
     patterns.add<AdjustForConcat>(&ctx, _log);
+    patterns.add<AdjustForNCEEltwise<IE::AddOp>>(&ctx, _log);
     IE::MemPermuteOp::getCanonicalizationPatterns(patterns, &ctx);
 
     auto func = getOperation();

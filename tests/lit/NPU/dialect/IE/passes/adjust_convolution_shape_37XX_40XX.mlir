@@ -305,14 +305,14 @@ func.func @Adjust1x1ConvUnalignedChannelByPadding(%arg0: tensor<1x3x320x639xf16,
 
   return %result : tensor<1x3x320x320xf16, {order = #NHWC}>
 
+    // CHECK-DAG:  [[NEW_FILTER:%.+]] = const.Declare tensor<48x96x1x1xf16, {order = #NHWC}>
     // CHECK-DAG:  [[CST_PAD:%.+]] = const.Declare tensor<1x3x320x1xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x3x320x1xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
-    // CHECK-DAG:  [[NEW_FILTER:%.+]] = const.Declare tensor<48x48x1x1xf16, {order = #NHWC}>
     // CHECK:  [[CONCAT_PAD:%.+]] = IE.Concat([[INPUT_DATA]], [[CST_PAD]])
     // CHECK{LITERAL}:  {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 639]]}
     // CHECK:           tensor<1x3x320x639xf16, {order = #NHWC}>, tensor<1x3x320x1xf16, {order = #NHWC}> -> tensor<1x3x320x640xf16, {order = #NHWC}>
-    // CHECK:    [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 48, 320, 40]} inputs([[CONCAT_PAD]] : tensor<1x3x320x640xf16, {order = #NHWC}>) -> tensor<1x48x320x40xf16, {order = #NHWC}>
-    // CHECK:    [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[NEW_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x48x320x40xf16, {order = #NHWC}>, tensor<48x48x1x1xf16, {order = #NHWC}> -> tensor<1x48x320x40xf16, {order = #NHWC}>
-    // CHECK:    [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 3, 320, 320]} inputs([[CONV]] : tensor<1x48x320x40xf16, {order = #NHWC}>) -> tensor<1x3x320x320xf16, {order = #NHWC}>
+    // CHECK:    [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 96, 320, 20]} inputs([[CONCAT_PAD]] : tensor<1x3x320x640xf16, {order = #NHWC}>) -> tensor<1x96x320x20xf16, {order = #NHWC}>
+    // CHECK:    [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[NEW_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x96x320x20xf16, {order = #NHWC}>, tensor<48x96x1x1xf16, {order = #NHWC}> -> tensor<1x48x320x20xf16, {order = #NHWC}>
+    // CHECK:    [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 3, 320, 320]} inputs([[CONV]] : tensor<1x48x320x20xf16, {order = #NHWC}>) -> tensor<1x3x320x320xf16, {order = #NHWC}>
     // CHECK:    return [[SHAPE_CAST_OUT]] : tensor<1x3x320x320xf16, {order = #NHWC}>
 }
 
@@ -329,14 +329,14 @@ func.func @Adjust1x1ConvUnalignedChannelByPadding2(%arg0: tensor<1x3x320x638xf16
 
   return %result : tensor<1x3x320x160xf16, {order = #NHWC}>
 
+    // CHECK-DAG:    [[NEW_FILTER:%.+]] = const.Declare tensor<48x192x1x1xf16, {order = #NHWC}>
     // CHECK-DAG:    [[CST_PAD:%.+]] = const.Declare tensor<1x3x320x2xf16, {order = #NHWC}> = dense<0.000000e+00> : tensor<1x3x320x2xf32>, [#const.CastElemType<f16>, #const.Reorder<#NHWC>]
-    // CHECK-DAG:    [[NEW_FILTER:%.+]] = const.Declare tensor<48x48x1x1xf16, {order = #NHWC}>
     // CHECK:    [[CONCAT_PAD:%.+]] = IE.Concat([[INPUT_DATA]], [[CST_PAD]])
     // CHECK{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 638]]}
     // CHECK:          tensor<1x3x320x638xf16, {order = #NHWC}>, tensor<1x3x320x2xf16, {order = #NHWC}> -> tensor<1x3x320x640xf16, {order = #NHWC}>
-    // CHECK:    [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 48, 320, 40]} inputs([[CONCAT_PAD]] : tensor<1x3x320x640xf16, {order = #NHWC}>) -> tensor<1x48x320x40xf16, {order = #NHWC}>
-    // CHECK:    [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[NEW_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x48x320x40xf16, {order = #NHWC}>, tensor<48x48x1x1xf16, {order = #NHWC}> -> tensor<1x48x320x40xf16, {order = #NHWC}>
-    // CHECK:    [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 3, 320, 160]} inputs([[CONV]] : tensor<1x48x320x40xf16, {order = #NHWC}>) -> tensor<1x3x320x160xf16, {order = #NHWC}>
+    // CHECK:    [[SHAPE_CAST_IN:%.+]] = IE.ShapeCast {shape = [1, 192, 320, 10]} inputs([[CONCAT_PAD]] : tensor<1x3x320x640xf16, {order = #NHWC}>) -> tensor<1x192x320x10xf16, {order = #NHWC}>
+    // CHECK:    [[CONV:%.+]] = IE.Convolution([[SHAPE_CAST_IN]], [[NEW_FILTER]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x192x320x10xf16, {order = #NHWC}>, tensor<48x192x1x1xf16, {order = #NHWC}> -> tensor<1x48x320x10xf16, {order = #NHWC}>
+    // CHECK:    [[SHAPE_CAST_OUT:%.+]] = IE.ShapeCast {shape = [1, 3, 320, 160]} inputs([[CONV]] : tensor<1x48x320x10xf16, {order = #NHWC}>) -> tensor<1x3x320x160xf16, {order = #NHWC}>
     // CHECK:    return [[SHAPE_CAST_OUT]] : tensor<1x3x320x160xf16, {order = #NHWC}>
 }
 

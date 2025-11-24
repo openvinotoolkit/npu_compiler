@@ -8,6 +8,7 @@
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
@@ -41,14 +42,17 @@ mlir::LogicalResult fusePermutations(PermOp permuteOp, mlir::PatternRewriter& re
 
     const auto canFuseIntoPermuteCastOp =
             mlir::isa<IE::PermuteCastOp>(prevPermuteOp) && mlir::isa<IE::PermuteCastOp>(permuteOp);
+    auto newLoc = takeOpLoc(permuteOp, llvm::formatv("_memperm_{0}", DimsOrder::fromAffineMap(newMemPerm)));
     if (canFuseIntoPermuteCastOp) {
         rewriter.replaceOpWithNewOp<IE::PermuteCastOp>(permuteOp, permuteOp.getType(), prevPermuteOp.getInput(),
                                                        permuteOp.getDstOrderAttr(),
-                                                       mlir::AffineMapAttr::get(newMemPerm));
+                                                       mlir::AffineMapAttr::get(newMemPerm))
+                ->setLoc(newLoc);
+
     } else {
         rewriter.replaceOpWithNewOp<IE::MemPermuteOp>(permuteOp, permuteOp.getType(), prevPermuteOp.getInput(),
-                                                      permuteOp.getDstOrderAttr(),
-                                                      mlir::AffineMapAttr::get(newMemPerm));
+                                                      permuteOp.getDstOrderAttr(), mlir::AffineMapAttr::get(newMemPerm))
+                ->setLoc(newLoc);
     }
 
     return mlir::success();

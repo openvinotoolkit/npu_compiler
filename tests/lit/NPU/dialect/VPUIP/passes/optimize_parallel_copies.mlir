@@ -1969,7 +1969,6 @@ func.func @OptimizeCopiesConsiderDistanceForEltwise() -> !buffDistrType {
 
 // -----
 
-
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !buffDistrType = !VPUIP.DistributedBuffer<1x64x250x32xf16, #NHWC, @CMX_NN, {mode = "OVERLAPPED", num_tiles = [1, 1, 4, 1], num_clusters = 4 : i64, uniform_distributed_segments,
                         compute_shapes = [[1, 64, 63, 32], [1, 64, 63, 32], [1, 64, 62, 32], [1, 64, 62, 32]],
@@ -2118,6 +2117,10 @@ func.func @OnlyOptimizeSameTypeCopies(%arg0: memref<128x1x1x1xf16, @DDR>) -> (me
 
 // -----
 
+module @VPU.SW {
+    func.func private @builtin_DynamicReshape(memref<*xf16, @CMX_NN>, memref<*xf16, @CMX_NN>) attributes {VPU.kernel_code = "dynamic_reshape.cpp", VPU.kernel_entry = "dynamic_reshape"}
+}
+
 // CHECK-LABEL: @NotOptimizeConstCopyForDynamicReshape
 // CHECK-SAME:      ([[INPUT_0:%.+]]: memref<100xsi32, [@CMX_NN, 0]>, [[INPUT_1:%.+]]: memref<2xsi32, [@CMX_NN, 0]>)
 func.func @NotOptimizeConstCopyForDynamicReshape(%arg0: memref<100xsi32, [@CMX_NN, 0]>, %arg1: memref<2xsi32, [@CMX_NN, 0]>) -> (memref<1x100xsi32, [@CMX_NN, 0]>, memref<1x2xsi32, [@CMX_NN, 0]>) {
@@ -2177,6 +2180,7 @@ func.func @NotOptimizeConstCopyForDynamicReshape(%arg0: memref<100xsi32, [@CMX_N
 }
 
 // -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !Weights_table_CMX = memref<128x1x1x4xsi32, @CMX_NN>
 func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256xf16, @DDR>, %arg1: memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR> {
@@ -2268,7 +2272,9 @@ func.func @TwoAxisTilingConsiderDistanceSiblingSubview(%arg0: memref<1x1024x256x
     // CHECK:     input([[COPY_5]] : memref<1x256x128x4xf16, #NHWC, [@CMX_NN, 0]>)
     // CHECK:     weights([[COPY_6]] : memref<128x256x1x1xf16, {order = #NHWC}, [@CMX_NN, 0]>)
 }
+
 // -----
+
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 !Weights_table_CMX = memref<128x1x1x4xsi32, @CMX_NN>
 func.func @TwoAxisTilingConsiderDistanceSiblingCopy(%arg0: memref<1x1024x256xf16, @DDR>, %arg1: memref<1x1024x256xf16, @DDR>) -> memref<1x1024x256xf16, @DDR> {

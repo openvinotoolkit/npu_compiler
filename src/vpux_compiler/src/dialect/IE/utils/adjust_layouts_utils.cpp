@@ -190,10 +190,10 @@ mlir::FailureOr<vpux::AdjustConvShapeParams> getAdjustConvShapeParameters(IE::Co
         // If KX = 1, the DimC can borrow any dims from DimW
         // Special case to make the kernel size as small as possible
         borrowFactor = std::max(borrowIn, borrowOut);
-        newInputShape[Dims4D::Act::W] /= borrowFactor;
-        newInputShape[Dims4D::Act::C] *= borrowFactor;
+        newInputShape[Dims4D::Act::W] /= borrowFactor * strides[Dims4D::Strides::X];
+        newInputShape[Dims4D::Act::C] *= borrowFactor * strides[Dims4D::Strides::X];
 
-        newFilterShape[Dims4D::Filter::IC] *= borrowFactor;
+        newFilterShape[Dims4D::Filter::IC] = newInputShape[Dims4D::Act::C];
         newFilterShape[Dims4D::Filter::OC] *= borrowFactor;
         newOutputShape[Dims4D::Act::W] /= borrowFactor;
 

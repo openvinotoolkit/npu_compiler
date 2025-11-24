@@ -393,6 +393,8 @@ def VPU_SoftMaxOp :
         bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
 
         bool isVFSupported();
+
+        DimArr restrictedFusionAxes();
     }] # baseExtraClassDeclaration;
 
     let builders = [

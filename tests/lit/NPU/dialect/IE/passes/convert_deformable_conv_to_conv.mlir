@@ -9,7 +9,7 @@
 // CHECK-LABEL: @Convert_DeformableConv_Kernel1
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x128x19x19xf16>, [[OFFSET:%.+]]: tensor<1x2x19x19xf16>, [[KERNEL:%.+]]: tensor<128x128x1x1xf16>, [[MASK:%.+]]: tensor<1x1x19x19xf16>) -> tensor<1x128x19x19xf16>
 func.func @Convert_DeformableConv_Kernel1(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x2x19x19xf16>, %arg2: tensor<128x128x1x1xf16>, %arg3: tensor<1x1x19x19xf16>) -> tensor<1x128x19x19xf16> {
-    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x2x19x19xf16>, tensor<128x128x1x1xf16>, tensor<1x1x19x19xf16> -> tensor<1x128x19x19xf16>
+    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x2x19x19xf16>, tensor<128x128x1x1xf16>, tensor<1x1x19x19xf16> -> tensor<1x128x19x19xf16>
     return %0 : tensor<1x128x19x19xf16>
 
     // CHECK:    [[CST1:%.+]] = const.Declare tensor<1x1x1x2xf16> = dense<1.110840e-01> : tensor<1x1x1x2xf16>, [#const.CastElemType<f16>]
@@ -69,7 +69,7 @@ func.func @Convert_DeformableConv_Kernel1_no_biliniar_pad(%arg0: tensor<1x128x19
 // CHECK-LABEL: @Convert_DeformableConv_Kernel3
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x128x19x19xf16>, [[OFFSET:%.+]]: tensor<1x18x19x19xf16>, [[KERNEL:%.+]]: tensor<128x128x3x3xf16>, [[MASK:%.+]]: tensor<1x9x19x19xf16>) -> tensor<1x128x19x19xf16>
 func.func @Convert_DeformableConv_Kernel3(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x18x19x19xf16>, %arg2: tensor<128x128x3x3xf16>, %arg3: tensor<1x9x19x19xf16>) -> tensor<1x128x19x19xf16> {
-    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
     return %0 : tensor<1x128x19x19xf16>
 
     // CHECK:    [[CST:%.+]] = const.Declare tensor<1x1x1x2xf16> = dense<1.110840e-01> : tensor<1x1x1x2xf16>, [#const.CastElemType<f16>]
@@ -96,9 +96,9 @@ func.func @Convert_DeformableConv_Kernel3(%arg0: tensor<1x128x19x19xf16>, %arg1:
 // CHECK-LABEL: @Not_Convert_DeformableConv_LargeKernel
 // CHECK-SAME: ([[INPUT:%.+]]: tensor<1x128x19x19xf16>, [[OFFSET:%.+]]: tensor<1x162x19x19xf16>, [[KERNEL:%.+]]: tensor<128x128x9x9xf16>, [[MASK:%.+]]: tensor<1x81x19x19xf16>) -> tensor<1x128x19x19xf16>
 func.func @Not_Convert_DeformableConv_LargeKernel(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x162x19x19xf16>, %arg2: tensor<128x128x9x9xf16>, %arg3: tensor<1x81x19x19xf16>) -> tensor<1x128x19x19xf16> {
-    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [4, 4], pads_end = [4, 4], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x162x19x19xf16>, tensor<128x128x9x9xf16>, tensor<1x81x19x19xf16> -> tensor<1x128x19x19xf16>
+    %0 = IE.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [4, 4], pads_end = [4, 4], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x162x19x19xf16>, tensor<128x128x9x9xf16>, tensor<1x81x19x19xf16> -> tensor<1x128x19x19xf16>
     return %0 : tensor<1x128x19x19xf16>
 
-    // CHECK:    [[OUTPUT:%.+]] = IE.DeformableConvolution([[INPUT]], [[OFFSET]], [[KERNEL]], [[MASK]]) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [4, 4], pads_end = [4, 4], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x162x19x19xf16>, tensor<128x128x9x9xf16>, tensor<1x81x19x19xf16> -> tensor<1x128x19x19xf16>
+    // CHECK:    [[OUTPUT:%.+]] = IE.DeformableConvolution([[INPUT]], [[OFFSET]], [[KERNEL]], [[MASK]]) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [4, 4], pads_end = [4, 4], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x162x19x19xf16>, tensor<128x128x9x9xf16>, tensor<1x81x19x19xf16> -> tensor<1x128x19x19xf16>
     // CHECK:    return [[OUTPUT]] : tensor<1x128x19x19xf16>
 }

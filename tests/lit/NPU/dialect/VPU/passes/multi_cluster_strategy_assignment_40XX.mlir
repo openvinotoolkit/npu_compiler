@@ -2062,6 +2062,21 @@ func.func @ReduceMeanSplitOverHeight(%arg0: tensor<1x1024x7x7xf16>) -> tensor<1x
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
+// CHECK-LABEL:   func.func @ReduceMeanSquareSplitOverHeight(
+// CHECK-SAME:                           %[[VAL_0:.*]]: tensor<1x1024x7x7xf16>) -> tensor<1x1x7x1xf16> {
+func.func @ReduceMeanSquareSplitOverHeight(%arg0: tensor<1x1024x7x7xf16>) -> tensor<1x1x7x1xf16> {
+  %0 = VPU.ReduceMeanSquare(%arg0) {axes_value = [1, 3], keep_dims} : tensor<1x1024x7x7xf16> -> tensor<1x1x7x1xf16>
+  return %0 : tensor<1x1x7x1xf16>
+
+// CHECK:       %[[VAL_1:.*]] = VPU.ReduceMeanSquare(%[[VAL_0]]) {axes_value = [1, 3], keep_dims, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>}
+// CHECK-SAME:    : tensor<1x1024x7x7xf16> -> tensor<1x1x7x1xf16>
+// CHECK:       return %[[VAL_1]] : tensor<1x1x7x1xf16>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
 // CHECK-LABEL:   func.func @ReduceProdSplitOverHeight(
 // CHECK-SAME:                           %[[VAL_0:.*]]: tensor<1x1024x7x7xf16>) -> tensor<1x1x7x1xf16> {
 func.func @ReduceProdSplitOverHeight(%arg0: tensor<1x1024x7x7xf16>) -> tensor<1x1x7x1xf16> {
@@ -2872,4 +2887,44 @@ func.func @LSTMSequenceBidirectionalSplitOverBatch(%arg0:
 // CHECK:       VPU.LSTMSequence
 // CHECK-SAME:      {direction = #IE.rnn_seq_direction<BIDIRECTIONAL>,
 // CHECK-SAME:       multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>}
+}
+
+// -----
+
+// CHECK-LABEL: @YuvToRgbNV12AssignedSOK
+func.func @YuvToRgbNV12AssignedSOK(%arg0: tensor<1x368x432x1xf16>, %arg1: tensor<1x184x216x2xf16>) -> tensor<1x368x432x3xf16> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x368x432x1xf16>, tensor<1x184x216x2xf16> -> tensor<1x368x432x3xf16>
+    return %0 : tensor<1x368x432x3xf16>
+
+    // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb(%arg0, %arg1)
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x368x432x1xf16>, tensor<1x184x216x2xf16> -> tensor<1x368x432x3xf16>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @YuvToRgbI420AssignedSOK
+func.func @YuvToRgbI420AssignedSOK(%arg0: tensor<1x368x432x1xf16>, %arg1: tensor<1x184x216x1xf16>, %arg2: tensor<1x184x216x1xf16>) -> tensor<1x368x432x3xf16> {
+    %0 = VPU.YuvToRgb(%arg0, %arg1, %arg2) {inFmt = #IE.color_fmt<I420>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>} : tensor<1x368x432x1xf16>, tensor<1x184x216x1xf16>, tensor<1x184x216x1xf16> -> tensor<1x368x432x3xf16>
+    return %0 : tensor<1x368x432x3xf16>
+
+    // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb(%arg0, %arg1, %arg2)
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<I420>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, operandSegmentSizes = array<i32: 1, 1, 1>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-SAME:      : tensor<1x368x432x1xf16>, tensor<1x184x216x1xf16>, tensor<1x184x216x1xf16> -> tensor<1x368x432x3xf16>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @YuvToRgbNV12SinglePlaneNoStrategy
+func.func @YuvToRgbNV12SinglePlaneNoStrategy(%arg0: tensor<1x552x432x1xf16>) -> tensor<1x368x432x3xf16> {
+    %0 = VPU.YuvToRgb(%arg0) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x552x432x1xf16> -> tensor<1x368x432x3xf16>
+    return %0 : tensor<1x368x432x3xf16>
+
+    // CHECK:       [[YUVTORGB:%.+]] = VPU.YuvToRgb(%arg0)
+    // CHECK-SAME:      {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 0, 0>, outFmt = #IE.color_fmt<RGB>}
+    // CHECK-NOT:       multiClusterStrategy
+    // CHECK-SAME:      : tensor<1x552x432x1xf16> -> tensor<1x368x432x3xf16>
+    // CHECK:       return [[YUVTORGB]] : tensor<1x368x432x3xf16>
 }

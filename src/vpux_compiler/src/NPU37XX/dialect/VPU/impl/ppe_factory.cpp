@@ -17,6 +17,8 @@
 #include "vpux/utils/core/numeric.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
+#include <mlir/Dialect/Quant/QuantTypes.h>
+#include <limits>
 
 using namespace vpux;
 using namespace vpux::VPU;
@@ -400,12 +402,36 @@ vpux::VPU::PPEAttr PpeFactory::intersectClamps(vpux::VPU::PPEAttr orig, double n
                            intPpeAttr.getFpPreluAlpha());
 }
 
-SmallVector<double> PpeFactory::getScale(PPEAttr orig) const {
+PPEAttr PpeFactory::discardClamp(vpux::VPU::PPEAttr orig, mlir::Type outputElemType) const {
+    const auto intPpeAttr = castToConcreteAttr(orig);
+
+    // Default for UniformQuantizedType
+    int32_t clampLow = std::numeric_limits<int32_t>::min();
+    int32_t clampHigh = std::numeric_limits<int32_t>::max();
+    auto ctx = orig.getContext();
+
+    if (auto quantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(outputElemType)) {
+        clampLow = static_cast<int32_t>(quantType.getStorageTypeMin());
+        clampHigh = static_cast<int32_t>(quantType.getStorageTypeMax());
+    }
+
+    return PPEIntAttr::get(ctx, intPpeAttr.getMode(), vpux::getIntAttr(ctx, clampLow), vpux::getIntAttr(ctx, clampHigh),
+                           intPpeAttr.getLreluMult(), intPpeAttr.getLreluShift(), intPpeAttr.getQuantScale(),
+                           intPpeAttr.getQuantMult(), intPpeAttr.getQuantShift(), intPpeAttr.getQuantPostShift(),
+                           intPpeAttr.getIn1QuantMult(), intPpeAttr.getIn2QuantMult(), intPpeAttr.getFpPreluAlpha());
+}
+
+std::optional<SmallVector<double>> PpeFactory::getScale(PPEAttr orig) const {
     const auto intPpeAttr = castToConcreteAttr(orig);
     if (const auto scaleAttr = intPpeAttr.getQuantScale()) {
         return parseFPArrayAttr<double>(scaleAttr);
     }
-    return {1.0};
+    return std::nullopt;
+}
+
+std::optional<double> PpeFactory::getBias(PPEAttr) const {
+    // Return nullopt, PPEIntAttr has no bias field.
+    return std::nullopt;
 }
 
 PPEAttr PpeFactory::updateScale(PPEAttr orig, ArrayRef<double> scale) const {
@@ -416,6 +442,21 @@ PPEAttr PpeFactory::updateScale(PPEAttr orig, ArrayRef<double> scale) const {
                            intPpeAttr.getLreluMult(), intPpeAttr.getLreluShift(), vpux::getFPArrayAttr(ctx, scale),
                            intPpeAttr.getQuantMult(), intPpeAttr.getQuantShift(), intPpeAttr.getQuantPostShift(),
                            intPpeAttr.getIn1QuantMult(), intPpeAttr.getIn2QuantMult(), intPpeAttr.getFpPreluAlpha());
+}
+
+PPEAttr PpeFactory::updateBias(PPEAttr orig, double) const {
+    // Do nothing, PPEIntAttr has no bias field.
+    return orig;
+}
+
+PPEAttr PpeFactory::discardScaleBias(PPEAttr orig) const {
+    const auto intPpeAttr = castToConcreteAttr(orig);
+
+    auto ctx = orig.getContext();
+    return PPEIntAttr::get(ctx, intPpeAttr.getMode(), intPpeAttr.getClampLow(), intPpeAttr.getClampHigh(),
+                           intPpeAttr.getLreluMult(), intPpeAttr.getLreluShift(), nullptr, intPpeAttr.getQuantMult(),
+                           intPpeAttr.getQuantShift(), intPpeAttr.getQuantPostShift(), intPpeAttr.getIn1QuantMult(),
+                           intPpeAttr.getIn2QuantMult(), intPpeAttr.getFpPreluAlpha());
 }
 
 SmallVector<double> PpeFactory::getFpPreluAlpha(PPEAttr orig) const {

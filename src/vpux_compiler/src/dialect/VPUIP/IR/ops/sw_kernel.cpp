@@ -93,6 +93,16 @@ mlir::ArrayAttr optionalIoAttr(mlir::Operation* op) {
                 mask |= 1 << 6;                               // InputDataStorage
                 mask |= 1 << 7;                               // output
             })
+            .Case<VPU::SDPAExtendedOp>([&](VPU::SDPAExtendedOp sdpaExtended) {
+                mask |= 1 << 0;                                       // InputQ
+                mask |= 1 << 1;                                       // InputK
+                mask |= 1 << 2;                                       // InputV
+                mask |= (sdpaExtended.getInputMask() ? 1 : 0) << 3;   // InputMask
+                mask |= (sdpaExtended.getInputScale() ? 1 : 0) << 4;  // InputScale
+                mask |= 1 << 5;                                       // InputDataStorage
+                mask |= (sdpaExtended.getDpuStorage() ? 1 : 0) << 6;  // InputDpuStorage
+                mask |= 1 << 7;                                       // output
+            })
             .Default([](mlir::Operation* op) {
                 VPUX_THROW("Bit-mask for '{0}' not implemented", op->getName());
             });
@@ -123,10 +133,11 @@ namespace vpux {
 namespace VPUIP {
 
 void vpux::VPUIP::SwKernelOp::print(mlir::OpAsmPrinter& p) {
-    p.printOptionalAttrDict(getOperation()->getAttrs(),
-                            /*elidedAttrs=*/{getOperandSegmentSizesAttrName().strref(),
-                                             getKernelFunctionAttrName().strref(), getTileIndexAttrName().strref(),
-                                             getInputStridesAttrName().strref(), getOutputStridesAttrName().strref()});
+    p.printOptionalAttrDict(
+            getOperation()->getAttrs(),
+            /*elidedAttrs=*/{getOperandSegmentSizesAttrName().strref(), getKernelFunctionAttrName().strref(),
+                             getTileIndexAttrName().strref(), getListIndexAttrName().strref(),
+                             getInputStridesAttrName().strref(), getOutputStridesAttrName().strref()});
     p << ' ';
     p.printAttributeWithoutType(getKernelFunctionAttr());
 
@@ -319,6 +330,15 @@ mlir::ParseResult vpux::VPUIP::SwKernelOp::parse(mlir::OpAsmParser& parser, mlir
                                                     result.attributes);
         if (parseResult.has_value() && failed(*parseResult)) {
             return mlir::failure();
+        }
+
+        if (succeeded(parser.parseOptionalKeyword("list"))) {
+            mlir::IntegerAttr listIndexAttr;
+            parseResult = parser.parseOptionalAttribute(listIndexAttr, parser.getBuilder().getIntegerType(64),
+                                                        "listIndex", result.attributes);
+            if (parseResult.has_value() && failed(*parseResult)) {
+                return mlir::failure();
+            }
         }
     }
 
@@ -1641,6 +1661,8 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                                     CASE_REDUCE(VPU::ReduceMinOp, "reduce_min", ctx)
                                                             CASE_REDUCE(VPU::ReduceProdOp, "reduce_prod", ctx)
                                                                     CASE_REDUCE(VPU::ReduceL2Op, "reduce_l2", ctx)
+                                                                            CASE_REDUCE(VPU::ReduceMeanSquareOp,
+                                                                                        "reduce_mean_square", ctx)
             .Case<VPU::SinOp>([&](VPU::SinOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"activation_sin"}};
             })
@@ -2123,13 +2145,23 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{adjointAttr}, {"inverse"}};
             })
             .Case<VPU::DeformableConvolutionOp>([&](VPU::DeformableConvolutionOp op) {
-                const auto bilinearInterpolatepad = static_cast<int64_t>(op.getBiliniarInterpolatePadAttr() != nullptr);
+                const auto bilinearInterpolatepad = static_cast<int64_t>(op.getBilinearInterpolatePadAttr() != nullptr);
                 const auto bilinearInterpolatepadAttr = getIntAttr(ctx, bilinearInterpolatepad);
-                return VPUIP::KernelInfo{
-                        SmallVector<mlir::Attribute>{op.getStridesAttr(), op.getPadsBeginAttr(), op.getPadsEndAttr(),
-                                                     op.getDilationsAttr(), op.getGroupAttr(),
-                                                     op.getDeformableGroupAttr(), bilinearInterpolatepadAttr},
-                        {"deformable_convolution"}};
+
+                const auto inOrder = DimsOrder::fromValue(op.getInput());
+
+                const auto initialOutputOffset =
+                        op.getInitialOutputOffsetAttr().has_value()
+                                ? permuteIntArrayAttr(inOrder, op.getInitialOutputOffsetAttr().value())
+                                : SmallVector<int64_t>(inOrder.numDims(), 0);
+
+                const auto initialOutputOffsetAttr = getIntArrayAttr(ctx, initialOutputOffset);
+
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{
+                                                 op.getStridesAttr(), op.getPadsBeginAttr(), op.getPadsEndAttr(),
+                                                 op.getDilationsAttr(), op.getGroupAttr(), op.getDeformableGroupAttr(),
+                                                 bilinearInterpolatepadAttr, initialOutputOffsetAttr},
+                                         {"deformable_convolution"}};
             })
             .Case<VPU::DynamicExpandOp>([&](VPU::DynamicExpandOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"dynamic_expand"}, {"dynamic_expand.cpp"}};
@@ -2142,7 +2174,13 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
             .Case<VPU::RoPEOp>([&](VPU::RoPEOp op) {
                 const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
                 VPUX_THROW_UNLESS(iType.getRank() <= 4, "Supporting only 3D and 4D input, got {0}", iType.getRank());
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{}, {"rope"}, {"rope.cpp"}};
+
+                mlir::MLIRContext* ctx = origOp->getContext();
+                const auto isInterleaved = static_cast<int64_t>(op.getIsInterleavedAttr() != nullptr);
+                const auto isInterleavedAttr = getIntAttr(ctx, isInterleaved);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{isInterleavedAttr},
+                                         {isInterleaved ? "rope_ilv" : "rope"},
+                                         {isInterleaved ? "rope_ilv.cpp" : "rope.cpp"}};
             })
             .Case<VPU::DynamicDataMaskOp>([&](VPU::DynamicDataMaskOp) {
                 return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{},
@@ -2158,20 +2196,28 @@ VPUIP::KernelInfo SwKernelOp::getKernelInfo(mlir::Operation* origOp) {
                                          {"sdpa"},
                                          {"sdpa.cpp"}};
             })
-            .Case<VPU::IncrementalSDPAOp>([&](VPU::IncrementalSDPAOp op) {
-                bool isHead = true;
-                bool isTail = true;
-                int64_t flags = ((1 << 0) * isHead) |                              //
-                                ((1 << 1) * isTail) |                              //
+            .Case<VPU::FlashSDPAOp>([&](VPU::FlashSDPAOp op) {
+                int64_t flags = ((1 << 0) * op.getIsHead()) |                      //
+                                ((1 << 1) * op.getIsTail()) |                      //
                                 ((1 << 2) * (op.getAttentionMask() != nullptr)) |  //
                                 ((1 << 3) * (op.getScale() != nullptr));           //
 
                 auto attrs = getIntArrayAttr(op->getContext(), SmallVector<int64_t>{INT64_MAX, flags});
-                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{attrs},
-                                         {"incremental_sdpa"},
-                                         {"incremental_sdpa.cpp"}};
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{attrs}, {"flash_sdpa"}, {"flash_sdpa.cpp"}};
             })
-
+            .Case<VPU::SDPAExtendedOp>([&](VPU::SDPAExtendedOp op) {
+                const auto iType = mlir::cast<vpux::NDTypeInterface>(op.getInputQ().getType());
+                VPUX_THROW_UNLESS(iType.getRank() == 4, "Supporting only 4D input, got {0}", iType.getRank());
+                int64_t padSize = 0;
+                if (op.getPadSizeSAttr() != nullptr) {
+                    if (op.getPadSizeS().has_value()) {
+                        padSize = op.getPadSizeS().value();
+                    }
+                }
+                const auto padSizeAttr = getIntAttr(ctx, padSize);
+                return VPUIP::KernelInfo{SmallVector<mlir::Attribute>{optionalIoAttr(op), padSizeAttr},
+                                         {"sdpa_extended"}};
+            })
             .Default([](mlir::Operation* unknownOp) -> VPUIP::KernelInfo {
                 VPUX_THROW("Operation '{0}' is not supported by the act-shaves", unknownOp->getName());
             });

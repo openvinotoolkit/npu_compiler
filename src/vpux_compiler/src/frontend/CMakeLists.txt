@@ -18,7 +18,6 @@ add_npu_library(${TARGET_NAME}
     LINK_LIBS PRIVATE
         npu_compiler_core
         npu_compiler_utils
-        flatbuffers
         npu_elf
         npu_compiler_dialect_vpuip
     INCLUDES

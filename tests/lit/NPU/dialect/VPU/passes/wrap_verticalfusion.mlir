@@ -274,3 +274,18 @@ func.func @WrapSWNormalizeL2(%arg0: tensor<1x60x801x384xf16>) -> tensor<1x60x801
     // CHECK: VPU.NormalizeL2([[INNER_ARG]]) {axes_value = [3], eps = 9.999999960041972E-13 : f64, eps_mode = #IE.eps_mode<ADD>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x60x801x384xf16> -> tensor<1x60x801x384xf16>
     // CHECK: VPU.Yield
 }
+
+// -----
+
+!qElemType = !quant.uniform<u2:f32, 1.000000e+00>
+
+//CHECK-LABEL: @WrapSWDynamicDequantize
+//CHECK-SAME: ([[INPUT0:%.+]]: tensor<1x3072x48x64x!qElemType>, [[INPUT1:%.+]]: tensor<1x3072x48x1xf16>, [[INPUT2:%.+]]: tensor<1x3072x48x1xui2>)
+func.func @WrapSWDynamicDequantize(%arg0: tensor<1x3072x48x64x!qElemType>, %arg1: tensor<1x3072x48x1xf16>, %arg2: tensor<1x3072x48x1xui2>) -> tensor<1x3072x48x64xf16> {
+    %0 = VPU.DynamicDequantize(%arg0, %arg1, %arg2) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, tilingStrategy = [1, 4, 1, 1]} : tensor<1x3072x48x64x!qElemType>, tensor<1x3072x48x1xf16>, tensor<1x3072x48x1xui2> -> tensor<1x3072x48x64xf16>
+    return %0 :  tensor<1x3072x48x64xf16>
+
+    // CHECK: VPU.VerticalFusion ([[INPUT0]] as [[INNER_ARG0:[^:]+]]: tensor<1x3072x48x64x!qElemType>, [[INPUT1]] as [[INNER_ARG1:[^:]+]]: tensor<1x3072x48x1xf16>, [[INPUT2]] as [[INNER_ARG2:[^:]+]]: tensor<1x3072x48x1xui2>) attributes {tilingStrategy = [1, 4, 1, 1]} -> tensor<1x3072x48x64xf16> {
+    // CHECK: VPU.DynamicDequantize([[INNER_ARG0]], [[INNER_ARG1]], [[INNER_ARG2]]) {dstElemType = f16, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x3072x48x64x!qElemType>, tensor<1x3072x48x1xf16>, tensor<1x3072x48x1xui2> -> tensor<1x3072x48x64xf16>
+    // CHECK: VPU.Yield
+}

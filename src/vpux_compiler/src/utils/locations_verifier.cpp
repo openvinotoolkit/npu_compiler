@@ -26,7 +26,9 @@
 #include "vpux/utils/core/type_traits.hpp"
 #include "vpux/utils/profiling/common.hpp"
 
+#include <mlir/Dialect/Arith/IR/Arith.h>
 #include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 #include <mlir/IR/BuiltinDialect.h>
 
 #include <unordered_map>
@@ -57,7 +59,8 @@ bool isOpFromIgnoredDialect(mlir::Operation* op) {
     // ELF dialects are ignored because locations are serialized before.
     return !isOpFromAnyDialect<Core::CoreDialect, Const::ConstDialect, IE::IEDialect, VPU::VPUDialect,
                                VPUIP::VPUIPDialect, VPURT::VPURTDialect, config::ConfigDialect, mlir::BuiltinDialect,
-                               mlir::func::FuncDialect, net::NetDialect>(op);
+                               mlir::func::FuncDialect, net::NetDialect, mlir::arith::ArithDialect,
+                               mlir::tensor::TensorDialect>(op);
 }
 
 bool isIgnoredOpType(mlir::Operation* op) {
@@ -77,7 +80,8 @@ bool isIgnoredOpType(mlir::Operation* op) {
     // Other locations. SparseBuffer[Un]Group is just change of type representation, so no need to verify it
     bool isIgnoredOp = mlir::isa<VPUIP::GroupSparseBufferOp, VPUIP::UngroupSparseBufferOp, net::DataInfoOp,
                                  mlir::UnrealizedConversionCastOp>(op);
-    return isViewLikeOp || isControlFlowOp || isMemoryAllocOp || isSetupOp || isIgnoredOp;
+    bool isHostPipeline = config::getCompilationMode(op) == config::CompilationMode::HostCompile;
+    return isViewLikeOp || isControlFlowOp || isMemoryAllocOp || isSetupOp || isIgnoredOp || isHostPipeline;
 }
 
 bool hasExcludedPatterns(mlir::Operation* op) {

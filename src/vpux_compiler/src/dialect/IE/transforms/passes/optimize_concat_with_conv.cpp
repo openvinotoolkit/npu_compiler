@@ -160,7 +160,8 @@ mlir::LogicalResult OptimizeConcat::matchAndRewrite(IE::ConcatOp origOp, mlir::P
                                                               newInReshape, DimsOrder::NHWC.toAffineMap(ctx));
         inputs.push_back(layoutCastOp);
     }
-    auto newConcat = rewriter.create<IE::ConcatOp>(origOp.getLoc(), inputs, concatAxis.value());
+    auto newConcat =
+            rewriter.create<IE::ConcatOp>(appendLoc(origOp.getLoc(), "_input_concat"), inputs, concatAxis.value());
 
     // create conv to do the permute
     SmallVector<int64_t> padBegin(2, 0);
@@ -493,15 +494,12 @@ bool OptimizeConcatWithConvAndAdd::isBeneficialToConvert(IE::ConcatOp concatOp) 
 
 class OptimizeConcatWithConvPass final : public IE::impl::OptimizeConcatWithConvBase<OptimizeConcatWithConvPass> {
 public:
-    explicit OptimizeConcatWithConvPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit OptimizeConcatWithConvPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void OptimizeConcatWithConvPass::safeRunOnFunc() {

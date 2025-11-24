@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_pipeline_container.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 
 using namespace vpux;
 using namespace VPU;

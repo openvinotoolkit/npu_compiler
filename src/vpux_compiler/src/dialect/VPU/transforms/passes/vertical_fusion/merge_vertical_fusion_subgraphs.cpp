@@ -105,9 +105,6 @@ void MergeVfSubgraphsPass::safeRunOnFunc() {
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), config))) {
         signalPassFailure();
     }
-
-    _log.info("[MergeVfSubgraphs phase]");
-    costFunction->printNNCacheStatistics();
 }
 
 }  // namespace

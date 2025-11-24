@@ -12,7 +12,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -515,7 +515,7 @@ bool nceOpCandidateHasSIWeightsAsInput(mlir::Operation* op) {
             if (mlir::isa<mlir::BlockArgument>(filterOperand)) {
                 return filterOperand;
             } else if ((IE::isPureViewOp(filterOperand.getDefiningOp()) ||
-                        mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp>(
+                        mlir::isa<IE::QuantizeCastOp, IE::DequantizeOp, IE::ConvertOp, IE::SliceOp>(
                                 filterOperand.getDefiningOp())) &&
                        filterOperand.hasOneUse()) {
                 filterOperand = filterOperand.getDefiningOp()->getOperand(0);
@@ -582,8 +582,8 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> findNCEOpCandidatesWithWeights(ml
 
 bool vpux::IE::keepIntTypeForSIWeightsAsInput(mlir::Operation* op) {
     const auto moduleOp = getModuleOp(op);
-    const auto isAsymmetricPerChannelZeroPointSupported = VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorZeroPointSupported = VPU::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorZeroPointSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
 
     if (auto fqOp = mlir::dyn_cast_or_null<IE::FakeQuantizeOp>(op)) {
         if (IE::hasStaticLowAndHighValues(fqOp)) {

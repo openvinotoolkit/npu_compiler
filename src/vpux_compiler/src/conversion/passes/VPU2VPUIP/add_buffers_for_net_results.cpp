@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/core/IR/ops.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/allocate_buffers_for_net_results.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -63,8 +64,8 @@ void AddBuffersForNetResults::safeRunOnModule() {
     mlir::func::FuncOp entryPointFuncOp;
     net::NetworkInfoOp::getFromModule(module, netInfo, entryPointFuncOp);
 
-    SmallVector<mlir::func::CallOp> callOps;
-    module.walk([&](mlir::func::CallOp callOp) {
+    SmallVector<mlir::CallOpInterface> callOps;
+    module.walk([&](mlir::CallOpInterface callOp) {
         callOps.push_back(callOp);
     });
     SmallVector<mlir::func::FuncOp> funcOps;

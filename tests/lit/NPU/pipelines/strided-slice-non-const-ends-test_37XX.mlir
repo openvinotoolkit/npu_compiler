@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-translate --vpu-arch=%arch% --import-IE --set-upper-bounds="3 3" strided-slice-non-const-ends-test.xml -o %t
+// RUN: vpux-translate --vpu-arch=%arch% --import-IE --set-upper-bounds="3 3" ./IR/strided-slice-non-const-ends-test.xml -o %t
 // RUN: FileCheck %s --input-file %t
 // REQUIRES: arch-NPU37XX
 

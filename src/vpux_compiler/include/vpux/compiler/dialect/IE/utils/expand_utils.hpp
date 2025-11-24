@@ -21,8 +21,8 @@ Shape calcPadsEnd(vpux::NDTypeInterface origType, int64_t channelAlignment);
 
 bool needsPadding(const int64_t dim);
 
-mlir::Value expandWithOffset(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, IE::SliceOp sliceOp,
-                             mlir::Value expandValue, ShapeRef inPadsEnd, size_t expandDim);
+mlir::Value expandWithOffset(mlir::Location loc, mlir::PatternRewriter& rewriter, mlir::Operation* origOp,
+                             IE::SliceOp sliceOp, mlir::Value expandValue, ShapeRef inPadsEnd, size_t expandDim);
 mlir::Value paddingChannel(mlir::Operation* origOp, mlir::PatternRewriter& rewriter, mlir::Value expandValue,
                            ShapeRef filterPadsEnd, size_t expandDim);
 mlir::Value paddingFilter(mlir::Operation* origOp, mlir::PatternRewriter& rewriter, mlir::Value expandValue,

@@ -305,4 +305,21 @@ def IE_ShaveCodeGenSupportedOpInterface: OpInterface<"ShaveCodeGenSupportedOpInt
     ];
 }
 
+//
+// ExecutorOpInterface
+//
+
+def IE_ExecutorOpInterface : OpInterface<"ExecutorOpInterface"> {
+    let description = "Interface for operations to specify preferred execution units";
+
+    let cppNamespace = "vpux::IE";
+
+    let methods = [
+        InterfaceMethod<
+            "Get preferred executors in order of preference",
+            "mlir::SmallVector<vpux::VPU::ExecutorKind>", "getPreferredExecutors", (ins)
+        >
+    ];
+}
+
 #endif

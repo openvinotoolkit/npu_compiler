@@ -254,5 +254,46 @@ mlir::Value createDynamicReshape(mlir::OpBuilder& builder, mlir::Location loc, m
                                                       /*only_set_shape=*/true);
 }
 
+bool quantizationAllowsChannelsReshape(mlir::Operation* origOp) {
+    // Channels cannot be reshaped when the operation is per-channel quantized.
+    const auto outElemType = mlir::cast<NDTypeInterface>(origOp->getResult(0).getType()).getElementType();
+    if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(outElemType)) {
+        return false;
+    }
+
+    for (auto input : origOp->getOperands()) {
+        const auto inputElemType = mlir::cast<NDTypeInterface>(input.getType()).getElementType();
+        if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(inputElemType)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool postOpAllowsChannelsReshape(IE::LayerWithPostOpInterface layerWithPostOp) {
+    const auto postOp = layerWithPostOp.getPostOp();
+    return postOp == nullptr || postOp.isChannelAgnostic();
+}
+
+bool allowsChannelsReshape(mlir::Operation* origOp) {
+    if (!quantizationAllowsChannelsReshape(origOp)) {
+        return false;
+    }
+
+    if (auto layerWithPostOp = mlir::dyn_cast<IE::LayerWithPostOpInterface>(origOp)) {
+        if (!postOpAllowsChannelsReshape(layerWithPostOp)) {
+            return false;
+        }
+    }
+
+    auto outputLayout = mlir::cast<vpux::NDTypeInterface>(origOp->getResult(0).getType()).getDimsOrder();
+    if (outputLayout != DimsOrder::NHWC) {
+        return false;
+    }
+
+    return true;
+}
+
 }  // namespace IE
 }  // namespace vpux

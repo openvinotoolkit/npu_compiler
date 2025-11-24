@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 
 namespace vpux {
 namespace VPU {

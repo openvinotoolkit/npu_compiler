@@ -12,15 +12,12 @@ add_npu_library(npu_compiler_dialect_vpu_utils
         npu_llvm_utils
         npu_ov_utils
         npu_profiling_utils
-        flatbuffers
         npu_elf
         npu_compiler_dialect_vpu
         #TODO:#-102154 remove this dependency
         npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpuip_interfaces
         npu_compiler_dialect_vpuip_utils
-        inferenceStatic
+        npu_costmodel
     DEPENDS
-        inferenceStatic
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)

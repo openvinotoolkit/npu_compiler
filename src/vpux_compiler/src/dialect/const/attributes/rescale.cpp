@@ -26,7 +26,7 @@ void vpux::Const::RescaleAttr::print(mlir::AsmPrinter& printer) const {
     if (getScale().isSplat()) {
         auto foldedFloatContent = getScale().fold();
         auto splatValue = foldedFloatContent.getSplatValue<double>();
-        auto floatAttr = mlir::FloatAttr::get(mlir::FloatType::getF64(getContext()), splatValue);
+        auto floatAttr = mlir::FloatAttr::get(mlir::Float64Type::get(getContext()), splatValue);
         printer.printAttribute(floatAttr);
     } else {
         printer << "Content";
@@ -78,46 +78,57 @@ vpux::NDTypeInterface vpux::Const::RescaleAttr::inferOutputType(vpux::NDTypeInte
 }
 
 bool vpux::Const::RescaleAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTypeInterface) const {
-    return inputIsSplat;
+    return inputIsSplat && getScale().isSplat();
 }
 
 //
 // RescaleAttr::transform
 //
 
+template <typename T>
+void multiplyTensorByScalar(MutableArrayRef<float> dst, ArrayRef<T> src, float splat) {
+    assert(dst.size() == src.size() && "Output buffer must be the same size as source");
+    for (size_t i = 0; i < dst.size(); ++i) {
+        dst[i] = checked_cast<float>(src[i]) * splat;
+    }
+}
+
 Const::Content vpux::Const::RescaleAttr::transform(vpux::Const::Content& input) const {
     auto output =
             Const::Content::allocTempBuffer(inferOutputType(input.getType()), mlir::Float32Type::get(getContext()),
                                             inferOutputSplat(input.isSplat(), input.getType()));
-    auto scaledValues = output.getTempBuf<float>();
+    auto outputValues = output.getTempBuf<float>();
     auto scaleContent = getScale().fold();
-    VPUX_THROW_WHEN(input.isSplat() && !scaleContent.isSplat(), "scalar * tensor is not supported");
     if (scaleContent.isSplat()) {
         if (std::isnan(scaleContent.getSplatValue<double>())) {  // Check for NaN scale value - When scale is NaN, all
                                                                  // output values must be NaN to prevent undefined
                                                                  // behavior during type casting.
-            for (size_t i = 0; i < scaledValues.size(); ++i) {
-                scaledValues[i] = std::numeric_limits<float>::quiet_NaN();
+            for (size_t i = 0; i < outputValues.size(); ++i) {
+                outputValues[i] = std::numeric_limits<float>::quiet_NaN();
             }
             return output;
         }
-        float scale = scaleContent.getSplatValue<float>();
+
+        const float splatScale = scaleContent.getSplatValue<float>();
         input.read([&](auto inputValues) {
-            for (size_t i = 0; i < scaledValues.size(); ++i) {
-                scaledValues[i] = checked_cast<float>(inputValues[i]) * scale;
-            }
+            multiplyTensorByScalar(outputValues, inputValues, splatScale);
+        });
+    } else if (input.isSplat()) {
+        const float splatScale = input.getSplatValue<float>();
+        scaleContent.read([&](auto scaleValues) {
+            multiplyTensorByScalar(outputValues, scaleValues, splatScale);
         });
     } else {
-        scaleContent.read([&](auto scaleValues) {
-            input.read([&](auto inputValues) {
+        input.read([&](auto inputValues) {
+            scaleContent.read([&](auto scaleValues) {
                 VPUX_THROW_UNLESS(scaleValues.size() == inputValues.size(), "Vector size ({0}) doesn't match ({1})",
                                   scaleValues.size(), inputValues.size());
-                for (size_t i = 0; i < scaledValues.size(); ++i) {
+                for (size_t i = 0; i < outputValues.size(); ++i) {
                     float scale = scaleValues[i];
                     if (std::isnan(scale)) {  // Check for NaN in individual scale elements
-                        scaledValues[i] = std::numeric_limits<float>::quiet_NaN();
+                        outputValues[i] = std::numeric_limits<float>::quiet_NaN();
                     } else {
-                        scaledValues[i] = checked_cast<float>(inputValues[i]) * scale;
+                        outputValues[i] = checked_cast<float>(inputValues[i]) * scale;
                     }
                 }
             });

@@ -5,7 +5,9 @@
 
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/dialect.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/net/IR/ops.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -26,6 +28,10 @@ using namespace VPU;
 
 namespace {
 
+// Constants for container sizes
+static constexpr size_t DEFAULT_OPERATION_SET_SIZE = 32;
+static constexpr size_t DEFAULT_NEIGHBOR_SET_SIZE = 16;
+
 //
 // ConvertDynamicToStaticKernelsPass
 //
@@ -38,242 +44,206 @@ public:
 
 private:
     void safeRunOnModule() final;
-    bool adjustIndexIntoDynamicTensor(mlir::scf::ForOp forOp);
 
-    auto isDynamicTensor(mlir::Value value) {
-        if (auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
-            return !rankedTensorType.hasStaticShape();
-        }
-        return false;
-    };
-
-    auto checkForDynamicTensor(mlir::Operation* op) {
-        for (auto operand : op->getOperands()) {
-            if (isDynamicTensor(operand)) {
-                return true;
-            }
-        }
-
-        for (auto result : op->getResults()) {
-            if (isDynamicTensor(result)) {
-                return true;
-            }
-        }
-
-        return false;
-    };
-
-    bool isSupportedDynamicTensorType(mlir::Value value) {
-        if (auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
-            if (llvm::count(rankedTensorType.getShape(), mlir::ShapedType::kDynamic) == 1) {
-                return true;
-            } else {
-                mlir::emitError(value.getLoc(), "Expected a ranked tensor type with exactly one dynamic dimension");
-            }
-        }
-        return false;
-    };
-
-    void tryAndInferStaticShapes(mlir::Value value, int64_t staticDimSize);
-    mlir::RankedTensorType inferStaticTensorType(mlir::Value value, int64_t staticDimSize, bool keepBounds = true);
-    mlir::func::FuncOp createStaticFuncOp(mlir::func::FuncOp dynFuncOp, const mlir::FunctionType& staticFuncType,
-                                          mlir::ModuleOp moduleOp, int64_t staticDimSize, bool eraseDynamicFunc = true);
-    void addConversionCast(mlir::Operation* sliceOp, int64_t staticDimSize);
+    bool handleExtractSliceOp(mlir::tensor::ExtractSliceOp extractSliceOp,
+                              llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape);
+    bool handleCastOp(mlir::tensor::CastOp castOp,
+                      llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape,
+                      SmallVector<mlir::tensor::CastOp>& castOpsToErase);
+    void handleIndexSwitchOp(mlir::ModuleOp moduleOp, mlir::scf::IndexSwitchOp switchOp,
+                             llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape,
+                             llvm::SmallPtrSet<mlir::Operation*, DEFAULT_OPERATION_SET_SIZE>& visitedCallOps);
+    mlir::func::CallOp handleCallOp(mlir::ModuleOp moduleOp, mlir::OpBuilder& builder, mlir::func::CallOp callOp,
+                                    llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape);
+    mlir::func::CallOp rewriteCallOpWithStaticType(
+            mlir::func::CallOp callOp, mlir::ModuleOp moduleOp, mlir::OpBuilder& builder,
+            const llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape);
 };
 
-/**
- * @brief Adjusts indices into dynamic tensors within scf.for loops based on the current index and fixed step size.
- * When the remaining elements in the current iteration are fewer than the step size, this method backtracks the index
- * to ensure extraction of a static-shaped tensor.
- *
- * For example, given a dynamic tensor of shape <1x1x32x?xfp16> with bounds [1, 1, 32, 1000] and step size 100,
- * processing an input tensor of <1x1x32x250xfp16> would normally have the last iteration at index 200,
- * but only 50 elements would remain. This method adjusts the index to 150 (extracting a slice
- * from offset 150 with size 100), resulting in a static-shaped tensor <1x1x32x100xfp16>.
- */
-bool ConvertDynamicToStaticKernelsPass::adjustIndexIntoDynamicTensor(mlir::scf::ForOp forOp) {
-    auto affineMinOps = forOp.getOps<mlir::affine::AffineMinOp>();
-    if (affineMinOps.empty()) {
-        _log.error("affine.min operation not found in the scf.for loop body. Skipping conversion for this loop.");
-        return false;
-    }
-
-    if (std::distance(affineMinOps.begin(), affineMinOps.end()) > 1) {
-        _log.warning("Multiple affine.min operations found in the scf.for loop body !!");
-    }
-
-    auto affineMinOp = *affineMinOps.begin();
-    mlir::OpBuilder builder(affineMinOp);
-    builder.setInsertionPointAfter(affineMinOp);
-    auto minValue = affineMinOp.getResult();
-    auto cmpOp = builder.create<mlir::arith::CmpIOp>(forOp.getLoc(), mlir::arith::CmpIPredicate::ne, minValue,
-                                                     forOp.getStep());
-    auto ifOp = builder.create<mlir::scf::IfOp>(forOp.getLoc(), minValue.getType(), cmpOp.getResult(),
-                                                /*withElseRegion=*/true);
-
-    // Compute and return the adjusted index (backtrack index) in the 'then' region
-    mlir::OpBuilder thenBuilder = ifOp.getThenBodyBuilder();
-    auto stepDiff = thenBuilder.create<mlir::arith::SubIOp>(ifOp.getLoc(), forOp.getStep(), minValue);
-
-    // Check whether we have enough elements to backtrack
-    auto canBacktrack = thenBuilder.create<mlir::arith::CmpIOp>(stepDiff.getLoc(), mlir::arith::CmpIPredicate::sgt,
-                                                                forOp.getInductionVar(), stepDiff);
-    thenBuilder.create<mlir::cf::AssertOp>(canBacktrack.getLoc(), canBacktrack,
-                                           "Not enough elements to backtrack in scf.for loop");
-
-    auto adjustedIndex = thenBuilder.create<mlir::arith::SubIOp>(ifOp.getLoc(), forOp.getInductionVar(), stepDiff);
-    thenBuilder.create<mlir::scf::YieldOp>(ifOp.getLoc(), mlir::ValueRange{adjustedIndex});
-
-    // return the default induction variable as step size in the 'else' region
-    mlir::OpBuilder elseBuilder = ifOp.getElseBodyBuilder();
-    elseBuilder.create<mlir::scf::YieldOp>(ifOp.getLoc(), mlir::ValueRange{forOp.getInductionVar()});
-
-    auto inductionVar = forOp.getInductionVar();
-    inductionVar.replaceUsesWithIf(ifOp.getResult(0), [&](mlir::OpOperand& operand) {
-        return llvm::isa<mlir::tensor::TensorDialect>(operand.getOwner()->getDialect());
-    });
-    minValue.replaceUsesWithIf(forOp.getStep(), [&](mlir::OpOperand& operand) {
-        return llvm::isa<mlir::tensor::TensorDialect>(operand.getOwner()->getDialect());
-    });
-
-    return true;
-}
-
-/**
- * @brief This function traverses operations in reverse order, starting from the input operand,
- * and collects all operations that are parents of the operand tensors until it reaches slice operations.
- * It ensures that all operations contributing to dynamic tensors are captured for further processing.
- */
-void ConvertDynamicToStaticKernelsPass::tryAndInferStaticShapes(mlir::Value value, int64_t staticDimSize) {
-    SmallVector<mlir::Value> worklist = {value};
-    llvm::DenseSet<mlir::Operation*> visited, dynamicTensorOps, sliceOps;
-    while (!worklist.empty()) {
-        auto op = worklist.pop_back_val();
-        auto definingOp = op.getDefiningOp();
-        if (definingOp == nullptr || !visited.insert(definingOp).second) {
-            continue;
-        }
-
-        // Only traverse ops within the same scf.for region
-        if (!definingOp->getParentOfType<mlir::scf::ForOp>()) {
-            continue;
-        }
-
-        if (mlir::isa<mlir::tensor::ExtractSliceOp>(definingOp)) {
-            sliceOps.insert(definingOp);
-            continue;
-        } else {
-            dynamicTensorOps.insert(definingOp);
-        }
-
-        for (auto operand : definingOp->getOperands()) {
-            if (isDynamicTensor(operand)) {
-                worklist.push_back(operand);
-            }
-        }
-    }
-
-    VPUX_THROW_WHEN(sliceOps.empty(),
-                    "No slice operations found in the scf.for loop. Cannot convert dynamic to static shapes");
-
-    llvm::DenseSet<mlir::Operation*> sliceOpsWithConversionCast;
-    for (auto sliceOp : sliceOps) {
-        if (!sliceOpsWithConversionCast.insert(sliceOp).second) {
-            continue;
-        }
-        addConversionCast(sliceOp, staticDimSize);
-    }
-
-    VPUX_THROW_WHEN(dynamicTensorOps.size() > 0, "Unsupported operations with dynamic tensors were found");
-}
-
-mlir::RankedTensorType ConvertDynamicToStaticKernelsPass::inferStaticTensorType(mlir::Value value,
-                                                                                int64_t staticDimSize,
-                                                                                bool keepBounds) {
-    auto inputType = mlir::cast<mlir::RankedTensorType>(value.getType());
-    VPUX_THROW_WHEN(inputType == nullptr, "Expected a ranked tensor type, but got: {0}", value.getType());
-    auto shape = inputType.getShape();
-    SmallVector<int64_t> staticShape(shape.begin(), shape.end());
-
-    for (size_t i = 0; i < shape.size(); ++i) {
-        if (shape[i] == mlir::ShapedType::kDynamic) {
-            staticShape[i] = staticDimSize;
-        }
-    }
-
-    if (auto dictAttr = mlir::dyn_cast_or_null<mlir::DictionaryAttr>(inputType.getEncoding())) {
-        SmallVector<mlir::NamedAttribute> newAttrs;
-        for (auto attr : dictAttr) {
-            if (!keepBounds || attr.getName() != "bounds") {
-                newAttrs.push_back(attr);
-            }
-        }
-        // Rebuild the static type with all attributes except bounds
-        return mlir::RankedTensorType::get(staticShape, inputType.getElementType(),
-                                           mlir::DictionaryAttr::get(inputType.getContext(), newAttrs));
-    }
-
-    return mlir::RankedTensorType::get(staticShape, inputType.getElementType());
-}
-
-void ConvertDynamicToStaticKernelsPass::addConversionCast(mlir::Operation* sliceOp, int64_t staticDimSize) {
-    auto staticTensorType = inferStaticTensorType(sliceOp->getResult(0), staticDimSize);
-    VPUX_THROW_WHEN(staticTensorType == nullptr,
-                    "Failed to infer static tensor type for slice operation {0} with static dimension size {1}",
-                    sliceOp->getName(), staticDimSize);
-    mlir::OpBuilder builder(sliceOp);
-    builder.setInsertionPointAfter(sliceOp);
-    auto castOp = builder.create<mlir::tensor::CastOp>(sliceOp->getLoc(), staticTensorType, sliceOp->getResult(0));
-    for (auto user : llvm::make_early_inc_range(sliceOp->getUsers())) {
-        if (user != castOp.getOperation()) {
-            user->replaceUsesOfWith(sliceOp->getResult(0), castOp.getResult());
-        }
-    }
-}
-
-mlir::func::FuncOp ConvertDynamicToStaticKernelsPass::createStaticFuncOp(mlir::func::FuncOp dynFuncOp,
-                                                                         const mlir::FunctionType& staticFuncType,
-                                                                         mlir::ModuleOp moduleOp, int64_t staticDimSize,
-                                                                         bool eraseDynamicFunc) {
+mlir::func::FuncOp createStaticFuncOp(mlir::func::FuncOp dynFuncOp, SmallVector<mlir::Type> newFuncResultTypes,
+                                      mlir::ModuleOp moduleOp) {
     mlir::OpBuilder builder(moduleOp.getContext());
-    auto staticFuncName = dynFuncOp.getName().str() + "_static";
-    auto existingFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(staticFuncName);
-    VPUX_THROW_WHEN(existingFuncOp, "Static function with name {0} already exists", staticFuncName);
-    auto staticFuncOp = builder.create<mlir::func::FuncOp>(dynFuncOp.getLoc(), staticFuncName, staticFuncType);
+    auto newFuncName = dynFuncOp.getName().str() + "_static";
+    assert(moduleOp.lookupSymbol<mlir::func::FuncOp>(newFuncName) == nullptr && "static function already exists");
 
-    mlir::IRMapping valueMap;
-    for (auto& oldBlock : dynFuncOp.getBody()) {
-        auto* newBlock = staticFuncOp.addEntryBlock();
+    mlir::Operation* hasOpWithPadAttr = nullptr;
+    dynFuncOp.walk([&](mlir::Operation* op) {
+        if (mlir::isa<VPU::VPUDialect>(op->getDialect())) {
+            if (VPU::isNceOpWithPadAttr(op)) {
+                hasOpWithPadAttr = op;
+                return mlir::WalkResult::interrupt();
+            }
+        }
+        return mlir::WalkResult::advance();
+    });
 
-        // Map the block arguments from the old block to the new block
-        for (auto argPair : llvm::zip(oldBlock.getArguments(), newBlock->getArguments())) {
-            valueMap.map(std::get<0>(argPair), std::get<1>(argPair));
+    auto newFuncType = mlir::FunctionType::get(moduleOp->getContext(), mlir::TypeRange(newFuncResultTypes), {});
+    return VPU::cloneFuncOp(dynFuncOp, newFuncName, newFuncType);
+}
+
+mlir::func::CallOp ConvertDynamicToStaticKernelsPass::rewriteCallOpWithStaticType(
+        mlir::func::CallOp callOp, mlir::ModuleOp moduleOp, mlir::OpBuilder& builder,
+        const llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape) {
+    SmallVector<mlir::Type> staticOperands;
+    SmallVector<mlir::Value> staticOperandsValues;
+    for (auto operand : callOp.getOperands()) {
+        if (IE::hasDynamicShape(operand)) {
+            assert(mapValueToStaticShape.contains(operand) &&
+                   "Expected static shape mapping for dynamic tensor operand");
+            staticOperands.push_back(mapValueToStaticShape.at(operand));
+        } else {
+            staticOperands.push_back(operand.getType());
         }
 
-        builder.setInsertionPointToStart(newBlock);
-        for (auto& oldOp : oldBlock.getOperations()) {
-            auto* newOp = builder.clone(oldOp, valueMap);
-            for (auto it : llvm::enumerate(oldOp.getResults())) {
-                size_t idx = it.index();
-                mlir::Value result = it.value();
-                if (isDynamicTensor(result)) {
-                    auto staticResultType = inferStaticTensorType(result, staticDimSize);
-                    newOp->getResult(idx).setType(staticResultType);
-                    valueMap.map(result, newOp->getResult(idx));
+        if (auto castOp = mlir::dyn_cast<mlir::tensor::CastOp>(operand.getDefiningOp())) {
+            staticOperandsValues.push_back(castOp.getSource());
+        } else {
+            assert(!IE::hasDynamicShape(operand) && "Expected static tensor operand for function call");
+            staticOperandsValues.push_back(operand);
+        }
+    }
+
+    auto funcOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
+    mlir::func::FuncOp newFuncOp = nullptr;
+    if (funcOp == nullptr) {
+        auto staticFuncOpName = callOp.getCallee().str() + "_static";
+        newFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(staticFuncOpName);
+    } else {
+        newFuncOp = createStaticFuncOp(funcOp, staticOperands, moduleOp);
+    }
+    assert(newFuncOp != nullptr && "Expected to find or create a static function");
+
+    builder.setInsertionPoint(callOp);
+    for (auto it : llvm::enumerate(llvm::zip(staticOperands, newFuncOp.getArgumentTypes()))) {
+        auto idx = it.index();
+        auto [staticType, newType] = it.value();
+        if (staticType != newType) {
+            if (idx >= staticOperandsValues.size()) {
+                continue;  // Skip if index is out of bounds
+            }
+
+            auto extractSliceOp =
+                    mlir::dyn_cast<mlir::tensor::ExtractSliceOp>(staticOperandsValues[idx].getDefiningOp());
+            assert(extractSliceOp != nullptr && "Expected extract_slice operation for dynamic tensor operand");
+
+            auto rankedType = mlir::dyn_cast<mlir::RankedTensorType>(newType);
+            SmallVector<mlir::OpFoldResult> newSizes = {};
+            for (auto s : rankedType.getShape()) {
+                newSizes.push_back(builder.getI64IntegerAttr(s));
+            }
+            auto newSliceOp = builder.create<mlir::tensor::ExtractSliceOp>(
+                    takeOpLoc(callOp, "extract_slice"), rankedType, staticOperandsValues[idx],
+                    extractSliceOp.getMixedOffsets(), newSizes, extractSliceOp.getMixedStrides());
+            staticOperandsValues[idx] = newSliceOp.getResult();
+        }
+    }
+
+    // create a callOp with the new static function
+    auto staticCallOp = builder.create<mlir::func::CallOp>(
+            callOp.getLoc(), newFuncOp.getName(), newFuncOp.getFunctionType().getResults(), staticOperandsValues);
+
+    callOp.replaceAllUsesWith(staticCallOp);
+    if (callOp.use_empty()) {
+        callOp.erase();
+    }
+
+    if (funcOp && funcOp.use_empty()) {
+        funcOp.erase();
+    }
+
+    return staticCallOp;
+}
+
+void ConvertDynamicToStaticKernelsPass::handleIndexSwitchOp(
+        mlir::ModuleOp moduleOp, mlir::scf::IndexSwitchOp switchOp,
+        llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape,
+        llvm::SmallPtrSet<mlir::Operation*, DEFAULT_OPERATION_SET_SIZE>& visitedCallOps) {
+    SmallVector<mlir::Type> returnTypes;
+    for (auto& region : llvm::make_early_inc_range(switchOp->getRegions())) {
+        for (auto& block : llvm::make_early_inc_range(region)) {
+            llvm::DenseMap<mlir::Value, mlir::RankedTensorType> localMapValueToStaticShape = mapValueToStaticShape;
+            for (auto& operation : llvm::make_early_inc_range(block)) {
+                if (mlir::isa<mlir::func::CallOp>(operation)) {
+                    auto callOp = mlir::cast<mlir::func::CallOp>(operation);
+                    if (!visitedCallOps.contains(callOp)) {
+                        mlir::OpBuilder blockBuilder(&block, block.begin());
+                        auto newCallOp = handleCallOp(moduleOp, blockBuilder, callOp, localMapValueToStaticShape);
+                        visitedCallOps.insert(newCallOp.getOperation());
+                    }
+                } else if (mlir::isa<mlir::tensor::ExtractSliceOp>(operation)) {
+                    auto extractSliceOp = mlir::cast<mlir::tensor::ExtractSliceOp>(operation);
+                    handleExtractSliceOp(extractSliceOp, localMapValueToStaticShape);
+                } else if (mlir::isa<mlir::tensor::CastOp>(operation)) {
+                    auto castOp = mlir::cast<mlir::tensor::CastOp>(operation);
+                    SmallVector<mlir::tensor::CastOp> castOpsToErase;
+                    handleCastOp(castOp, localMapValueToStaticShape, castOpsToErase);
+                    for (auto op : castOpsToErase) {
+                        if (op.use_empty()) {
+                            op.erase();
+                        }
+                    }
+                }
+            }
+
+            auto terminator = block.getTerminator();
+            auto yieldOp = mlir::dyn_cast<mlir::scf::YieldOp>(terminator);
+            assert(yieldOp != nullptr && "Expected yield operation as terminator of the case block");
+
+            if (returnTypes.empty()) {
+                for (auto operand : yieldOp.getOperands()) {
+                    returnTypes.push_back(operand.getType());
                 }
             }
         }
     }
 
-    moduleOp.push_back(staticFuncOp);
-    staticFuncOp->moveAfter(dynFuncOp);
+    if (!returnTypes.empty()) {
+        for (auto [idx, type] : llvm::enumerate(returnTypes)) {
+            switchOp->getResult(idx).setType(type);
+        }
+    }
+}
 
-    if (eraseDynamicFunc && dynFuncOp.use_empty()) {
-        dynFuncOp.erase();
+bool ConvertDynamicToStaticKernelsPass::handleExtractSliceOp(
+        mlir::tensor::ExtractSliceOp extractSliceOp,
+        llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape) {
+    auto resultType = mlir::dyn_cast<mlir::RankedTensorType>(extractSliceOp.getResultType());
+    if (!resultType.hasStaticShape()) {
+        _log.trace("Found dynamic tensor in extract_slice operation");
+        return false;
     }
 
-    return staticFuncOp;
-};
+    auto newRankedTensorType = removeBoundsAttr(resultType);
+    extractSliceOp.getResult().setType(newRankedTensorType);
+    mapValueToStaticShape[extractSliceOp.getResult()] = newRankedTensorType;
+    return true;
+}
+
+bool ConvertDynamicToStaticKernelsPass::handleCastOp(
+        mlir::tensor::CastOp castOp, llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape,
+        SmallVector<mlir::tensor::CastOp>& castOpsToErase) {
+    auto srcType = mlir::dyn_cast<mlir::RankedTensorType>(castOp.getSource().getType());
+    if (!srcType.hasStaticShape()) {
+        _log.trace("Found dynamic tensor in cast operation");
+        return false;
+    }
+
+    auto newRankedTensorType = removeBoundsAttr(srcType);
+    castOp.getResult().setType(newRankedTensorType);
+    mapValueToStaticShape[castOp.getResult()] = newRankedTensorType;
+    castOpsToErase.push_back(castOp);
+    return true;
+}
+
+mlir::func::CallOp ConvertDynamicToStaticKernelsPass::handleCallOp(
+        mlir::ModuleOp moduleOp, mlir::OpBuilder& builder, mlir::func::CallOp callOp,
+        llvm::DenseMap<mlir::Value, mlir::RankedTensorType>& mapValueToStaticShape) {
+    auto newCallOp = rewriteCallOpWithStaticType(callOp, moduleOp, builder, mapValueToStaticShape);
+    for (auto newOperand : newCallOp.getResults()) {
+        mapValueToStaticShape[newOperand] = mlir::dyn_cast<mlir::RankedTensorType>(newOperand.getType());
+    }
+    return newCallOp;
+}
 
 void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
     auto moduleOp = getOperation();
@@ -282,124 +252,112 @@ void ConvertDynamicToStaticKernelsPass::safeRunOnModule() {
     net::NetworkInfoOp::getFromModule(moduleOp, netInfoOp, mainFuncOp);
     mlir::OpBuilder builder(moduleOp.getContext());
 
-    mlir::WalkResult walkResult = mainFuncOp.walk([&](mlir::scf::ForOp forOp) {
-        // Get the list of call operations inside the scf.for loop
-        SmallVector<mlir::func::CallOp> callOpsWithDynamicTensors;
-        for (auto op : forOp.getOps<mlir::func::CallOp>()) {
-            // After extract_slice operations in scf tiling, resulting tensor slices have dynamic shapes without bounds
-            // or dynamic_dims attributes. This causes hasDynamicTensors checks to fail. This additional check ensures
-            // operations with dynamic tensors are correctly identified and processed.
-            if (vpux::IE::hasDynamicTensors(op) || checkForDynamicTensor(op)) {
-                callOpsWithDynamicTensors.push_back(op);
+    auto forOps = mainFuncOp.getOps<mlir::scf::ForOp>();
+    if (forOps.empty()) {
+        _log.trace("No scf.for operations found in the main function. Skipping convert_dynamic_to_static pass.");
+        return;
+    }
+
+    auto defGetNeighbors =
+            [&](mlir::Operation* op) -> llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> {
+        llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> neighbors;
+        for (auto operand : op->getOperands()) {
+            if (auto definingOp = operand.getDefiningOp()) {
+                neighbors.insert(definingOp);
             }
         }
+        return neighbors;
+    };
 
-        if (callOpsWithDynamicTensors.empty()) {
-            _log.info("No call operations with dynamic tensors found in the scf.for loop. Skipping conversion.");
-            return mlir::WalkResult::advance();
-        }
-
-        // Get the step size from the scf.for loop
-        auto stepValue = forOp.getStep();
-        int64_t staticDimSize = 0;
-        if (auto constOp = stepValue.getDefiningOp<mlir::arith::ConstantIndexOp>()) {
-            staticDimSize = constOp.value();
-        }
-
-        if (staticDimSize <= 0) {
-            _log.error("Invalid static dimension size: {0}", staticDimSize);
-            return mlir::WalkResult::interrupt();
-        }
-
-        if (!adjustIndexIntoDynamicTensor(forOp)) {
-            _log.error("Failed to adjust index into dynamic tensor for scf.for loop.");
-            return mlir::WalkResult::interrupt();
-        }
-
-        for (auto callOp : callOpsWithDynamicTensors) {
-            for (auto operand : callOp.getOperands()) {
-                if (isDynamicTensor(operand)) {
-                    if (!isSupportedDynamicTensorType(operand)) {
-                        return mlir::WalkResult::interrupt();
-                    }
-                    tryAndInferStaticShapes(operand, staticDimSize);
-                }
-            }
-
-            SmallVector<mlir::Type> staticFuncInputTypes, staticFuncOutputTypes;
-            for (auto result : callOp->getResults()) {
-                if (isDynamicTensor(result)) {
-                    if (!isSupportedDynamicTensorType(result)) {
-                        return mlir::WalkResult::interrupt();
-                    }
-                    staticFuncOutputTypes.push_back(inferStaticTensorType(result, staticDimSize));
-                } else {
-                    staticFuncOutputTypes.push_back(result.getType());
-                }
-            }
-
-            // Collect all input types for the static function type
-            for (auto operand : callOp.getOperands()) {
-                staticFuncInputTypes.push_back(operand.getType());
-            }
-
-            // Create the static function type
-            auto staticFuncType =
-                    mlir::FunctionType::get(callOp->getContext(), staticFuncInputTypes, staticFuncOutputTypes);
-
-            // Look up the original function and create a static version
-            auto dynFuncOp = moduleOp.lookupSymbol<mlir::func::FuncOp>(callOp.getCallee());
-            if (dynFuncOp == nullptr) {
-                // If the function is not found, it might be a dynamic function that needs to be created
-                _log.error("Dynamic function {0} not found in module", callOp.getCallee());
-                return mlir::WalkResult::interrupt();
-            }
-
-            // Create the new static function
-            auto staticFuncOp = createStaticFuncOp(dynFuncOp, staticFuncType, moduleOp, staticDimSize);
-
-            // Create a call to the new static function
-            builder.setInsertionPoint(callOp);
-            auto newCallOp = builder.create<mlir::func::CallOp>(callOp->getLoc(), staticFuncOp.getName(),
-                                                                staticFuncOutputTypes, callOp.getOperands());
-
-            // Handle all results from the call op
-            for (auto resultPair : llvm::zip(callOp->getResults(), newCallOp->getResults())) {
-                auto oldResult = std::get<0>(resultPair);
-                auto newResult = std::get<1>(resultPair);
-
-                // Create a cast operation to convert the static shaped tensor returned to dynamic tensor
-                if (oldResult.getType() != newResult.getType()) {
-                    if (!isDynamicTensor(oldResult)) {
-                        _log.error("Type mismatch between old result {0} and new result {1}", oldResult.getType(),
-                                   newResult.getType());
-                        return mlir::WalkResult::interrupt();
-                    }
-
-                    auto castToDynamicTensor =
-                            builder.create<mlir::tensor::CastOp>(newCallOp->getLoc(), oldResult.getType(), newResult);
-
-                    for (auto user : llvm::make_early_inc_range(oldResult.getUsers())) {
-                        if (user != castToDynamicTensor.getOperation()) {
-                            if (mlir::isa<mlir::func::CallOp>(user)) {
-                                user->replaceUsesOfWith(oldResult, newResult);
-                            } else {
-                                user->replaceUsesOfWith(oldResult, castToDynamicTensor.getResult());
+    auto getNeighbors = [&](mlir::Operation* op) -> llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> {
+        llvm::SmallSetVector<mlir::Operation*, DEFAULT_NEIGHBOR_SET_SIZE> neighbors = {};
+        if (auto insertSliceOp = mlir::dyn_cast<mlir::tensor::InsertSliceOp>(op)) {
+            neighbors.insert(insertSliceOp.getSource().getDefiningOp());
+        } else if (auto switchOp = mlir::dyn_cast<mlir::scf::IndexSwitchOp>(op)) {
+            for (auto& region : switchOp.getCaseRegions()) {
+                for (auto callOp : region.getOps<mlir::func::CallOp>()) {
+                    for (auto operand : callOp.getOperands()) {
+                        if (auto tensorType = mlir::dyn_cast<mlir::RankedTensorType>(operand.getType())) {
+                            auto definingOp = operand.getDefiningOp();
+                            if (!tensorType.hasStaticShape() && (definingOp != nullptr)) {
+                                neighbors.insert(definingOp);
                             }
                         }
                     }
-                } else {
-                    oldResult.replaceAllUsesWith(newResult);
                 }
             }
-            callOp->erase();
+        } else {
+            neighbors = defGetNeighbors(op);
         }
 
+        return neighbors;
+    };
+
+    auto stopSearch = [&](mlir::Operation* op) {
+        return mlir::isa<mlir::tensor::ExtractSliceOp>(op);
+    };
+
+    mlir::WalkResult walkResult = mainFuncOp.walk<mlir::WalkOrder::PreOrder>([&](mlir::scf::ForOp forOp) {
+        auto insertSliceOps = forOp.getOps<mlir::tensor::InsertSliceOp>();
+        if (insertSliceOps.empty()) {
+            return mlir::WalkResult::advance();
+        }
+
+        SmallVector<mlir::Operation*> startNodes;
+        llvm::DenseMap<mlir::Operation*, mlir::RankedTensorType> insertSliceOrigInputTypes;
+        for (auto sliceOp : insertSliceOps) {
+            startNodes.push_back(sliceOp.getOperation());
+            insertSliceOrigInputTypes[sliceOp.getOperation()] = sliceOp.getSourceType();
+        }
+
+        SmallVector<mlir::tensor::CastOp> castOps;
+        auto sortedResults = VPU::collectOpsInTopologicalOrder(startNodes, getNeighbors, stopSearch);
+
+        llvm::DenseMap<mlir::Value, mlir::RankedTensorType> mapValueToStaticShape;
+        llvm::SmallPtrSet<mlir::Operation*, DEFAULT_OPERATION_SET_SIZE> visitedCallOps;
+        for (auto op : sortedResults) {
+            if (mlir::isa<mlir::tensor::ExtractSliceOp>(op)) {
+                handleExtractSliceOp(mlir::cast<mlir::tensor::ExtractSliceOp>(op), mapValueToStaticShape);
+            } else if (mlir::isa<mlir::tensor::InsertSliceOp>(op)) {
+                auto sliceOp = mlir::cast<mlir::tensor::InsertSliceOp>(op);
+                auto src = sliceOp.getSource();
+                if (!mlir::isa<mlir::tensor::CastOp>(src.getDefiningOp())) {
+                    mlir::OpBuilder castBuilder(sliceOp);
+                    auto castOp = castBuilder.create<mlir::tensor::CastOp>(sliceOp->getLoc(),
+                                                                           insertSliceOrigInputTypes[op], src);
+                    sliceOp.setOperand(0, castOp.getResult());
+                }
+            } else if (mlir::isa<mlir::tensor::CastOp>(op)) {
+                handleCastOp(mlir::cast<mlir::tensor::CastOp>(op), mapValueToStaticShape, castOps);
+            } else if (mlir::isa<mlir::func::CallOp>(op)) {
+                if (!visitedCallOps.contains(op)) {
+                    auto newCallOp =
+                            handleCallOp(moduleOp, builder, mlir::cast<mlir::func::CallOp>(op), mapValueToStaticShape);
+                    visitedCallOps.insert(newCallOp.getOperation());
+                }
+            } else if (mlir::isa<mlir::scf::IndexSwitchOp>(op)) {
+                auto switchOp = mlir::cast<mlir::scf::IndexSwitchOp>(op);
+                handleIndexSwitchOp(moduleOp, switchOp, mapValueToStaticShape, visitedCallOps);
+            }
+        }
+
+        // At this point all tensor types call operations in the chain should have static shapes
+        // Intermediate cast operations that cast from static to dynamic can be removed
+        for (auto castOp : llvm::make_early_inc_range(castOps)) {
+            if (castOp.getSource().getType() == castOp.getResult().getType()) {
+                castOp.getResult().replaceAllUsesWith(castOp.getSource());
+            }
+
+            if (castOp->use_empty()) {
+                castOp.erase();
+            }
+        }
         return mlir::WalkResult::advance();
     });
 
     if (walkResult.wasInterrupted()) {
         signalPassFailure();
+        return;
     }
 }
 

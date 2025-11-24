@@ -125,6 +125,9 @@ mlir::FailureOr<OutputTiling> vpux::VPU::GatherDMAOp::getTilingStrategy(TilingMo
 bool vpux::VPU::GatherDMAOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t numTiles) {
     const auto indicesShape = getShape(getIndices());
     const auto outputShape = getShape(getOutput());
+    if (indicesShape.size() != 4) {
+        return false;
+    }
     if (strategy == VPU::MultiClusterStrategy::SplitOverHeight) {
         return indicesShape[Dims4D::Act::H] == 1 && outputShape[Dims4D::Act::H] >= checked_cast<int64_t>(numTiles);
     }

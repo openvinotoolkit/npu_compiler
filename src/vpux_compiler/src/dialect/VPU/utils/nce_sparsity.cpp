@@ -258,6 +258,13 @@ Shape vpux::VPU::NCESparsity::inferWeightsTableShape(int64_t OC, bool newFormat)
     return Shape{OC, 1, 1, VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC};
 }
 
+Shape vpux::VPU::NCESparsity::infer5DWeightsTableShape(int64_t OC, int64_t groups, bool newFormat) {
+    if (newFormat) {
+        return Shape{groups, OC, 1, 1, VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC};
+    }
+    return Shape{groups, OC, 1, 1, VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC};
+}
+
 Shape vpux::VPU::NCESparsity::inferWeightsSparsityMapShape(ShapeRef dataShape) {
     VPUX_THROW_UNLESS(dataShape.size() == 4, "Expected data shape to be 4D, while shape is {0}", dataShape);
     const auto workloadSize = std::accumulate(dataShape.begin() + 1, dataShape.end(), static_cast<int64_t>(1),
@@ -417,54 +424,6 @@ bool vpux::VPU::NCESparsity::RuntimeSparsityStatsProvider::likelySparsityConsume
 // NewWeightsTableFormatMapper
 //
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::normalizeKAndReturnCurrentGroupOf128ZeroPoints(
-        int32_t index, int32_t& k) {
-    // the pattern is repeating after 128 elements
-    int32_t currentGroupOf128ZeroPoints = index / 128;
-    int32_t countGroupsOf128ZeroPoints = k / 128;
-
-    // check if the current zero-point is in the last group of 128 zero-points;
-    // you may see the following corner case: if k is a multiple of 128, then
-    // countGroupsOf128ZeroPoints == currentGroupOf128ZeroPoints will be always false
-    // that's intended because otherwise the first branch will be executed and k will become 0 (it has to be 128)
-    if (currentGroupOf128ZeroPoints == countGroupsOf128ZeroPoints) {
-        k %= 128;
-    } else {
-        k = 128;
-    }
-
-    return currentGroupOf128ZeroPoints;
-}
-
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::mathematicallyEncodePositionInNewZeroPointOnlyTableLayout(
-        int32_t zeroPointIndex, int32_t k) {
-    // the pattern is repeating after 128 elements
-    int32_t currentGroupOf128ZeroPoints = normalizeKAndReturnCurrentGroupOf128ZeroPoints(zeroPointIndex, k);
-    zeroPointIndex %= 128;
-
-    int32_t elementsInASequence = k / 8;
-    int32_t sequenceNumber = ((zeroPointIndex % 16) / 4) * 2 + zeroPointIndex % 2;
-    int32_t positionInSequence = (zeroPointIndex / 16) * 2 + (zeroPointIndex % 4) / 2;
-
-    int32_t elementPositionInTable = (elementsInASequence * sequenceNumber) + positionInSequence;
-    return elementPositionInTable + currentGroupOf128ZeroPoints * 128;
-}
-
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::mathematicallyDecodePositionInNewZeroPointOnlyTableLayout(
-        int32_t position, int32_t k) {
-    // the pattern is repeating after 128 elements
-    int32_t currentGroupOf128ZeroPoints = normalizeKAndReturnCurrentGroupOf128ZeroPoints(position, k);
-    position %= 128;
-
-    int32_t elementsInASequence = k / 8;
-    int32_t sequenceNumber = position / elementsInASequence;
-    int32_t positionInSequence = position % elementsInASequence;
-
-    int32_t elementPositionInTable =
-            sequenceNumber / 2 * 4 + positionInSequence / 2 * 16 + (positionInSequence % 2) * 2 + sequenceNumber % 2;
-    return elementPositionInTable + currentGroupOf128ZeroPoints * 128;
-}
-
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::computeInversePermutation(
         std::vector<int32_t> v) {
     VPUX_THROW_WHEN(v.size() == 0, "Input vector is empty");
@@ -495,7 +454,7 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::comput
 
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::computePointerTable(
         const std::vector<int32_t>& v) {
-    std::vector<int32_t> result(v.size(), NewWeightsTableFormatMapper::paddingValue);
+    std::vector<int32_t> result(v.size(), PADDING_POSITION_INDICATOR);
 
     int32_t numberOfLines = WEIGHTS_TABLE_READER_COUNT;
     int32_t numberOfColumns = v.size() / WEIGHTS_TABLE_READER_COUNT;
@@ -568,7 +527,6 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::zeroPo
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::zeroPointsK128InversePermutation =
         computeInversePermutation(zeroPointsK128);
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::paddingValue = -1;
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::pointersK16 =
         computePointerTable(zeroPointsK16);
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::pointersK32 =
@@ -605,26 +563,114 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::getPoi
     return pointerTables[k / WEIGHTS_TABLE_SETS_MIN_ALIGNMENT - 1];
 }
 
-int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInNewZeroPointOnlyTableLayout(
-        int32_t zeroPointIndex, int32_t k) {
-    // the pattern is repeating after 128 elements
-    normalizeKAndReturnCurrentGroupOf128ZeroPoints(zeroPointIndex, k);
-
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInWorkloadInNewZeroPointOnlyTableLayout(
+        int32_t position, int32_t k) {
     auto map = getZeroPointInversePermutationTableByK(k);
-    auto oldPosOffset = zeroPointIndex - zeroPointIndex % 128;
-    auto newPos = oldPosOffset + map[zeroPointIndex % 128];
+    auto oldPosOffset = position - position % ZERO_POINT_TABLE_READER_ALIGNMENT;
+    auto newPos = oldPosOffset + map[position % ZERO_POINT_TABLE_READER_ALIGNMENT];
+    return newPos;
+}
+
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::encodePositionInNewZeroPointOnlyTableLayout(
+        int32_t position, std::vector<int32_t> workloads) {
+    VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
+    VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
+
+    auto areWorkloadsValid = std::all_of(workloads.begin(), workloads.end(), [](int32_t wSize) {
+        return wSize > 0 && wSize % 16 == 0;
+    });
+    VPUX_THROW_WHEN(areWorkloadsValid == false,
+                    "Workloads with no elements and workloads not aligned to 16 are not allowed");
+
+    // the index corresponding to the workload in which the element at the given "position" is
+    unsigned long workloadIndex = 0;
+
+    // the offset for the workload in which the element at "position" is
+    // e.g. for position = 29 and workloads {16, 128}, the workloadOffset will be 128 (16 zero-points and 48 padded
+    // values), while workloadIndex will be 1
+    int32_t workloadOffset = 0;
+
+    // compute workloadIndex and workloadOffset, while adjusting position
+    while (position >= workloads[workloadIndex]) {
+        // if true, it means that the given position is invalid, out of the range of valid indices (no zero-point
+        // resides there), return -2
+        if (workloadIndex == workloads.size() - 1) {
+            return INVALID_POSITION_OUT_OF_RANGE;
+        }
+
+        workloadOffset += vpux::alignValUp(workloads[workloadIndex], WEIGHTS_TABLE_READER_ALIGNMENT);
+        position -= workloads[workloadIndex];
+        workloadIndex += 1;
+    }
+
+    // each workload have at least one group, formed by last "workload_size % 128" elements; all other chunks of 128
+    // elements are groups as well
+    int32_t elemsInCurrentGroup = ZERO_POINT_TABLE_READER_ALIGNMENT;
+
+    // this conditional executes only for the last group (if it contains less than 128 elements, which is implied by
+    // this condition)
+    if (workloads[workloadIndex] / ZERO_POINT_TABLE_READER_ALIGNMENT == position / ZERO_POINT_TABLE_READER_ALIGNMENT) {
+        elemsInCurrentGroup = workloads[workloadIndex] % ZERO_POINT_TABLE_READER_ALIGNMENT;
+    }
+
+    return workloadOffset + encodePositionInWorkloadInNewZeroPointOnlyTableLayout(position, elemsInCurrentGroup);
+}
+
+int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInWorkloadInNewZeroPointOnlyTableLayout(
+        int32_t position, int32_t k) {
+    auto map = getZeroPointTableByK(k);
+    auto oldPosOffset = position - position % ZERO_POINT_TABLE_READER_ALIGNMENT;
+    auto newPos = oldPosOffset + map[position % ZERO_POINT_TABLE_READER_ALIGNMENT];
     return newPos;
 }
 
 int32_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::decodePositionInNewZeroPointOnlyTableLayout(
-        int32_t position, int32_t k) {
-    // the pattern is repeating after 128 elements
-    normalizeKAndReturnCurrentGroupOf128ZeroPoints(position, k);
+        int32_t position, std::vector<int32_t> workloads) {
+    VPUX_THROW_WHEN(position < 0, "The position has to be valid, i.e. a natural number, not {0}", position);
+    VPUX_THROW_WHEN(workloads.size() == 0, "There has to be at least one workload");
 
-    auto map = getZeroPointTableByK(k);
-    auto oldPosOffset = position - position % 128;
-    auto newPos = oldPosOffset + map[position % 128];
-    return newPos;
+    auto areWorkloadsValid = std::all_of(workloads.begin(), workloads.end(), [](int32_t wSize) {
+        return wSize > 0 && wSize % 16 == 0;
+    });
+    VPUX_THROW_WHEN(areWorkloadsValid == false,
+                    "Workloads with no elements and workloads not aligned to 16 are not allowed");
+
+    // the index corresponding to the workload in which the element at the given "position" is
+    unsigned long workloadIndex = 0;
+
+    // the offset for the workload in which the element at "position" is
+    // e.g. for position = 29 and workloads {16, 128}, the workloadOffset will be 16, while workloadIndex will be 1
+    int32_t workloadOffset = 0;
+
+    // compute workloadIndex and workloadOffset, while adjusting position
+    while (position >= vpux::alignValUp(workloads[workloadIndex], WEIGHTS_TABLE_READER_ALIGNMENT)) {
+        // if true, it means that the given position is invalid, out of the range of valid indices (no
+        // zero-point/padding value resides there), return -2
+        if (workloadIndex == workloads.size() - 1) {
+            return INVALID_POSITION_OUT_OF_RANGE;
+        }
+
+        workloadOffset += workloads[workloadIndex];
+        position -= vpux::alignValUp(workloads[workloadIndex], WEIGHTS_TABLE_READER_ALIGNMENT);
+        workloadIndex += 1;
+    }
+
+    // each workload have at least one group, formed by last "workload_size % 128" elements; all other chunks of 128
+    // elements are groups as well
+    int32_t elemsInCurrentGroup = ZERO_POINT_TABLE_READER_ALIGNMENT;
+
+    // this conditional executes only for the last group (if it contains less than 128 elements, which is implied by
+    // this condition)
+    if (workloads[workloadIndex] / ZERO_POINT_TABLE_READER_ALIGNMENT == position / ZERO_POINT_TABLE_READER_ALIGNMENT) {
+        elemsInCurrentGroup = workloads[workloadIndex] % ZERO_POINT_TABLE_READER_ALIGNMENT;
+    }
+
+    // if true, it means that the value from the given position is a padding, return -1
+    if (position % ZERO_POINT_TABLE_READER_ALIGNMENT >= elemsInCurrentGroup) {
+        return PADDING_POSITION_INDICATOR;
+    }
+
+    return workloadOffset + decodePositionInWorkloadInNewZeroPointOnlyTableLayout(position, elemsInCurrentGroup);
 }
 
 int8_t vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::extractOneZPFromZPPalletizedByte(int8_t zeroPoint,
@@ -701,9 +747,9 @@ void vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constructNewPointerTab
 }
 
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constructNewPointerTable(
-        ArrayRef<int32_t> workloadsSizes, ArrayRef<int32_t> ptrs) {
+        ArrayRef<int32_t> workloadSizes, ArrayRef<int32_t> ptrs) {
     int32_t mappedTableSize = 0;
-    for (auto workloadSize : workloadsSizes) {
+    for (auto workloadSize : workloadSizes) {
         mappedTableSize += vpux::alignValUp(workloadSize, WEIGHTS_TABLE_READER_ALIGNMENT);
     }
 
@@ -711,11 +757,11 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constr
 
     int32_t workloadStartingIndex = 0;
     int32_t ptrStartingIndex = 0;
-    for (unsigned long index = 0; index < workloadsSizes.size(); index++) {
-        constructNewPointerTableForWorkload(mappedTable, workloadStartingIndex, workloadsSizes[index], ptrStartingIndex,
+    for (unsigned long index = 0; index < workloadSizes.size(); index++) {
+        constructNewPointerTableForWorkload(mappedTable, workloadStartingIndex, workloadSizes[index], ptrStartingIndex,
                                             ptrs);
-        workloadStartingIndex += vpux::alignValUp(workloadsSizes[index], WEIGHTS_TABLE_READER_ALIGNMENT);
-        ptrStartingIndex += workloadsSizes[index];
+        workloadStartingIndex += vpux::alignValUp(workloadSizes[index], WEIGHTS_TABLE_READER_ALIGNMENT);
+        ptrStartingIndex += workloadSizes[index];
     }
 
     return mappedTable;
@@ -723,17 +769,17 @@ std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constr
 
 std::vector<int32_t> vpux::VPU::NCESparsity::NewWeightsTableFormatMapper::constructNewPointerTable(
         ArrayRef<VPUIP::DPUTaskOp> tasks, ArrayRef<int32_t> ptrs) {
-    std::vector<int32_t> workloadsSizes(tasks.size(), -1);
+    std::vector<int32_t> workloadSizes(tasks.size(), -1);
     std::vector<VPUIP::DPUTaskOp> tasksVector(tasks.begin(), tasks.end());
 
     for (unsigned long index = 0; index < tasksVector.size(); index++) {
         int32_t cStart = mlir::dyn_cast<mlir::IntegerAttr>(tasksVector[index].getOutStart()[2]).getInt();
         int32_t cEnd = mlir::dyn_cast<mlir::IntegerAttr>(tasksVector[index].getOutEnd()[2]).getInt();
 
-        workloadsSizes[index] = cEnd - cStart + 1;
+        workloadSizes[index] = cEnd - cStart + 1;
     }
 
-    return constructNewPointerTable(workloadsSizes, ptrs);
+    return constructNewPointerTable(workloadSizes, ptrs);
 }
 
 //
@@ -761,47 +807,4 @@ int32_t vpux::VPU::NCESparsity::get5DWeightPtrStep(mlir::Value weights) {
     const Bit eltSize = getElemTypeSize(weights.getType());
 
     return checked_cast<int32_t>(Byte(eltSize * IC * KY * KX).count());
-}
-
-std::vector<int32_t> vpux::VPU::NCESparsity::create5DWeightsTableData(
-        mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights, const Const::ContentAttr& bias,
-        int64_t outputChannels, VPU::NCESparsity::PPEConverterCb ppeConverter,
-        VPU::NCESparsity::BiasConverterCb biasConverter, bool hasAutopad) {
-    const auto weightPtrOffset = 0;
-    const auto sparsityPtrOffset = 0;
-    const auto weightPtrStep = VPU::NCESparsity::get5DWeightPtrStep(weights);
-    const auto sparsityPtrStep = 0;
-
-    const auto inElemType = mlir::cast<vpux::NDTypeInterface>(opInput.getType()).getElementType();
-    const auto weightsElemType =
-            weights ? mlir::cast<vpux::NDTypeInterface>(weights.getType()).getElementType() : nullptr;
-
-    const auto wtVec = VPU::NCESparsity::getWeightsTable(inElemType, opOutputElemType, weightPtrOffset, weightPtrStep,
-                                                         sparsityPtrOffset, sparsityPtrStep, ppeConverter,
-                                                         biasConverter, outputChannels, weightsElemType, bias);
-
-    if (hasAutopad) {
-        return VPU::NCESparsity::getExpandedWeightsTable(wtVec, outputChannels);
-    }
-
-    return wtVec;
-}
-
-std::vector<int32_t> vpux::VPU::NCESparsity::create5DWeightsTableData(
-        mlir::Value opInput, mlir::Value opOutput, mlir::Value weights, const Const::ContentAttr& bias,
-        int64_t outputChannels, VPU::NCESparsity::PPEConverterCb ppeConverter,
-        VPU::NCESparsity::BiasConverterCb biasConverter, bool hasAutopad) {
-    const auto outElemType = mlir::cast<vpux::NDTypeInterface>(opOutput.getType()).getElementType();
-    return create5DWeightsTableData(opInput, outElemType, weights, bias, outputChannels, ppeConverter, biasConverter,
-                                    hasAutopad);
-}
-
-mlir::Value vpux::VPU::NCESparsity::create5DWeightsTableTensor(mlir::OpBuilder& builder, mlir::Location loc,
-                                                               ArrayRef<int32_t> weightsTable, int64_t outputChannels,
-                                                               int64_t groups) {
-    const auto elemType = getSInt32Type(builder.getContext());
-    const Shape weightTableShape = {groups, outputChannels, 1, 1, VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC};
-
-    const auto dataStorageType = mlir::RankedTensorType::get(weightTableShape.raw(), elemType);
-    return Const::createConst(builder, loc, dataStorageType, weightsTable);
 }

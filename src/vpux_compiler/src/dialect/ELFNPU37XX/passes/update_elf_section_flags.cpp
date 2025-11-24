@@ -24,7 +24,7 @@ namespace {
 
 class UpdateELFSectionFlagsPass final : public ELFNPU37XX::impl::UpdateELFSectionFlagsBase<UpdateELFSectionFlagsPass> {
 public:
-    explicit UpdateELFSectionFlagsPass(Logger log): _log(log) {
+    explicit UpdateELFSectionFlagsPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -56,8 +56,6 @@ private:
         runOnSectionOps<ELFNPU37XX::CreateSectionOp>(funcOp);
         runOnSectionOps<ELFNPU37XX::CreateLogicalSectionOp>(funcOp);
     };
-
-    Logger _log;
 };
 
 }  // namespace

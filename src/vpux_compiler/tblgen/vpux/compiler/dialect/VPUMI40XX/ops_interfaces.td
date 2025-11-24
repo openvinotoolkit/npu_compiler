@@ -69,6 +69,16 @@ def VPUMI40XX_ExecutableTaskOpInterface : OpInterface<"ExecutableTaskOpInterface
                 return $_op.getEnqueueBarrierMutable();
             }]
         >,
+        InterfaceMethod<
+            "Set clean_after attribute in the task's descriptor",
+            "void", "setCleanAfterAttr", (ins "mlir::IntegerAttr":$cleanAfter),
+            [{$_op.setCleanAfterAttr(cleanAfter);}]
+        >,
+        InterfaceMethod<
+            "Set clean_after value in the task's descriptor",
+            "void", "setCleanAfter", (ins "std::size_t":$cleanAfter),
+            [{$_op.setCleanAfter(cleanAfter);}]
+        >,
     ];
 }
 

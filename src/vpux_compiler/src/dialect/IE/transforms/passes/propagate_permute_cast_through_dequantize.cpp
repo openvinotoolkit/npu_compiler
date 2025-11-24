@@ -84,15 +84,12 @@ mlir::LogicalResult PermuteCastRewriter::matchAndRewrite(IE::PermuteCastOp origO
 class PropagatePermuteCastThroughDequantizePass final :
         public vpux::IE::impl::PropagatePermuteCastThroughDequantizeBase<PropagatePermuteCastThroughDequantizePass> {
 public:
-    explicit PropagatePermuteCastThroughDequantizePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PropagatePermuteCastThroughDequantizePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PropagatePermuteCastThroughDequantizePass::safeRunOnFunc() {

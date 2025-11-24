@@ -47,6 +47,8 @@ constexpr auto TANH_SAT_LOW = 4.156f;
 constexpr auto TANH_SAT_HIGH = std::numeric_limits<float>::infinity();
 constexpr auto TANH_SAT_VALUE = 1.f;
 
+constexpr auto TANH_ERROR = 0.0001f;
+
 //
 // Sigmoid
 //
@@ -61,6 +63,8 @@ constexpr auto SIGMOID_POS_SAT_LOW = 16.f;
 constexpr auto SIGMOID_POS_SAT_HIGH = std::numeric_limits<float>::infinity();
 constexpr auto SIGMOID_POS_SAT_VALUE = 1.f;
 
+constexpr auto SIGMOID_ERROR = 0.0001f;
+
 //
 // Swish
 //
@@ -74,6 +78,8 @@ constexpr auto SWISH_SAT_VALUE = 0.f;
 constexpr auto SWISH_BYPASS_LOW = 16.f;
 constexpr auto SWISH_BYPASS_HIGH = std::numeric_limits<float>::infinity();
 
+constexpr auto SWISH_ERROR = 0.00014f;
+
 //
 // GELU
 //
@@ -86,6 +92,24 @@ constexpr auto GELU_SAT_VALUE = 0.f;
 // Can be approximated as f(x) = x when x -> +inf
 constexpr auto GELU_BYPASS_LOW = 4.f;
 constexpr auto GELU_BYPASS_HIGH = std::numeric_limits<float>::infinity();
+
+constexpr auto GELU_ERROR = 0.00013f;
+
+//
+// EXP
+//
+
+// Converges to 0 if x -> -inf
+constexpr auto EXP_NEG_SAT_LOW = -1 * std::numeric_limits<float>::infinity();
+constexpr auto EXP_NEG_SAT_HIGH = -7.22f;
+constexpr auto EXP_NEG_SAT_VALUE = 0.f;
+
+// Diverges to +inf if x -> +inf, we return the max representable value instead
+constexpr auto EXP_POS_SAT_LOW = 11.08986f;
+constexpr auto EXP_POS_SAT_HIGH = std::numeric_limits<float>::infinity();
+constexpr auto EXP_POS_SAT_VALUE = std::numeric_limits<ov::float16>::max();
+
+constexpr auto EXP_ERROR = 0.003f;
 
 //
 // Lut config
@@ -182,6 +206,35 @@ std::pair<float, float> getSegmentBeginEnd(uint16_t sign, uint16_t exponent, uin
                                            uint16_t mantissaMSBs = 0);
 float getValue(uint16_t sign, uint16_t exponent, uint16_t mantissa);
 
+struct Error {
+    enum class Type : uint8_t { ABSOLUTE, RELATIVE };
+
+    Error(float v, Type t): value(v), type(t) {
+    }
+    bool isRelative() const {
+        return type == Type::RELATIVE;
+    }
+
+    float getValue() const {
+        return value;
+    }
+    operator float() const {
+        return value;
+    }
+
+    float value;
+    Type type;
+};
+struct AbsoluteError : Error {
+    explicit AbsoluteError(float v): Error(v, Type::ABSOLUTE) {
+    }
+};
+
+struct RelativeError : Error {
+    explicit RelativeError(float v): Error(v, Type::RELATIVE) {
+    }
+};
+
 //
 // SprLUTGenerator
 //
@@ -195,7 +248,10 @@ float getValue(uint16_t sign, uint16_t exponent, uint16_t mantissa);
 
 class SprLUTGenerator {
 public:
-    SprLUTGenerator(std::function<float(float)> refFunction, float maxAbsoluteError,
+    SprLUTGenerator(std::function<float(float)> refFunction, AbsoluteError maxAbsoluteError,
+                    Logger log = Logger::global().nest("sprlut-generator"));
+
+    SprLUTGenerator(std::function<float(float)> refFunction, RelativeError maxRelativeError,
                     Logger log = Logger::global().nest("sprlut-generator"));
 
     SprLUTGenerator& setIsSymmetric();
@@ -220,7 +276,7 @@ private:
 
 private:
     std::function<float(float)> _refFunction;
-    float _maxAbsoluteError{};
+    Error _error;
 
     llvm::SmallVector<SaturationBypassRange> _saturationBypassRanges;
     std::vector<LutConfig> _lutConfig;

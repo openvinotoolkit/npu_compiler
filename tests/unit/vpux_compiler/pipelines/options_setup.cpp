@@ -60,7 +60,7 @@ TEST_F(OptionsSetupTest, PartialImplementation1) {
         using Base::Base;
         using Base::setupOptionsImpl;
 
-        static void setupLitTestOptionsImpl(PublicOptions&) {
+        static void setupLitTestOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&) {
         }
     };
 
@@ -75,7 +75,7 @@ TEST_F(OptionsSetupTest, PartialImplementation2) {
         using Base::Base;
         using Base::setupLitTestOptionsImpl;
 
-        static void setupOptionsImpl(PublicOptions&, const intel_npu::Config&) {
+        static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
         }
     };
 
@@ -91,10 +91,10 @@ public:
     using Base::Base;
 
 protected:
-    static void setupLitTestOptionsImpl(PublicOptions&) {
+    static void setupLitTestOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&) {
     }
 
-    static void setupOptionsImpl(PublicOptions&, const intel_npu::Config&) {
+    static void setupOptionsImpl(PublicOptions&, VPU::InitCompilerOptions&, const intel_npu::Config&) {
     }
 };
 
@@ -105,9 +105,10 @@ TEST_F(OptionsSetupTest, IntermediateImplementation) {
         using Base::Base;
         using Base::setupLitTestOptionsImpl;
 
-        static void setupOptionsImpl(PublicOptions& options, const intel_npu::Config& config) {
-            Base::setupOptionsImpl(options, config);
-            EXPECT_THROW(Base::Base::setupOptionsImpl(options, config), vpux::Exception);
+        static void setupOptionsImpl(PublicOptions& options, VPU::InitCompilerOptions& initCompilerOptions,
+                                     const intel_npu::Config& config) {
+            Base::setupOptionsImpl(options, initCompilerOptions, config);
+            EXPECT_THROW(Base::Base::setupOptionsImpl(options, initCompilerOptions, config), vpux::Exception);
         }
     };
 

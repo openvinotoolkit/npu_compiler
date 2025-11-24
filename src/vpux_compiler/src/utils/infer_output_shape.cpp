@@ -500,8 +500,10 @@ mlir::OpFoldResult vpux::reifyDim(mlir::OpBuilder builder, mlir::Value value, ml
                                   std::optional<mlir::Location> loc) {
     if (type.isDynamicDim(idx)) {
         const auto actualLoc = loc.value_or(value.getLoc());
-        auto dimOp = builder.createOrFold<mlir::tensor::DimOp>(actualLoc, value, idx);
-        return mlir::getValueOrCreateConstantIndexOp(builder, actualLoc, dimOp);
+        auto dimLoc = appendLoc(actualLoc, llvm::StringLiteral("dim_{0}"), idx);
+        auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), idx);
+        auto dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, value, index);
+        return mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(actualLoc, "const_index"), dimOp);
     }
     return builder.getIndexAttr(type.getDimSize(idx));
 }
@@ -690,36 +692,35 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::reifyConvPoolTensors(
                         kernelShapedType.getRank());
     }
 
-    auto makeIndex = [&](int64_t value) {
-        return builder.createOrFold<mlir::arith::ConstantIndexOp>(loc, value);
+    auto makeIndex = [&](int64_t value, mlir::Location indexLoc) {
+        return builder.createOrFold<mlir::arith::ConstantIndexOp>(appendLoc(indexLoc, "const_index"), value);
     };
 
     auto calculateDimSize = [&](mlir::Value inputDim, int64_t kernelDim, int64_t padBegin, int64_t padEnd,
-                                int64_t stride) {
+                                int64_t stride, mlir::Location dimLoc) {
         // output = (input + padBegin + padEnd - kernelDim + stride) / stride
         auto padConst = padBegin + padEnd - kernelDim + stride;
-        auto sum = builder.createOrFold<mlir::arith::AddIOp>(takeOpLoc(inputDim.getDefiningOp(), "_add"), inputDim,
-                                                             makeIndex(padConst));
-        return builder.createOrFold<mlir::arith::DivSIOp>(takeOpLoc(sum.getDefiningOp(), "_div"), sum,
-                                                          makeIndex(stride));
+        auto addLoc = appendLoc(dimLoc, "add");
+        auto sum = builder.createOrFold<mlir::arith::AddIOp>(addLoc, inputDim, makeIndex(padConst, addLoc));
+        auto divLoc = appendLoc(dimLoc, "div");
+        return builder.createOrFold<mlir::arith::DivSIOp>(divLoc, sum, makeIndex(stride, divLoc));
     };
 
     // Use generator functions based on index for each output dimension
     auto computeShapeForDim = [&](int64_t idx) -> mlir::OpFoldResult {
-        auto dimLoc = appendLoc(loc, llvm::StringLiteral("_dim_{0}"), idx);
         if (idx == Dims4D::Act::N.ind()) {
-            return reifyDim(builder, input, idx, dimLoc);
+            return reifyDim(builder, input, idx, loc);
         } else if (idx == Dims4D::Act::C.ind()) {
-            return kernel == nullptr ? reifyDim(builder, input, Dims4D::Act::C.ind(), dimLoc)
-                                     : reifyDim(builder, kernel, Dims4D::Filter::OC.ind(), dimLoc);
+            return kernel == nullptr ? reifyDim(builder, input, Dims4D::Act::C.ind(), loc)
+                                     : reifyDim(builder, kernel, Dims4D::Filter::OC.ind(), loc);
         } else if (idx == Dims4D::Act::H.ind() || idx == Dims4D::Act::W.ind()) {
-            auto inputDim = reifyDim(builder, input, idx, dimLoc);
-            auto inputDimVal = inputDim.dyn_cast<mlir::Value>();
+            auto inputDim = reifyDim(builder, input, idx, loc);
+            auto inputDimVal = mlir::dyn_cast<mlir::Value>(inputDim);
             VPUX_THROW_WHEN(inputDimVal == nullptr, "Failed to reify input dimension {0} for input {1} at location {2}",
                             idx, input, loc);
             auto adjustedIdx = idx - 2;
             return calculateDimSize(inputDimVal, kernelSize[adjustedIdx], padBegin[adjustedIdx], padEnd[adjustedIdx],
-                                    strides[adjustedIdx]);
+                                    strides[adjustedIdx], appendLoc(loc, llvm::StringLiteral("dim_{0}"), adjustedIdx));
         } else {
             VPUX_THROW("Unexpected dimension index {0}", idx);
         }
@@ -728,7 +729,8 @@ mlir::FailureOr<SmallVector<mlir::OpFoldResult>> vpux::reifyConvPoolTensors(
     SmallVector<mlir::OpFoldResult> shapes;
     for (const auto dim : llvm::seq<int64_t>(0, outputShapedType.getRank())) {
         if (outputShapedType.isDynamicDim(dim)) {
-            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, computeShapeForDim(dim)));
+            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loc, "const_index"),
+                                                                   computeShapeForDim(dim)));
         } else {
             shapes.push_back(builder.getIndexAttr(outputShapedType.getDimSize(dim)));
         }
@@ -765,7 +767,11 @@ ShapeInfo vpux::inferEltwiseOutputShapeInfo(const ShapeInfo& in1ShapeInfo, const
         return {std::move(outShape), {}};
     }
 
-    auto outBoundRes = IE::broadcastEltwiseShape(in1ShapeInfo.bounds, in2ShapeInfo.bounds, broadcastType, loc);
+    // In case if we don't have bounds - use shape as bounds
+    const auto in1Bounds = in1ShapeInfo.bounds.empty() ? in1ShapeInfo.shape : in1ShapeInfo.bounds;
+    const auto in2Bounds = in2ShapeInfo.bounds.empty() ? in2ShapeInfo.shape : in2ShapeInfo.bounds;
+
+    auto outBoundRes = IE::broadcastEltwiseShape(in1Bounds, in2Bounds, broadcastType, loc);
     if (mlir::failed(outBoundRes)) {
         return {};
     }

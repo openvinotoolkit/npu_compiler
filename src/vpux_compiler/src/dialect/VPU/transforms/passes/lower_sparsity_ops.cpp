@@ -359,7 +359,8 @@ mlir::LogicalResult rewriteSparsityOpWithConv(mlir::PatternRewriter& rewriter, m
     auto weightsTableVec = VPU::createWeightsTableData(origOp->getOperand(0), adaptedOutElemType, filter,
                                                        /*bias=*/{}, OC, ppeConverter, biasConverter,
                                                        /*constScale=*/nullptr, /*hasAutopad=*/false);
-    auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
+    const auto wtShape = VPU::NCESparsity::inferWeightsTableShape(OC);
+    auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec, wtShape);
 
     auto stridesAttr = getIntArrayAttr(ctx, SmallVector<int64_t>({1, 1}));
     auto padAttr = VPU::getPaddingAttr(ctx, pads);
@@ -510,19 +511,14 @@ void LowerSparsityOpsPass::safeRunOnFunc() {
     mlir::ConversionTarget target(ctx);
     target.addIllegalOp<VPU::DesparsifyOp>();
     target.addIllegalOp<VPU::SparsifyOp>();
-    target.addLegalDialect<Core::CoreDialect>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
-    target.addLegalDialect<mlir::linalg::LinalgDialect>();
-    target.addLegalDialect<mlir::math::MathDialect>();
-
-    target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<RewriteDesparsify>(&ctx, _log);
     patterns.add<RewriteSparsify>(&ctx, _maybeFakeSparsify.value_or(true), _log);
 
-    if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {
+    if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {
         signalPassFailure();
     }
 }

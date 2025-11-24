@@ -2007,6 +2007,8 @@ func.func @HSigmoidSplitOverW(%arg0: tensor<1x8x80x1280xf16>) -> tensor<1x8x80x1
 
 // -----
 
+// CHECK-LABEL: @SplitNegativeActivationSw
+// CHECK-SAME:  [[INPUT:%arg[0-9]]]: tensor<1x8x80x1280xf16>) -> tensor<1x8x80x1280xf16> {
 func.func @SplitNegativeActivationSw(%arg0: tensor<1x8x80x1280xf16>) -> tensor<1x8x80x1280xf16> {
   %0 = VPU.Negative(%arg0) : tensor<1x8x80x1280xf16> -> tensor<1x8x80x1280xf16>
   return %0 : tensor<1x8x80x1280xf16>

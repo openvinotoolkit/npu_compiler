@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/gather_dma_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 
 namespace vpux::VPU {

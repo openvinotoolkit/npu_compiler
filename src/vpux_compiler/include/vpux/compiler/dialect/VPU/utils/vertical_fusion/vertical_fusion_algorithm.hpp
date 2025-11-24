@@ -6,7 +6,6 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_case.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
 #include "vpux/utils/logger/logger.hpp"

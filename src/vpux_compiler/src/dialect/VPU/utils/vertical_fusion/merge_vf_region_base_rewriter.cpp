@@ -354,7 +354,7 @@ bool MergeVFRegionBaseRewriter<VFCaseType>::checkVFCostFunction(VPU::VerticalFus
     }
     mergedCase.getConfig().invalidatePointers();
 
-    if (mergedVFCost > prevCost + currentCost) {
+    if (mergedVFCost > VPUNN::Cycles::cost_adder(prevCost, currentCost)) {
         _log.trace("Failed to merge VerticalFusionOp due to higher cost: mergedVFCost ({0}) > prevCost ({1}) + "
                    "currentCost ({2})",
                    mergedVFCost, prevCost, currentCost);

@@ -207,3 +207,49 @@ func.func @DoNotMapBilinearInterpolateAlignCornersFloatScaleOnDPU(%arg0: tensor<
     // CHECK-SAME:      sizes_attr = [1, 21, 384, 384]} : tensor<1x21x48x48xf16> -> tensor<1x21x384x384xf16>
     // CHECK:           return [[INTERP]] : tensor<1x21x384x384xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @MapBilinearInterpolateOnDPULargeDownsample
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x23x2176x3840xf16>
+func.func @MapBilinearInterpolateOnDPULargeDownsample(%arg0: tensor<1x23x2176x3840xf16>) -> tensor<1x23x272x480xf16> {
+    %0 = IE.Interpolate(%arg0) {
+        attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <HALF_PIXEL>, nearest_mode = <ROUND_PREFER_FLOOR>,
+        antialias = false,
+        pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+        cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [1.250000e-01, 1.250000e-01],
+        sizes_attr = [272, 480]
+    } : tensor<1x23x2176x3840xf16> -> tensor<1x23x272x480xf16>
+
+    return %0 : tensor<1x23x272x480xf16>
+
+    // CHECK-NOT: IE.Interpolate
+    // CHECK: IE.Expand
+    // CHECK: IE.Slice
+    // CHECK: IE.GroupConvolution
+    // CHECK: IE.Concat
+    // CHECK: IE.Slice
+    // CHECK: return
+}
+
+// -----
+
+// CHECK-LABEL: @DoNotMapBilinearInterpolateOnDPUBecauseChannelIs3
+// CHECK-SAME:    [[INPUT:%.+]]: tensor<1x3x160x160xf16>
+func.func @DoNotMapBilinearInterpolateOnDPUBecauseChannelIs3(%arg0: tensor<1x3x160x160xf16>) -> tensor<1x3x320x320xf16> {
+    %0 = IE.Interpolate(%arg0) {
+        attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <PYTORCH_HALF_PIXEL>, nearest_mode = <FLOOR>,
+        antialias = false,
+        pads_begin = [0, 0, 0, 0],
+        pads_end = [0, 0, 0, 0],
+        cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [2, 3], operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [2.000000e+00, 2.000000e+00],
+        sizes_attr = [320, 320]} : tensor<1x3x160x160xf16> -> tensor<1x3x320x320xf16>
+    return %0 : tensor<1x3x320x320xf16>
+
+    // CHECK:   IE.Interpolate([[INPUT]])
+}

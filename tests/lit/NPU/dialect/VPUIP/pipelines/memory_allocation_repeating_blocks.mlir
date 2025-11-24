@@ -18,7 +18,7 @@ module @SingleRepeat {
 
     // CHECK-LABEL: @foo
     // CHECK-SAME: ({{%.+}}: memref<1x4x60x60xf16, @DDR>, [[OUT:%.+]]: memref<1x4x60x60xf16, @DDR>)
-    // CHECk-SAME: -> memref<1x4x60x60xf16, @DDR>
+    // CHECK-SAME: -> memref<1x4x60x60xf16, @DDR>
     func.func private @foo(%in: memref<1x4x60x60xf16, @DDR>, %out: memref<1x4x60x60xf16, @DDR>)
             -> memref<1x4x60x60xf16, @DDR> {
         // CHECK-NEXT: [[ALLOC:%.+]] = VPUIP.StaticAlloc<115200> -> memref<1x4x60x60xf16, @DDR>

@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_scheduler_interface.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <deque>
 
@@ -100,31 +102,31 @@ VPUNNCostParameters VFScheduling::fillInCostParam(mlir::Operation* operation,
  *   is scheduled before another parent operation in the block. It also calculates memory requirements to ensure
  *   they fit within the available CMX memory.
  */
-bool hasPrefetchedDMA(mlir::Operation* oper, mlir::BlockArgument arg, VFConfig& config,
+bool hasPrefetchedDMA(mlir::Operation* operation, mlir::BlockArgument arg, VFConfig& config,
                       const VPUNNCostParameters& parameters, const bool isInput) {
-    if (oper->hasTrait<VPU::EltwiseOp>() && oper->getNumOperands() > 1) {
+    if (operation->hasTrait<VPU::EltwiseOp>() && operation->getNumOperands() > 1) {
         auto getOperandIdx = [&]() {
             auto uses = arg.getUses();
             for (auto& use : uses) {
-                if (use.getOwner() == oper) {
+                if (use.getOwner() == operation) {
                     return use.getOperandNumber();
                 }
             }
-            VPUX_THROW("Cannot find the operand index for {0}", oper->getLoc());
+            VPUX_THROW("Cannot find the operand index for {0}", operation->getLoc());
         };
 
-        auto vfOp = oper->getParentOfType<VPU::VerticalFusionOp>();
+        auto vfOp = operation->getParentOfType<VPU::VerticalFusionOp>();
         auto curParentOp = vfOp->getOperand(arg.getArgNumber()).getDefiningOp<VPU::VerticalFusionOp>();
 
         auto operandIdx = getOperandIdx();
         auto otherOperandIdx = operandIdx == 0 ? 1 : 0;
-        if (auto otherOperandblockArg = mlir::dyn_cast<mlir::BlockArgument>(oper->getOperand(otherOperandIdx))) {
+        if (auto otherOperandblockArg = mlir::dyn_cast<mlir::BlockArgument>(operation->getOperand(otherOperandIdx))) {
             auto otherParentOp =
                     vfOp->getOperand(otherOperandblockArg.getArgNumber()).getDefiningOp<VPU::VerticalFusionOp>();
             if (curParentOp != nullptr && otherParentOp != nullptr && curParentOp->isBeforeInBlock(otherParentOp)) {
-                auto operandSize =
-                        config.getOperationTypes(oper, parameters._tiling[0], parameters._operandsTiling[0])[operandIdx]
-                                .getTotalAllocSize();
+                auto operandSize = config.getOperationTypes(operation, parameters._tiling[0],
+                                                            parameters._operandsTiling[0])[operandIdx]
+                                           .getTotalAllocSize();
 
                 auto parentVfConfig = VFConfig(otherParentOp);
                 auto tilingInfo = std::make_unique<TilingOperationStorage>();
@@ -137,13 +139,13 @@ bool hasPrefetchedDMA(mlir::Operation* oper, mlir::BlockArgument arg, VFConfig& 
                 auto lastTileSize = VPU::getRequiredCMX(
                         lastOp, parentVfConfig.getOperationTypes(lastOp, inputOutputTiling.value().second,
                                                                  inputOutputTiling.value().first.tiles));
-                return operandSize + lastTileSize > getTotalCMXFragmentationAwareSize(oper);
+                return operandSize + lastTileSize > getTotalCMXFragmentationAwareSize(operation);
             }
         }
         return true;
     }
 
-    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(oper);
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(operation);
 
     if (nceOp != nullptr && (arg != nceOp.getWeightsOperand() && arg != nceOp->getOperand(0))) {
         return false;
@@ -158,6 +160,54 @@ bool hasPrefetchedDMA(mlir::Operation* oper, mlir::BlockArgument arg, VFConfig& 
     }
 
     return arg == nceOp.getWeightsOperand();
+}
+
+bool VFScheduling::isSharedWeightsSupported(VFConfig& config) const {
+    // OptimizeParallelCopies may keep parallel copies when inplace eltwise are involved. Scenario becomes more complex
+    // when there are multi eltwise ops inside. Skip this for now.
+    auto hasMultiInPlaceEltwise = llvm::count_if(config.getVFOperations(), [](mlir::Operation* op) {
+                                      return op->hasTrait<VPU::EltwiseOp>() && op->hasAttr(isInPlace);
+                                  }) > 1;
+    return !hasMultiInPlaceEltwise;
+}
+
+Byte VFScheduling::calculateSharedSize(VFConfig& config, mlir::Operation* operation,
+                                       const vpux::VPU::VFOperationTiling& inputOutputTiling) const {
+    const auto& inTile = inputOutputTiling.first;
+    const auto& outTile = inputOutputTiling.second;
+    Byte size(0);
+    auto tiledTypes = config.getOperationTypes(operation, outTile, inTile.tiles);
+    for (auto operandIdx : irange(tiledTypes.size() - operation->getNumResults())) {
+        auto operand = operation->getOperand(operandIdx);
+        if (operandIdx >= inTile.tiles.size()) {
+            break;
+        }
+        if (mlir::isa<mlir::BlockArgument>(operand)) {
+            auto canBeShared = isOperandSharedWeightsForTiling(operation, operand, tiledTypes[operandIdx].getShape());
+            if (canBeShared) {
+                size += tiledTypes[operandIdx].getTotalAllocSize();
+            }
+        }
+    }
+    return size;
+};
+
+Byte VFScheduling::getSharedSizeByAllTiles(ArrayRef<mlir::Operation*> operations, VFConfig& config,
+                                           const TilingOperationStorage::UPtr& tilingInfo) const {
+    Byte reservedSize(0);
+    if (!isSharedWeightsSupported(config)) {
+        return reservedSize;
+    }
+
+    const auto index = 0;
+    for (auto* operation : operations) {
+        auto opTiling = tilingInfo->get(operation, index);
+        if (!opTiling.has_value()) {
+            continue;
+        }
+        reservedSize += calculateSharedSize(config, operation, opTiling.value());
+    }
+    return reservedSize;
 }
 
 mlir::Operation* findParent(mlir::Value operand) {
@@ -213,11 +263,21 @@ StrategyCost VFScheduling::getPrefetchingCost(mlir::Operation* operation, VFConf
     if (!inputTiling.has_value()) {
         return prefetchedCost;
     }
+
+    const auto sharedWeightsEnabled = isSharedWeightsSupported(config);
+
     for (auto input : operation->getOperands() | indexed) {
         if (input.index() >= inputTiling.value().first.tiles.size()) {
             break;
         }
         auto inputOperand = input.value();
+        auto inTiledShape = inputTiling.value().first.tiles[input.index()].shape;
+        auto isAlreadyShared = index != 0 && sharedWeightsEnabled &&
+                               isOperandSharedWeightsForTiling(operation, inputOperand, inTiledShape);
+        if (isAlreadyShared) {
+            continue;
+        }
+
         if (auto blockArg = mlir::dyn_cast<mlir::BlockArgument>(inputOperand)) {
             if (hasPrefetchedDMA(operation, blockArg, config, parameters, isInput)) {
                 prefetchedCost += costFunction->getSpillingTypeCost(

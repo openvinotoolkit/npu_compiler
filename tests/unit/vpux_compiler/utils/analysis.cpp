@@ -53,7 +53,7 @@ TEST_F(GetTopModuleOp, TopModuleExists) {
 
     // All ops must have the same top level module, namely actualTopModuleOp.
     actualTopModuleOp.get().walk([&](mlir::Operation* op) {
-        auto topModuleOp = getTopModuleOp(op);
+        auto topModuleOp = getTopParentOpOfType<mlir::ModuleOp>(op);
         EXPECT_EQ(topModuleOp, actualTopModuleOp.get());
     });
 }
@@ -70,6 +70,7 @@ TEST_F(GetTopModuleOp, TopModuleDoesNotExist) {
 
     // All ops must have no top level module.
     actualTopModuleOp.get()->walk([&](mlir::Operation* op) {
-        EXPECT_THROW(std::ignore = getTopModuleOp(op), std::exception);
+        auto topModuleOp = getTopParentOpOfType<mlir::ModuleOp>(op);
+        EXPECT_EQ(topModuleOp, nullptr);
     });
 }

@@ -38,6 +38,17 @@
 
 namespace nn_public {
 
+// base resources
+constexpr uint32_t VPU_MAX_TILES = 6;
+constexpr uint32_t VPU_BARRIERS_PER_GROUP = 16;
+constexpr uint32_t VPU_DPU_PER_TILE = 1;
+constexpr uint32_t VPU_SNN_PER_TILE = VPU_DPU_PER_TILE;
+constexpr uint32_t VPU_SNN_TOTAL = VPU_SNN_PER_TILE * VPU_MAX_TILES;
+constexpr uint32_t VPU_AS_PER_TILE = 2;
+// On NPU4, there is only one physical DMA engine, but it is logically split into two interfaces.
+constexpr uint32_t VPU_MAX_DMA_ENGINES = 2;
+constexpr uint32_t VPU_AS_TOTAL = VPU_AS_PER_TILE * VPU_MAX_TILES;
+
 #pragma pack(push, 1)
 
 template <typename T>
@@ -60,11 +71,9 @@ struct VPU_ALIGNED_STRUCT(8) VpuTaskReference {
     T &at(uint32_t index, int64_t offset = 0) { return (reinterpret_cast<T *>(address + offset))[index]; }
     const T &at(uint32_t index, int64_t offset = 0) const { return (reinterpret_cast<T *>(address + offset))[index]; }
 
-    template <class TD>
-    VpuTaskReference &operator=(TD fixedVector) {
-        address = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(fixedVector.data())) - fixedVector.apertureOffset();
-        count = static_cast<uint64_t>(fixedVector.size());
-        return *this;
+    bool is_valid() const {
+        // Check if address is non-null and aligned to the natural alignment of T
+        return (address != 0 && !(address & (alignof(T) - 1)));
     }
 };
 
@@ -86,6 +95,27 @@ struct VPU_ALIGNED_STRUCT(8) VpuNNShaveRuntimeConfigs {
 };
 
 static_assert(sizeof(VpuNNShaveRuntimeConfigs) == 96, "VpuNNShaveRuntimeConfigs size != 96");
+
+/**
+ * @brief Contains the resource requirements for the inference.
+ */
+struct VPU_ALIGNED_STRUCT(4) VpuResourceRequirements {
+    /**
+     * @brief Amount of CMX memory required per tile.
+     */
+    uint32_t nn_slice_length_;
+    uint8_t deprecated_[6]; // Deprecated member, do not reuse until next API major version update
+    /**
+     * @brief Number of tiles.
+     */
+    uint8_t nn_slice_count_;
+    /**
+     * @brief Unused.
+     */
+    uint8_t nn_barriers_;
+};
+
+static_assert(sizeof(VpuResourceRequirements) == 12, "VpuResourceRequirements size != 12");
 
 #pragma pack(pop)
 

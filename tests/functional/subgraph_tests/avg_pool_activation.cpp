@@ -9,10 +9,13 @@
 
 namespace ov::test {
 
+enum class ErrorType : uint8_t { ABSOLUTE, RELATIVE };
+
 struct AvgPoolWithActivationTestParams {
     utils::ActivationTypes activationType;
-    float threshold;
-    float swishBeta;
+    ErrorType errorType;
+    float threshold{0.0f};
+    float swishBeta{0.0f};
 };
 
 class AvgPoolWithActivationTest :
@@ -46,8 +49,7 @@ class AvgPoolWithActivationTest :
     }
 
     void SetUp() override {
-        auto& [activationType, threshold, swishBeta] = GetParam();
-        abs_threshold = threshold;
+        auto& [activationType, errorType, threshold, swishBeta] = GetParam();
 
         const auto inShape = ov::Shape{1, 16, 16, 256};
         init_input_shapes(static_shapes_to_test_representation({inShape}));
@@ -57,6 +59,15 @@ class AvgPoolWithActivationTest :
 
         auto avgPool = std::make_shared<ov::op::v1::AvgPool>(params.at(0), ov::Strides{1, 1}, ov::Shape{0, 0},
                                                              ov::Shape{0, 0}, ov::Shape{1, 1}, true);
+
+        if (errorType == ErrorType::ABSOLUTE) {
+            abs_threshold = threshold;
+            rel_threshold = disable_threshold;
+        } else {
+            rel_threshold = threshold;
+            abs_threshold = disable_threshold;
+        }
+
         const auto activation = activationType == utils::Swish
                                         ? utils::make_activation(avgPool->output(0), ov::element::f16, activationType,
                                                                  ov::Shape{}, {swishBeta})
@@ -80,8 +91,15 @@ public:
 
 const std::vector<AvgPoolWithActivationTestParams> activations = {
 
-        {utils::Tanh, 0.0001f, 0.0f},   {utils::Sigmoid, 0.0001f, 0.0f}, {utils::Gelu, 0.00013f, 0.0f},
-        {utils::Swish, 0.00014f, 1.0f}, {utils::Swish, 0.00014f, 1.7f},  {utils::Swish, 0.00014f, 10.0f}};
+        {utils::Tanh, ErrorType::ABSOLUTE, 0.0001f},
+        {utils::Sigmoid, ErrorType::ABSOLUTE, 0.0001f},
+        {utils::Gelu, ErrorType::ABSOLUTE, 0.00013f},
+        {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 1.0f},
+        {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 1.7f},
+        {utils::Swish, ErrorType::ABSOLUTE, 0.00014f, 10.0f},
+        {utils::Exp, ErrorType::RELATIVE, 0.003f}
+
+};
 
 INSTANTIATE_TEST_SUITE_P(smoke_AvgPoolWithActivation, AvgPoolWithActivationTest, ::testing::ValuesIn(activations),
                          AvgPoolWithActivationTest::getTestCaseName);

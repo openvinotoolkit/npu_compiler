@@ -137,4 +137,119 @@ OutputTiling lstmSequenceOutputTiling(const vpux::TileInfo& firstOutputTile) {
     return {std::move(newFirstOutputTile), std::move(secondTile), std::move(thirdTile)};
 }
 
+OutputTiling lstmDpuOutputTiling(const vpux::TileInfo& firstOutputTile) {
+    const auto extractNCW = [](const Shape& values) {
+        return Shape{values[Dims4D::Act::N], values[Dims4D::Act::C], 1, values[Dims4D::Act::W]};
+    };
+    const auto extractNCWOffset = [](const Shape& values) {
+        return Shape{values[Dims4D::Act::N], values[Dims4D::Act::C], 0, values[Dims4D::Act::W]};
+    };
+    auto outStateShape = extractNCW(firstOutputTile.shape);
+    auto outStateOffsets = extractNCWOffset(firstOutputTile.offsets);
+    auto outStateAxis = extractNCW(firstOutputTile.axis);
+    auto secondTile = vpux::TileInfo(outStateShape, outStateOffsets, outStateAxis);
+    auto thirdTile = vpux::TileInfo(outStateShape, outStateOffsets, outStateAxis);
+    return {firstOutputTile, std::move(secondTile), std::move(thirdTile)};
+}
+
+OutputTiling FlashSDPAOpOutputTiling(const vpux::TileInfo& firstOutputTile, int64_t qkEmbedding) {
+    auto maxAndSumTile = TileInfo(firstOutputTile);
+
+    maxAndSumTile.shape[Dims4D::Act::C] = firstOutputTile.shape[Dims4D::Act::C];
+    maxAndSumTile.offsets[Dims4D::Act::C] = firstOutputTile.offsets[Dims4D::Act::C];
+    maxAndSumTile.axis[Dims4D::Act::C] = firstOutputTile.axis[Dims4D::Act::C];
+
+    maxAndSumTile.shape[Dims4D::Act::H] = firstOutputTile.shape[Dims4D::Act::H];
+    maxAndSumTile.offsets[Dims4D::Act::H] = firstOutputTile.offsets[Dims4D::Act::H];
+    maxAndSumTile.axis[Dims4D::Act::H] = firstOutputTile.axis[Dims4D::Act::H];
+
+    // Max and Sum outputs have reduced shape, width == 1
+    maxAndSumTile.shape[Dims4D::Act::W] = 1;
+    maxAndSumTile.offsets[Dims4D::Act::W] = 0;
+    maxAndSumTile.axis[Dims4D::Act::W] = 0;
+
+    auto query = TileInfo(firstOutputTile);
+    query.shape[Dims4D::Act::W] = qkEmbedding;
+    query.offsets[Dims4D::Act::W] = 0;
+    query.axis[Dims4D::Act::W] = 0;
+
+    return OutputTiling{firstOutputTile, maxAndSumTile, maxAndSumTile, std::move(query)};
+}
+
+InputTiling FlashSDPAOpInputTiling(const vpux::TileInfo& firstOutputTile, ShapeRef keyShape,
+                                   std::optional<ShapeRef> attentionMaskShape, std::optional<ShapeRef> scaleShape) {
+    const auto targetSeqLen = firstOutputTile.shape[Dims4D::Act::H];
+    const auto vEmbedding = firstOutputTile.shape[Dims4D::Act::W];
+    const auto sourceSeqLen = keyShape[Dims4D::Act::H];
+    const auto qkEmbedding = keyShape[Dims4D::Act::W];
+    const auto batch = keyShape[Dims4D::Act::C];
+
+    const auto queryShape = Shape{1, batch, targetSeqLen, qkEmbedding};
+    const auto valueShape = Shape{1, batch, sourceSeqLen, vEmbedding};
+    const auto auxBufferShape = Shape{1, batch, targetSeqLen, sourceSeqLen};
+    const auto runningOutShape = Shape{1, batch, targetSeqLen, vEmbedding};
+    const auto runningMaxShape = Shape{1, batch, targetSeqLen, 1};
+    const auto& runningSumShape = runningMaxShape;
+
+    auto syncTilesDim = [](const auto& tensorFrom, auto dimFrom, auto& tensorTo, auto dimTo) {
+        tensorTo.shape[dimTo] = tensorFrom.shape[dimFrom];
+        tensorTo.offsets[dimTo] = tensorFrom.offsets[dimFrom];
+        tensorTo.axis[dimTo] = tensorFrom.axis[dimFrom];
+    };
+
+    auto queryTile = TileInfo(queryShape);
+    auto keyTile = TileInfo(keyShape);
+    auto valueTile = TileInfo(valueShape);
+
+    // Might want to optimize the aux buffer to an output of the layer to avoid the tiling
+    // We just want to have a space to put things into, no need to treat it as an actual input with data
+    auto auxBufferTile = TileInfo(auxBufferShape);
+
+    auto runningOutTile = TileInfo(runningOutShape);
+    auto runningMaxTile = TileInfo(runningMaxShape);
+    auto runningSumTile = TileInfo(runningSumShape);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, queryTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, queryTile, Dims4D::Act::H);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, keyTile, Dims4D::Act::C);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, valueTile, Dims4D::Act::C);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, auxBufferTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, auxBufferTile, Dims4D::Act::H);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, runningOutTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, runningOutTile, Dims4D::Act::H);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, runningMaxTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, runningMaxTile, Dims4D::Act::H);
+
+    syncTilesDim(firstOutputTile, Dims4D::Act::C, runningSumTile, Dims4D::Act::C);
+    syncTilesDim(firstOutputTile, Dims4D::Act::H, runningSumTile, Dims4D::Act::H);
+
+    auto inputsTiles = SmallVector<TileInfo>{
+            std::move(queryTile),      std::move(keyTile),        std::move(valueTile),     std::move(auxBufferTile),
+            std::move(runningOutTile), std::move(runningMaxTile), std::move(runningSumTile)};
+
+    if (attentionMaskShape.has_value()) {
+        auto attentionMaskTile = TileInfo(attentionMaskShape.value());
+
+        // Avoid updating the batch size in case of a broadcasted attention mask batch dimension
+        if (attentionMaskTile.shape[Dims4D::Act::C] > 1) {
+            syncTilesDim(firstOutputTile, Dims4D::Act::C, attentionMaskTile, Dims4D::Act::C);
+        }
+        syncTilesDim(firstOutputTile, Dims4D::Act::H, attentionMaskTile, Dims4D::Act::H);
+
+        inputsTiles.push_back(attentionMaskTile);
+    }
+
+    // Scale is just one value and couldn't be tiled.
+    if (scaleShape.has_value()) {
+        inputsTiles.push_back(TileInfo(scaleShape.value()));
+    }
+
+    return InputTiling{inputsTiles};
+}
+
 }  // namespace vpux::VPU

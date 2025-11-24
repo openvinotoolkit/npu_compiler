@@ -17,6 +17,7 @@
 #include "vpux/compiler/dialect/IE/utils/transpose_op_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
@@ -647,6 +648,104 @@ mlir::LogicalResult SwapAffineReshapeFakeQuantize::matchAndRewrite(IE::FakeQuant
 }
 
 //
+// SwapBatchedMemPermuteSlice
+//
+
+class SwapBatchedMemPermuteSlice final : public mlir::OpRewritePattern<IE::MemPermuteOp> {
+public:
+    SwapBatchedMemPermuteSlice(mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpRewritePattern<IE::MemPermuteOp>(ctx), _log(log) {
+        this->setDebugName("SwapBatchedMemPermuteSlice");
+    }
+
+private:
+    mlir::LogicalResult matchAndRewrite(IE::MemPermuteOp memPermuteOp, mlir::PatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult SwapBatchedMemPermuteSlice::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
+                                                                mlir::PatternRewriter& rewriter) const {
+    _log.trace("[{0}] Got '{1}' at '{2}'", getDebugName(), memPermuteOp->getName(), memPermuteOp->getLoc());
+
+    auto inputShape = getShape(memPermuteOp.getInput());
+    const auto batchSize = inputShape[Dims4D::Act::N];
+    if (inputShape.size() < 4 || batchSize == 1) {
+        return mlir::failure();
+    }
+
+    auto inOrder = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType()).getDimsOrder();
+    const auto srcPermutedOrder = applyPermutation(inOrder, DimsOrder::fromAffineMap(memPermuteOp.getMemPerm()));
+    const auto fullPermAffineMap =
+            applyPermutation(srcPermutedOrder, DimsOrder::fromAffineMap(memPermuteOp.getDstOrder()))
+                    .DimsOrder::toAffineMap(rewriter.getContext());
+    auto firstDimExpr = mlir::cast<mlir::AffineDimExpr>(fullPermAffineMap.getResults()[0]);
+    // Check that the N dimension (batch) does not change position after MemPermute
+    if (firstDimExpr.getPosition() != 0) {
+        _log.trace("d0 dimension position changed from 0 to {0}", firstDimExpr.getPosition());
+        return mlir::failure();
+    }
+
+    // check if all users are valid sliceOp
+    auto hasRestrictedUsers = llvm::any_of(memPermuteOp->getUsers(), [&](auto user) {
+        if (auto sliceOp = mlir::dyn_cast_if_present<IE::SliceOp>(user)) {
+            auto sliceShape = getShape(sliceOp.getResult());
+            if (sliceShape[Dims4D::Act::N] == 1 && sliceShape[Dims4D::Act::C] == inputShape[Dims4D::Act::C] &&
+                sliceShape[Dims4D::Act::H] == inputShape[Dims4D::Act::H] &&
+                sliceShape[Dims4D::Act::W] == inputShape[Dims4D::Act::W]) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    if (hasRestrictedUsers) {
+        return mlir::failure();
+    }
+
+    llvm::SmallVector<mlir::Operation*> sliceUsers(memPermuteOp->getUsers().begin(), memPermuteOp->getUsers().end());
+    llvm::sort(sliceUsers, [](mlir::Operation* a, mlir::Operation* b) {
+        auto sliceA = mlir::cast<IE::SliceOp>(a);
+        auto sliceB = mlir::cast<IE::SliceOp>(b);
+        auto offsetsA = parseIntArrayAttr<int64_t>(sliceA.getStaticOffsetsAttr());
+        auto offsetsB = parseIntArrayAttr<int64_t>(sliceB.getStaticOffsetsAttr());
+        return offsetsA[0] < offsetsB[0];
+    });
+
+    rewriter.setInsertionPoint(memPermuteOp);
+
+    SmallVector<mlir::Value> newResults;
+    for (size_t i = 0; i < sliceUsers.size(); ++i) {
+        auto sliceOp = mlir::cast<IE::SliceOp>(sliceUsers[i]);
+
+        // Get the actual batch offset from the original slice
+        auto batchOffset = parseIntArrayAttr<int64_t>(sliceOp.getStaticOffsetsAttr())[0];
+
+        auto inputSlice = rewriter.create<IE::SliceOp>(
+                takeOpLoc(memPermuteOp, StringLiteral("input_slice_{0}"), batchOffset), memPermuteOp.getInput(),
+                sliceOp.getStaticOffsetsAttr(), sliceOp.getStaticSizesAttr());
+
+        auto newMemPermute = rewriter.create<IE::MemPermuteOp>(
+                takeOpLoc(memPermuteOp, StringLiteral("batch_permute_{0}"), batchOffset), inputSlice.getResult(),
+                memPermuteOp.getDstOrderAttr(), memPermuteOp.getMemPermAttr());
+
+        auto expectedOutputType = sliceOp.getResult().getType();
+        newMemPermute.getResult().setType(expectedOutputType);
+
+        newResults.push_back(newMemPermute.getResult());
+    }
+
+    for (size_t i = 0; i < sliceUsers.size(); ++i) {
+        rewriter.replaceOp(sliceUsers[i], newResults[i]);
+    }
+
+    rewriter.eraseOp(memPermuteOp);
+
+    return mlir::success();
+}
+
+//
 // SwapOperationsPass
 //
 
@@ -694,6 +793,7 @@ void SwapOperationsPass::safeRunOnFunc() {
     patterns.add<SwapTanhShapeCast>(&ctx, _log.nest());
     patterns.add<SwapExpandQuantizeCast>(&ctx, _log.nest());
     patterns.add<SwapDequantMemPermute>(&ctx, _log.nest());
+    patterns.add<SwapBatchedMemPermuteSlice>(&ctx, _log.nest());
     patterns.add<SwapAffineReshapeFakeQuantize>(&ctx, _log.nest());
     IE::AffineReshapeOp::getCanonicalizationPatterns(patterns, &ctx);
 

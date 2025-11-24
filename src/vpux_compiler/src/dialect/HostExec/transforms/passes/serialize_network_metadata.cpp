@@ -40,7 +40,7 @@ namespace {
 class SerializeNetworkMetadataPass final :
         public HostExec::impl::SerializeNetworkMetadataBase<SerializeNetworkMetadataPass> {
 public:
-    explicit SerializeNetworkMetadataPass(Logger log): _log(log) {
+    explicit SerializeNetworkMetadataPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
@@ -49,7 +49,6 @@ private:
     void defineSerializedMetadataAsGlobalOp(mlir::ModuleOp& module);
     mlir::LogicalResult addFuncOpToReturnMetadata(mlir::ModuleOp& module);
     void removeNonLLVMOpsAndAttributes(mlir::ModuleOp& module);
-    Logger _log;
 };
 
 void SerializeNetworkMetadataPass::defineSerializedMetadataAsGlobalOp(mlir::ModuleOp& module) {

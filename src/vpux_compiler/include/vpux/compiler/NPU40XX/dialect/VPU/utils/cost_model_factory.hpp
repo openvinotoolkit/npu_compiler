@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/interfaces/cost_model_factory.hpp"
+#include "vpux/compiler/dialect/VPU/interfaces/cost_model_shave_utils_interface.hpp"
 
 namespace vpux {
 namespace VPU {
@@ -29,6 +30,17 @@ public:
      * @return std::shared_ptr<VPUNN::VPULayerCostModel>
      */
     std::shared_ptr<VPUNN::VPULayerCostModel> createLayerCostModel() const override;
+
+    /**
+     * @brief Will create a unique pointer to the Shave Cost Model Utils
+     *
+     * @return std::unique_ptr<IShaveCostModelUtils>
+     */
+    std::unique_ptr<IShaveCostModelUtils> createShaveCostModelUtil() const override;
+
+private:
+    static constexpr bool _isShave2ApiUsedInVPUNN{
+            false};  // cached flag indicating if Shave2Api is used should be set here
 };
 
 }  // namespace arch40xx

@@ -230,7 +230,7 @@ VPU::PPEAttr composePpeAttr(const VPU::PPEAttr ppeAttr) {
     const auto& modeAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterMode>();
     composedAttr = modeAdapter.updateMode(composedAttr, vpux::VPU::PPEMode::ADD);
 
-    const auto& scaleAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterScale>();
+    const auto& scaleAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterScaleBias>();
     const auto& fpPreluAlphaAdapter = VPU::PpeVersionConfig::getFactoryAs<vpux::VPU::IPpeAdapterFpPreluAlpha>();
     auto fpPreluAlpha = fpPreluAlphaAdapter.getFpPreluAlpha(ppeAttr);
     const auto hasNonNeutralAlpha = llvm::any_of(fpPreluAlpha, [&](const auto a) {
@@ -238,7 +238,15 @@ VPU::PPEAttr composePpeAttr(const VPU::PPEAttr ppeAttr) {
     });
 
     // if non-neutral pRelu alpha is set, move it to scale and set pRelu alpha to neutral
-    const auto oldScale = hasNonNeutralAlpha ? std::move(fpPreluAlpha) : scaleAdapter.getScale(ppeAttr);
+    const auto oldScale = [&]() -> SmallVector<double> {
+        if (hasNonNeutralAlpha) {
+            return std::move(fpPreluAlpha);
+        }
+
+        auto maybeScale = scaleAdapter.getScale(ppeAttr);
+        return maybeScale.value_or(SmallVector<double>{1.0});
+    }();
+
     if (hasNonNeutralAlpha) {
         composedAttr = fpPreluAlphaAdapter.updateFpPreluAlpha(composedAttr, {1.0});
     }
@@ -912,14 +920,13 @@ mlir::LogicalResult vpux::bufferizeOp(mlir::MLIRContext* ctx, VPU::NCEMatMulOp o
         isSuperdenseAttr = mlir::UnitAttr::get(ctx);
     }
 
-    auto nceOp = createNCEClusterTask(rewriter, origOp->getLoc(), newArgs.getInput(), newArgs.getWeights(),
-                                      newArgs.getWeightsTable(), /*weight_table_scale=*/nullptr,
-                                      /*weight_table_bias=*/nullptr, outputBuffers, taskType, kernelSizeAttr,
-                                      origOp.getStrides(), origOp.getPadAttr(), origOp.getWorkloads(), isSuperdenseAttr,
-                                      ppeAttr, dpuCostAttr,
-                                      /*isInplace=*/nullptr, /*isPermuteQuantize=*/nullptr, /*cmSpPattern=*/nullptr,
-                                      /*inputChannelsCompression=*/nullptr, /*isNCEPermute*/ false,
-                                      /*smallKernelOptimization=*/nullptr, origOp.getMpeEngineAttr(), log);
+    auto nceOp = createNCEClusterTask(
+            rewriter, origOp->getLoc(), newArgs.getInput(), newArgs.getWeights(), newArgs.getWeightsTable(),
+            newArgs.getWeightTableScale(), newArgs.getWeightTableBias(), outputBuffers, taskType, kernelSizeAttr,
+            origOp.getStrides(), origOp.getPadAttr(), origOp.getWorkloads(), isSuperdenseAttr, ppeAttr, dpuCostAttr,
+            /*isInplace=*/nullptr, /*isPermuteQuantize=*/nullptr, /*cmSpPattern=*/nullptr,
+            /*inputChannelsCompression=*/nullptr, /*isNCEPermute*/ false,
+            /*smallKernelOptimization=*/nullptr, origOp.getMpeEngineAttr(), log);
 
     mlir::bufferization::replaceOpWithBufferizedValues(rewriter, origOp, nceOp);
 

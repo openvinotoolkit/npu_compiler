@@ -13,27 +13,27 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.EnableExtraStaticShapeOps : true
-    config.Option @VPU.EnableAdaptiveStripping : false
-    config.Option @VPU.EnableSEPtrsOperations : false
-    config.Option @VPU.EnableExperimentalSEPtrsOperations : false
-    config.Option @VPU.EnableVPUNNPreSplit : false
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.EnableDCIM : true
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.SprLUTEnabled : false
-    config.Option @VPU.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
-    config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-    config.Option @VPU.BarrierMaxVariantSum : 64 : ui64
-    config.Option @VPU.BarrierMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxInvariantCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelRangeCount : 64 : ui64
-    config.Option @VPU.MetadataMaxMediaCount : 4 : ui64
-    config.Option @VPU.MaxKernelSize : 11 : si64
+    config.Option @config.EnableExtraStaticShapeOps : true
+    config.Option @config.EnableAdaptiveStripping : false
+    config.Option @config.EnableSEPtrsOperations : false
+    config.Option @config.EnableExperimentalSEPtrsOperations : false
+    config.Option @config.EnableVPUNNPreSplit : false
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.EnableDCIM : true
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.SprLUTEnabled : false
+    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
+    config.Option @config.UseDedicatedFifoPerShaveEngine : false
+    config.Option @config.BarrierMaxVariantSum : 64 : ui64
+    config.Option @config.BarrierMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxInvariantCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64
+    config.Option @config.MetadataMaxMediaCount : 4 : ui64
+    config.Option @config.MaxKernelSize : 11 : si64
   }
   config.Resources 6 of @NCE at 1.850000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -52,27 +52,27 @@ module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, 
   }
   module @OneDMAWithoutAttributes attributes {config.arch = #config.arch_kind<NPU40XX>, config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.EnableExtraStaticShapeOps : true
-    config.Option @VPU.EnableAdaptiveStripping : false
-    config.Option @VPU.EnableSEPtrsOperations : false
-    config.Option @VPU.EnableExperimentalSEPtrsOperations : false
-    config.Option @VPU.EnableVPUNNPreSplit : false
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.EnableDCIM : true
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.SprLUTEnabled : false
-    config.Option @VPU.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
-    config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-    config.Option @VPU.BarrierMaxVariantSum : 64 : ui64
-    config.Option @VPU.BarrierMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxInvariantCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelRangeCount : 64 : ui64
-    config.Option @VPU.MetadataMaxMediaCount : 4 : ui64
-    config.Option @VPU.MaxKernelSize : 11 : si64
+    config.Option @config.EnableExtraStaticShapeOps : true
+    config.Option @config.EnableAdaptiveStripping : false
+    config.Option @config.EnableSEPtrsOperations : false
+    config.Option @config.EnableExperimentalSEPtrsOperations : false
+    config.Option @config.EnableVPUNNPreSplit : false
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.EnableDCIM : true
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.SprLUTEnabled : false
+    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
+    config.Option @config.UseDedicatedFifoPerShaveEngine : false
+    config.Option @config.BarrierMaxVariantSum : 64 : ui64
+    config.Option @config.BarrierMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxInvariantCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64
+    config.Option @config.MetadataMaxMediaCount : 4 : ui64
+    config.Option @config.MaxKernelSize : 11 : si64
   }
   config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN

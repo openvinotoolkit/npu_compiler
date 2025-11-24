@@ -35,7 +35,7 @@ mlir::LogicalResult vpux::VPU::MVN1NormalizeOp::inferReturnTypes(
 vpux::InputTiling vpux::VPU::MVN1NormalizeOp::backInferTileInfo(const vpux::TileInfo& outputTile,
                                                                 vpux::Logger /*log*/) {
     TileInfo meanVarTile(getShape(getMeanVar()));
-    return TilingInfo{{std::move(outputTile), std::move(meanVarTile)}};
+    return TilingInfo{{outputTile, std::move(meanVarTile)}};
 }
 
 void vpux::VPU::MVN1NormalizeOp::adjustAttrs(const TilingInfo& /*inputTiling*/, const TileInfo& /*outputTile*/) {

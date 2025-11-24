@@ -11,7 +11,7 @@ using namespace ov::test::utils;
 namespace ov {
 namespace test {
 
-class OneHotLayerTestCommon : public OneHotLayerTest, virtual public VpuOv2LayerTest {};
+class OneHotLayerTestCommon : public OneHot1LayerTest, virtual public VpuOv2LayerTest {};
 
 TEST_P(OneHotLayerTestCommon, NPU3720_HW) {
     setDefaultHardwareMode();
@@ -47,18 +47,18 @@ auto oneHotparams = [](auto onOffType) {
 };
 
 INSTANTIATE_TEST_SUITE_P(smoke_precommit_OneHot_FP16, OneHotLayerTestCommon, oneHotparams(ov::element::f16),
-                         OneHotLayerTest::getTestCaseName);
+                         OneHot1LayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_OneHot_FP32, OneHotLayerTestCommon, oneHotparams(ov::element::f32),
-                         OneHotLayerTest::getTestCaseName);
+                         OneHot1LayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_OneHot_I32, OneHotLayerTestCommon, oneHotparams(ov::element::i32),
-                         OneHotLayerTest::getTestCaseName);
+                         OneHot1LayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_OneHot_I8, OneHotLayerTestCommon, oneHotparams(ov::element::i8),
-                         OneHotLayerTest::getTestCaseName);
+                         OneHot1LayerTest::getTestCaseName);
 
 INSTANTIATE_TEST_SUITE_P(smoke_OneHot_U8, OneHotLayerTestCommon, oneHotparams(ov::element::u8),
-                         OneHotLayerTest::getTestCaseName);
+                         OneHot1LayerTest::getTestCaseName);
 
 }  // namespace

@@ -53,7 +53,7 @@ module @TestCopy attributes {config.arch = #config.arch_kind<NPU37XX>, config.co
     %OUT_DATA, %OUT_SHAPE = VPUIP.UngroupBoundedBuffer(%COPY) :
         !VPUIP.BoundedBuffer<data=memref<2x4x20x20xf16>, dynamic_shape=memref<4xsi32>>
         -> memref<2x4x20x20xf16>, memref<4xsi32>
-    // CHECKA: [[DDR_OUT_DATA:%.*]], [[DDR_OUT_SHAPE:%.*]] = VPUIP.UngroupBoundedBuffer
+    // CHECK-NOT: [[DDR_OUT_DATA:%.*]], [[DDR_OUT_SHAPE:%.*]] = VPUIP.UngroupBoundedBuffer
 
     %RESULT_DATA = VPUIP.Copy inputs(%OUT_DATA: memref<2x4x20x20xf16>) outputs(%arg2 : memref<2x4x20x20xf16>) -> memref<2x4x20x20xf16>
     %RESULT_SHAPE = VPUIP.Copy inputs(%OUT_SHAPE: memref<4xsi32>) outputs(%arg3 : memref<4xsi32>) -> memref<4xsi32>
@@ -188,13 +188,13 @@ module @DynamicReshape attributes {config.arch = #config.arch_kind<NPU37XX>, con
     func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
   }
   config.PipelineOptions @Options {
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.BarrierMaxVariantSum : 256
-    config.Option @VPU.BarrierMaxVariantCount : 256
-    config.Option @VPU.MaxKernelSize : 11
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.BarrierMaxVariantSum : 256
+    config.Option @config.BarrierMaxVariantCount : 256
+    config.Option @config.MaxKernelSize : 11
   }
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
@@ -272,16 +272,16 @@ module @DynamicReshape attributes {config.arch = #config.arch_kind<NPU37XX>, con
 #NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
 module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.EnableSEPtrsOperations : false
-    config.Option @VPU.EnableExperimentalSEPtrsOperations : false
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.SprLUTEnabled : false
-    config.Option @VPU.BarrierMaxVariantSum : 64
-    config.Option @VPU.BarrierMaxVariantCount : 128
-    config.Option @VPU.MaxKernelSize : 11
+    config.Option @config.EnableSEPtrsOperations : false
+    config.Option @config.EnableExperimentalSEPtrsOperations : false
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.SprLUTEnabled : false
+    config.Option @config.BarrierMaxVariantSum : 64
+    config.Option @config.BarrierMaxVariantCount : 128
+    config.Option @config.MaxKernelSize : 11
   }
   config.ExecutorResource 1 of @M2I
   config.ExecutorResource 2 of @DMA_NN

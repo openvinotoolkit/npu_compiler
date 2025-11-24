@@ -512,7 +512,7 @@ module @Outlined2SequentialFunc {
   // CHECK-SAME:    -> !VPUIP.BoundedBuffer<data=memref<1x30x3x3xf32, #NHWC, @CMX_NN>, dynamic_shape=memref<4xsi32, @CMX_NN>>
 
   // CHECK:     [[DATA:%.+]], [[DYN_SHAPE:%.+]] = VPUIP.UngroupBoundedBuffer([[GROUP_FOO_0]])
-  // CHECK-SAME     : !VPUIP.BoundedBuffer<data=memref<1x10x3x3xf32, #NHWC, @CMX_NN>, dynamic_shape=memref<4xsi32, @CMX_NN>>
+  // CHECK-SAME:    : !VPUIP.BoundedBuffer<data=memref<1x10x3x3xf32, #NHWC, @CMX_NN>, dynamic_shape=memref<4xsi32, @CMX_NN>>
   // CHECK-SAME:    -> memref<1x10x3x3xf32, #NHWC, @CMX_NN>, memref<4xsi32, @CMX_NN>
 
   // CHECK:     [[RES_FOO1:%.+]]:2 = call @foo1([[DATA]], [[DYN_SHAPE]]) : (memref<1x10x3x3xf32, #NHWC, @CMX_NN>, memref<4xsi32, @CMX_NN>)
@@ -752,7 +752,7 @@ module @CallAndNonCallOpConsumersOfBoundedBuff {
 
   // @foo1 CallOp
   // CHECK:     [[DATA:%.+]], [[DYN_SHAPE:%.+]] = VPUIP.UngroupBoundedBuffer([[GROUP_FOO_0]])
-  // CHECK-SAME     : !VPUIP.BoundedBuffer<data=memref<1x10x3x3xf32, #NHWC, @CMX_NN>, dynamic_shape=memref<4xsi32, @CMX_NN>>
+  // CHECK-SAME:    : !VPUIP.BoundedBuffer<data=memref<1x10x3x3xf32, #NHWC, @CMX_NN>, dynamic_shape=memref<4xsi32, @CMX_NN>>
   // CHECK-SAME:    -> memref<1x10x3x3xf32, #NHWC, @CMX_NN>, memref<4xsi32, @CMX_NN>
 
   // CHECK:     [[RES_FOO1:%.+]]:2 = call @foo1([[DATA]], [[DYN_SHAPE]]) : (memref<1x10x3x3xf32, #NHWC, @CMX_NN>, memref<4xsi32, @CMX_NN>)

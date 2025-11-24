@@ -4,7 +4,6 @@
 //
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 
 namespace vpux::VPU {
@@ -21,15 +20,20 @@ public:
     VerticalFusionTilingRewriterBase(mlir::MLIRContext* ctx, bool enableVerticalFusionPipelining,
                                      const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction, Logger log)
             : mlir::OpRewritePattern<VPU::VerticalFusionOp>(ctx),
+              _log(log),
               _enableVerticalFusionPipelining(enableVerticalFusionPipelining),
-              _vpunnCostFunction(costFunction),
-              _log(log) {
+              _vpunnCostFunction(costFunction) {
     }
 
     mlir::LogicalResult matchAndRewrite(VPU::VerticalFusionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 protected:
     virtual std::pair<DimArr, int64_t> getDimsData(ArrayRef<int64_t> strategy) const = 0;
+
+    virtual TilingStorage restoreTilingStorage(VFConfigType& config, ArrayRef<int64_t> strategy,
+                                               TilingOperationStorage::UPtr& operationStorage) const = 0;
+
+    Logger _log;
 
 private:
     void adjustInputShape(mlir::PatternRewriter& rewriter, mlir::Operation* operation, InputTiling& inputTiling,
@@ -47,7 +51,6 @@ private:
 
     bool _enableVerticalFusionPipelining;
     const std::unique_ptr<VPU::LayerVPUNNCost>& _vpunnCostFunction;
-    Logger _log;
 };
 
 template <typename VFConfigType, typename VFSchedulingFactoryType>
@@ -305,10 +308,10 @@ mlir::LogicalResult VerticalFusionTilingRewriterBase<VFConfigType, VFSchedulingF
         return mlir::failure();
     }
 
-    auto operationStorage = std::make_unique<TilingOperationStorage>();
-    auto tilingStorage = restoreTilingRegions(vfOp, _log, operationStorage);
-
     VFConfigType vfConfig(vfOp, _enableVerticalFusionPipelining);
+
+    auto operationStorage = std::make_unique<TilingOperationStorage>();
+    auto tilingStorage = restoreTilingStorage(vfConfig, tilingStrategy, operationStorage);
 
     SmallVector<mlir::Value> resultTileVals;
     resultTileVals.reserve(tilesLen);

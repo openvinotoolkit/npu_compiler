@@ -62,7 +62,7 @@ def Config_OptionOp :
 
     let arguments = (ins
         SymbolNameAttr:$sym_name,
-        AnyAttrOf<[IntAttr, F32Attr, BoolAttr, StrAttr]>:$optionValue
+        AnyAttrOf<[IntAttr, F32Attr, BoolAttr, StrAttr, ArrayAttr]>:$optionValue
     );
 
     let assemblyFormat = [{

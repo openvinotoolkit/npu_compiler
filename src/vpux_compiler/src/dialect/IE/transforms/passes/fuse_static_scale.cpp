@@ -29,7 +29,6 @@ namespace vpux::IE {
 using namespace vpux;
 
 namespace {
-
 // Returns an "origin" operation of the specified type (one of Ops), ignoring
 // pure view ops, for the given operation. This procedure assumes IR in question
 // is a chain of single-use operations.
@@ -55,7 +54,8 @@ Op findOriginOp(const Logger& log, mlir::Operation* current) {
     }
 
     auto originOp = mlir::dyn_cast_or_null<Op>(current);
-    if (originOp == nullptr || originOp.getPostOpAttr() != nullptr || originOp.getClampAttr() != nullptr) {
+    if (originOp == nullptr || originOp->hasAttr(vpux::OperationAttrName::POST_OP) ||
+        originOp->hasAttr(vpux::OperationAttrName::CLAMP)) {
         return nullptr;
     }
 
@@ -75,6 +75,36 @@ Op findDefiningOp(mlir::Operation* op) {
         }
     }
     return nullptr;
+}
+
+// Returns a "target" operation of the specified type (one of Ops), ignoring
+// pure view ops, for operations that use the given operation's result. This procedure assumes IR in question
+// is a chain of single-use operations.
+template <typename Op>
+Op findTargetOp(const Logger&, mlir::Operation* current) {
+    // Only consider operations with single use
+    if (!current->hasOneUse()) {
+        return nullptr;
+    }
+
+    auto user = *current->getUsers().begin();
+
+    // skip "pure view ops"
+    while (user != nullptr && IE::isPureViewOp(user)) {
+        // ViewOp should have single user
+        if (!user->hasOneUse()) {
+            return nullptr;
+        }
+        user = *user->getUsers().begin();
+    }
+
+    auto targetOp = mlir::dyn_cast_or_null<Op>(user);
+    if (targetOp == nullptr || targetOp->hasAttr(vpux::OperationAttrName::POST_OP) ||
+        targetOp->hasAttr(vpux::OperationAttrName::CLAMP)) {
+        return nullptr;
+    }
+
+    return targetOp;
 }
 
 bool isSuitableConstant(Const::DeclareOp op) {
@@ -139,23 +169,28 @@ mlir::FailureOr<float> getConstSplatValue(Const::DeclareOp constOp, IE::Multiply
     return vpux::fakeQuantize(constSplatValue.value(), inLowVal, inHighVal, outLowVal, outHighVal, levels);
 }
 
+Const::DeclareOp getRescaledConst(Const::DeclareOp constOp, mlir::PatternRewriter& rewriter,
+                                  const float& constSplatValue) {
+    auto constOutputType = mlir::cast<vpux::NDTypeInterface>(constOp.getOutput().getType());
+    auto contentAttr = constOp.transformContentAttr().rescale(constSplatValue).get();
+    return rewriter.create<Const::DeclareOp>(constOp.getLoc(), constOutputType, std::move(contentAttr));
+};
+
+IE::FakeQuantizeOp getRescaledFQ(IE::FakeQuantizeOp fqOp, Const::DeclareOp outputLowConstOp,
+                                 Const::DeclareOp outputHighConstOp, mlir::PatternRewriter& rewriter,
+                                 const float& constSplatValue) {
+    auto newOutputLow = getRescaledConst(outputLowConstOp, rewriter, constSplatValue);
+    auto newOutputHigh = getRescaledConst(outputHighConstOp, rewriter, constSplatValue);
+    return rewriter.create<IE::FakeQuantizeOp>(fqOp->getLoc(), fqOp.getType(), fqOp.getInput(), fqOp.getInputLow(),
+                                               fqOp.getInputHigh(), newOutputLow, newOutputHigh, fqOp.getLevelsAttr(),
+                                               fqOp.getLowFpTypeAttr(), fqOp.getAutoBroadcastAttr());
+};
+
 // E#122893: consider moving this rewriter into
 // InsertReorderBetweenLayerAndConcat pass
 struct InsertMultiplyBeforeConcat : public mlir::OpRewritePattern<IE::MultiplyOp> {
     InsertMultiplyBeforeConcat(mlir::MLIRContext* ctx, const Logger& log)
             : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitHigh), _log(log) {
-    }
-
-    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
-
-private:
-    const Logger& _log;
-};
-
-template <class ParentOp>
-struct FuseStaticScale : public mlir::OpRewritePattern<IE::MultiplyOp> {
-    FuseStaticScale(mlir::MLIRContext* ctx, const Logger& log)
-            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitLow), _log(log) {
     }
 
     mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final;
@@ -261,48 +296,169 @@ mlir::LogicalResult InsertMultiplyBeforeConcat::matchAndRewrite(IE::MultiplyOp o
     return mlir::success();
 }
 
-template <class ParentOp>
-mlir::LogicalResult FuseStaticScale<ParentOp>::matchAndRewrite(IE::MultiplyOp origOp,
-                                                               mlir::PatternRewriter& rewriter) const {
-    _log.trace("Found IE.Multiply at {0}", origOp->getLoc());
+// Helper for common Multiply validation and extraction
+bool validateAndExtract(IE::MultiplyOp origOp, const Logger& log, float& constSplatValue,
+                        mlir::Value& nonConstMultiplyOperand) {
+    log.trace("Found IE.Multiply at {0} for static scale fusion", origOp->getLoc());
     if (origOp.getPostOpAttr() != nullptr) {
-        _log.trace("Ignore: IE.Multiply is not simple (has ppe)");
-        return mlir::failure();
+        log.trace("Ignore: IE.Multiply is not simple (has ppe)");
+        return false;
     }
-
     auto constOp = findDefiningOp<Const::DeclareOp>(origOp);
     if (!isSuitableConstant(constOp)) {
-        _log.trace("Ignore: IE.Multiply is not floating-point constant scalar multiplication");
-        return mlir::failure();
+        log.trace("Ignore: IE.Multiply is not floating-point constant scalar multiplication");
+        return false;
     }
-
     auto maybeConstSplatValue = getConstSplatValue(constOp, origOp);
     if (mlir::failed(maybeConstSplatValue)) {
-        _log.trace("Ignore: Cannot get const value");
-        return mlir::failure();
+        log.trace("Ignore: Cannot get const value");
+        return false;
     }
-    auto constSplatValue = maybeConstSplatValue.value();
-
-    const auto nonConstMultiplyOperand =
+    constSplatValue = maybeConstSplatValue.value();
+    nonConstMultiplyOperand =
             origOp.getInput1().getDefiningOp() == constOp || checkFQOperand(constOp, origOp.getInput1())
                     ? origOp.getInput2()
                     : origOp.getInput1();
-    auto targetOp = findOriginOp<ParentOp>(_log, nonConstMultiplyOperand.getDefiningOp());
-    if (targetOp == nullptr || !targetOp->hasOneUse()) {
-        _log.trace("Ignore: IE.Multiply has no valid preceding operation - cannot fuse");
+    return true;
+}
+
+// Backward fusion: fuse Multiply into previous SupportedOp's PPE
+template <class SupportedOp>
+struct FuseStaticScaleToPpeBackward : public mlir::OpRewritePattern<IE::MultiplyOp> {
+    FuseStaticScaleToPpeBackward(mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitLow), _log(log) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final {
+        float constSplatValue = 1.0f;
+        mlir::Value nonConstMultiplyOperand;
+        if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
+            return mlir::failure();
+        }
+        auto backwardTargetOp = findOriginOp<SupportedOp>(_log, nonConstMultiplyOperand.getDefiningOp());
+        if (backwardTargetOp != nullptr && backwardTargetOp->hasOneUse()) {
+            _log.trace("Backward fusing IE.Multiply at {0} into operation at {1}", origOp->getLoc(),
+                       backwardTargetOp->getLoc());
+            const auto originalScale = backwardTargetOp.getStaticScaleAttr()
+                                               ? backwardTargetOp.getStaticScaleAttr().getValueAsDouble()
+                                               : 1.0;
+            const auto newScale = originalScale * constSplatValue;
+            backwardTargetOp.setStaticScaleAttr(
+                    mlir::FloatAttr::get(mlir::Float32Type::get(origOp.getContext()), newScale));
+            rewriter.replaceAllUsesWith(origOp.getOutput(), nonConstMultiplyOperand);
+            return mlir::success();
+        }
         return mlir::failure();
     }
 
-    _log.trace("Fusing IE.Multiply at {0} into operation at {1}", origOp->getLoc(), targetOp->getLoc());
-    // fuse IE.Multiply by specifying the static scale attribute
-    const auto originalScale = targetOp.getStaticScaleAttr() ? targetOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
-    const auto newScale = originalScale * constSplatValue;
-    targetOp.setStaticScaleAttr(mlir::FloatAttr::get(mlir::Float32Type::get(origOp.getContext()), newScale));
+private:
+    const Logger& _log;
+};
 
-    rewriter.replaceAllUsesWith(origOp.getOutput(), nonConstMultiplyOperand);
+// Forward fusion: fuse Multiply into following SupportedOp's PPE (no scale check)
+template <class SupportedOp>
+struct FuseStaticScaleToPpeForward : public mlir::OpRewritePattern<IE::MultiplyOp> {
+    FuseStaticScaleToPpeForward(mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitLow), _log(log) {
+    }
 
-    return mlir::success();
-}
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final {
+        float constSplatValue = 1.0f;
+        mlir::Value nonConstMultiplyOperand;
+        if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
+            return mlir::failure();
+        }
+        auto forwardTargetOp = findTargetOp<SupportedOp>(_log, origOp);
+        if (forwardTargetOp == nullptr) {
+            _log.trace("Ignore: IE.Multiply has no valid preceding or following operation - cannot fuse");
+            return mlir::failure();
+        }
+        _log.trace("Forward fusing IE.Multiply at {0} into operation at {1}", origOp->getLoc(),
+                   forwardTargetOp->getLoc());
+        const auto originalScale =
+                forwardTargetOp.getStaticScaleAttr() ? forwardTargetOp.getStaticScaleAttr().getValueAsDouble() : 1.0;
+        const auto newScale = originalScale * constSplatValue;
+        forwardTargetOp.setStaticScaleAttr(mlir::FloatAttr::get(mlir::Float32Type::get(origOp.getContext()), newScale));
+        rewriter.replaceAllUsesWith(origOp.getOutput(), nonConstMultiplyOperand);
+        return mlir::success();
+    }
+
+private:
+    const Logger& _log;
+};
+
+// Wrapper for non-pooling ops to check scale < 1.0 before delegating to FuseStaticScaleToPpeForward
+template <class SupportedOp>
+struct FuseStaticScaleToPpeForwardWithScaleCheck : public mlir::OpRewritePattern<IE::MultiplyOp> {
+    FuseStaticScaleToPpeForwardWithScaleCheck(mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitLow), _log(log), _delegate(ctx, log) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final {
+        float constSplatValue = 1.0f;
+        mlir::Value nonConstMultiplyOperand;
+        if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
+            return mlir::failure();
+        }
+        if (constSplatValue < 1.0f) {
+            _log.trace("Ignore: IE.Multiply has scale < 1.0 - do not fuse forward to avoid accuracy degradation");
+            return mlir::failure();
+        }
+        // Delegate to the standard pattern
+        return _delegate.matchAndRewrite(origOp, rewriter);
+    }
+
+private:
+    const Logger& _log;
+    FuseStaticScaleToPpeForward<SupportedOp> _delegate;
+};
+
+// Forward fusion: fuse Multiply into following SupportedOp's weights/filter if possible
+template <class SupportedOp>
+struct FuseStaticScaleToWeights : public mlir::OpRewritePattern<IE::MultiplyOp> {
+    FuseStaticScaleToWeights(mlir::MLIRContext* ctx, const Logger& log)
+            : mlir::OpRewritePattern<IE::MultiplyOp>(ctx, benefitHigh), _log(log) {
+    }
+
+    mlir::LogicalResult matchAndRewrite(IE::MultiplyOp origOp, mlir::PatternRewriter& rewriter) const final {
+        float constSplatValue = 1.0f;
+        mlir::Value nonConstMultiplyOperand;
+        if (!validateAndExtract(origOp, _log, constSplatValue, nonConstMultiplyOperand)) {
+            return mlir::failure();
+        }
+        auto forwardTargetOp = findTargetOp<SupportedOp>(_log, origOp);
+        if (forwardTargetOp == nullptr) {
+            _log.trace("Ignore: IE.Multiply has no valid preceding or following operation - cannot fuse");
+            return mlir::failure();
+        }
+        auto weightVal = forwardTargetOp.getFilter();
+        auto weightConstOp = weightVal.template getDefiningOp<Const::DeclareOp>();
+        if (weightConstOp) {
+            auto newConst = getRescaledConst(weightConstOp, rewriter, constSplatValue);
+            rewriter.replaceAllUsesWith(weightConstOp.getOutput(), newConst.getOutput());
+            rewriter.replaceAllUsesWith(origOp.getOutput(), nonConstMultiplyOperand);
+            return mlir::success();
+        }
+        auto fqOp = weightVal.template getDefiningOp<IE::FakeQuantizeOp>();
+        if (!fqOp) {
+            _log.trace("Ignore: SupportedOp has no constant weight or valid FakeQuantizeOp - cannot fuse");
+            return mlir::failure();
+        }
+        auto outputLowConstOp = fqOp.getOutputLow().template getDefiningOp<Const::DeclareOp>();
+        auto outputHighConstOp = fqOp.getOutputHigh().template getDefiningOp<Const::DeclareOp>();
+        if (!outputLowConstOp || !outputHighConstOp) {
+            _log.trace("Ignore: FakeQuantizeOp has no constant output low or high - cannot fuse");
+            return mlir::failure();
+        }
+        auto newFQ = getRescaledFQ(fqOp, outputLowConstOp, outputHighConstOp, rewriter, constSplatValue);
+        rewriter.replaceAllUsesWith(fqOp.getOutput(), newFQ.getOutput());
+        rewriter.replaceAllUsesWith(origOp.getOutput(), nonConstMultiplyOperand);
+        return mlir::success();
+    }
+
+private:
+    const Logger& _log;
+};
 
 class FuseStaticScalePass final : public IE::impl::FuseStaticScaleBase<FuseStaticScalePass> {
 public:
@@ -320,8 +476,17 @@ void FuseStaticScalePass::safeRunOnFunc() {
 
     mlir::RewritePatternSet patterns(&ctx);
     patterns.add<InsertMultiplyBeforeConcat>(&ctx, _log);
-    patterns.add<FuseStaticScale<IE::ConvolutionOp>>(&ctx, _log);
-    patterns.add<FuseStaticScale<IE::AvgPoolOp>>(&ctx, _log);
+    patterns.add<FuseStaticScaleToPpeBackward<IE::ConvolutionOp>>(&ctx, _log);
+    patterns.add<FuseStaticScaleToPpeBackward<IE::AvgPoolOp>>(&ctx, _log);
+    patterns.add<FuseStaticScaleToWeights<IE::ConvolutionOp>>(&ctx, _log);
+    // For a pooling operation, use standard pattern (no scale check)
+    patterns.add<FuseStaticScaleToPpeForward<IE::AvgPoolOp>>(&ctx, _log);
+    // If the supported operation is not a pooling operation and the scale is less than 1.0,
+    // do not fuse forward to avoid accuracy degradation. This is because the input values
+    // before multiplication are larger than the values after multiplication, which can
+    // cause the supported operation to overflow during accumulation.
+    patterns.add<FuseStaticScaleToPpeForwardWithScaleCheck<IE::ConvolutionOp>>(&ctx, _log);
+
     if (mlir::failed(mlir::applyPatternsAndFoldGreedily(func, std::move(patterns), getDefaultGreedyRewriteConfig()))) {
         signalPassFailure();
     }

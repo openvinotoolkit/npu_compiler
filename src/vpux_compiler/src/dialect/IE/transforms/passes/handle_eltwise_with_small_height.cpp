@@ -9,6 +9,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/reshape_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -51,25 +53,9 @@ private:
 };
 
 /*
-Eltwise-like ops only support SOH and Clustering for MC strategy split.
-
-Convert Subgraph
-1x3x1080x1920     1x3x1080x1920
-        \           /
-        Add (Clustering)
-            |
-          Convert
-
-To -
-AFReshape         AFReshape
-1x192x1080x30     1x192x1080x30
-        \           /
-           Add (SOH)
-             |
-         AFReshape
-        1x3x1080x1920
-             |
-          Convert
+Eltwise-like ops with small height can be adjusted by:
+1. Reshaping width, e.g. 1x1920x3x1080 -> 1x1920x810x4
+2. Reshaping channel, e.g. 1x200000x1x1 -> 1x16x3125x4
 */
 
 mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addOp,
@@ -81,14 +67,9 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
         return matchFailed(_log, rewriter, addOp, "No users for AddOp found");
     }
 
-    // TO-DO remove subgraph constrain - Track E#161180
-    const auto outputConvertOp = mlir::dyn_cast<IE::ConvertOp>(*(addOp->getResult(0).user_begin()));
-    if (outputConvertOp == nullptr) {
-        return matchFailed(_log, rewriter, addOp, "Required subgraph not found");
-    }
-
     auto input1 = addOp.getInput1();
     auto input2 = addOp.getInput2();
+    auto output = addOp.getResult();
 
     if (mlir::isa_and_nonnull<IE::AffineReshapeOp>(input1.getDefiningOp()) ||
         mlir::isa_and_nonnull<IE::AffineReshapeOp>(input2.getDefiningOp())) {
@@ -97,6 +78,7 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
 
     auto input1Type = mlir::dyn_cast<vpux::NDTypeInterface>(input1.getType());
     auto input2Type = mlir::dyn_cast<vpux::NDTypeInterface>(input2.getType());
+    auto outputType = mlir::dyn_cast<vpux::NDTypeInterface>(output.getType());
 
     if (!input1Type || !input2Type) {
         return matchFailed(_log, rewriter, addOp, "Operands do not have NDTypeInterface");
@@ -109,61 +91,65 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
     if (input1Shape.size() != 4) {
         return matchFailed(_log, rewriter, addOp, "Input to AddOp is not 4D");
     }
+    if (input1Shape.isDynamic()) {
+        return matchFailed(_log, rewriter, addOp, "Input shape is dynamic");
+    }
+
+    // This is a conservative constraint to make sure that
+    // the benefit of faster op calculation is larger than the overhead of more workloads
+    // TO-DO: loose the size constraint - Track E#161180
+    const auto totalCMXSize = VPU::getTotalCMXSize(addOp);
+    const auto totalOperandsSize =
+            input1Type.getTotalAllocSize() * 2 + outputType.getTotalAllocSize();  // 2 inputs + 1 output
+    if (totalOperandsSize <= totalCMXSize) {
+        return matchFailed(_log, rewriter, addOp, "Size is not large enough for reshape benefit");
+    }
 
     // Check if the height dimension is greater than the number of clusters
     if (input1Shape[Dims4D::Act::H] > _numClusters) {
         return matchFailed(_log, rewriter, addOp, "Small H dim not found");
     }
 
+    VPUX_THROW_UNLESS(input1Shape[Dims4D::Act::C] % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0,
+                      "Input channels '{0}' is not aligned by '{1}'", input1Shape[Dims4D::Act::C],
+                      VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT);
+    auto channelAlignmentFactor = input1Shape[Dims4D::Act::C] / VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    bool canReshapeC = allowsChannelsReshape(addOp) && channelAlignmentFactor > 1;
+
     Shape newInputShape(input1Shape.size());
+    newInputShape[Dims4D::Act::N] = input1Shape[Dims4D::Act::N];
+    newInputShape[Dims4D::Act::C] = input1Shape[Dims4D::Act::C];
 
-    auto channelAlignmentFactor = _numClusters * VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
-    auto newInputChannel = input1Shape[Dims4D::Act::C] / channelAlignmentFactor;
-
-    auto isChannelAlignedInput = input1Shape[Dims4D::Act::C] % channelAlignmentFactor == 0;
-    auto isChannelAlignedOutput =
-            newInputChannel > 0 && newInputChannel % VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT == 0;
-
-    if (isChannelAlignedInput && isChannelAlignedOutput) {
-        newInputShape[Dims4D::Act::N] = input1Shape[Dims4D::Act::N];
-        newInputShape[Dims4D::Act::C] = newInputChannel;
-        newInputShape[Dims4D::Act::H] = input1Shape[Dims4D::Act::H] * channelAlignmentFactor;
-        newInputShape[Dims4D::Act::W] = input1Shape[Dims4D::Act::W];
-
-    } else if ((input1Shape[Dims4D::Act::H] * input1Shape[Dims4D::Act::W]) % _numClusters == 0) {
-        const auto factors = vpux::getFactorsList(input1Shape[Dims4D::Act::H] * input1Shape[Dims4D::Act::W]);
-        if (factors.empty()) {
-            return matchFailed(_log, rewriter, addOp, "No factors found for Input Shape H*W");
+    // Make H as large as possible for better tiling while keeping W >= VPU_SPATIAL_ALIGNMENT
+    auto totalHW = input1Shape[Dims4D::Act::H] * input1Shape[Dims4D::Act::W];
+    auto factors = vpux::getFactorsListWithMinLimit(totalHW, VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
+    if (factors.empty()) {
+        // Cannot meet the minimum alignment requirement when only reshaping H and W
+        // Try also reshaping C if possible
+        if (!canReshapeC) {
+            return matchFailed(_log, rewriter, addOp, "No factors found for Input Shape H*W with min limit {0}",
+                               VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
         }
 
-        auto newHeight = factors.back().first;
-        auto newWidth = factors.back().second;
-
-        newInputShape[Dims4D::Act::N] = input1Shape[Dims4D::Act::N];
-        newInputShape[Dims4D::Act::C] = input1Shape[Dims4D::Act::C];
-        newInputShape[Dims4D::Act::H] = newHeight;
-        newInputShape[Dims4D::Act::W] = newWidth;
-
-    } else {
-        return matchFailed(_log, rewriter, addOp, "Dimensions not aligned for Reshape Ops");
+        newInputShape[Dims4D::Act::C] = VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+        totalHW = input1Shape[Dims4D::Act::H] * input1Shape[Dims4D::Act::W] * channelAlignmentFactor;
+        factors = vpux::getFactorsListWithMinLimit(totalHW, VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
+        if (factors.empty()) {
+            return matchFailed(_log, rewriter, addOp,
+                               "No factors found for Input Shape H*W*channelAlignmentFactor with min limit {0}",
+                               VPU::NCEInvariant::VPU_SPATIAL_ALIGNMENT);
+        }
     }
+    newInputShape[Dims4D::Act::H] = factors[0].second;
+    newInputShape[Dims4D::Act::W] = factors[0].first;
 
     auto newInputShapeAttr = getIntArrayAttr(getContext(), newInputShape);
 
-    SmallVector<SmallVector<int64_t>> reassociationMap(newInputShape.size());
-
-    for (size_t dimIdx = 0; dimIdx < newInputShape.size(); dimIdx++) {
-        reassociationMap[dimIdx].push_back(dimIdx);
-    }
-
-    auto newInputDimAttr = getIntArrayOfArray(getContext(), reassociationMap);
     // Reshape Inputs
-    auto input1ShapeCastOp =
-            rewriter.create<IE::AffineReshapeOp>(addOp.getLoc(), input1, newInputDimAttr, newInputShapeAttr);
-    auto input2ShapeCastOp =
-            rewriter.create<IE::AffineReshapeOp>(addOp.getLoc(), input2, newInputDimAttr, newInputShapeAttr);
+    auto input1ShapeCastOp = rewriter.create<IE::ShapeCastOp>(addOp.getLoc(), input1, newInputShapeAttr);
+    auto input2ShapeCastOp = rewriter.create<IE::ShapeCastOp>(addOp.getLoc(), input2, newInputShapeAttr);
 
-    auto newOutputType = mlir::cast<vpux::NDTypeInterface>(addOp.getResult().getType()).changeShape(newInputShape);
+    auto newOutputType = outputType.changeShape(newInputShape);
 
     // Create a new AddOp with the reshaped inputs
     auto newAddOp = rewriter.create<IE::AddOp>(
@@ -171,9 +157,11 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
             addOp.getPostOpAttr(), addOp.getClampAttr(), addOp.getOutputPaddingAttr(), addOp.getInputPaddingAttr());
 
     _log.trace("Found AddOp with small H dim: Reshaped to new shape at location '{0}'", newAddOp->getLoc());
+    _log.nest().trace("Original Input shape: {0}", input1Shape);
+    _log.nest().trace("New Input shape: {0}", newInputShape);
 
-    auto restoreShapeOp = rewriter.create<IE::AffineReshapeOp>(newAddOp.getLoc(), newAddOp, newInputDimAttr,
-                                                               getIntArrayAttr(getContext(), input1Shape));
+    auto restoreShapeOp =
+            rewriter.create<IE::ShapeCastOp>(newAddOp.getLoc(), newAddOp, getIntArrayAttr(getContext(), input1Shape));
     rewriter.replaceOp(addOp, restoreShapeOp.getResult());
 
     return mlir::success();
@@ -182,15 +170,12 @@ mlir::LogicalResult HandleEltwiseWithSmallHeight::matchAndRewrite(IE::AddOp addO
 class HandleEltwiseWithSmallHeightPass final :
         public IE::impl::HandleEltwiseWithSmallHeightBase<HandleEltwiseWithSmallHeightPass> {
 public:
-    explicit HandleEltwiseWithSmallHeightPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit HandleEltwiseWithSmallHeightPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 void HandleEltwiseWithSmallHeightPass::safeRunOnFunc() {
     auto& ctx = getContext();

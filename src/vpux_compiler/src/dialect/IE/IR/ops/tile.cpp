@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -17,7 +18,8 @@ using namespace vpux;
 
 namespace {
 
-mlir::SmallVector<int64_t> calcTileOutputShape(mlir::Value input, ArrayRef<int64_t> repeatsVals) {
+std::tuple<vpux::Shape, vpux::Bounds, vpux::DynamicDimsMask> calcTileOutputShape(mlir::Value input,
+                                                                                 ArrayRef<int64_t> repeatsVals) {
     // If number of elements in *"repeats"* is more than shape of *"data"*, then *"data"* will be promoted to
     // "*repeats*" by prepending new axes, e.g. let's shape of *"data"* is equal to (2, 3) and *"repeats"* is equal to
     // [2, 2, 2], then shape of *"data"* will be promoted to (1, 2, 3) and result shape will be (2, 4, 6).
@@ -27,19 +29,20 @@ mlir::SmallVector<int64_t> calcTileOutputShape(mlir::Value input, ArrayRef<int64
     // [2, 2], then *"repeats"* will be promoted to [1, 2, 2] and result shape will be (4, 4, 6)
 
     const auto inType = mlir::cast<mlir::ShapedType>(input.getType());
-    auto outShape = to_small_vector(inType.getShape());
+    return callOnShapeOf(inType, [&](const auto& inShape) {
+        auto outShape = copyShape(inShape);
+        while (repeatsVals.size() > outShape.size()) {
+            outShape.insert(outShape.begin(), 1);
+        }
 
-    while (repeatsVals.size() > outShape.size()) {
-        outShape.insert(outShape.begin(), 1);
-    }
+        const auto outRank = outShape.size();
+        const auto repeatsRank = repeatsVals.size();
+        for (size_t i = 0; i < repeatsRank; ++i) {
+            outShape[Dim(outRank - repeatsRank + i)] *= repeatsVals[i];
+        }
 
-    auto out_shape_iter = std::prev(outShape.end());
-    auto repeats_iter = std::prev(repeatsVals.end());
-    for (; out_shape_iter != std::prev(outShape.begin()) && repeats_iter != std::prev(repeatsVals.begin());
-         --out_shape_iter, --repeats_iter) {
-        *out_shape_iter *= *repeats_iter;
-    }
-    return outShape;
+        return splitShapeAndRepresentation(outShape);
+    });
 }
 }  // namespace
 
@@ -58,7 +61,7 @@ mlir::LogicalResult vpux::IE::TileOp::inferReturnTypeComponents(
         return errorAt(loc, "Ambiguous repeats representation");
     }
 
-    llvm::SmallVector<int64_t> repeatsVector;
+    SmallVector<int64_t> repeatsVector;
     const auto inType = mlir::cast<vpux::NDTypeInterface>(tile.getInput().getType());
     if (tile.getRepeats() != nullptr) {
         auto repeatsConst = tile.getRepeats().getDefiningOp<Const::DeclareOp>().getContent();
@@ -68,8 +71,9 @@ mlir::LogicalResult vpux::IE::TileOp::inferReturnTypeComponents(
     } else {
         return errorAt(loc, "Repeats was not provided properly");
     }
-    auto outShape = calcTileOutputShape(tile.getInput(), repeatsVector);
-    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
+    auto [outStaticShape, outBounds, outDimMask] = calcTileOutputShape(tile.getInput(), repeatsVector);
+    SmallVector<int64_t> outShape(outStaticShape.begin(), outStaticShape.end());
+    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), outBounds, outDimMask);
     inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();

@@ -472,16 +472,16 @@ func.func @QuantizedNCEPermuteCompressConv(%arg0: tensor<1x4x64x64xf16, {order =
 // CHECK-LABEL:  @DoNotAddExplicitPadWhenUserProducesSlicedChannels
 module @DoNotAddExplicitPadWhenUserProducesSlicedChannels {
     config.PipelineOptions @Options {
-        config.Option @VPU.AutoPaddingIDU : true
-        config.Option @VPU.AutoPaddingODU : true
+        config.Option @config.AutoPaddingIDU : true
+        config.Option @config.AutoPaddingODU : true
     }
 
     // CHECK:      ([[INPUT:%.+]]: tensor<1x3x720x1280xf16>
     // CHECK-SAME:  [[WEIGHTS_DEPTH_CONV:%.+]]: tensor<3x16x1x1xf16, {order = #NHWC}>
-    // CHECK-SAME:  [[WEIGHTS_CONV:%.+]]: tensor<32x1x1x32xf16, {order = #NHWC}>
+    // CHECK-SAME:  [[WEIGHTS_CONV:%.+]]: tensor<32x1x1x144xf16, {order = #NHWC}>
     func.func @main(%input: tensor<1x3x720x1280xf16>,
                     %weights_depth_conv: tensor<3x16x1x1xf16, {order = #NHWC}>,
-                    %weights_conv: tensor<32x1x1x32xf16, {order = #NHWC}>)
+                    %weights_conv: tensor<32x1x1x144xf16, {order = #NHWC}>)
             -> tensor<1x32x360x640xf16, {order = #NHWC}> {
         %permute = VPU.NCE.Permute(%input) {
             dstElemType = f16,
@@ -502,7 +502,7 @@ module @DoNotAddExplicitPadWhenUserProducesSlicedChannels {
             ppe = #VPU.PPEStub<>,
             rawFilterShape = [32, 3, 3, 3],
             strides = [2, 2]
-        } : tensor<1x3x720x1280xf16, {order = #NHWC}>, tensor<32x1x1x32xf16, {order = #NHWC}> -> tensor<1x32x360x640xf16, {order = #NHWC}>
+        } : tensor<1x3x720x1280xf16, {order = #NHWC}>, tensor<32x1x1x144xf16, {order = #NHWC}> -> tensor<1x32x360x640xf16, {order = #NHWC}>
 
         return %conv : tensor<1x32x360x640xf16, {order = #NHWC}>
 

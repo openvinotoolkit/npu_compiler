@@ -6,8 +6,6 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_constraint_utils.hpp"
 #include "vpux/utils/core/error.hpp"
 
-#include <algorithm>
-
 using namespace vpux;
 
 constexpr double NPU37XX_FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS = 0.45;

@@ -38,7 +38,6 @@ else()
             npu_driver_compiler
             gtest
             gtest_main
-            pthread
     )
 endif()
 

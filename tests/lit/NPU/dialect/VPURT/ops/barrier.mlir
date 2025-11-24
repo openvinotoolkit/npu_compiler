@@ -42,13 +42,13 @@ func.func @PrintParseDeclareVirtualBarrier()
     return %bar0, %bar1, %bar2, %bar3, %bar4, %bar5, %bar6, %bar7
         : !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier, !VPURT.Barrier
 
-    // CHECK: [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
-    // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
-    // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
-    // CHECK: [[BAR4:%.*]] = VPURT.DeclareVirtualBarrier <{barrierIndex = 2}> -> !VPURT.Barrier
-    // CHECK: [[BAR5:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier}> -> !VPURT.Barrier
-    // CHECK: [[BAR6:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
-    // CHECK: [[BAR7:%.*]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier, wlmPage = 0 : i64, barrierIndex = 1}> -> !VPURT.Barrier
+    // CHECK: [[BAR0:%.+]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
+    // CHECK: [[BAR1:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier}> -> !VPURT.Barrier
+    // CHECK: [[BAR2:%.+]] = VPURT.DeclareVirtualBarrier <{isStartBarrier}> -> !VPURT.Barrier
+    // CHECK: [[BAR3:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 1 : i64}> -> !VPURT.Barrier
+    // CHECK: [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier <{barrierIndex = 2}> -> !VPURT.Barrier
+    // CHECK: [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier}> -> !VPURT.Barrier
+    // CHECK: [[BAR6:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier, wlmPage = 0 : i64}> -> !VPURT.Barrier
+    // CHECK: [[BAR7:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, isStartBarrier, wlmPage = 0 : i64, barrierIndex = 1}> -> !VPURT.Barrier
     // return [[BAR0]], [[BAR1]], [[BAR2]], [[BAR3]], [[BAR4]], [[BAR5]], [[BAR6]], [[BAR7]]
 }

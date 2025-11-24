@@ -701,11 +701,11 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig(mlir::MLIRContext* ctx
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -835,11 +835,11 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig2(mlir::MLIRContext* ct
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -934,11 +934,11 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig3(mlir::MLIRContext* ct
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -1149,11 +1149,11 @@ BarrierInfoMaps barriersWithFIFOdependenciesNPU40XXconfig6(
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -1264,11 +1264,11 @@ SmallVector<size_t> variableGraphSplitBlockSizeNPU40XXconfig(
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -1793,11 +1793,11 @@ void parallelWaitBarriersIRconfig(mlir::MLIRContext* ctx, mlir::OwningOpRef<mlir
 
         module attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>, config.revisionID = #config.revision_id<REVISION_NONE>} {
             config.PipelineOptions @Options {
-            config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-            config.Option @VPU.ReduceSupported : false
-            config.Option @VPU.AutoPaddingODU : false
-            config.Option @VPU.BarrierMaxVariantSum : 64
-            config.Option @VPU.BarrierMaxVariantCount : 128
+            config.Option @config.UseDedicatedFifoPerShaveEngine : false
+            config.Option @config.ReduceSupported : false
+            config.Option @config.AutoPaddingODU : false
+            config.Option @config.BarrierMaxVariantSum : 64
+            config.Option @config.BarrierMaxVariantCount : 128
             }
             config.Resources 6 of @NCE at 1.850000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware

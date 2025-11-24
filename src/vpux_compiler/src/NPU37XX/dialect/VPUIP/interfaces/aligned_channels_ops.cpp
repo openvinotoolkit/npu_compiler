@@ -10,9 +10,9 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/utils/compressed_convolution_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 
 using namespace vpux;
@@ -61,7 +61,7 @@ public:
             // E#106393 future work to enable compress conv for sub byte types
             const bool isSubByte = vpux::isSubByteType(inputType.getElementType()) ||
                                    vpux::isSubByteType(weightsType.getElementType());
-            if (VPU::hasFP16CompressedConv(op)) {
+            if (config::hasFP16CompressedConv(op)) {
                 if (!isSubByte && inputC < VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM && filterIsConstOp) {
                     return VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM;
                 }
@@ -116,5 +116,6 @@ void vpux::VPUIP::arch37xx::registerAlignedChannelsOpInterfaces(mlir::DialectReg
         IE::PadOp::attachInterface<AlignedChannelsOpModel<IE::PadOp>>(*ctx);
         IE::MatMulOp::attachInterface<AlignedChannelsOpModel<IE::MatMulOp>>(*ctx);
         IE::SoftMaxOp::attachInterface<AlignedChannelsOpModel<IE::SoftMaxOp>>(*ctx);
+        IE::SDPAExtendedOp::attachInterface<AlignedChannelsOpModel<IE::SDPAExtendedOp>>(*ctx);
     });
 }

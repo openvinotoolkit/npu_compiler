@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
 
@@ -79,8 +80,11 @@ mlir::LogicalResult InsertReorderBetweenLayerAndConcat::ConcatOpConverter::match
     const auto nhwcOrder = DimsOrder::NHWC;
     const auto nhwcOrderMap = nhwcOrder.toAffineMap(rewriter.getContext());
     SmallVector<mlir::Value> newConcatInputs;
-    for (const auto& concatInput : concatInputList) {
-        auto nhwcReorderOp = rewriter.create<IE::ReorderOp>(origOp->getLoc(), concatInput, nhwcOrderMap);
+    for (const auto& item : concatInputList | indexed) {
+        const auto& concatInput = item.value();
+        const auto& index = item.index();
+        auto nhwcReorderOp = rewriter.create<IE::ReorderOp>(appendLoc(origOp->getLoc(), "_reorder_{0}", index),
+                                                            concatInput, nhwcOrderMap);
         newConcatInputs.push_back(nhwcReorderOp);
     }
 
@@ -91,7 +95,9 @@ mlir::LogicalResult InsertReorderBetweenLayerAndConcat::ConcatOpConverter::match
     auto newConcat = rewriter.create<IE::ConcatOp>(origOp->getLoc(), newConcatInputs, axisAttr);
     const auto nchwOrder = DimsOrder::NCHW;
     const auto nchwOrderMap = nchwOrder.toAffineMap(rewriter.getContext());
-    rewriter.replaceOpWithNewOp<IE::ReorderOp>(origOp, newConcat.getOutput(), nchwOrderMap);
+    auto outReorder = rewriter.create<IE::ReorderOp>(appendLoc(origOp->getLoc(), "_reorder_output"),
+                                                     newConcat.getOutput(), nchwOrderMap);
+    rewriter.replaceOp(origOp, outReorder);
     return mlir::success();
 }
 

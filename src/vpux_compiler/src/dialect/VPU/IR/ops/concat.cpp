@@ -212,7 +212,6 @@ mlir::FailureOr<Shape> inferOutShapeWithOffsets(VPU::ConcatOpAdaptor concat, con
         for (const auto ind : irange(outShape.size())) {
             const auto d = Dim(ind);
             if (curShape[d] == mlir::ShapedType::kDynamic) {
-                VPUX_THROW_UNLESS(curOffsets[d] == 0, "Concatenation over dynamic dimension is not supported.");
                 outShape[d] = curShape[d];
             } else {
                 const auto curOutShape = curStrides[d] * (curShape[d] - 1) + 1 + curOffsets[d];

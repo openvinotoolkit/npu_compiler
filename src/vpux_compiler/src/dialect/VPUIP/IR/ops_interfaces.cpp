@@ -6,13 +6,19 @@
 #include "vpux/compiler/dialect/VPUIP/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
-
+#include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
+#include "vpux/utils/logger/logger.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>
+#include <mlir/Support/LLVM.h>
 
 using namespace vpux;
 
@@ -43,9 +49,116 @@ mlir::Type getElementType(mlir::Type type) {
     return elemType;
 }
 
+bool isCompressConvolution(VPUIP::NCEClusterTaskOp nceOp) {
+    auto taskType = nceOp.getTaskType();
+    if (taskType != VPUIP::NCETaskType::CONV) {
+        return false;
+    }
+    if (nceOp.getInputChannelsCompression()) {
+        return true;
+    }
+    return false;
+}
+
+bool verifyCMX(mlir::Operation* op, Logger log) {
+    bool isLayerOpInterface = mlir::isa_and_nonnull<VPUIP::LayerOpInterface>(op);
+
+    // Skip SWKernel ops for this check, the input and output buffer placement is handled in bufferize SW ops.
+    bool isSoftwareOrDMAOp = mlir::isa<VPUIP::SwKernelOp>(op) || mlir::isa<VPUIP::SoftwareLayerOpInterface>(op) ||
+                             mlir::isa<VPU::SWOpInterface>(op) || mlir::isa<VPUIP::CopyOp>(op) ||
+                             mlir::isa<VPUIP::ConvertDMAOp>(op);
+
+    // Skip Cluster Ops with weight or input sparsity - input data types are adjusted to reflect the explicit
+    // storage element table's requirements. It does not reflect the real CMX occupied by the buffer.
+    bool layerHasSparsity = false;
+    if (auto nceOp = mlir::dyn_cast_or_null<VPUIP::NCEClusterTaskOp>(op)) {
+        layerHasSparsity =
+                nceOp.getInputSparsityMap() || nceOp.getWeightsSparsityMap() || nceOp.getInputStorageElementTable();
+    }
+
+    auto module = getModuleOp(op);
+    auto numClusters = config::getTileExecutor(module);
+    bool clusterHasCMXMemory = (numClusters && numClusters.hasAvailableMemory(VPU::MemoryKind::CMX_NN));
+
+    if (isSoftwareOrDMAOp || layerHasSparsity || !clusterHasCMXMemory || !isLayerOpInterface) {
+        return true;
+    }
+    auto availableCMXSize = config::getAvailableMemory(module, VPU::MemoryKind::CMX_NN).size();
+    if (availableCMXSize.count() <= 0) {
+        return true;
+    }
+
+    llvm::SetVector<mlir::Value> cmxOperands;
+
+    auto appendToVectorIfInCMX = [&](mlir::Value val) {
+        if (val && mlir::isa<mlir::MemRefType>(val.getType()) &&
+            vpux::NDTypeInterface(val.getType()).getMemoryKind() == VPU::MemoryKind::CMX_NN) {
+            auto rootVal = vpux::VPUIP::getRootBuffer(val);
+            cmxOperands.insert(rootVal);
+        }
+    };
+
+    if (auto clusterTaskOp = mlir::dyn_cast<VPUIP::NCEClusterTaskOp>(op)) {
+        auto taskType = clusterTaskOp.getTaskType();
+        bool isInplace = clusterTaskOp.getIsInplace().value_or(false);
+        bool isInplaceOrPoolingOp = (taskType == VPUIP::NCETaskType::ELTWISE && isInplace) ||
+                                    taskType == VPUIP::NCETaskType::AVEPOOL ||
+                                    taskType == VPUIP::NCETaskType::MAXPOOL || clusterTaskOp.getIsPermuteQuantizeAttr();
+        if (isInplaceOrPoolingOp) {
+            appendToVectorIfInCMX(clusterTaskOp.getInput());
+            appendToVectorIfInCMX(clusterTaskOp.getOutputBuff());
+            appendToVectorIfInCMX(clusterTaskOp.getProfilingData());
+        } else if (isCompressConvolution(clusterTaskOp)) {
+            // Compressed Convolutions have the input shape reinterpreted as if they had 16 channels,
+            // even if there are fewer in memory overall. To compute the real CMX usage, use the input
+            // type of the ShapeCast operation  - E#182967
+            auto appendInputToShapeCastOp = [&](mlir::Value value) {
+                if (auto shapeCastOp = value.getDefiningOp<VPUIP::ShapeCastOp>()) {
+                    log.debug("For Compress Convolution verifying input operand '{0}' at '{1}' Shape: {2}",
+                              shapeCastOp->getName(), shapeCastOp->getLoc(),
+                              vpux::NDTypeInterface(shapeCastOp.getSource().getType()).getShape());
+                    appendToVectorIfInCMX(shapeCastOp.getSource());
+                }
+            };
+
+            appendInputToShapeCastOp(clusterTaskOp.getInput());
+            appendInputToShapeCastOp(clusterTaskOp.getWeights());
+            appendToVectorIfInCMX(clusterTaskOp.getWeightTable());
+            appendToVectorIfInCMX(clusterTaskOp.getProfilingData());
+            appendToVectorIfInCMX(clusterTaskOp.getOutputBuff());
+
+        } else {
+            appendToVectorIfInCMX(clusterTaskOp.getInput());
+            appendToVectorIfInCMX(clusterTaskOp.getWeights());
+            appendToVectorIfInCMX(clusterTaskOp.getWeightTable());
+            appendToVectorIfInCMX(clusterTaskOp.getProfilingData());
+            appendToVectorIfInCMX(clusterTaskOp.getOutputBuff());
+        }
+    } else {
+        for (auto operand : op->getOperands()) {
+            appendToVectorIfInCMX(operand);
+        }
+    }
+
+    if (cmxOperands.empty()) {
+        return true;
+    }
+
+    Byte requiredCMXSize;
+    for (const auto& operand : cmxOperands) {
+        if (auto ndTypeInterface = mlir::dyn_cast<NDTypeInterface>(operand.getType())) {
+            requiredCMXSize += ndTypeInterface.getCompactAllocSize();
+        }
+    }
+
+    return requiredCMXSize <= availableCMXSize;
+}
+
 }  // namespace
 
 mlir::LogicalResult vpux::VPUIP::verifyLayer(mlir::Operation* op) {
+    auto log = vpux::Logger::global();
+    log.setName("verify-CMX-usage");
     auto swKernel = mlir::dyn_cast<VPUIP::SwKernelOp>(op);
     if (swKernel && isCacheHandlingOp(swKernel)) {
         return mlir::success();
@@ -88,6 +201,10 @@ mlir::LogicalResult vpux::VPUIP::verifyLayer(mlir::Operation* op) {
                        "The number of operands must always be greater than or equal to the number of results, since "
                        "they include buffers for the results : inNum={0} outNum={1}",
                        inNum, outNum);
+    }
+
+    if (!verifyCMX(op, log)) {
+        return errorAt(op, "Op '{0}' at '{1}' does not fit into CMX", op->getName(), op->getLoc());
     }
 
     return mlir::success();

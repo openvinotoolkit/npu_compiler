@@ -27,9 +27,11 @@ public:
     mlir::LogicalResult matchAndRewrite(IE::InterpolateOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
-    mlir::Value createIdentityPooling(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value input) const;
-    mlir::Value scaleOnAxis(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value input, int64_t inputSize,
-                            int64_t outputSize, vpux::Dim axis, IE::MapCoordFuncT mapCoord) const;
+    mlir::Value createIdentityPooling(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value input,
+                                      vpux::NDTypeInterface outType) const;
+    mlir::Value scaleOnAxis(mlir::PatternRewriter& rewriter, mlir::Location loc, mlir::Value input,
+                            vpux::NDTypeInterface outType, int64_t inputSize, int64_t outputSize, vpux::Dim axis,
+                            IE::MapCoordFuncT mapCoord) const;
 
     Logger _log;
 };

@@ -198,7 +198,6 @@ module @"resnet-320-pytorch" {
     %miV = VPUMI40XX.MappedInferenceVersion(11 _ 4 _ 10) -> !VPURegMapped.Index<0:0:0>
     %766 = VPUMI40XX.MappedInference dmas((%734, %745), (%746, %747) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>, !VPURegMapped.Index<1:1:0>)) invariants(%706, %709 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) variants(%712, %715 : !VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<1:0:0>) actKernelRanges((%698, %771), (%700) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>)) actKernelInvocations((%702, %773), (%704) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:0:0>)) barriers(%691 : !VPURegMapped.Index<0:0:0>) workItemTasks(%749 : !VPURegMapped.Index<0:0:0>) bootstrapBarriers(%759 : !VPURegMapped.Index<0:0:0>) actShaveRt(%748 : !VPURegMapped.Index<0:0:0>) dmaHwpBase(%648 : memref<16xui32, [@CMX_NN, 0]>) dmaCount([[11, 1], [1, 1]]) invariantCount([3, 3]) variantCount([3, 3]) actKernelRangesCount([[2, 2], [2, 0]]) actKernelInvocationsCount([[2, 1], [2, 0]]) mediaCount(0) barrierCount(7) workItemCount(10) bootstrapBarriersCount(7) bootsrapWorkItemsCount(4) finalBarrierId(6) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

@@ -15,5 +15,6 @@ namespace vpux::VPU::arch37xx {
 
 NCESparsity::IntOrFloatType getScale(uint8_t shift, int16_t mult, double rescale, mlir::Type inputType);
 NCESparsity::IntOrFloatType getBias(double realVal, mlir::Type inputType);
+double retrieveScaleFromTable(VPU::NCESparsity::IntOrFloatType val, mlir::Type);
 
 }  // namespace vpux::VPU::arch37xx

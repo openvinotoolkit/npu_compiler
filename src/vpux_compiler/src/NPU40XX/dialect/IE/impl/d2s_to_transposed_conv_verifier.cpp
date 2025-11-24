@@ -43,6 +43,7 @@ mlir::LogicalResult D2SToTransposedConvVerifier::isBeneficialConversion(Logger l
     }
 
     auto inputType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getInput().getType());
+
     auto inputShape = inputType.getShape();
     auto inputChannels = inputShape[Dims4D::Act::C];
 

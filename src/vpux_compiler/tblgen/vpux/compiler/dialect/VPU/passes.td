@@ -250,6 +250,25 @@ def CostModelAnalysisDestroy : PassBase<"cost-model-analysis-destroy", "vpux::Mo
 }
 
 //
+// NN Cache Statistics
+//
+def PrintNNCacheStatistics : PassBase<"print-nn-cache-statistics", "vpux::ModulePass"> {
+    let summary = "This pass prints nn cache statistics log";
+
+    let description = [{
+        Since the cost model is singleton, the functional passA could affect the cache statistics for functional passB,
+        which could make nn cahce statistics log inaccurtate in passB.
+        This pass is used to synchronize parallel functions between functional passes, thus making nn cache statistics log more accurate.
+    }];
+
+    let constructor = "vpux::VPU::createPrintNNCacheStatisticsPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
 // Multi-cluster strategy assignment
 //
 
@@ -358,6 +377,14 @@ def EfficientIROrder : PassBase<"efficient-ir-order", "vpux::FunctionPass"> {
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
+    ];
+
+    let options = [
+        Option<
+            "enableReorderConcatBranches", "enable-reorder-concat-branches",
+            "bool", "true",
+            "Flag to enable reorder concat branches"
+        >
     ];
 }
 
@@ -782,6 +809,31 @@ def AdjustMemorySpace : PassBase<"adjust-memory-space", "vpux::FunctionPass"> {
     }];
 
     let constructor = "vpux::VPU::createAdjustMemorySpacePass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// AdjustMemorySpaceForSHVOps
+//
+
+def AdjustMemorySpaceForSHVOps : PassBase<"adjust-memory-space-for-shv-ops", "vpux::FunctionPass"> {
+    let summary = "Adjusts the memory space for SHAVE operations";
+
+    let description = [{
+        The pass adjusts the memory space for SHAVE operations, by placing their tensors in either CMX or DDR.
+
+        It identifies all operations that are known to be lowered to SHAVE and attempts to place all of the
+        operands and results in CMX. In case not all tensors fit, the pass selects the ones which will
+        maximize the CMX utilization. For example, if the operand is small and the result is large, the result
+        is chosen to be placed in CMX.
+
+        Copies are introduced to move the operands to CMX or to move the results back to DDR.
+    }];
+
+    let constructor = "vpux::VPU::createAdjustMemorySpaceForSHVOpsPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -1653,12 +1705,12 @@ def SetupNpuConstraint : PassBase<"setup-npu-constraint", "vpux::ModulePass"> {
     let options = [
         Option<
             "workloadManagementStatus", "workload-management-status",
-            "vpux::VPU::WorkloadManagementStatus", "vpux::VPU::WorkloadManagementStatus::ENABLED",
+            "vpux::WorkloadManagementStatus", "vpux::WorkloadManagementStatus::ENABLED",
             "[Optional] Set workload management status",
             [{::llvm::cl::values(
-                clEnumValN(vpux::VPU::WorkloadManagementStatus::ENABLED, "ENABLED", "workload management enabled"),
-                clEnumValN(vpux::VPU::WorkloadManagementStatus::DISABLED, "DISABLED", "workload management disabled"),
-                clEnumValN(vpux::VPU::WorkloadManagementStatus::FAILED, "FAILED", "workload management attempted, but failed")
+                clEnumValN(vpux::WorkloadManagementStatus::ENABLED, "ENABLED", "workload management enabled"),
+                clEnumValN(vpux::WorkloadManagementStatus::DISABLED, "DISABLED", "workload management disabled"),
+                clEnumValN(vpux::WorkloadManagementStatus::FAILED, "FAILED", "workload management attempted, but failed")
             )}]
         >,
         Option<
@@ -1812,6 +1864,11 @@ def SetTargetIndependentPassOptions : PassBase<"set-target-independent-options",
             "enableProfiling", "enable-profiling",
             "bool", "false",
             "Enable profiling"
+        >,
+        Option<
+            "enableWeightsDynamicDequantization", "enable-weights-dynamic-dequantization",
+            "bool", "false",
+            "[Optional] Set WeightsDynamicDequantization to true/false"
         >
     ];
 
@@ -1852,38 +1909,20 @@ def SetupTilingConstraint : PassBase<"setup-tiling-contraint", "vpux::ModulePass
 //
 
 def ConvertOpToDMAForPerformantExecution : PassBase<"convert-op-to-dma-for-performant-execution", "vpux::FunctionPass"> {
-    let summary = "Move ops to DMA if possible and effiecient";
+    let summary = "Adapt and move ops to DMA if possible and efficient";
 
     let description = [{
         If op can be done with DMA efficiently this pass will, convert the op to DMA related op.
         Only added to VPU40XX+ pipelines as only op converted via this pass is Gather and is only supported
         on VPU40XX+ pipelines.
 
-        Currently GatherOp -> GatherDMAOp is supported ( on LNL and newer architectures)
-        Gather -> Reshape + Convert + (Optional) Copy + GatherDMA + Reshape + Copy
+        Currently GatherOp -> GatherDMAOp is supported ( on LNL and newer architectures).
+        Gather DMA has some limitation, the input size after axis should be less than 4096.
+        On Adaptation side the pass will tile gather on the dimension after gather axis.
+        Gather -> Reshape + Convert + (Optional) Copy + GatherDMA + Reshape + Copy.
     }];
 
     let constructor = "vpux::VPU::createConvertOpToDMAForPerformantExecutionPass()";
-
-    let dependentDialects = [
-        "vpux::VPU::VPUDialect"
-    ];
-}
-
-//
-// TileGather
-//
-
-def TileGather : PassBase<"tile-gather", "vpux::FunctionPass"> {
-    let summary = "Tile Gather Op";
-
-    let description = [{
-        GatherOp will convert to Gather DMA in VPUX40XX+ pipelines.
-        But Gather DMA has some limitation, the input size after axis shold less than 4096.
-        The pass will tile gather from the dimention after axis
-    }];
-
-    let constructor = "vpux::VPU::createTileGatherPass()";
 
     let dependentDialects = [
         "vpux::VPU::VPUDialect"
@@ -2195,11 +2234,6 @@ def IntroduceInitFunction : PassBase<"introduce-init-function", "vpux::ModulePas
             This mode allows the user to produce a blob that only contains the init()-schedule.
             The main() function is erased. The network IO info is set to reflect the function signature of init().
 
-        GenAll (generate all i.e. init and main):
-            This mode allows the user to produce a blob that contains both the init()- and the main()-schedule.
-            The entry-point function calls in sequence init() and then main(), following GenInit and GenMain
-            conventions.
-
         Additionally, the pass also acknowledges a special memory limit option (see pass options).
         The memory limit is a threshold that controls how much memory an init schedule uses for input and output
         arguments (note: any additional memory allocated during schedule execution is not accounted for). When the
@@ -2213,8 +2247,8 @@ def IntroduceInitFunction : PassBase<"introduce-init-function", "vpux::ModulePas
     let options = [
         Option<
             "wsExtractionMode", "ws-extraction-mode",
-            "std::string", [{"gen-all"}],
-            "Can be one of the following values: 'gen-init', 'gen-main' or 'gen-all'"
+            "std::string", [{"gen-init"}],
+            "Can be one of the following values: 'gen-init', 'gen-main'"
         >,
         Option<
             "initPart", "init-part", "int64_t", "-1", "Specifies which part of"
@@ -2289,8 +2323,8 @@ def ConcatInitResults : PassBase<"concat-init-results", "vpux::ModulePass"> {
     let options = [
         Option<
             "wsExtractionMode", "ws-extraction-mode",
-            "std::string", [{"gen-all"}],
-            "Can be one of the following values: 'gen-init', 'gen-main' or 'gen-all'"
+            "std::string", [{"gen-init"}],
+            "Can be one of the following values: 'gen-init', 'gen-main'"
         >,
         Option<
             "initPart", "init-part", "int64_t", "-1", "Specifies which part of"
@@ -2762,5 +2796,93 @@ def RestorePadAttrAfterSCFTiling : PassBase<"restore-tensor-pad-after-scf-tiling
         "mlir::tensor::TensorDialect",
         "mlir::arith::ArithDialect",
         "mlir::scf::SCFDialect",
+    ];
+}
+
+//
+// FlashSDPATilingStrategyEstimation
+//
+
+def FlashSDPATilingStrategyEstimation : PassBase<"flash-sdpa-tiling-strategy-estimation", "vpux::FunctionPass"> {
+    let summary = "Computes Query and Key/Value tiling parameters";
+
+    let description = [{
+        Compute tiling dimensions for both Query and Key/Value tensors.
+        Assign Key/Value tiling attribute to propagate it to the UnrollFlashSDPAPass.
+        Isolated tiling algorithm will tile VPU.FlashSDPAOp on Query.
+        The Key/Value tiling attribute is used to estimate CMX requirement for the final tiled operation.
+    }];
+
+    let constructor = "vpux::VPU::createFlashSDPATilingStrategyEstimationPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+// FuseLastViewLikeOp
+//
+
+def SCFFuseLastViewLikeOp : PassBase<"scf-fuse-last-viewlike-op", "vpux::FunctionPass"> {
+    let summary = "Fuses the last view-like op into the preceding scf.for loop";
+
+    let description = [{
+        View ops placed after the last compute op in an scf.for loop will remain outside
+        of it after the SCF VF pass. That will however lead to errors later on.
+
+        This pass takes the final view ops and integrates them in the scf.for loop.
+        Currently supporting only PermuteCast fusion.
+    }];
+
+    let constructor = "vpux::VPU::createSCFFuseLastViewLikeOpPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// UnrollFlashSDPA
+//
+
+def UnrollFlashSDPA : PassBase<"unroll-flash-sdpa", "vpux::FunctionPass"> {
+    let summary = "Tiles VPU.FlashSDPA on Key and Value tensors";
+
+    let description = [{
+        Unroll VPU.FlashSDPAOp based on the pre-computed Key/Value tiling attribute.
+        Propagate RunningMax, RunningSum and RunningOutput through each operation.
+    }];
+
+    let constructor = "vpux::VPU::createUnrollFlashSDPAPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect"
+    ];
+}
+
+//
+// AdjustBlockSizeForScfTiling
+//
+
+def AdjustBlockSizeForScfTiling : PassBase<"adjust-block-size-for-scf-tiling", "vpux::ModulePass"> {
+    let summary = "Adjusts block sizes for SCF tiling";
+
+    let description = [{
+        In the Host dynamism approach, the ApplyTiling pass tiles over output tensor dimensions using scf.for loops.
+        The resulting block sizes for output and input tensors may not have fixed sizes, depending on the tensor dimensions
+        and step sizes. This pass adjusts the block sizes for input and output tensors to static sizes by backtracking the
+        index for the last tile.
+
+        The pass does not handle scenarios where there are not enough elements to perform backtracking.
+    }];
+
+    let constructor = "vpux::VPU::createAdjustBlockSizeForScfTilingPass()";
+
+    let dependentDialects = [
+        "vpux::VPU::VPUDialect",
+        "mlir::tensor::TensorDialect",
+        "mlir::arith::ArithDialect",
+        "mlir::scf::SCFDialect",
+        "mlir::cf::ControlFlowDialect",
     ];
 }

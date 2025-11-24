@@ -40,4 +40,3 @@ func.func @ReplaceAttentionMaskWithCausalMask(%arg0: tensor<8x64x64xf16>, %arg1:
   // CHECK-SAME:    -> tensor<8x64x128xf16>
   // CHECK:     return [[RESULT]]
 }
-

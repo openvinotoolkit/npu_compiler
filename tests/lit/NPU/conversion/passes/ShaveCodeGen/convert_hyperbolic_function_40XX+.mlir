@@ -26,7 +26,8 @@ module @SinhF16Layer {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Sinh
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[CST0:%.+]] = arith.constant 0.000000e+00 : f16
     // CHECK-NEXT:      [[CST:%.+]] = arith.constant 5.000000e-01 : f16
@@ -61,7 +62,8 @@ module @CoshF16Layer {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Cosh
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[CST0:%.+]] = arith.constant 0.000000e+00 : f16
     // CHECK-NEXT:      [[CST:%.+]] = arith.constant 5.000000e-01 : f16
@@ -96,7 +98,8 @@ module @AtanhF16Layer {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Atanh
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[CST:%.+]] = arith.constant 1.000000e+00 : f16
     // CHECK-NEXT:      [[CST0:%.+]] = arith.constant 5.000000e-01 : f16
@@ -131,7 +134,8 @@ module @TanhF16Layer  {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Tanh
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[RES:%.+]] = math.tanh [[IN]] fastmath<afn> : f16
     // CHECK-NEXT:      linalg.yield [[RES]] : f16
@@ -159,7 +163,8 @@ module @TanhF32Layer  {
     return %0 : tensor<1x1x1x1000xf32>
 
     // CHECK-NOT:     IE.Tanh
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf32>) outs([[ARG0]] : tensor<1x1x1x1000xf32>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf32>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf32>) outs([[EMPTY]] : tensor<1x1x1x1000xf32>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f32, {{%.+}}: f32):
     // CHECK-NEXT:      [[RES:%.+]] = math.tanh [[IN]] fastmath<afn> : f32
     // CHECK-NEXT:      linalg.yield [[RES]] : f32

@@ -595,3 +595,101 @@ func.func @ConvertMultiplyToScaleShiftWithWSplatWeights(%arg0: tensor<1x2400x12x
 
     // CHECK:       return [[SCALESHIFT]]
 }
+
+// -----
+
+// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithWeightsFront
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x16x1x1xf16>
+func.func @ConvertMultiplyToScaleShiftWithWeightsFront(%arg0: tensor<1x16x1x1xf16>) -> tensor<1x16x14x64xf16> {
+    %weights = const.Declare tensor<1x16x14x64xf16> = dense<1.25> : tensor<1x16x14x64xf16>
+    %0 = IE.Multiply(%arg0, %weights)
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+        tensor<1x16x1x1xf16>, tensor<1x16x14x64xf16> -> tensor<1x16x14x64xf16>
+
+    return %0 : tensor<1x16x14x64xf16>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<1x16x14x64xf16> = dense<1.250000e+00> : tensor<1x16x14x64xf16>
+    // CHECK:       [[SCALESHIFT:%.+]] = IE.ScaleShift([[WEIGHTS]], [[INPUT]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x16x14x64xf16>, tensor<1x16x1x1xf16> -> tensor<1x16x14x64xf16>
+    // CHECK:       return [[SCALESHIFT]]
+}
+
+// -----
+
+#NHCW = affine_map<(d0, d1, d2, d3) -> (d0, d2, d1, d3)>
+
+// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithHExpandedWeightsBroadcast
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x64x1xf16>
+func.func @ConvertMultiplyToScaleShiftWithHExpandedWeightsBroadcast(%arg0: tensor<1x1x64x1xf16>) -> tensor<1x8x64x16xf16> {
+    %weights = const.Declare tensor<1x8x64x16xf16> = dense<0.75> : tensor<1x8x64x16xf16>
+    %0 = IE.Multiply(%arg0, %weights)
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+        tensor<1x1x64x1xf16>, tensor<1x8x64x16xf16> -> tensor<1x8x64x16xf16>
+
+    return %0 : tensor<1x8x64x16xf16>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<1x64x8x16xf16> = dense<7.500000e-01> : tensor<1x8x64x16xf16>, [#const.Transpose<#NHCW>]
+    // CHECK:       [[TRANSPOSE_IN:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NHCW} : tensor<1x1x64x1xf16> -> tensor<1x64x1x1xf16>
+    // CHECK:       [[SCALESHIFT:%.+]] = IE.ScaleShift([[WEIGHTS]], [[TRANSPOSE_IN]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x64x8x16xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x8x16xf16>
+    // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[SCALESHIFT]]) {order_value = #NHCW} : tensor<1x64x8x16xf16> -> tensor<1x8x64x16xf16>
+    // CHECK:       return [[TRANSPOSE_OUT]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithWExpandedWeightsBroadcast
+// CHECK-SAME:  [[INPUT:%.+]]: tensor<1x1x1x64xf16>
+func.func @ConvertMultiplyToScaleShiftWithWExpandedWeightsBroadcast(%arg0: tensor<1x1x1x64xf16>) -> tensor<1x16x14x64xf16> {
+    %weights = const.Declare tensor<1x16x14x64xf16> = dense<1.25> : tensor<1x16x14x64xf16>
+    %0 = IE.Multiply(%arg0, %weights)
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+        tensor<1x1x1x64xf16>, tensor<1x16x14x64xf16> -> tensor<1x16x14x64xf16>
+
+    return %0 : tensor<1x16x14x64xf16>
+
+    // CHECK-DAG:   [[WEIGHTS:%.+]] = const.Declare tensor<1x64x16x14xf16> = dense<1.250000e+00> : tensor<1x16x14x64xf16>, [#const.Transpose<#NWCH>]
+    // CHECK:       [[TRANSPOSE_IN:%.+]] = IE.Transpose([[INPUT]]) {order_value = #NWCH} : tensor<1x1x1x64xf16> -> tensor<1x64x1x1xf16>
+    // CHECK:       [[SCALESHIFT:%.+]] = IE.ScaleShift([[WEIGHTS]], [[TRANSPOSE_IN]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x64x16x14xf16>, tensor<1x64x1x1xf16> -> tensor<1x64x16x14xf16>
+    // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[SCALESHIFT]]) {order_value = #NHWC} : tensor<1x64x16x14xf16> -> tensor<1x16x14x64xf16>
+    // CHECK:       return [[TRANSPOSE_OUT]]
+}
+
+// -----
+
+// CHECK-LABEL: @NoConvertMultiplyToScaleShiftWithHExpanded
+// CHECK-SAME:  ([[INPUT_0:%.+]]: tensor<1x1x64x1xf16>, [[INPUT_1:%.+]]: tensor<1x8x64x16xf16>)
+func.func @NoConvertMultiplyToScaleShiftWithHExpanded(%arg0: tensor<1x1x64x1xf16>, %arg1: tensor<1x8x64x16xf16>) -> tensor<1x8x64x16xf16> {
+    %0 = IE.Multiply(%arg0, %arg1)
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+        tensor<1x1x64x1xf16>, tensor<1x8x64x16xf16> -> tensor<1x8x64x16xf16>
+
+    return %0 : tensor<1x8x64x16xf16>
+
+    // CHECK:       [[MULTIPLY:%.+]] = IE.Multiply([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x64x1xf16>, tensor<1x8x64x16xf16> -> tensor<1x8x64x16xf16>
+    // CHECK:       return [[MULTIPLY]]
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @ConvertMultiplyToScaleShiftWithWExpandedAndTransposeInput
+// CHECK-SAME:  ([[INPUT_0:%.+]]: tensor<1x1x1x1536xf16>, [[INPUT_1:%.+]]: tensor<1x1536x1024x1xf16>)
+func.func @ConvertMultiplyToScaleShiftWithWExpandedAndTransposeInput(%arg0: tensor<1x1x1x1536xf16>, %arg1: tensor<1x1536x1024x1xf16>) -> tensor<1x1024x1x1536xf16> {
+    %0 = IE.Transpose(%arg1) {order_value = #NHWC} : tensor<1x1536x1024x1xf16> -> tensor<1x1024x1x1536xf16>
+    %1 = IE.Multiply(%arg0, %0)
+        { auto_broadcast = #IE.auto_broadcast_type<NUMPY> } :
+        tensor<1x1x1x1536xf16>, tensor<1x1024x1x1536xf16> -> tensor<1x1024x1x1536xf16>
+
+    return %1 : tensor<1x1024x1x1536xf16>
+
+    // CHECK:       [[TRANSPOSE_ACTIVATION_0:%.+]] = IE.Transpose([[INPUT_1]]) {order_value = #NHWC} : tensor<1x1536x1024x1xf16> -> tensor<1x1024x1x1536xf16>
+    // CHECK:       [[TRANSPOSE_ACTIVATION_1:%.+]] = IE.Transpose([[TRANSPOSE_ACTIVATION_0]]) {order_value = #NWCH} : tensor<1x1024x1x1536xf16> -> tensor<1x1536x1024x1xf16>
+    // CHECK:       [[TRANSPOSE_WEIGHTS:%.+]] = IE.Transpose([[INPUT_0]]) {order_value = #NWCH} : tensor<1x1x1x1536xf16> -> tensor<1x1536x1x1xf16>
+    // CHECK:       [[SCALESHIFT:%.+]] = IE.ScaleShift([[TRANSPOSE_ACTIVATION_1]], [[TRANSPOSE_WEIGHTS]]) {operandSegmentSizes = array<i32: 1, 1, 0>} : tensor<1x1536x1024x1xf16>, tensor<1x1536x1x1xf16> -> tensor<1x1536x1024x1xf16>
+    // CHECK:       [[TRANSPOSE_OUT:%.+]] = IE.Transpose([[SCALESHIFT]]) {order_value = #NHWC} : tensor<1x1536x1024x1xf16> -> tensor<1x1024x1x1536xf16>
+    // CHECK:       return [[TRANSPOSE_OUT]]
+}

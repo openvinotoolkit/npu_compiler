@@ -605,13 +605,13 @@ func.func @NF4ConstantsSplitFakeQuant(%arg0: tensor<1x1x28x28xf16>) -> tensor<1x
     %cst_0 = const.Declare tensor<1x1x1x1xf16> = dense<7.000000e+00> : tensor<1x1x1x1xf16>
     %cst_1 = const.Declare tensor<1x1x1x1xf16> = dense<-2.359010e-02> : tensor<1x1x1x1xf16>
     %cst_2 = const.Declare tensor<1x1x1x1xf16> = dense<2.064510e-02> : tensor<1x1x1x1xf16>
-    %cst_3 = const.Declare tensor<1x1x2x2xf16> = dense_resource<blob> : tensor<1x1x2x2x!quantFloatType>, [#const.ConvertElemType<ui8>, #const.CastElemType<f16>]
+    %cst_3 = const.Declare tensor<1x1x2x2xf16> = dense_resource<blob> : tensor<1x1x2x2xui4>, [#const.ConvertElemType<ui8>, #const.CastElemType<!quantFloatType>, #const.CastElemType<f16>]
     %0 = IE.FakeQuantize(%cst_3, %cst, %cst_0, %cst_1, %cst_2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, low_fp_type = !quantFloatType} : tensor<1x1x2x2xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x2x2xf16>
     %1 = IE.Convolution(%arg0, %0) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x28x28xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x29x29xf16>
     return %1 : tensor<1x1x29x29xf16>
 
     // CHECK-NOT:       IE.FakeQuantize
-    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2x!QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>> isSplat, [#const.ConvertElemType<ui8>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>]
+    // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2x!qElemType> = dense_resource<blob> : tensor<1x1x2x2xui4> isSplat, [#const.ConvertElemType<ui8>, #const.CastElemType<!QuantileFloat.quantileFloat<ui4:f16, {-1.000000e+00,-8.000000e-01,-0.69999999999999996,-6.000000e-01,-5.000000e-01,-4.000000e-01,-3.000000e-01,0.000000e+00,1.000000e-01,2.000000e-01,3.000000e-01,4.000000e-01,5.000000e-01,6.000000e-01,0.69999999999999996,1.000000e+00}>>, #const.CastElemType<f16>, #const.CastElemType<!qElemType>]
     // CHECK: [[DQ_CST:%.+]] = IE.Dequantize([[CST]]) {dstElemType = f16}
     // CHECK: [[CONV:%.+]] = IE.Convolution([[INPUT]], [[DQ_CST]]) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x28x28xf16>, tensor<1x1x2x2xf16> -> tensor<1x1x29x29xf16>
     // CHECK: return [[CONV]]

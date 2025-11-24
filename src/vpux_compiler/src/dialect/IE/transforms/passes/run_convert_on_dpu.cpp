@@ -3,12 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/interfaces/fuse_convert_to_dpu_checker.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 
 #include <llvm/ADT/STLExtras.h>
 #include <mlir/IR/Builders.h>
@@ -72,10 +73,15 @@ void RunF16ToF32ConvertOnDPUPass::safeRunOnFunc() {
             continue;
         }
 
+        auto convertOutputType = convertOp.getOutput().getType().getElementType();
         if (mlir::failed(VPU::NCEInvariant::isSupported(parentOp))) {
-            nestedLog.trace("Parent op of type {0} at loc {1} is not a supported DPU op.", parentOp->getName(),
-                            parentOp->getLoc());
-            continue;
+            auto interpolateOp = mlir::dyn_cast<IE::InterpolateOp>(parentOp);
+            if (interpolateOp == nullptr ||
+                !IE::isFusingConvertIntoBilinearInterpolateOnDpuBeneficial(interpolateOp, convertOutputType)) {
+                nestedLog.trace("Parent op of type {0} at loc {1} is not a supported DPU op.", parentOp->getName(),
+                                parentOp->getLoc());
+                continue;
+            }
         }
 
         if (!parentCheck->isFusionToParentDPUOpSupported(parentOp, nestedLog)) {

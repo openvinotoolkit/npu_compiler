@@ -10,10 +10,6 @@
 
 #include <mlir/Dialect/Async/IR/Async.h>
 
-#include <vpu/dma_types.h>
-#include <vpu/dpu_types.h>
-#include <vpu/vpu_tiling_strategy.h>
-
 namespace vpux::VPU {
 class SWOpInterface;
 }  // namespace vpux::VPU
@@ -27,6 +23,15 @@ namespace VPUNN {
 class VPUCostModel;
 struct SWOperation;
 struct DPUWorkload;
+class VPUTensor;
+enum class VPUTilingStrategy;
+enum class VPUDevice;
+class SHAVEWorkload;
+enum class MemoryLocation;
+enum class Swizzling;
+enum class ActivationFunction;
+class SEPModeInfo;
+enum class ISIStrategy;
 }  // namespace VPUNN
 
 namespace vpux {
@@ -58,10 +63,16 @@ size_t calculateNceCycles(VPUIP::NCEClusterTaskOp nceOp, const std::shared_ptr<V
 vpux::Byte getSwKernelRunTotalAllocSize(VPUIP::SwKernelRun swKernelRun, ArrayRef<mlir::Value> inputs,
                                         ArrayRef<mlir::Value> outputBuffs, SmallVector<mlir::Value>& inputsForKernelRun,
                                         SmallVector<mlir::Value>& outputsForKernelRun);
-std::unique_ptr<VPUNN::SWOperation> getVPUNNSWKernelOp(VPUIP::SwKernelOp swKernelOp);
-std::unique_ptr<VPUNN::SWOperation> getVPUNNSWKernelOp(VPU::SWOpInterface operation);
-std::unique_ptr<VPUNN::SWOperation> getVPUNNSWKernelOp(VPU::SWOpInterface operation, vpux::NDTypeInterface outputNDType,
-                                                       ArrayRef<vpux::NDTypeInterface> inputTiles);
+std::unique_ptr<VPUNN::SHAVEWorkload> getVPUNNSWKernelOp(VPUIP::SwKernelOp swKernelOp, bool isShave2ApiUsed);
+std::unique_ptr<VPUNN::SHAVEWorkload> getVPUNNSWKernelOp(VPU::SWOpInterface operation, bool isShave2ApiUsed);
+std::unique_ptr<VPUNN::SHAVEWorkload> getVPUNNSWKernelOp(VPU::SWOpInterface operation,
+                                                         vpux::NDTypeInterface outputNDType,
+                                                         ArrayRef<vpux::NDTypeInterface> inputTiles,
+                                                         bool isShave2ApiUsed);
+std::unique_ptr<VPUNN::SHAVEWorkload> getVPUNNSWKernelOp(VPU::SWOpInterface operation,
+                                                         std::vector<VPUNN::VPUTensor> outputTensors,
+                                                         std::vector<VPUNN::VPUTensor> inputTensors,
+                                                         bool isShave2ApiUsed);
 size_t getDPUTaskOpCost(VPUIP::DPUTaskOp dpuTaskOp, const std::shared_ptr<VPUNN::VPUCostModel>& costModel,
                         config::ArchKind arch, vpux::Logger log);
 

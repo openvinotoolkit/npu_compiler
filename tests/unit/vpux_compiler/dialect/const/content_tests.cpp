@@ -900,24 +900,58 @@ TEST_F(MLIR_ConstContentAttrTest, CastElemTypeSubByte) {
     }
 }
 
-TEST_F(MLIR_ConstContentAttrTest, ConstantFoldingTensors) {
-    auto vals = generateValues<float>(24);
-    auto lhsConstAttr = getContentAttr<float>(ArrayRef<int64_t>{1, 2, 3, 4}, mlir::Float32Type::get(&ctx), vals);
+struct MLIR_ConstContentAttrTest_Rescale : testing::TestWithParam<std::tuple<std::vector<float>, std::vector<float>>> {
+    MLIR_ConstContentAttrTest_Rescale() {
+        ctx.appendDialectRegistry(registry);
+        ctx.loadDialect<Const::ConstDialect>();
+    }
 
-    const auto tensorA = mlir::RankedTensorType::get({1, 2, 3, 4}, mlir::Float32Type::get(&ctx));
-    const auto rhsConstAttr = getContentAttr<float>(tensorA, [&](Const::ContentSetup& setup) {
-        return setup.rescale(lhsConstAttr);
-    });
+protected:
+    mlir::DialectRegistry registry = vpux::createDialectRegistry();
+    mlir::MLIRContext ctx;
+};
 
-    auto foldedAttr = rhsConstAttr.fold();
-    const auto contentVals = foldedAttr.getValues<float>();
-    EXPECT_FALSE(foldedAttr.isSplat());
+TEST_P(MLIR_ConstContentAttrTest_Rescale, Fold) {
+    auto lhsVals = std::get<0>(GetParam());
+    auto rhsVals = std::get<1>(GetParam());
+
+    const SmallVector<int64_t> commonShape({1, 2, 2, 1});
+    auto lhsAttr = getContentAttr<float>(commonShape, mlir::Float32Type::get(&ctx), lhsVals);
+    auto rhsAttr = getContentAttr<float>(commonShape, mlir::Float32Type::get(&ctx), rhsVals);
+
+    auto combined = lhsAttr.transform().rescale(rhsAttr).get();
+    EXPECT_EQ(combined.isSplat(), lhsAttr.isSplat() && rhsAttr.isSplat());
+    EXPECT_EQ(combined.getType(), lhsAttr.getType());
+    EXPECT_EQ(combined.getType(), rhsAttr.getType());
+
+    // Note: for simplicity in this test (to ignore splat vs non-splat problem),
+    // convert splat data to non-splat by "broadcasting".
+    const auto broadcastToTensor = [&](std::vector<float>& data) {
+        if (data.size() != 1) {
+            return;
+        }
+        const auto totalSize = std::accumulate(commonShape.begin(), commonShape.end(), 1, std::multiplies<int64_t>{});
+        const auto firstElement = data.front();
+        data.resize(totalSize, firstElement);
+    };
+    broadcastToTensor(lhsVals);
+    broadcastToTensor(rhsVals);
+
+    auto content = combined.fold();
+    const auto contentVals = content.getValues<float>();
+    EXPECT_EQ(content.isSplat(), combined.isSplat());
+
     for (size_t i = 0; i < contentVals.size(); ++i) {
-        float expected = vals[i] * vals[i];
+        const float expected = lhsVals[i] * rhsVals[i];
         EXPECT_FLOAT_EQ(contentVals[i], expected)
                 << "mismatch at index " << i << ": got " << contentVals[i] << ", expected " << expected;
     }
 }
+
+INSTANTIATE_TEST_SUITE_P(
+        all, MLIR_ConstContentAttrTest_Rescale,
+        testing::Combine(testing::Values(std::vector<float>({1.0}), std::vector<float>({1.0, 2.0, 3.0, 4.0})),
+                         testing::Values(std::vector<float>({42.0}), std::vector<float>({42.0, 43.0, 44.0, 45.0}))));
 
 TEST_F(MLIR_ConstContentAttrTest, Add) {
     const auto baseType = mlir::RankedTensorType::get({1, 2, 3, 4}, mlir::Float32Type::get(&ctx));

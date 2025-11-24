@@ -70,8 +70,10 @@
 #include <openvino/core/rt_info/weightless_caching_attributes.hpp>
 #include <openvino/core/type.hpp>
 #include <openvino/core/type/element_type.hpp>
+#include <openvino/op/stft.hpp>
 #include <openvino/op/strided_slice.hpp>
 #include <openvino/opsets/opset14.hpp>
+#include <openvino/opsets/opset15.hpp>
 #include <openvino/pass/constant_folding.hpp>
 #include <openvino/pass/manager.hpp>
 #include <openvino/pass/serialize.hpp>
@@ -220,13 +222,13 @@ public:
     }
 
     void on_adapter(const std::string& name, ov::ValueAccessor<float>& adapter) override {
-        auto floatAttr = mlir::FloatAttr::get(mlir::FloatType::getF32(_ctx), adapter.get());
+        auto floatAttr = mlir::FloatAttr::get(mlir::Float32Type::get(_ctx), adapter.get());
         _attrs.emplace(_order, getNamedAttr(name, floatAttr));
         _order++;
     }
 
     void on_adapter(const std::string& name, ov::ValueAccessor<double>& adapter) override {
-        auto floatAttr = mlir::FloatAttr::get(mlir::FloatType::getF64(_ctx), adapter.get());
+        auto floatAttr = mlir::FloatAttr::get(mlir::Float64Type::get(_ctx), adapter.get());
         _attrs.emplace(_order, getNamedAttr(name, floatAttr));
         _order++;
     }
@@ -289,7 +291,6 @@ ov::Dimension toBoundedDim(ov::Dimension dim) {
         return dim;
     }
     auto max = dim.get_interval().get_max_val();
-    VPUX_THROW_WHEN(max == ov::Interval::s_max, "Upper bounds were not specified, got the default value - '{0}'", max);
     return max;
 }
 
@@ -478,6 +479,7 @@ NGraphImporter::Callback NGraphImporter::getParser(const std::shared_ptr<ov::Nod
             MAP_ENTRY(ov::opset7::IDFT),
             MAP_ENTRY(ov::opset9::RDFT),
             MAP_ENTRY(ov::opset9::IRDFT),
+            MAP_ENTRY(ov::opset15::STFT),
             MAP_ENTRY(ov::opset8::If),
             MAP_ENTRY(ov::opset1::ShapeOf),
             MAP_ENTRY(ov::opset4::Range),
@@ -557,172 +559,61 @@ mlir::Type importPrecision(mlir::MLIRContext* ctx, const ov::element::Type& prec
 }  // namespace
 
 //
-// buildMainFunc
+// Bounds related logic
 //
 
-void NGraphImporter::saveInfoAboutBounds(mlir::OpBuilder& builder, const OrigNodePtr& origNode) {
-    auto inputs = getInputs(origNode);
-    for (size_t i = 0; i < inputs.size(); i++) {
-        ov::PartialShape boundedOutShape;
-        auto partialShape = origNode->inputs()[i].get_partial_shape();
-        if (partialShape.is_static()) {
-            continue;
-        }
-
-        const auto hasBounds = [](ov::Dimension dim) {
-            return dim.get_interval().has_upper_bound();
-        };
-        auto isBoundedShape = std::any_of(partialShape.begin(), partialShape.end(), hasBounds);
-
-        auto ndType = mlir::cast<NDTypeInterface>(inputs[i].getType());
-
-        if (isBoundedShape) {
-            std::transform(partialShape.begin(), partialShape.end(), std::back_inserter(boundedOutShape), toBoundedDim);
-            const auto boundShape = boundedOutShape.to_shape();
-            const Bounds outBounds(boundShape.begin(), boundShape.end());
-            if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(ndType)) {
-                ndType = boundedType.changeBounds(outBounds);
-            } else {
-                ndType = Core::BoundedTensorType::get(ndType, outBounds);
-            }
-        }
-
-        // Skip ScatterNDUpdate bounds update
-        if (ov::as_type_ptr<ov::opset14::ScatterNDUpdate>(origNode) == nullptr) {
-            // TODO(117112): ngraph representation is able to compute bounds more accurately than NPU compiler
-            // as a workaround for StridedSlice we take shape of input data as an upper bound
-            for (auto iter : origNode->input(i).get_node()->inputs()) {
-                auto inputParent = iter.get_source_output().get_node_shared_ptr();
-                if (auto ovStridedSlice = ov::as_type_ptr<const ov::op::v1::StridedSlice>(inputParent)) {
-                    auto inputDataShape = ovStridedSlice->get_input_tensor(0).get_partial_shape().get_max_shape();
-                    const Bounds inBounds(inputDataShape.begin(), inputDataShape.end());
-
-                    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(ndType)) {
-                        ndType = boundedType.changeBounds(inBounds);
-                    } else {
-                        ndType = Core::BoundedTensorType::get(ndType, inBounds);
-                    }
-                    return;
-                }
-            }
-        }
-
-        // We are not able to get upper bounds for the case:
-        //         *----------*
-        //         |  SomeOp  |
-        //         *----------*
-        //              |
-        //  ...    *----------*   Const
-        //    \    |  ShapeOf |    /
-        //     \   *----------*   /
-        //      \       |        /
-        //     *----------------*
-        //     |     Select     | *------*
-        //     | <target_shape> | | data |
-        //     *----------------* *------*
-        //          |               |
-        //          |               |
-        //          \              /
-        //           \            /
-        //            *-----------*
-        //            | Broadcast |
-        //            *-----------*
-        // Since ShapeOf result is unknown at the moment, we can set an upper bound for Broadcast output
-        // as a max(SomeOp: upper bounds, Const)
-        if (!isBoundedShape) {
-            auto getMaxValue = [](const auto& constValues, const auto& shapeValues) {
-                ov::PartialShape result;
-                result.reserve(constValues.size());
-                std::transform(constValues.begin(), constValues.end(), shapeValues.begin(), std::back_inserter(result),
-                               [](int64_t constVal, int64_t shapeVal) {
-                                   return std::max(constVal, shapeVal);
-                               });
-                return result;
-            };
-
-            auto applyMaxValue = [](const auto& partialShape, const auto& maxValue) {
-                ov::PartialShape result;
-                result.reserve(partialShape.size());
-                std::transform(partialShape.begin(), partialShape.end(), maxValue.begin(), std::back_inserter(result),
-                               [](const auto& dim, const auto& maxVal) {
-                                   return dim.is_dynamic() ? ov::Dimension(1, maxVal.get_length()) : dim;
-                               });
-                return result;
-            };
-
-            for (const auto& input : origNode->input(i).get_node()->inputs()) {
-                auto inputParent = input.get_source_output().get_node_shared_ptr();
-                auto ovBroadcast = ov::as_type_ptr<ov::op::v3::Broadcast>(inputParent);
-                if (ovBroadcast == nullptr) {
-                    continue;
-                }
-
-                // See if Broadcast takes its target_shape from Select
-                auto ovSelect = getParentNodeAs<ov::op::v1::Select>(ovBroadcast->input(1));
-                if (ovSelect == nullptr) {
-                    continue;
-                }
-
-                // Determine which input of ovSelect is ShapeOf and which is Constant
-                auto shapeOfInput = getParentNodeAs<ov::opset1::ShapeOf>(ovSelect->input(1));
-                auto constantInput = getParentNodeAs<ov::op::v0::Constant>(ovSelect->input(2));
-                if (!shapeOfInput) {
-                    shapeOfInput = getParentNodeAs<ov::opset1::ShapeOf>(ovSelect->input(2));
-                    constantInput = getParentNodeAs<ov::op::v0::Constant>(ovSelect->input(1));
-                }
-                if (shapeOfInput == nullptr || constantInput == nullptr) {
-                    continue;
-                }
-
-                // Get the values from the Constant input and the upper bound from ShapeOf
-                auto constantValues = constantInput->cast_vector<int64_t>();
-                auto upperBound = shapeOfInput->get_input_tensor(0).get_partial_shape().get_max_shape();
-
-                // Calculate the maximum values from Select
-                boundedOutShape = getMaxValue(constantValues, upperBound);
-
-                auto broadcastShape = applyMaxValue(ovBroadcast->output(0).get_partial_shape(), boundedOutShape);
-                ovBroadcast->set_output_type(0, ovBroadcast->output(0).get_element_type(), broadcastShape);
-
-                if (auto dynBroadcast = mlir::dyn_cast<IE::DynamicBroadcastOp>(inputs[i].getDefiningOp())) {
-                    dynBroadcast.setOutputBoundsAttr(getIntArrayAttr(builder.getContext(), boundedOutShape.to_shape()));
-                }
-                const auto boundedShape = boundedOutShape.to_shape();
-                const Bounds bounds(boundedShape.begin(), boundedShape.end());
-                ndType = Core::BoundedTensorType::get(ndType, bounds);
-            }
-            for (const auto& input : origNode->input(i).get_node()->inputs()) {
-                auto inputParent = input.get_source_output().get_node_shared_ptr();
-                auto range = ov::as_type_ptr<ov::op::v4::Range>(inputParent);
-                if (range == nullptr) {
-                    continue;
-                }
-                auto outputShape = range->get_output_partial_shape(0);
-                if (outputShape.is_static()) {
-                    continue;
-                }
-
-                boundedOutShape = ov::PartialShape{static_cast<int64_t>(RANGEBOUND)};
-                range->set_output_type(0, range->get_output_type(), boundedOutShape);
-
-                const auto boundedShape = boundedOutShape.to_shape();
-                const auto bounds = Bounds(boundedShape.begin(), boundedShape.end());
-
-                // Update the bounded tensor type with the new bounds
-                if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(ndType)) {
-                    ndType = boundedType.changeBounds(bounds);
-                } else {
-                    ndType = Core::BoundedTensorType::get(ndType, bounds);
-                }
-            }
-        }
-        const auto outShape = boundedOutShape.to_shape();
-        const auto newTypeComponents = TypeComponents().setBounds(Bounds(outShape.begin(), outShape.end()));
-        const auto changedTypeComponents = ndType.changeTypeComponents(newTypeComponents);
-        inputs[i].setType(changedTypeComponents);
-    }
+void NGraphImporter::saveBoundsInfoForInput(::mlir::BlockArgument& funcInputVal, const ov::PartialShape& partialShape) {
+    const ov::Shape ovShape = partialShape.get_max_shape();
+    const Bounds bounds(ovShape.begin(), ovShape.end());
+    auto ndType = mlir::cast<NDTypeInterface>(funcInputVal.getType());
+    funcInputVal.setType(Core::BoundedTensorType::get(ndType, bounds));
+    _log.trace("Set bounds {0} for function argument {1}", bounds, funcInputVal.getArgNumber());
 }
 
+bool NGraphImporter::isUpperBoundsMissing(const OrigNodePtr& origNode) {
+    const auto ngraphNodeInputs = origNode->inputs();
+    const auto mlirNodeInputs = getInputs(origNode);
+
+    VPUX_THROW_UNLESS(ngraphNodeInputs.size() == mlirNodeInputs.size(),
+                      "Input size mismatch for '{0}' node '{1}': nGraph inputs = {2}, MLIR inputs = {3}",
+                      origNode->get_type_name(), origNode->get_friendly_name(), ngraphNodeInputs.size(),
+                      mlirNodeInputs.size());
+
+    bool foundInputWithoutBounds = false;
+    for (size_t i = 0; i < mlirNodeInputs.size(); i++) {
+        if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(mlirNodeInputs[i].getType())) {
+            auto bounds = boundedType.getBounds();
+            // Validate that all bounds values not a max value of this type
+            if (std::any_of(bounds.begin(), bounds.end(), [](ov::Interval::value_type dim) {
+                    return dim == std::numeric_limits<ov::Interval::value_type>::max();
+                })) {
+                // Name of operation in MLIR representation might be different, but since we can't get it here, use
+                // ngraph data instead.
+                _log.error("Upper bounds are not specified for node '{0}' (type '{1}'): input '{2}' bounds are '{3}'",
+                           origNode->get_friendly_name(), origNode->get_type_name(), i, bounds);
+                foundInputWithoutBounds = true;
+            }
+        }
+    }
+    return foundInputWithoutBounds;
+}
+
+// Check for valid bounds (not equal to val max)
+bool NGraphImporter::hasValidBounds(const ov::PartialShape& partialShape) {
+    if (partialShape.is_static()) {
+        return true;
+    }
+
+    auto hasValidBounds = [](ov::Dimension dim) {
+        return dim.get_interval().has_upper_bound();
+    };
+
+    return std::all_of(partialShape.begin(), partialShape.end(), hasValidBounds);
+}
+
+//
+// buildMainFunc
+//
 mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder, StringRef funcName,
                                                  mlir::TimingScope& rootTiming, DummyOpMode stubLayers,
                                                  bool dynamicShapeToStatic) {
@@ -775,14 +666,12 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
 
         const auto partialShape = paramNode->output(0).get_partial_shape();
         if (partialShape.is_dynamic()) {
-            const ov::Shape ovShape = partialShape.get_max_shape();
-            const Bounds bounds(ovShape.begin(), ovShape.end());
-            auto ndType = mlir::cast<NDTypeInterface>(funcInputVal.getType());
-            funcInputVal.setType(Core::BoundedTensorType::get(ndType, bounds));
+            saveBoundsInfoForInput(funcInputVal, partialShape);
         }
         _importedVals.emplace(paramNode->output(0), funcInputVal);
     }
 
+    bool upperBoundMissing = false;
     for (const auto& origNode : _netGraph->get_ordered_ops()) {
         _log.trace("Convert {0} layer {1}", origNode->get_type_name(), origNode->get_friendly_name());
         const auto parser = NGraphImporter::getParser(origNode);
@@ -798,9 +687,13 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
                               origNode->get_friendly_name(), typeInfo.name, typeInfo.version_id);
             parseNodeAsStub(builder, origNode);
         }
+
         if (!dynamicShapeToStatic) {
-            saveInfoAboutBounds(builder, origNode);
+            upperBoundMissing |= isUpperBoundsMissing(origNode);
         }
+    }
+    if (!dynamicShapeToStatic) {
+        VPUX_THROW_WHEN(upperBoundMissing, "Missing upper bound for one or more nodes.\n");
     }
 
     SmallVector<mlir::Value> funcOutputs;
@@ -843,6 +736,17 @@ mlir::func::FuncOp NGraphImporter::buildMainFunc(mlir::OpBuilder& moduleBuilder,
 
         if (updateFunctionSignature(func, inputTypes, outputTypes, _log).failed()) {
             _log.debug("Failed to updateFunctionSignature");
+            return func;
+        }
+
+        // TODO: It would be nice to change this approach in future, not to create NetworkInfo based on ngraph
+        //  representation, but on on MLIR representation, after we created all nodes and did a shape inference,
+        //  since output shape should be the same, but bounds might be different. Here is workaround to check
+        //  and modify if any difference.
+        // For reference we could use output types, since only one main function should be inside module at this stage
+        auto module = moduleBuilder.getBlock()->getParentOp();
+        if (updateModuleInfo(module, outputTypes, _log).failed()) {
+            _log.error("Failed to update module information");
             return func;
         }
     }
@@ -1050,6 +954,17 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     addOutputs(origNode, op);
 }
 
+namespace {
+mlir::RankedTensorType patchQuantileFloatForConstImport(mlir::RankedTensorType tensorType) {
+    if (auto quantileFloat = mlir::dyn_cast<vpux::type::QuantileFloatType>(tensorType.getElementType())) {
+        VPUX_THROW_UNLESS(mlir::isa<mlir::IntegerType>(quantileFloat.getStorageType()),
+                          "Thus far only int storage type is supported in quantile-float");
+        return tensorType.cloneWith(std::nullopt, quantileFloat.getStorageType());
+    }
+    return tensorType;
+}
+}  // namespace
+
 void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset1::Constant>& origNode) {
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v0::Constant>::value,
                   "opset operation mismatch");
@@ -1059,6 +974,12 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
                       origNode->get_friendly_name(), inputs.size());
 
     auto tensorType = importTensor(origNode->get_output_partial_shape(0), origNode->get_output_element_type(0));
+    // QuantileFloat types (such as NF4) cannot be directly imported. Instead,
+    // the underlying data is set to be of storage type and there's an explicit
+    // cast to the QuantileFloat right after. This is aligned to
+    // mlir::quant::QuantizedType handling.
+    tensorType = patchQuantileFloatForConstImport(tensorType);
+
     const Bit elemTypeSize = getElemTypeSize(tensorType);
     const auto bitWidth = elemTypeSize.count();
     const auto bufferSize = static_cast<size_t>(vpux::getExpectedBufferSize(tensorType).count());
@@ -1099,7 +1020,8 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
             return "INTERNAL_CONSTANT";
         }();
 
-        return Const::createExternalConstContent(tensorType, rawBuffer, cstName);
+        return Const::createExternalConstContent(tensorType, rawBuffer, cstName,
+                                                 /*deepCopyConstData=*/!_sharedConstants);
     }();
 
     Const::ContentSetup contentSetup(value.getType());
@@ -3212,10 +3134,14 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
     static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::internal::RoPE>::value,
                   "opset operation mismatch");
     const auto inputs = getInputs(origNode);
+    const auto& ropeConfig = origNode->get_config();
+    const bool isInterleaved = ropeConfig.is_interleaved;
+
     VPUX_THROW_UNLESS(inputs.size() == 3, "nGraph RoPE node '{0}' has unsupported number of inputs '{1}'",
                       origNode->get_friendly_name(), inputs.size());
 
-    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2]);
+    const auto interleavedAttr = isInterleaved ? mlir::UnitAttr::get(_ctx) : nullptr;
+    auto op = builder.create<IE::RoPEOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], interleavedAttr);
     addOutputs(origNode, op);
 }
 
@@ -3872,6 +3798,20 @@ void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<o
                       origNode->get_friendly_name(), inputs.size());
     auto op = builder.create<IE::IDFTOp>(createLocation(origNode), inputs[0], inputs[1],
                                          (inputs.size() == 3) ? inputs[2] : nullptr, nullptr, nullptr);
+    addOutputs(origNode, op);
+}
+
+void NGraphImporter::parseNode(mlir::OpBuilder& builder, const std::shared_ptr<ov::opset15::STFT>& origNode) {
+    static_assert(std::is_same<std::decay<decltype(*origNode)>::type, ov::op::v15::STFT>::value,
+                  "opset operation mismatch");
+    const auto inputs = getInputs(origNode);
+    VPUX_THROW_UNLESS(inputs.size() == 4, "nGraph STFT node '{0}' has unsupported number of inputs '{1}'",
+                      origNode->get_friendly_name(), inputs.size());
+
+    const auto transposeFramesAttr = origNode->get_transpose_frames() ? mlir::UnitAttr::get(_ctx) : nullptr;
+
+    auto op = builder.create<IE::STFTOp>(createLocation(origNode), inputs[0], inputs[1], inputs[2], inputs[3], nullptr,
+                                         nullptr, transposeFramesAttr);
     addOutputs(origNode, op);
 }
 
@@ -4824,11 +4764,11 @@ mlir::RankedTensorType importUserTensor(mlir::MLIRContext* ctx, const ov::descri
 
     if (partialShape.is_dynamic()) {
         ov::PartialShape boundedOutShape;
-        try {
+        // Check if bounded, apply only in this case
+        if (NGraphImporter::hasValidBounds(partialShape)) {
             std::transform(partialShape.begin(), partialShape.end(), std::back_inserter(boundedOutShape), toBoundedDim);
-        } catch (...) {
-            // FIXME(E#151586) remove this try-catch block
-            Logger::global().warning("Found partialShape without bounds: {0}", partialShape.to_string());
+        } else {
+            // Cases with incorrect bounds will be detected during nodes validation.
             return importedTensor;
         }
 
@@ -4846,6 +4786,65 @@ mlir::RankedTensorType importUserTensor(mlir::MLIRContext* ctx, const ov::descri
 //
 // runNGraphPasses
 //
+
+// Ensure the MarkDequantization pass applies only:
+// 1. For 16 bits integer WAC is more efficient to do constant folding
+// 2. On activation path where the pattern looks similar with weights dequantization
+static bool skipMarkDequantization(const std::shared_ptr<const ov::Node>& node) {
+    std::shared_ptr<const ov::Node> convert_consumer_node;
+    if (ov::is_type<ov::op::v1::Multiply>(node)) {
+        convert_consumer_node = node;
+        if (ov::is_type<ov::op::v1::Subtract>(node->get_input_node_shared_ptr(0))) {
+            convert_consumer_node = node->get_input_node_shared_ptr(0);
+        }
+    } else if (ov::is_type<ov::op::v1::Subtract>(node)) {
+        convert_consumer_node = node;
+    }
+
+    if (convert_consumer_node == nullptr) {
+        return false;
+    }
+
+    auto convert_node = ov::as_type_ptr<ov::op::v0::Convert>(convert_consumer_node->get_input_node_shared_ptr(0));
+    if (convert_node == nullptr) {
+        return false;
+    }
+
+    // Skip 16 bits integer WAC
+    auto const_node = ov::as_type_ptr<ov::op::v0::Constant>(convert_node->get_input_node_shared_ptr(0));
+    if (const_node != nullptr) {
+        ov::element::TypeVector skipped_precisions{ov::element::u16, ov::element::i16};
+        auto input_element_type = convert_node->get_input_element_type(0);
+        bool is_16bit_integer_input = std::find(skipped_precisions.begin(), skipped_precisions.end(),
+                                                input_element_type) != skipped_precisions.end();
+        if (is_16bit_integer_input == true) {
+            return true;
+        }
+        return false;
+    }
+
+    // Skip pattern matching on activation path
+    auto convert_input_node = convert_node->get_input_node_shared_ptr(0);
+    if (!ov::is_type<ov::op::v0::Parameter>(convert_input_node)) {
+        auto convert2_node = ov::as_type_ptr<ov::op::v0::Convert>(convert_input_node);
+        if (convert2_node != nullptr) {
+            auto convert2_input_node = convert2_node->get_input_node_shared_ptr(0);
+            if (!ov::is_type<ov::op::v0::Parameter>(convert2_input_node)) {
+                return true;
+            }
+            return false;
+        } else {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool skipKeepConstAndDecompressionForNodeWS(const std::shared_ptr<const ov::Node>& node) {
+    // We want to fold Convert->Range operations.
+    auto nextNode = node->get_output_target_inputs(0).begin()->get_node();
+    return ov::is_type<ov::op::v4::Range>(nextNode);
+}
 
 static bool skipKeepConstAndDecompressionForNode(const std::shared_ptr<const ov::Node>& node) {
     if (ov::shape_size(node->get_input_shape(0)) <= STATIC_RANK_MAX_DIMS) {
@@ -5003,6 +5002,7 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
     pass_config->disable<ov::pass::AddFakeQuantizeFusion>();
     pass_config->disable<ov::pass::FakeQuantizeMulFusion>();
     pass_config->disable<ov::pass::MulFakeQuantizeFusion>();
+    pass_config->disable<ov::pass::MultiplyConvolutionFusion>();
 
     // NMS conversion passes
     manager.register_pass<ov::pass::ConvertNMS1ToNMS9>();
@@ -5097,17 +5097,19 @@ static void addCommonOptimizationsPasses(ov::pass::Manager& manager) {
 void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, mlir::TimingScope& rootTiming,
                                    bool isWeightsSeparationPath) {
     auto scopeTiming = rootTiming.nest("Common nGraph passes");
-
     ov::pass::Manager manager;
     auto passConfig = manager.get_pass_config();
     manager.register_pass<ov::pass::InitNodeInfo>();
 
     // Dequantization of the constants with types specified here will not be folded. If folding occurs the compiler will
     // think weights are FP16/FP32 resulting in high-precision execution.
-    ov::element::TypeVector decompression_precisions{ov::element::u4,     ov::element::i4,    ov::element::nf4,
-                                                     ov::element::u8,     ov::element::i8,    ov::element::f8e4m3,
-                                                     ov::element::f8e5m2, ov::element::f8e8m0};
+    ov::element::TypeVector decompression_precisions{
+            ov::element::u4,  ov::element::i4,  ov::element::nf4,    ov::element::u8,     ov::element::i8,
+            ov::element::u16, ov::element::i16, ov::element::f8e4m3, ov::element::f8e5m2, ov::element::f8e8m0};
     manager.register_pass<ov::pass::MarkDequantization>(decompression_precisions, /*fold_subtract_const=*/true);
+    passConfig->set_callback<ov::pass::MarkDequantization>([&](const std::shared_ptr<const ov::Node>& node) -> bool {
+        return skipMarkDequantization(node);
+    });
     // Prevent 2bit zero-point constants from being folded by OV.
     // We need to use the sub-byte unpacking order from compiler.
     ov::element::TypeVector decompression_precisions_keep_lp_zp{ov::element::u2};
@@ -5118,7 +5120,7 @@ void NGraphPasses::runNGraphPasses(const std::shared_ptr<ov::Model>& netGraph, m
     passConfig->set_callback<ov::pass::KeepConstAndDecompression>(
             [&](const std::shared_ptr<const ov::Node>& node) -> bool {
                 if (isWeightsSeparationPath) {
-                    return false;
+                    return skipKeepConstAndDecompressionForNodeWS(node);
                 }
 
                 return skipKeepConstAndDecompressionForNode(node);
@@ -5226,21 +5228,6 @@ void addNetworkInfoOp(mlir::OpBuilder& builder, mlir::FlatSymbolRefAttr mainFunc
 
     const auto parameters = model->get_parameters();
     const auto results = model->get_results();
-
-    // Used to set interval for dimension of dynamic shape of Range.
-    for (const auto& result : results) {
-        auto parentNode = result->get_input_source_output(0).get_node_shared_ptr();
-        if (auto range = ov::as_type_ptr<ov::op::v4::Range>(parentNode)) {
-            auto partialShape = range->get_output_partial_shape(0);
-            if (partialShape.is_dynamic()) {
-                auto outputShape = ov::PartialShape{{0, 1}};
-                auto& dim = outputShape[0];
-                auto bounds = ov::Dimension(static_cast<int64_t>(RANGEBOUND));
-                dim *= bounds;
-                range->set_output_type(0, range->get_output_type(), outputShape);
-            }
-        }
-    }
 
     auto* ctx = builder.getContext();
 

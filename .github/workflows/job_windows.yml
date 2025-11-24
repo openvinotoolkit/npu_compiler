@@ -1,0 +1,66 @@
+name: Windows pipeline
+on:
+  workflow_call:
+    inputs:
+      os:
+        description: 'OS that is used for building in the form of "ubuntu_20_04"'
+        type: string
+        required: true
+      build-runner:
+        description: 'Machine on which the builds will run'
+        type: string
+        required: true
+      openvino-cmake-options:
+        description: 'A string of options passed to OpenVINO CMake'
+        type: string
+        required: false
+      npu-cmake-options:
+        description: 'A string of options passed to NPU Compiler CMake'
+        type: string
+        required: false
+      build-cid:
+        description: 'Whether to build NPU CiD component'
+        type: boolean
+        required: false
+        default: false
+      build-cache:
+        description: 'Whether to take previously built OpenVINO/NPU package.'
+        type: boolean
+        required: false
+        default: false
+      build-cache-key-suffix:
+        description: 'Cache package suffix'
+        type: string
+        required: false
+
+defaults:
+  run:
+    shell: bash
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+  statuses: read
+
+env:
+  OPENVINO_INSTALL_DIR: ./openvino_install
+
+jobs:
+  BuildCiD:
+    name: CiD / Build
+    if: ${{ inputs.build-cid }}
+    uses: ./.github/workflows/job_build_cid.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      statuses: read
+      id-token: write
+      attestations: write
+    with:
+      os: ${{ inputs.os }}
+      build-runner: ${{ inputs.build-runner }}
+      openvino-cmake-options: ${{ inputs.openvino-cmake-options }}
+      build-cache: ${{ inputs.build-cache }}
+      build-cache-key-suffix: ${{ inputs.build-cache-key-suffix }}

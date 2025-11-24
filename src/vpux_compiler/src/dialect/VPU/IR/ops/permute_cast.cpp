@@ -3,13 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <mlir/Support/LogicalResult.h>
-#include <cstdint>
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
+
+#include <llvm/Support/Debug.h>
+#include <mlir/Dialect/Affine/IR/AffineOps.h>
+#include <mlir/Dialect/Arith/Utils/Utils.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <mlir/Support/LogicalResult.h>
+
+#include <cstdint>
 
 using namespace vpux;
 
@@ -39,6 +46,38 @@ mlir::LogicalResult vpux::VPU::PermuteCastOp::inferReturnTypes(mlir::MLIRContext
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPU::PermuteCastOp::reifyResultShapes(
+        mlir::OpBuilder& builder, mlir::ReifiedRankedShapedTypeDims& reifiedReturnShapes) {
+    SmallVector<mlir::OpFoldResult> shapes;
+    auto loc = getOperation()->getLoc();
+    auto outputShapedType = llvm::cast<mlir::ShapedType>(getOutput().getType());
+    auto reversedDstPermutation = DimsOrder::fromAffineMap(mlir::inversePermutation(getDstOrder()));
+
+    const auto srcType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+
+    const auto inOrder = srcType.getDimsOrder();
+
+    const auto srcPermutedOrder = applyPermutation(inOrder, DimsOrder::fromAffineMap(getMemPerm()));
+    const auto perm = applyPermutation(srcPermutedOrder, reversedDstPermutation);
+
+    auto reversed = to_small_vector(perm.toPermutation() | transformed([](Dim dim) {
+                                        return checked_cast<int64_t>(dim.ind());
+                                    }));
+
+    for (int64_t dim : llvm::seq<int64_t>(0, outputShapedType.getRank())) {
+        if (!outputShapedType.isDynamicDim(dim)) {
+            // Static dim: Return IntegerAttr.
+            shapes.push_back(builder.getIndexAttr(outputShapedType.getDimSize(dim)));
+        } else {
+            // Dynamic dim: Return Value.
+            mlir::OpFoldResult sourceDim = builder.createOrFold<mlir::tensor::DimOp>(loc, getInput(), reversed[dim]);
+            shapes.push_back(sourceDim);
+        }
+    }
+    reifiedReturnShapes.emplace_back(std::move(shapes));
+    return mlir::success();
+}
+
 //
 // DistributedCastOpInterface
 //
@@ -65,6 +104,41 @@ mlir::FailureOr<std::pair<mlir::Type, VPU::DistributionInfo>> vpux::VPU::Permute
                                         .setMemSpace(inType.getMemSpace());
     return std::make_pair(mlir::cast<mlir::Type>(dstType.changeTypeComponents(typeComponents)),
                           castedOutputDistribution.value());
+}
+
+//
+// TilingViewLikeOpInterface
+//
+
+vpux::InputTiling vpux::VPU::PermuteCastOp::backInferTileInfo(const vpux::TileInfo& outputTile, vpux::Logger log) {
+    SmallVector<TileInfo> inputTiles;
+    const auto inputShape = getShape(getInput());
+    log.trace("PermuteCastOp backInferTileInfo: inputShape={0}, outputTile={1}", inputShape, outputTile);
+    VPUX_THROW_UNLESS(inputShape.size() == outputTile.shape.size(),
+                      "Can't tile PermuteCast operation at '{0}', which has operands with different rank",
+                      this->getLoc());
+    auto inputTile = outputTile;
+    const auto srcType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    const auto dstType = mlir::cast<vpux::NDTypeInterface>(getOutput().getType());
+
+    const auto arrInMemOrder = dstType.getDimsOrder().toMemoryOrder(inputTile.shape);
+    const auto arrPermutedInMemOrder = applyPerm(arrInMemOrder, mlir::inversePermutation(getMemPerm()));
+    inputTile.shape = Shape(srcType.getDimsOrder().toLogicalOrder(arrPermutedInMemOrder).raw());
+
+    log.trace("PermuteCastOp backInferTileInfo: inputShape={0}, outputTile={1}, inputTile={2}", inputShape, outputTile,
+              inputTile);
+
+    inputTiles.push_back(inputTile);
+    return TilingInfo{inputTiles};
+}
+
+void vpux::VPU::PermuteCastOp::adjustAttrs(const TilingInfo&, const TileInfo&, ShapeRef) {
+    // Do nothing
+}
+
+bool vpux::VPU::PermuteCastOp::isVFSupported() {
+    // E-163016 remove is VFSupported flag when scf and current algorithm is aligned
+    return false;
 }
 
 namespace {

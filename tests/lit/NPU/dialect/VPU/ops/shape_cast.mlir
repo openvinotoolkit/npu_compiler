@@ -133,6 +133,25 @@ func.func @UniquifyShapeCastWithSliceOnUnChangedDim(%arg0: tensor<1x512x360x2xf1
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
+// CHECK-LABEL: @UniquifyUndivisibleShapeCast
+// CHECK-SAME:    ([[ARG0:%.+]]: tensor<2x256x28x28xf16>
+func.func @UniquifyUndivisibleShapeCast(%arg0: tensor<2x256x28x28xf16>) -> (tensor<1x256x49x16xf16>, tensor<1x256x49x16xf16>) {
+    %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 256, 28, 28] : tensor<2x256x28x28xf16> to tensor<1x256x28x28xf16>
+    %1 = VPU.ShapeCast {shape = [1, 256, 49, 16]} inputs(%0 : tensor<1x256x28x28xf16>) -> tensor<1x256x49x16xf16>
+    %2 = VPU.Slice %arg0 [1, 0, 0, 0] [1, 256, 28, 28] : tensor<2x256x28x28xf16> to tensor<1x256x28x28xf16>
+    %3 = VPU.ShapeCast {shape = [1, 256, 49, 16]} inputs(%2 : tensor<1x256x28x28xf16>) -> tensor<1x256x49x16xf16>
+    return %1, %3 : tensor<1x256x49x16xf16>, tensor<1x256x49x16xf16>
+
+    // CHECK:       [[SHAPECAST:%.+]] = VPU.ShapeCast {shape = [2, 256, 49, 16]} inputs([[ARG0]] : tensor<2x256x28x28xf16>) -> tensor<2x256x49x16xf16>
+    // CHECK:       [[SLICE_0:%.+]] = VPU.Slice [[SHAPECAST]] [0, 0, 0, 0] [1, 256, 49, 16] : tensor<2x256x49x16xf16> to tensor<1x256x49x16xf16>
+    // CHECK:       [[SLICE_1:%.+]] = VPU.Slice [[SHAPECAST]] [1, 0, 0, 0] [1, 256, 49, 16] : tensor<2x256x49x16xf16> to tensor<1x256x49x16xf16>
+    // CHECK:       return [[SLICE_0]], [[SLICE_1]] : tensor<1x256x49x16xf16>, tensor<1x256x49x16xf16>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
 // CHECK-LABEL: @NotUniquifyShapeCastWithUnsupportedDim
 // CHECK-SAME:    ([[ARG0:%.+]]: tensor<1x512x360x2xf16, {order = #NHWC}>
 func.func @NotUniquifyShapeCastWithUnsupportedDim(%arg0: tensor<1x512x360x2xf16, {order = #NHWC}>) -> (tensor<1x32x360x16xf16, {order = #NHWC}>, tensor<1x32x360x16xf16, {order = #NHWC}>) {

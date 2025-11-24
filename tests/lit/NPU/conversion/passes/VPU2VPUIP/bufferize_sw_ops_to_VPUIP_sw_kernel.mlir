@@ -1134,7 +1134,7 @@ func.func @Inverse(%input: tensor<1x10x2x2xf32>) -> tensor<1x10x2x2xf32> {
 // CHECK-LABEL: func.func @DeformableConvolutionSWLayer
 // CHECK-SAME:  ([[ARG0:%.+]]: memref<1x128x19x19xf16>, [[ARG1:%.+]]: memref<1x18x19x19xf16>, [[ARG2:%.+]]: memref<128x128x3x3xf16>, [[ARG3:%.+]]: memref<1x9x19x19xf16>) -> memref<1x128x19x19xf16>
 func.func @DeformableConvolutionSWLayer(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x18x19x19xf16>, %arg2: tensor<128x128x3x3xf16>, %arg3: tensor<1x9x19x19xf16>) -> tensor<1x128x19x19xf16> {
-    %output = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {biliniar_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+    %output = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
     return %output : tensor<1x128x19x19xf16>
 
     // CHECK:   [[ALLOC:%.+]] = memref.alloc() : memref<1x128x19x19xf16, [@CMX_NN, 0]>
@@ -1154,7 +1154,7 @@ func.func @DeformableConvolutionSWLayer(%arg0: tensor<1x128x19x19xf16>, %arg1: t
     // CHECK-SAME:  outputs([[ALLOC3]] as {{[^:]+}}: memref<1x128x19x19xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x128x19x19xf16, [@CMX_NN, 0]>{
 
     // CHECK:   VPUIP.SW.Kernel.run
-    // CHECK-SAME{LITERAL}: {attrs = [[1, 1], [1, 1], [1, 1], [1, 1], 1, 1, 1]}
+    // CHECK-SAME{LITERAL}: {attrs = [[1, 1], [1, 1], [1, 1], [1, 1], 1, 1, 1, [0, 0, 0, 0]]}
     // CHECK-SAME:  memref<1x128x19x19xf16, [@CMX_NN, 0]>, memref<1x18x19x19xf16, [@CMX_NN, 0]>, memref<128x128x3x3xf16, [@CMX_NN, 0]>, memref<1x9x19x19xf16, [@CMX_NN, 0]>, memref<1x128x19x19xf16, [@CMX_NN, 0]>
     // CHECK:   }
 }
@@ -1418,7 +1418,7 @@ func.func @ExperimentalDetectronROIFeatureExtractor(%arg0: tensor<100x4xf32>, %a
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 // CHECK:  module @VPU.SW {
-// CHECK-NEXT:    func.func private @builtin_RoPE(memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>) attributes {VPU.kernel_code = "rope.cpp", VPU.kernel_entry = "rope", VPU.kernel_name = "rope", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func private @builtin_RoPE(memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "rope.cpp", VPU.kernel_entry = "rope", VPU.kernel_name = "rope", VPU.task_type = @COMPUTE}
 // CHECK-NEXT:    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
 // CHECK-NEXT:    }
 
@@ -1429,14 +1429,44 @@ func.func @RoPE(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1x1x64xf32>,
     return %ropeop : tensor<1x32x1x64xf32>
 
     // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x32x1x64xf32, [@CMX_NN, 0]>
-    // CHECK: [[COPY0:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x32x1x64xf32>) outputs([[ALLOC]]  : memref<1x32x1x64xf32, [@CMX_NN, 0]>) -> memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[COPY0:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x32x1x64xf32>) outputs([[ALLOC]] : memref<1x32x1x64xf32, [@CMX_NN, 0]>) -> memref<1x32x1x64xf32, [@CMX_NN, 0]>
     // CHECK: [[ALLOC0:%.+]] = memref.alloc() : memref<1x1x1x64xf32, [@CMX_NN, 0]>
     // CHECK: [[COPY1:%.+]] = VPUIP.Copy inputs([[INPUT_COS]] : memref<1x1x1x64xf32>) outputs([[ALLOC0]] : memref<1x1x1x64xf32, [@CMX_NN, 0]>) -> memref<1x1x1x64xf32, [@CMX_NN, 0]>
     // CHECK: [[ALLOC1:%.+]] = memref.alloc() : memref<1x1x1x64xf32, [@CMX_NN, 0]>
     // CHECK: [[COPY2:%.+]] = VPUIP.Copy inputs([[INPUT_SIN]] : memref<1x1x1x64xf32>) outputs([[ALLOC1]] : memref<1x1x1x64xf32, [@CMX_NN, 0]>) -> memref<1x1x1x64xf32, [@CMX_NN, 0]>
     // CHECK: [[ALLOC2:%.+]] = memref.alloc() : memref<1x32x1x64xf32, [@CMX_NN, 0]>
-    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_RoPE inputs([[COPY0]] as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>, [[COPY1]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>, [[COPY2]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>) outputs(%alloc_2 as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>) on tile 0 -> memref<1x32x1x64xf32, [@CMX_NN, 0]>{
-    // CHECK:      VPUIP.SW.Kernel.run({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x32x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_RoPE inputs([[COPY0]] as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>, [[COPY1]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>, [[COPY2]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>) outputs([[ALLOC2]] as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>) on tile 0 -> memref<1x32x1x64xf32, [@CMX_NN, 0]>{
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [0]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x32x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: }
+    // CHECK: [[ALLOC3:%.+]] = memref.alloc() : memref<1x32x1x64xf32>
+    // CHECK: [[COPY3:%.+]] = VPUIP.Copy inputs([[RES]] : memref<1x32x1x64xf32, [@CMX_NN, 0]>) outputs([[ALLOC3]] : memref<1x32x1x64xf32>) -> memref<1x32x1x64xf32>
+    // CHECK: return [[COPY3]] : memref<1x32x1x64xf32>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK:  module @VPU.SW {
+// CHECK-NEXT:    func.func private @builtin_RoPE(memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, memref<*xf32, [@CMX_NN, 0]>, i64) attributes {VPU.kernel_code = "rope_ilv.cpp", VPU.kernel_entry = "rope_ilv", VPU.kernel_name = "rope_ilv", VPU.task_type = @COMPUTE}
+// CHECK-NEXT:    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+// CHECK-NEXT:    }
+
+// CHECK-LABEL:  func.func @RoPEInterleaved
+// CHECK-SAME:      ([[INPUT:%.+]]: memref<1x32x1x64xf32>, [[INPUT_COS:%.+]]: memref<1x1x1x64xf32>, [[INPUT_SIN:%.+]]: memref<1x1x1x64xf32>)
+func.func @RoPEInterleaved(%input: tensor<1x32x1x64xf32>, %input_cos: tensor<1x1x1x64xf32>, %input_sin: tensor<1x1x1x64xf32>) -> tensor<1x32x1x64xf32> {
+    %ropeop = VPU.RoPE(%input, %input_cos, %input_sin) {is_interleaved} : tensor<1x32x1x64xf32>, tensor<1x1x1x64xf32>, tensor<1x1x1x64xf32> -> tensor<1x32x1x64xf32>
+    return %ropeop : tensor<1x32x1x64xf32>
+
+    // CHECK: [[ALLOC:%.+]] = memref.alloc() : memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[COPY0:%.+]] = VPUIP.Copy inputs([[INPUT]] : memref<1x32x1x64xf32>) outputs([[ALLOC]] : memref<1x32x1x64xf32, [@CMX_NN, 0]>) -> memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[ALLOC0:%.+]] = memref.alloc() : memref<1x1x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[COPY1:%.+]] = VPUIP.Copy inputs([[INPUT_COS]] : memref<1x1x1x64xf32>) outputs([[ALLOC0]] : memref<1x1x1x64xf32, [@CMX_NN, 0]>) -> memref<1x1x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[ALLOC1:%.+]] = memref.alloc() : memref<1x1x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[COPY2:%.+]] = VPUIP.Copy inputs([[INPUT_SIN]] : memref<1x1x1x64xf32>) outputs([[ALLOC1]] : memref<1x1x1x64xf32, [@CMX_NN, 0]>) -> memref<1x1x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[ALLOC2:%.+]] = memref.alloc() : memref<1x32x1x64xf32, [@CMX_NN, 0]>
+    // CHECK: [[RES:%.+]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_RoPE inputs([[COPY0]] as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>, [[COPY1]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>, [[COPY2]] as {{[^:]+}}: memref<1x1x1x64xf32, [@CMX_NN, 0]>) outputs([[ALLOC2]] as {{[^:]+}}: memref<1x32x1x64xf32, [@CMX_NN, 0]>) on tile 0 -> memref<1x32x1x64xf32, [@CMX_NN, 0]>{
+    // CHECK:   VPUIP.SW.Kernel.run {attrs = [1]}({{[^:]+}}, {{[^:]+}}, {{[^:]+}}, {{[^:]+}}) : memref<1x32x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x1x1x64xf32, [@CMX_NN, 0]>, memref<1x32x1x64xf32, [@CMX_NN, 0]>
     // CHECK: }
     // CHECK: [[ALLOC3:%.+]] = memref.alloc() : memref<1x32x1x64xf32>
     // CHECK: [[COPY3:%.+]] = VPUIP.Copy inputs([[RES]] : memref<1x32x1x64xf32, [@CMX_NN, 0]>) outputs([[ALLOC3]] : memref<1x32x1x64xf32>) -> memref<1x32x1x64xf32>
@@ -1763,4 +1793,153 @@ func.func @ExternalKernelMultipleIOHybrid(%arg0: tensor<1x64x64x3xf16, {order = 
 // CHECK:           %[[VAL_15:.*]] = memref.alloc() : memref<1x64x64x3xf16, #[[$NHWC]]>
 // CHECK:           %[[VAL_16:.*]] = VPUIP.Copy inputs(%[[VAL_17:.*]]#0 : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>) outputs(%[[VAL_15]] : memref<1x64x64x3xf16, #[[$NHWC]]>) -> memref<1x64x64x3xf16, #[[$NHWC]]>
 // CHECK:           return %[[VAL_16]], %[[VAL_17]]#1 : memref<1x64x64x3xf16, #[[$NHWC]]>, memref<1x512x512x10xf16, #[[$NHWC]]>
+}
+
+// -----
+
+// Don't copy back to DDR dead results.
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+// CHECK: #[[$NHWC:.+]] = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL:   module @VPU.SW {
+// CHECK:           func.func private @builtin_dummy_kernel
+// CHECK-SAME:      (memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>)
+// CHECK-SAME:      attributes {VPU.kernel_code = "dummy_kernel.cpp", VPU.kernel_entry = "dummy_kernel", VPU.kernel_name = "dummy_kernel", VPU.task_type = @COMPUTE}
+// CHECK:           func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+
+// CHECK-LABEL:   func.func @ExternalKernelUnusedOutput(
+// CHECK-SAME:      %[[VAL_0:.*]]: memref<1x64x64x3xf16, #[[$NHWC]]>, %[[VAL_1:.*]]: memref<1x64x64x3xf16, #[[$NHWC]]>, %[[VAL_2:.*]]: memref<1x512x512x10xf16, #[[$NHWC]]>) -> memref<1x64x64x3xf16, #[[$NHWC]]> {
+func.func @ExternalKernelUnusedOutput(%arg0: tensor<1x64x64x3xf16, {order = #NHWC}>,
+                                       %arg1: tensor<1x64x64x3xf16, {order = #NHWC}>,
+                                       %arg2: tensor<1x512x512x10xf16, {order = #NHWC}>)
+                                       -> (tensor<1x64x64x3xf16, {order = #NHWC}>) {
+    %0, %1 = VPU.ExternalKernel "dummy_kernel" inputs(%arg0, %arg1, %arg2 : tensor<1x64x64x3xf16, {order = #NHWC}>, tensor<1x64x64x3xf16, {order = #NHWC}>, tensor<1x512x512x10xf16, {order = #NHWC}>) attrs({}) -> tensor<1x64x64x3xf16, {order = #NHWC}>, tensor<1x10x16x16xf16, {order = #NHWC}>
+    return %0 : tensor<1x64x64x3xf16, {order = #NHWC}>
+
+// CHECK:           %[[VAL_3:.*]] = memref.alloc() : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_4:.*]] = VPUIP.Copy inputs(%[[VAL_0]] : memref<1x64x64x3xf16, #[[$NHWC]]>) outputs(%[[VAL_3]] : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>) -> memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_5:.*]] = memref.alloc() : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_6:.*]] = VPUIP.Copy inputs(%[[VAL_1]] : memref<1x64x64x3xf16, #[[$NHWC]]>) outputs(%[[VAL_5]] : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>) -> memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_7:.*]] = memref.alloc() : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_8:.*]] = memref.alloc() : memref<1x10x16x16xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           %[[VAL_9:.*]]:2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 2, 0, 0>} @VPU.SW::@builtin_dummy_kernel inputs(%[[VAL_4]] as %[[VAL_10:.*]]: memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, %[[VAL_6]] as %[[VAL_11:.*]]: memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, %[[VAL_2]] as %[[VAL_12:.*]]: memref<1x512x512x10xf16, #[[$NHWC]]>) outputs(%[[VAL_7]] as %[[VAL_13:.*]]: memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, %[[VAL_8]] as %[[VAL_14:.*]]: memref<1x10x16x16xf16, #[[$NHWC]], [@CMX_NN, 0]>) on tile 0
+// CHECK-SAME:      -> (memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, memref<1x10x16x16xf16, #[[$NHWC]], [@CMX_NN, 0]>){
+// CHECK:             VPUIP.SW.Kernel.run(%[[VAL_10]], %[[VAL_11]], %[[VAL_12]], %[[VAL_13]], %[[VAL_14]])
+// CHECK-SAME:      memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, memref<1x512x512x10xf16, #[[$NHWC]]>, memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>, memref<1x10x16x16xf16, #[[$NHWC]], [@CMX_NN, 0]>
+// CHECK:           }
+// CHECK-NEXT:      %[[VAL_15:.*]] = memref.alloc() : memref<1x64x64x3xf16, #[[$NHWC]]>
+// CHECK-NEXT:      %[[VAL_16:.*]] = VPUIP.Copy inputs(%[[VAL_17:.*]]#0 : memref<1x64x64x3xf16, #[[$NHWC]], [@CMX_NN, 0]>) outputs(%[[VAL_15]] : memref<1x64x64x3xf16, #[[$NHWC]]>) -> memref<1x64x64x3xf16, #[[$NHWC]]>
+// CHECK-NEXT:      return %[[VAL_16]] : memref<1x64x64x3xf16, #[[$NHWC]]>
+}
+
+// -----
+
+// CHECK-LABEL: func.func @AvgPool16SWLayer
+// CHECK-SAME:  ([[ARG0:%.+]]: memref<1x2x5x5xf16>) -> memref<1x2x1x1xf16>
+func.func @AvgPool16SWLayer(%arg0: tensor<1x2x5x5xf16>) -> tensor<1x2x1x1xf16> {
+    %0 = VPU.AvgPool16(%arg0) {dilations = [2, 2], exclude_pads, kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x2x5x5xf16> -> tensor<1x2x1x1xf16>
+    return %0 : tensor<1x2x1x1xf16>
+
+// CHECK:    [[ARG0_CMX:%.+]] = memref.alloc() : memref<1x2x5x5xf16, [@CMX_NN, 0]>
+// CHECK:    [[INPUT:%.+]] = VPUIP.Copy inputs([[ARG0]] : memref<1x2x5x5xf16>) outputs([[ARG0_CMX]] : memref<1x2x5x5xf16, [@CMX_NN, 0]>) -> memref<1x2x5x5xf16, [@CMX_NN, 0]>
+// CHECK:    [[ALLOC0:%.+]] = memref.alloc() : memref<1x2x1x1xf16, [@CMX_NN, 0]>
+// CHECK:    [[RES:%.+]] = VPUIP.SW.Kernel
+// CHECK-SAME: {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_AvgPool16
+// CHECK-SAME: inputs([[INPUT]] as {{[^:]+}}: memref<1x2x5x5xf16, [@CMX_NN, 0]>)
+// CHECK-SAME: outputs([[ALLOC0]] as {{[^:]+}}: memref<1x2x1x1xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x2x1x1xf16, [@CMX_NN, 0]>{
+// CHECK:      VPUIP.SW.Kernel.run
+// CHECK-SAME{LITERAL}: {attrs = [[1, 3, 3], [1, 1, 1], [1, 2, 2], [0, 0, 0], [0, 0, 0], 1]}
+// CHECK-SAME: memref<1x2x5x5xf16, [@CMX_NN, 0]>, memref<1x2x1x1xf16, [@CMX_NN, 0]>
+// CHECK:    }
+// CHECK:    [[ALLOC1:%.+]] = memref.alloc() : memref<1x2x1x1xf16>
+// CHECK:    [[RET_VAL:%.+]] = VPUIP.Copy inputs([[RES]] : memref<1x2x1x1xf16, [@CMX_NN, 0]>) outputs([[ALLOC1]] : memref<1x2x1x1xf16>) -> memref<1x2x1x1xf16>
+// CHECK:    return [[RET_VAL]] : memref<1x2x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL: @FlashSDPAInOutQueryBuffer
+func.func @FlashSDPAInOutQueryBuffer(%arg0: tensor<1x4x2048x32xf16>, %arg1: tensor<1x4x128x32xf16>, %arg2: tensor<1x4x128x64xf16>) -> tensor<1x4x2048x64xf16> {
+    %cst = const.Declare tensor<1x4x2048x64xf16> = dense<0.000000e+00> : tensor<1x4x2048x64xf16>
+    %cst_0 = const.Declare tensor<1x4x2048x1xf32> = dense<0.000000e+00> : tensor<1x4x4096x1xf32>, [#const.SubView<[0, 0, 2048, 0], [1, 4, 2048, 1]>]
+    %cst_1 = const.Declare tensor<1x4x2048x1xf32> = dense<0xFF800000> : tensor<1x4x4096x1xf32>, [#const.SubView<[0, 0, 2048, 0], [1, 4, 2048, 1]>]
+    %cst_2 = const.Declare tensor<1x4x2048x64xf16> = dense<0.000000e+00> : tensor<1x4x4096x64xf16>, [#const.SubView<[0, 0, 2048, 0], [1, 4, 2048, 64]>]
+    %cst_3 = const.Declare tensor<1x4x2048x1xf32> = dense<0.000000e+00> : tensor<1x4x4096x1xf32>, [#const.SubView<[0, 0, 0, 0], [1, 4, 2048, 1]>]
+    %cst_4 = const.Declare tensor<1x4x2048x1xf32> = dense<0xFF800000> : tensor<1x4x4096x1xf32>, [#const.SubView<[0, 0, 0, 0], [1, 4, 2048, 1]>]
+    %cst_5 = const.Declare tensor<1x4x2048x64xf16> = dense<0.000000e+00> : tensor<1x4x4096x64xf16>, [#const.SubView<[0, 0, 0, 0], [1, 4, 2048, 64]>]
+
+    %4 = VPU.Slice %arg1 [0, 0, 0, 0] [1, 4, 64, 32] : tensor<1x4x128x32xf16> to tensor<1x4x64x32xf16>
+    %5 = VPU.Slice %arg2 [0, 0, 0, 0] [1, 4, 64, 64] : tensor<1x4x128x64xf16> to tensor<1x4x64x64xf16>
+    %6 = VPU.Copy(%arg0) {out_mem_space = @CMX_NN} : tensor<1x4x2048x32xf16> -> !VPU.DistributedTensor<1x4x2048x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %7 = VPU.Copy(%4) {out_mem_space = @CMX_NN} : tensor<1x4x64x32xf16> -> !VPU.DistributedTensor<1x4x64x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %8 = VPU.Copy(%5) {out_mem_space = @CMX_NN} : tensor<1x4x64x64xf16> -> !VPU.DistributedTensor<1x4x64x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    %9 = VPU.Copy(%cst) {out_mem_space = @CMX_NN} : tensor<1x4x2048x64xf16> -> !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %10 = VPU.Copy(%cst_5) {out_mem_space = @CMX_NN} : tensor<1x4x2048x64xf16> -> !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %11 = VPU.Copy(%cst_4) {out_mem_space = @CMX_NN} : tensor<1x4x2048x1xf32> -> !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %12 = VPU.Copy(%cst_3) {out_mem_space = @CMX_NN} : tensor<1x4x2048x1xf32> -> !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    %result_running_output, %result_running_max, %result_running_sum, %result_query = VPU.FlashSDPA(%6, %7, %8, %9, %10, %11, %12) {is_head = true, is_tail = false, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 0, 0>} : !VPU.DistributedTensor<1x4x2048x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x64x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x64x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}> -> !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    %13 = VPU.Slice %arg1 [0, 0, 64, 0] [1, 4, 64, 32] : tensor<1x4x128x32xf16> to tensor<1x4x64x32xf16>
+    %14 = VPU.Slice %arg2 [0, 0, 64, 0] [1, 4, 64, 64] : tensor<1x4x128x64xf16> to tensor<1x4x64x64xf16>
+    %15 = VPU.Copy(%13) {out_mem_space = @CMX_NN} : tensor<1x4x64x32xf16> -> !VPU.DistributedTensor<1x4x64x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %16 = VPU.Copy(%14) {out_mem_space = @CMX_NN} : tensor<1x4x64x64xf16> -> !VPU.DistributedTensor<1x4x64x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    %17 = VPU.Copy(%cst) {out_mem_space = @CMX_NN} : tensor<1x4x2048x64xf16> -> !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    %result_running_output_6, %result_running_max_7, %result_running_sum_8, %result_query_9 = VPU.FlashSDPA(%result_query, %15, %16, %17, %result_running_output, %result_running_max, %result_running_sum) {is_head = false, is_tail = true, operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 0, 0>} : !VPU.DistributedTensor<1x4x2048x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x64x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x64x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}> -> !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x1xf32, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>, !VPU.DistributedTensor<1x4x2048x32xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    %18 = VPU.Copy(%result_running_output_6) : !VPU.DistributedTensor<1x4x2048x64xf16, affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}> -> tensor<1x4x2048x64xf16>
+    return %18 : tensor<1x4x2048x64xf16>
+
+    // Input allocs
+    // CHECK:       [[QUERY_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[KEY_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x64x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[VALUE_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x64x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[AUX_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[RUNNING_OUT_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[RUNNING_MAX_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[RUNNING_SUM_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    // Output allocs
+    // CHECK:       [[OUT_ALLOC_0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[MAX_ALLOC_0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[SUM_ALLOC_0:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK-NOT:   VPURT.AllocDistributed
+
+    // Kernel propagates Query buffer through the output
+    // CHECK:       [[RESULTS_0:%[^:]+]]:4 = VPUIP.SW.Kernel
+    // CHECK-SAME:      @VPU.SW::@builtin_FlashSDPA
+    // CHECK-SAME:      inputs([[QUERY_0:%[^ ]+]]
+    // CHECK-SAME:      outputs([[OUT_ALLOC_0]]
+    // CHECK-SAME:              [[MAX_ALLOC_0]]
+    // CHECK-SAME:              [[SUM_ALLOC_0]]
+    // CHECK-SAME:              [[QUERY_0]]
+
+    // Input allocs
+    // CHECK:       [[KEY_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x64x32xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[VALUE_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x64x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[AUX_ALLOC:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+
+    // Output allocs
+    // CHECK:       [[OUT_ALLOC_1:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x64xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[MAX_ALLOC_1:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK:       [[SUM_ALLOC_1:%.+]] = VPURT.AllocDistributed -> !VPUIP.DistributedBuffer<1x4x2048x1xf32, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 2, 1, 1], num_clusters = 2 : i64}>
+    // CHECK-NOT:   VPURT.AllocDistributed
+
+    // Kernel propagates Query buffer and uses result from the previous kernel
+    // CHECK:       [[RESULTS_1:%[^:]+]]:4 = VPUIP.SW.Kernel
+    // CHECK-SAME:      @VPU.SW::@builtin_FlashSDPA
+    // CHECK-SAME:      inputs([[RESULTS_0]]#3
+    // CHECK-SAME:      outputs([[OUT_ALLOC_1]]
+    // CHECK-SAME:              [[MAX_ALLOC_1]]
+    // CHECK-SAME:              [[SUM_ALLOC_1]]
+    // CHECK-SAME:              [[RESULTS_0]]#3
+
+    // CHECK:       [[RESULT_ALLOC:%.+]] = memref.alloc() : memref<1x4x2048x64xf16>
+    // CHECK:       [[RESULT_COPY:%.+]] = VPUIP.Copy inputs([[RESULTS_1]]#0
+    // CHECK-SAME:                                   outputs([[RESULT_ALLOC]]
+
+    // CHECK:       return [[RESULT_COPY]] : memref<1x4x2048x64xf16>
 }

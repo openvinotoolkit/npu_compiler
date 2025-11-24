@@ -437,7 +437,7 @@ func.func @ConstFoldI4() -> memref<1x4x1x1x!qElemType, #YXOI> {
 
 // CHECK-LABEL: @ConstFoldNF4
 func.func @ConstFoldNF4() -> memref<2x2x1x1x!qElemType, #NHWC> {
-    %weights = const.Declare memref<2x2x1x1x!qElemType, #NHWC> = dense_resource<blob> : tensor<2x2x1x1x!quantileFloatType>, [
+    %weights = const.Declare memref<2x2x1x1x!qElemType, #NHWC> = dense_resource<blob> : tensor<2x2x1x1xui4>, [
         #const.ConvertElemType<ui8>,
         #const.CastElemType<!quantileFloatType> ,
         #const.CastElemType<f16>,
@@ -449,7 +449,7 @@ func.func @ConstFoldNF4() -> memref<2x2x1x1x!qElemType, #NHWC> {
 
     // CHECK:       [[CST:%.*]] = const.Declare memref<2x2x1x1x!qElemType, #NHWC>
     // CHECK-SAME{LITERAL}:     dense<[[[[16, 50]]]]> :
-    // CHECK-SAME:              tensor<1x1x1x2xui8, {order = #NHWC}>, [#const.ChangeShapeAndElemType<[2, 2, 1, 1], !qElemType>]
+    // CHECK-SAME:              tensor<1x1x1x2xui8, {order = #NHWC}>, [#const.Reshape<[2, 2, 1, 1]>, #const.CastElemType<!qElemType>]
     // CHECK:       return [[CST]]
 }
 
@@ -736,10 +736,11 @@ func.func @QuantizeSubbyteSplat() -> memref<1x16x3x3x!qElemType> {
 
     return %cst : memref<1x16x3x3x!qElemType>
 
-    // This will create 'dense<170> : tensor<1x1x1x72xui8>, [#const.ChangeShapeAndElemType<[1, 16, 3, 3], !qElemType>]'
+    // This will create 'dense<170> : tensor<1x1x1x72xui8>, [...]'
     // where 170 which is 0b10101010 which consists of two 0b1010 nibbles
     // and 0b1010 is decimal 10. Because the scale is 0.5 then we get 10 x 0.5 = 5.0.
-    // CHECK:   [[CST:%.*]] = const.Declare memref<1x16x3x3x!qElemType> = dense<170> : tensor<1x1x1x72xui8>, [#const.ChangeShapeAndElemType<[1, 16, 3, 3], !qElemType>]
+    // CHECK:   [[CST:%.*]] = const.Declare memref<1x16x3x3x!qElemType> = dense<170> : tensor<1x1x1x72xui8>,
+    // CHECK-SAME:  [#const.Reshape<[1, 16, 3, 3]>, #const.CastElemType<!qElemType>]
     // CHECK:   return [[CST]] : memref<1x16x3x3x!qElemType>
 }
 

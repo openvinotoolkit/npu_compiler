@@ -12,7 +12,7 @@ add_tool_target(
     ROOT ${CMAKE_CURRENT_SOURCE_DIR}
     LINK_LIBRARIES
         flatbuffers
-        gflags
+        openvino::gflags_nothreads_static
         npu_llvm_utils
         npu_profiling_utils
         openvino::runtime::dev

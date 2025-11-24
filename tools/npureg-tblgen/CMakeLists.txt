@@ -5,6 +5,11 @@
 
 set(TARGET_NAME npureg-tblgen)
 
+if(ANDROID)
+    add_native_exec_target(${TARGET_NAME})
+    return()
+endif()
+
 # find MLIR as well, otherwise static MT build on Windows fails
 find_package(MLIR REQUIRED CONFIG)
 find_package(LLVM REQUIRED CONFIG)

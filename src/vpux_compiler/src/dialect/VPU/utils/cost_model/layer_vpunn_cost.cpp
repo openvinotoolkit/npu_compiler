@@ -5,10 +5,13 @@
 
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
 #include "vpux/compiler/dialect/VPU/utils/multi_cluster_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/convert_to_dma_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/sparsity.hpp"
 
@@ -25,6 +28,7 @@ bool isTiledOnLowestDim(ShapeRef tileAxis, DimsOrder dimOrder) {
     const auto axis = tileAxis[lowestDim];
     return axis > 1;
 }
+}  // namespace
 
 // For SW ops like VPU.MemPermuteOp, there are usually multiple possible implementations - optimized and non-optimized
 // versions. The cost for the non-optimized version usually is much larger than the other version, and in these cases
@@ -39,8 +43,8 @@ bool isTiledOnLowestDim(ShapeRef tileAxis, DimsOrder dimOrder) {
 
 constexpr int64_t SW_COST_CORRECTION_FACTOR_FOR_MEM_PERMUTE = 10;
 
-StrategyCost correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInterface> tiledInputTypes,
-                             StrategyCost cost) {
+StrategyCost vpux::VPU::correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInterface> tiledInputTypes,
+                                        StrategyCost cost) {
     if (auto memPermute = mlir::dyn_cast<VPU::MemPermuteOp>(swOp.getOperation())) {
         // Currently only MemPermuteOp needs cost correction
         auto inputType = mlir::cast<NDTypeInterface>(memPermute.getInput().getType());
@@ -57,7 +61,6 @@ StrategyCost correctSwOpCost(VPU::SWOpInterface swOp, ArrayRef<vpux::NDTypeInter
     }
     return cost;
 }
-}  // namespace
 
 MultiClusterStrategySetter::MultiClusterStrategySetter(mlir::Operation* operation, VPU::MultiClusterStrategy strategy)
         : _operation(operation) {
@@ -350,7 +353,7 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
     const auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch, _numShaveActs,
                                                         true, distributionMode, nceOp);
     SmallVector<uint32_t> vpunnLayerDPUCosts;
-    const auto enableVPUNNPreSplit = hasVPUNNPreSplit(nceOp);
+    const auto enableVPUNNPreSplit = config::hasVPUNNPreSplit(nceOp);
     if (enableVPUNNPreSplit && !isActSparseOp(nceOp)) {
         // Track E#160972. Activation sparse op accuracy issue
         vpunnLayerDPUCosts = getDPUCostForNCEOpPreSplit(nceOp, parameters._tiling, costParams,
@@ -406,52 +409,70 @@ StrategyCost LayerVPUNNCost::getNCELayerCost(VPU::NCEOpInterface nceOp, const VP
 }
 
 StrategyCost LayerVPUNNCost::getSWLayerCost(VPU::SWOpInterface swOp, const VPUNNCostParameters& parameters) const {
+    auto swKernelName = swOp->getName().stripDialect().str();
     auto outputType = mlir::cast<vpux::NDTypeInterface>(swOp->getResult(0).getType());
     auto outputTiling = parameters._tiling;
+    auto isShave2APIUsed = _vpunnCostModel->get_cost_model_shared()->isShave2ApiUsed();
+    const auto& shaveUtilInterface = VPU::CostModelConfig::getShaveCostModelUtilsInterface(_arch);
+
     if (outputTiling.empty()) {
         outputTiling.push_back(TileInfo(outputType.getShape()));
     }
 
     StrategyCost fullCost = 0;
-    for (auto index : irange(outputTiling.size())) {
-        SmallVector<vpux::NDTypeInterface> inputNDTypes;
-        SmallVector<TileInfo> inputTiles;
-        if (parameters._operandsTiling.empty()) {
-            if (auto tilingBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(swOp.getOperation())) {
-                inputTiles = tilingBuilderOp.backInferTileInfo(outputTiling[index], _log).tiles;
+    _log.trace("Op {0} with strategy {1} has {2} output tiles", swOp->getLoc(), parameters._strategy,
+               outputTiling.size());
+    if (shaveUtilInterface.isSwKernelOpSupported(swKernelName) && isShave2APIUsed) {
+        _log.trace("SW kernel {0} is supported, calculating cost using VPUNN cost model", swKernelName);
+        const auto swCostParam = getShaveWorkloadCostParam(swOp, _arch, _numShaveActs, _numTiles);
+        SmallVector<uint32_t> vpunnLayerSWCosts;
+        vpunnLayerSWCosts =
+                getSHAVECostForSwOpPreSplit(swOp, outputTiling, swCostParam, _vpunnCostModel, _numShaveActs, _log);
+        for (const auto& cost : vpunnLayerSWCosts) {
+            fullCost += cost;
+        }
+    } else {
+        for (auto index : irange(outputTiling.size())) {
+            SmallVector<vpux::NDTypeInterface> inputNDTypes;
+            SmallVector<TileInfo> inputTiles;
+            if (parameters._operandsTiling.empty()) {
+                if (auto tilingBuilderOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(swOp.getOperation())) {
+                    inputTiles = tilingBuilderOp.backInferTileInfo(outputTiling[index], _log).tiles;
+                } else {
+                    continue;
+                }
             } else {
-                continue;
-            }
-        } else {
-            inputTiles = parameters._operandsTiling[index];
-        }
-
-        for (auto typeIndex : irange(inputTiles.size())) {
-            inputNDTypes.push_back(
-                    mlir::cast<vpux::NDTypeInterface>(swOp->getOperand(typeIndex).getType())
-                            .extractDenseTile(inputTiles[typeIndex].offsets, inputTiles[typeIndex].shape));
-        }
-
-        auto outputTiledType = outputType.extractDenseTile(outputTiling[index].offsets, outputTiling[index].shape);
-        const auto vpunnLayer = getVPUNNSWKernelOp(swOp, outputTiledType, inputNDTypes);
-
-        StrategyCost currentCost = 0;
-        if (!vpunnLayer) {
-            currentCost = getSimpleLayerCost(outputTiledType, parameters);
-        } else {
-            auto distributionMode = DistributionMode::NONE;
-            auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(swOp.getOperation());
-            if (clusteredOp != nullptr) {
-                distributionMode = getOutputTensorDistributionMode(clusteredOp, parameters._strategy, outputTiledType);
+                inputTiles = parameters._operandsTiling[index];
             }
 
-            auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch,
-                                                          _numShaveActs, false, distributionMode, swOp);
-            currentCost = _vpunnCostModel->Layer(*vpunnLayer, vpunnStrategy);
+            for (auto typeIndex : irange(inputTiles.size())) {
+                inputNDTypes.push_back(
+                        mlir::cast<vpux::NDTypeInterface>(swOp->getOperand(typeIndex).getType())
+                                .extractDenseTile(inputTiles[typeIndex].offsets, inputTiles[typeIndex].shape));
+            }
+
+            auto outputTiledType = outputType.extractDenseTile(outputTiling[index].offsets, outputTiling[index].shape);
+            const auto vpunnLayer = getVPUNNSWKernelOp(swOp, outputTiledType, inputNDTypes, isShave2APIUsed);
+
+            StrategyCost currentCost = 0;
+            if (!vpunnLayer) {
+                currentCost = getSimpleLayerCost(outputTiledType, parameters);
+            } else {
+                auto distributionMode = DistributionMode::NONE;
+                auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(swOp.getOperation());
+                if (clusteredOp != nullptr) {
+                    distributionMode =
+                            getOutputTensorDistributionMode(clusteredOp, parameters._strategy, outputTiledType);
+                }
+
+                auto vpunnStrategy = VPU::getVPULayerStrategy(parameters._strategy, _numDPUs, _numTiles, _arch,
+                                                              _numShaveActs, false, distributionMode, swOp);
+                currentCost = _vpunnCostModel->Layer(*vpunnLayer, vpunnStrategy);
+            }
+            fullCost += vpux::VPU::correctSwOpCost(swOp, inputNDTypes, currentCost);
         }
-        fullCost += correctSwOpCost(swOp, inputNDTypes, currentCost);
     }
-
+    _log.trace("VPUNN SW layer costs {0}", fullCost);
     return fullCost;
 }
 

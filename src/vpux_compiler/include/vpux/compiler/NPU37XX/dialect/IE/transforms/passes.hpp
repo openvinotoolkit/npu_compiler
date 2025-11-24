@@ -16,46 +16,14 @@ namespace IE {
 namespace arch37xx {
 
 //
-// Pipelines
-//
-
-void buildOptimizeActivationsPipeline(mlir::OpPassManager& pm, const OptimizeActivationsOptions& options,
-                                      Logger log = Logger::global());
-
-void buildMemPermutePositioningPipeline(mlir::OpPassManager& pm, const MemPermutePositioningOptions& options,
-                                        Logger log = Logger::global());
-
-void buildExpandAndOptimizeActivationChannelsPipeline(mlir::OpPassManager& pm,
-                                                      const ExpandActivationChannelsOptions& options,
-                                                      Logger log = Logger::global());
-
-void buildMemPermuteProcessingPipeline(mlir::OpPassManager& pm, const ExpandActivationChannelsOptions& options,
-                                       Logger log = Logger::global());
-
-void buildOptimizeMemPermuteAndActivationChannelsExpandPipeline(mlir::OpPassManager& pm,
-                                                                const ExpandActivationChannelsOptions& options,
-                                                                Logger log = Logger::global());
-
-void buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
-                               Logger log = Logger::global());
-
-void buildInitialTransformationsPipeline(mlir::OpPassManager& pm, const TransformOptions& options,
-                                         Logger log = Logger::global());
-
-void buildInitialLowPrecisionTransformationsPipeline(mlir::OpPassManager& pm,
-                                                     const IE::LowPrecisionTransformOptions& options,
-                                                     Logger log = Logger::global());
-
-void buildDynamicShapeTransformationsPipeline(mlir::OpPassManager& pm, const IE::DynamicShapeTransformOptions& options,
-                                              Logger log = Logger::global());
-
-//
 // DefaultHWOptions
 //
 
 struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::arch37xx::DefaultHWOptionsDeviceBase {
     BoolOption enableConvertFFTToConv{*this, "convert-fft-to-conv", llvm::cl::desc("Enable convert-fft-to-conv pass"),
                                       llvm::cl::init(true)};
+    BoolOption enableConvertToSdpaExtended{*this, "convert-to-sdpa-extended",
+                                           llvm::cl::desc("Enable conversion to SDPA extended"), llvm::cl::init(false)};
     BoolOption enableDecomposeGRUSequence{*this, "decompose-gru-sequence",
                                           llvm::cl::desc("Enable decompose-gru-sequence pass"), llvm::cl::init(true)};
 
@@ -73,11 +41,6 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableRuntimeDequant{*this, "enable-runtime-dequant",
                                     llvm::cl::desc("Enable runtime dequantization of asymmetrically quantized weights"),
                                     llvm::cl::init(false)};
-    Int64Option runtimeDequantizationLimit{
-            *this, "runtime-dequantization-limit",
-            llvm::cl::desc("Lower limit on weight size for runtime dequantization"
-                           "Weights smaller than the limit will be statically dequantized"),
-            llvm::cl::init(524'288)};  // 512kb
     BoolOption enableMatmulMixedPrecisionDecomposition{
             *this, "enable-matmul-mixed-precision-decomposition",
             llvm::cl::desc("Enable mixed precision decomposition for matmul"), llvm::cl::init(true)};
@@ -91,22 +54,26 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
                                llvm::cl::init(false)};
 };
 
-void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
-void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
-
 //
-// AdjustLayout
+// Pipelines
 //
 
-void buildAdjustLayoutPipeline(mlir::OpPassManager& pm, const AdjustLayoutOptions& options,
+void buildLowPrecisionPipeline(mlir::OpPassManager& pm, const LowPrecisionOptions& options,
                                Logger log = Logger::global());
+
+void buildInitialLowPrecisionTransformationsPipeline(mlir::OpPassManager& pm,
+                                                     const IE::LowPrecisionTransformOptions& options,
+                                                     Logger log = Logger::global());
+
+void buildDefaultHWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
+
+void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& options, Logger log = Logger::global());
 
 //
 // Registration
 //
 
 void registerIEPipelines();
-void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace IE

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/interfaces/sparsity_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/logging.hpp"
@@ -28,8 +28,6 @@ public:
                                               const VPU::SparsityConstraint& sparsityConstraint);
 
 protected:
-    static bool isDepthwiseOp(mlir::Operation* op);
-
     SmallVector<Shape> getPerClusterShapesWhenSOK(VPU::NCEOpInterface nceOp);
     mlir::DenseSet<int64_t> getWorkloadsChannels(const mlir::DenseSet<mlir::Operation*>& nceOps,
                                                  bool skipLastWorkload = false);

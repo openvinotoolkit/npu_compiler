@@ -39,4 +39,17 @@ enum HostMainFuncArgs {
 
 #define HOST_EXEC_NETWORK_METADATA_NAME "HostExec.networkMetadata"
 #define HOST_EXEC_NUM_SUBGRAPH_ATTR_NAME "HostExec.numSubgraphs"
+
+constexpr uint64_t MaxStrideDim = 5;
+
+/**
+ * @brief LLVM struct for dynamic stride support
+ */
+struct MemRefDesc {
+    void* data;
+    uint64_t dimCount;
+    uint64_t sizes[MaxStrideDim];
+    uint64_t strides[MaxStrideDim];
+};
+
 }  // namespace vpux::HostExec

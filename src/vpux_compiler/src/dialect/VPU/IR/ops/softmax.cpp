@@ -127,3 +127,7 @@ bool vpux::VPU::SoftMaxOp::isVFSupported() {
 bool vpux::VPU::SoftMaxOp::supportCycleCostCalculation() {
     return false;
 }
+
+DimArr vpux::VPU::SoftMaxOp::restrictedFusionAxes() {
+    return {Dim(getAxisInd())};
+}

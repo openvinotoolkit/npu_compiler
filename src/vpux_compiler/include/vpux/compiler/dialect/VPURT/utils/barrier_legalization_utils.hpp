@@ -36,6 +36,7 @@ SmallVector<size_t> findReadyOpsFromTaskOpQueues(TaskOpQueueIterator& frontTasks
                                                  BarrierInfo& barrierInfo);
 
 bool isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementMode> workloadManagementMode);
+SmallVector<size_t> getBarriersOrder(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, bool orderByConsumptionReady);
 
 }  // namespace VPURT
 }  // namespace vpux

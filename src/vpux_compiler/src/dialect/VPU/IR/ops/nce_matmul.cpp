@@ -14,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -63,6 +64,16 @@ mlir::LogicalResult vpux::VPU::NCEMatMulOp::inferReturnTypes(mlir::MLIRContext* 
 
 mlir::LogicalResult vpux::VPU::NCEMatMulOp::verify() {
     const auto op = getOperation();
+    const auto arch = config::getArch(op);
+
+    // Skip checks if architecture is unknown
+    if (arch == config::ArchKind::UNKNOWN) {
+        return mlir::success();
+    }
+
+    if (mlir::failed(VPU::NCEInvariant::verifyWeightTables(op))) {
+        return mlir::failure();
+    }
 
     if (mlir::failed(vpux::VPU::verifyNCEOp(op))) {
         return mlir::failure();
@@ -80,7 +91,8 @@ mlir::LogicalResult vpux::VPU::NCEMatMulOp::verifyKernel(IE::MatMulOp) {
 //
 
 bool doesNCEMatMulFitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterface filterType,
-                             vpux::NDTypeInterface outputType, mlir::ModuleOp moduleOp, Byte reservedMem) {
+                             vpux::NDTypeInterface outputType, mlir::Operation* op, Byte reservedMem) {
+    auto moduleOp = getModuleOp(op);
     auto arch = config::getArch(moduleOp);
 
     auto largestGroupsNumPerCluster = filterType.getShape()[DimsGroups5D::Act::G];
@@ -88,15 +100,22 @@ bool doesNCEMatMulFitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterf
         largestGroupsNumPerCluster = distType.getLargestCompactShape()[DimsGroups5D::Act::G];
     }
 
-    const auto weightsTableSize = vpux::VPU::NCEInvariant::getWeightsTableSize(
-            outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster);
-
     SmallVector<Byte> buffers = {
             inputType.getTotalAllocSize(),
             filterType.getTotalAllocSize(),
             outputType.getTotalAllocSize(),
-            weightsTableSize,
     };
+
+    auto nceOpInterface = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOpInterface != nullptr) {
+        auto ppeAttr = nceOpInterface.getPPE();
+        addSprLutBufferIfPresent(ppeAttr, buffers);
+    }
+
+    if (mlir::failed(VPU::NCEInvariant::getWeightTableBuffers(
+                op, buffers, outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
 
     const auto totalAvailableCMXSize = reservedMem.count() == 0
                                                ? vpux::VPU::getTotalCMXSize(moduleOp).count()
@@ -109,8 +128,7 @@ bool doesNCEMatMulFitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterf
 
 bool vpux::VPU::NCEMatMulOp::fitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterface filterType,
                                         vpux::NDTypeInterface outputType, Byte reservedMem) {
-    auto mod = getModuleOp(getOperation());
-    return doesNCEMatMulFitIntoCMX(inputType, filterType, outputType, mod, reservedMem);
+    return doesNCEMatMulFitIntoCMX(inputType, filterType, outputType, getOperation(), reservedMem);
 }
 
 bool vpux::VPU::NCEMatMulOp::fitIntoCMX(vpux::NDTypeInterface inputType, vpux::NDTypeInterface filterType,
@@ -181,12 +199,32 @@ bool VPU::NCEMatMulOp::isSupported(VPU::NCEMatMulOp op, vpux::LogCb logCb, bool 
 // TilingBuilderOpInterace
 //
 
+namespace {
+enum class WeightTableType : uint64_t {
+    UNKNOWN = 0,
+    LEGACY = 1,
+    SCALE = 2,
+    BIAS = 3,
+};
+}
+
 // Returns a WeightsTable tile required to produce the specific output tile
-TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& outputTile) {
-    const auto origWeightsTable = origOp.getWeightsTable();
-    VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have a WeightsTable", *origOp);
+// WeightsTable is a generic name and it can be a legacy weight table, a scale table or a bias table, depending on the
+// weightTableType argument passed
+TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& outputTile,
+                               const WeightTableType& weightTableType) {
+    VPUX_THROW_WHEN(weightTableType == WeightTableType::UNKNOWN, "Please provide a valid weight table type");
+
+    const auto isLegacyWeightTableType = weightTableType == WeightTableType::LEGACY;
+    const auto origWeightsTable = isLegacyWeightTableType                     ? origOp.getWeightsTable()
+                                  : weightTableType == WeightTableType::SCALE ? origOp.getWeightTableScale()
+                                                                              : origOp.getWeightTableBias();
+    VPUX_THROW_UNLESS(origWeightsTable != nullptr, "The operation {0} doesn't have the required type of weight table",
+                      *origOp);
 
     const auto origWeightsTableShape = getShape(origWeightsTable);
+    const auto expectedKX = isLegacyWeightTableType ? VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC
+                                                    : VPU::NCEInvariant::NEW_WEIGHT_TABLE_NUM_ELEMENTS_PER_OC;
 
     VPUX_THROW_UNLESS(
             origWeightsTableShape[DimsGroups5D::Filter::G] == getShape(origOp.getOutput())[DimsGroups5D::Act::G] &&
@@ -194,8 +232,7 @@ TileInfo getWeightsTableTile5D(VPU::NCEMatMulOp origOp, const vpux::TileInfo& ou
                             getShape(origOp.getOutput())[DimsGroups5D::Act::C] &&
                     origWeightsTableShape[DimsGroups5D::Filter::IC] == 1 &&
                     origWeightsTableShape[DimsGroups5D::Filter::KY] == 1 &&
-                    origWeightsTableShape[DimsGroups5D::Filter::KX] ==
-                            VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC,
+                    origWeightsTableShape[DimsGroups5D::Filter::KX] == expectedKX,
             "Unexpected WeightsTable shape notation or order: {0} with output shape of {1}"
             "\nProbably, we need to update this logic",
             origWeightsTableShape, getShape(origOp.getOutput()));
@@ -219,7 +256,15 @@ TilingInfo vpux::VPU::NCEMatMulOp::backInferTileInfo(const vpux::TileInfo& outpu
                               mlir::cast<VPU::NCEOpInterface>(*this->getOperation()), inputTiling, log)),
                       "Failed to get an aligned act input tiling");
 
-    inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile));
+    if (this->getWeightsTable()) {
+        inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile, WeightTableType::LEGACY));
+    }
+    if (this->getWeightTableScale()) {
+        inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile, WeightTableType::SCALE));
+    }
+    if (this->getWeightTableBias()) {
+        inputTiling.tiles.push_back(getWeightsTableTile5D(*this, outputTile, WeightTableType::BIAS));
+    }
 
     return inputTiling;
 }
@@ -284,9 +329,6 @@ bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, S
         largestGroupsNumPerCluster = distType.getLargestCompactShape()[DimsGroups5D::Act::G];
     }
 
-    const auto weightsTableSize = vpux::VPU::NCEInvariant::getWeightsTableSize(
-            outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster);
-
     SmallVector<Byte> buffers = {
             VPU::getTotalAllocSizeWithDistribution(
                     getInput().getType(), getActivationDistributionAttrFromOp(nceOp, getInput(), getInput().getType(),
@@ -296,8 +338,15 @@ bool VPU::NCEMatMulOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, S
                     getFilterDistributionAttrFromOp(nceOpInterface, getWeights().getType(), numClusters, strategy)),
             VPU::getTotalAllocSizeWithDistribution(
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
-                                                                           strategy, siblingsAnalysis)),
-            weightsTableSize};
+                                                                           strategy, siblingsAnalysis))};
+
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
+    if (mlir::failed(NCEInvariant::getWeightTableBuffers(
+                getOperation(), buffers, outputType.getShape()[DimsGroups5D::Act::C] * largestGroupsNumPerCluster))) {
+        VPUX_THROW("getWeightTableBuffers function failed");
+    }
 
     const auto totalAvailableCMXSize = reservedMem.count() == 0
                                                ? vpux::VPU::getTotalCMXSize(mod).count()
@@ -359,7 +408,8 @@ vpux::NDTypeInterface vpux::VPU::NCEMatMulOp::getDistributedTypeForOpOperand(mli
         return getDistributedTypeFromInput(clusteredOp, origOp.getWeights(), weightsTensorDistributionMode,
                                            weightsTensorNumTiles, weightAlignmentAttr, strategy,
                                            hasExplicitDistributedAttr, siblingsAnalysis);
-    } else if (operand.get() == origOp.getWeightsTable()) {
+    } else if (operand.get() == origOp.getWeightsTable() || operand.get() == origOp.getWeightTableScale() ||
+               operand.get() == origOp.getWeightTableBias()) {
         auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOutput().getType());
         const auto weightsTableTensorDistributionMode = getWeightsTensorDistributionMode(strategy);
         const auto weightsTableTensorNumTiles =
@@ -371,7 +421,7 @@ vpux::NDTypeInterface vpux::VPU::NCEMatMulOp::getDistributedTypeForOpOperand(mli
         if (weightAlignment.has_value()) {
             weightAlignmentAttr = getIntArrayAttr(ctx, weightAlignment.value());
         }
-        return getDistributedTypeFromInput(clusteredOp, origOp.getWeightsTable(), weightsTableTensorDistributionMode,
+        return getDistributedTypeFromInput(clusteredOp, operand.get(), weightsTableTensorDistributionMode,
                                            weightsTableTensorNumTiles, weightAlignmentAttr, strategy,
                                            hasExplicitDistributedAttr, siblingsAnalysis);
     }

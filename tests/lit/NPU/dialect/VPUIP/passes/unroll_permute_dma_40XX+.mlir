@@ -55,8 +55,8 @@ func.func @PermuteDMAForShapeWithDuplicatedOutputWithExplicitShapesAndOffsets() 
     //CHECK:    [[INPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> [[INPUT_TYPE_0:.+]]
     //CHECK:    [[INPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <3840> -> [[INPUT_TYPE_1:.+]]
     //CHECK:    [[RETURN_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> <16384> -> [[RETURN_TYPE_0:.+]]
-    //CHECK:    [[OUTPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2, 3] <16384> -> [[OUTPUT_TYPE_0:.+]]
-    //CHECK:    [[OUTPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2, 3] <17344> -> [[OUTPUT_TYPE_1:.+]]
+    //CHECK:    [[OUTPUT_BUFFER_0:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2, 3] <16384> -> [[OUTPUT_TYPE_0:.+VPUIP.DistributedBuffer.+strides =.+]]
+    //CHECK:    [[OUTPUT_BUFFER_1:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0, 1, 2, 3] <17344> -> [[OUTPUT_TYPE_1:.+VPUIP.DistributedBuffer.+strides =.+]]
 
     //CHECK:    VPURT.Task updates([[BAR_0]] : !VPURT.Barrier) {
     //CHECK:        VPUIP.PermuteDMA {

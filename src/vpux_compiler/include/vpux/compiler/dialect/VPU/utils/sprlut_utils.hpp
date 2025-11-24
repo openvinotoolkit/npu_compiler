@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/utils/core/string_ref.hpp"
 
 #include <mlir/IR/Operation.h>
@@ -14,9 +15,11 @@ namespace VPU {
 
 constexpr auto SPRLUT_ALIGNMENT_REQUIREMENT = 32;
 
-constexpr StringRef SPRLUT_ENABLED = "VPU.SprLUTEnabled";
+bool hasSprLUTAttribute(PPEAttr ppeAttr);
 
-bool isSprLUTEnabled(mlir::Operation* op);
+Byte getSprLUTSize(PPEAttr ppeAttr);
+
+void addSprLutBufferIfPresent(PPEAttr ppeAttr, SmallVector<Byte>& buffers);
 
 }  // namespace VPU
 }  // namespace vpux

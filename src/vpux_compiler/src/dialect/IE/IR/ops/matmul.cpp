@@ -127,8 +127,9 @@ mlir::LogicalResult UseFullyConnected::matchAndRewrite(IE::MatMulOp matmulOp, ml
         return mlir::failure();
     }
 
-    rewriter.replaceOpWithNewOp<IE::FullyConnectedOp>(matmulOp, matmulOp.getType(), matmulOp.getInput1(),
-                                                      matmulOp.getInput2(), nullptr);
+    auto newOp = rewriter.replaceOpWithNewOp<IE::FullyConnectedOp>(matmulOp, matmulOp.getType(), matmulOp.getInput1(),
+                                                                   matmulOp.getInput2(), nullptr);
+    extendOpLoc(newOp, "as_fc");
 
     return mlir::success();
 }

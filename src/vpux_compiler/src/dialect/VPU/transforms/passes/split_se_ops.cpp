@@ -130,7 +130,7 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
     const auto axes = IE::getInterpAxesVal(origOp.getLoc(), origOp.getAxes(), origOp.getAxesAttrAttr(), inputType);
     const auto shapeCalcMode = origOp.getAttr().getShapeCalcMode().getValue();
 
-    auto createSingleDimInterpOp = [&](Dim dim, mlir::Value inputVal) {
+    auto createSingleDimInterpOp = [&](Dim dim, mlir::Value inputVal, const vpux::NDTypeInterface newOutputType) {
         auto dimPtr = std::find(axes.begin(), axes.end(), dim.ind());
         VPUX_THROW_WHEN(dimPtr == axes.end(), "Cannot find Dim [{0}] in Interpolate axes attribution [{1}]", dim, axes);
         auto dimIdx = std::distance(axes.begin(), dimPtr);
@@ -155,18 +155,32 @@ mlir::LogicalResult SplitInterpolate::matchAndRewrite(VPU::InterpolateOp origOp,
         }
 
         auto newLoc = appendLoc(origOp.getLoc(), "_interpolate_on_Dim_{0}", dim.ind());
+        if (newOutputType != nullptr) {
+            return rewriter
+                    .create<VPU::InterpolateOp>(
+                            newLoc, newOutputType, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
+                            origOp.getCoordinates(), origOp.getLambdas(), newSizesAttr, newScalesAttr,
+                            origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
+                            origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(),
+                            origOp.getInitialInputOffsetAttrAttr(), origOp.getInitialOutputOffsetAttrAttr(),
+                            origOp.getMultiClusterStrategyAttr(), origOp.getAttr(), origOp.getOutputPaddingAttr(),
+                            origOp.getInputPaddingAttr())
+                    .getOutput();
+        }
         return rewriter
-                .create<VPU::InterpolateOp>(newLoc, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
-                                            origOp.getCoordinates(), origOp.getLambdas(), newSizesAttr, newScalesAttr,
-                                            origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(),
-                                            origOp.getInitialInputDimsAttrAttr(), origOp.getInitialOutputDimsAttrAttr(),
-                                            origOp.getAttr(), origOp.getOutputPaddingAttr(),
-                                            origOp.getInputPaddingAttr())
+                .create<VPU::InterpolateOp>(
+                        newLoc, inputVal, origOp.getSizes(), origOp.getScales(), origOp.getAxes(),
+                        origOp.getCoordinates(), origOp.getLambdas(), newSizesAttr, newScalesAttr,
+                        origOp.getAxesAttrAttr(), origOp.getTileOffsetAttrAttr(), origOp.getInitialInputDimsAttrAttr(),
+                        origOp.getInitialOutputDimsAttrAttr(), origOp.getInitialInputOffsetAttrAttr(),
+                        origOp.getInitialOutputOffsetAttrAttr(), origOp.getMultiClusterStrategyAttr(), origOp.getAttr(),
+                        origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr())
                 .getOutput();
     };
 
-    auto interpolateW = createSingleDimInterpOp(Dims4D::Act::W, origOp.getInput());
-    auto interpolateH = createSingleDimInterpOp(Dims4D::Act::H, interpolateW);
+    // Set the output type manually for the last operation, to ensure that the layout of the data is preserved
+    auto interpolateW = createSingleDimInterpOp(Dims4D::Act::W, origOp.getInput(), nullptr);
+    auto interpolateH = createSingleDimInterpOp(Dims4D::Act::H, interpolateW, outputType);
 
     _log.nest().trace("[{0}] Split successful", getDebugName());
     rewriter.replaceOp(origOp, interpolateH);

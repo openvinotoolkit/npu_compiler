@@ -1223,8 +1223,8 @@ void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp f
         const auto obfuscatedType = obfuscateType(inputValue.getType());
 
         const auto shape = mlir::cast<NDTypeInterface>(obfuscatedType).getShape();
-        auto sliceOp =
-                createSlice(builder, appendLoc(blobArg.getLoc(), "slice{0}", index), blobArg, offsets, shape.raw());
+        const auto inputValueLoc = inputValue.getLoc();
+        auto sliceOp = createSlice(builder, appendLoc(inputValueLoc, "slice"), blobArg, offsets, shape.raw());
         auto castOp = builder.create<Core::ReinterpretCastOp>(appendLoc(sliceOp->getLoc(), "deobfuscated"),
                                                               inputValue.getType(), sliceOp->getResult(0));
         inputValue.replaceAllUsesWith(castOp.getResult());
@@ -1232,6 +1232,9 @@ void obfuscateInputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp f
         offsets[0] += shape[Dim(0)];
 
         log.debug("value #{0} is {1}, obfuscated as {2}", index, inputValue.getType(), obfuscatedType);
+        // Note: location is printed separately because it differs between init
+        // and main (this is by design).
+        log.debug("value #{0} has location: {1}", index, inputValueLoc);
     }
 
     // Note: avoid index recalculation by deleting from the end first
@@ -1269,12 +1272,16 @@ void obfuscateOutputs(const Logger& log, mlir::Location loc, mlir::func::FuncOp 
     auto allReturns = to_std_vector(returnOp->getOperands());
     for (size_t index : indices) {
         auto returnValue = allReturns[index];
+        const auto returnValueLoc = returnValue.getLoc();
         const auto type = obfuscateType(returnValue.getType());
-        auto castOp = builder.create<Core::ReinterpretCastOp>(appendLoc(returnOp.getLoc(), "obfuscated{0}", index),
-                                                              type, returnValue);
+        auto castOp =
+                builder.create<Core::ReinterpretCastOp>(appendLoc(returnValueLoc, "obfuscated"), type, returnValue);
         allReturns[index] = castOp.getResult();
 
         log.debug("value #{0} is {1}, obfuscated as {2}", index, returnValue.getType(), type);
+        // Note: location is printed separately because it differs between init
+        // and main (this is by design).
+        log.debug("value #{0} has location: {1}", index, returnValueLoc);
     }
 
     // concatenate obfuscated tensors

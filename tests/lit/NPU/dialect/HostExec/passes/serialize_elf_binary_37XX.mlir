@@ -9,14 +9,14 @@
 // CHECK-LABEL: @OneInputOneOutput
 module @OneInputOneOutput attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<HostCompile>, config.revisionID = #config.revision_id<REVISION_NONE>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.SprLUTEnabled : false
-    config.Option @VPU.BarrierMaxVariantSum : 256
-    config.Option @VPU.BarrierMaxVariantCount : 256
-    config.Option @VPU.MaxKernelSize : 11
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.SprLUTEnabled : false
+    config.Option @config.BarrierMaxVariantSum : 256
+    config.Option @config.BarrierMaxVariantCount : 256
+    config.Option @config.MaxKernelSize : 11
   }
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     config.MemoryResource 1784217 bytes of @CMX_NN_FragmentationAware
@@ -143,14 +143,14 @@ module @OneInputOneOutput attributes {config.arch = #config.arch_kind<NPU37XX>, 
       config.ExecutorResource 1 of @DPU
     }
     config.PipelineOptions @Options {
-      config.Option @VPU.FP16CompressedConv : false
-      config.Option @VPU.ReduceSupported : false
-      config.Option @VPU.AutoPaddingODU : false
-      config.Option @VPU.AutoPaddingIDU : false
-      config.Option @VPU.SprLUTEnabled : false
-      config.Option @VPU.BarrierMaxVariantSum : 256
-      config.Option @VPU.BarrierMaxVariantCount : 256
-      config.Option @VPU.MaxKernelSize : 11
+      config.Option @config.FP16CompressedConv : false
+      config.Option @config.ReduceSupported : false
+      config.Option @config.AutoPaddingODU : false
+      config.Option @config.AutoPaddingIDU : false
+      config.Option @config.SprLUTEnabled : false
+      config.Option @config.BarrierMaxVariantSum : 256
+      config.Option @config.BarrierMaxVariantCount : 256
+      config.Option @config.MaxKernelSize : 11
     }
     config.ExecutorResource 2 of @DMA_NN
     config.MemoryResource 67108864000 bytes of @DDR {config.bandwidth = 8 : i64, config.derateFactor = 6.000000e-01 : f64}

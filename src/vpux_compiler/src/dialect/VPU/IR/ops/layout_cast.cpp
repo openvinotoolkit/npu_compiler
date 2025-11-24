@@ -107,6 +107,10 @@ void vpux::VPU::LayoutCastOp::adjustAttrs(const TilingInfo&, const TileInfo&, Sh
     // Do nothing
 }
 
+bool vpux::VPU::LayoutCastOp::isVFSupported() {
+    return false;
+}
+
 //
 // FuseLayoutCasts
 //

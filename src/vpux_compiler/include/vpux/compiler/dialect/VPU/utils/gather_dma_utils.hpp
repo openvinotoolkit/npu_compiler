@@ -6,8 +6,12 @@
 #pragma once
 
 #include <mlir/IR/Operation.h>
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/gather_dma_constants.hpp"
+
+namespace vpux::VPU {
+class GatherOp;
+}
+
 namespace vpux::VPU {
 
 bool isLegalConvertToGatherDMA(VPU::GatherOp op, bool isElementTile, bool isIndicesTile, vpux::Logger log);

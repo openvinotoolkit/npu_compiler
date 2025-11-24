@@ -10,7 +10,6 @@ add_npu_library(npu_compiler_dialect_npu37xx
     LINK_LIBS PRIVATE
         npu_llvm_utils
         npu_ov_utils
-        flatbuffers
         npu_elf
         MLIRIR
         MLIRFuncDialect)

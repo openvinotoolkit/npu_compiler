@@ -435,7 +435,7 @@ def Const_RescaleAttr : Const_Attr<"Rescale",
             (ins "mlir::FloatAttr":$scale), [{
                     auto tensorType = mlir::RankedTensorType::get({1}, scale.getType());
                     auto denseAttr = mlir::DenseElementsAttr::get(tensorType, scale);
-                    auto contentAttr = vpux::Const::ContentAttr::get(denseAttr);
+                    auto contentAttr = vpux::Const::ContentAttr::get(denseAttr); 
                     return vpux::Const::RescaleAttr::get(contentAttr);
                 }]
         >,

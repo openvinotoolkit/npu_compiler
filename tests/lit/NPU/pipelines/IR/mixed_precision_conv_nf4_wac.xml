@@ -1,0 +1,147 @@
+<?xml version="1.0"?>
+<net name="MixedPrecisionConvolutionNF4" version="11">
+	<layers>
+		<layer id="0" name="Parameter_10" type="Parameter" version="opset1">
+			<data shape="1,16,16,16" element_type="f16" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Parameter_10" />
+			</rt_info>
+			<output>
+				<port id="0" precision="FP16">
+					<dim>1</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="1" name="Constant_11" type="Const" version="opset1">
+			<data element_type="nf4" shape="16, 16, 1, 1" offset="0" size="128" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Constant_11" />
+			</rt_info>
+			<output>
+				<port id="0" precision="NF4">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="2" name="Convert_12" type="Convert" version="opset1">
+			<data destination_type="f16" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Convert_12" />
+			</rt_info>
+			<input>
+				<port id="0" precision="NF4">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</input>
+			<output>
+				<port id="1" precision="FP16">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="3" name="Constant_13" type="Const" version="opset1">
+			<data element_type="f16" shape="16, 1, 1, 1" offset="128" size="32" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Constant_13" />
+			</rt_info>
+			<output>
+				<port id="0" precision="FP16">
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="4" name="Multiply_14" type="Multiply" version="opset1">
+			<data auto_broadcast="numpy" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Multiply_14" />
+			</rt_info>
+			<input>
+				<port id="0" precision="FP16">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+				<port id="1" precision="FP16">
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</input>
+			<output>
+				<port id="2" precision="FP16">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="5" name="Convolution_15" type="Convolution" version="opset1">
+			<data strides="1, 1" dilations="1, 1" pads_begin="0, 0" pads_end="0, 0" auto_pad="same_upper" />
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Convolution_15" />
+			</rt_info>
+			<input>
+				<port id="0" precision="FP16">
+					<dim>1</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+				</port>
+				<port id="1" precision="FP16">
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>1</dim>
+					<dim>1</dim>
+				</port>
+			</input>
+			<output>
+				<port id="2" precision="FP16">
+					<dim>1</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+				</port>
+			</output>
+		</layer>
+		<layer id="6" name="Result_16" type="Result" version="opset1">
+			<rt_info>
+				<attribute name="fused_names" version="0" value="Result_16" />
+			</rt_info>
+			<input>
+				<port id="0" precision="FP16">
+					<dim>1</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+					<dim>16</dim>
+				</port>
+			</input>
+		</layer>
+	</layers>
+	<edges>
+		<edge from-layer="0" from-port="0" to-layer="5" to-port="0" />
+		<edge from-layer="1" from-port="0" to-layer="2" to-port="0" />
+		<edge from-layer="2" from-port="1" to-layer="4" to-port="0" />
+		<edge from-layer="3" from-port="0" to-layer="4" to-port="1" />
+		<edge from-layer="4" from-port="2" to-layer="5" to-port="1" />
+		<edge from-layer="5" from-port="2" to-layer="6" to-port="0" />
+	</edges>
+	<rt_info />
+</net>

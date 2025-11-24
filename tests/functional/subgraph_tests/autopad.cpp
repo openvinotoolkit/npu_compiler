@@ -29,43 +29,20 @@ enum class OpType {
     SOFTMAX = 6,
 };
 
+// clang-format off
 static std::ostream& operator<<(std::ostream& os, const OpType opType) {
     switch (opType) {
-    case OpType::CONV: {
-        os << "CONV";
-        break;
+    case OpType::CONV: { return os << "CONV"; }
+    case OpType::GROUP_CONV: { return os << "GROUP_CONV"; }
+    case OpType::MAXPOOL: { return os << "MAXPOOL"; }
+    case OpType::AVGPOOL: { return os << "AVGPOOL"; }
+    case OpType::REDUCE_MEAN: { return os << "REDUCE_MEAN"; }
+    case OpType::REDUCE_SUM: { return os << "REDUCE_SUM"; }
+    case OpType::SOFTMAX: { return os << "SOFTMAX"; }
+    default: { return os << "NONE"; }
     }
-    case OpType::GROUP_CONV: {
-        os << "GROUP_CONV";
-        break;
-    }
-    case OpType::MAXPOOL: {
-        os << "MAXPOOL";
-        break;
-    }
-    case OpType::AVGPOOL: {
-        os << "AVGPOOL";
-        break;
-    }
-    case OpType::REDUCE_MEAN: {
-        os << "REDUCE_MEAN";
-        break;
-    }
-    case OpType::REDUCE_SUM: {
-        os << "REDUCE_SUM";
-        break;
-    }
-    case OpType::SOFTMAX: {
-        os << "SOFTMAX";
-        break;
-    }
-    default: {
-        os << "NONE";
-        break;
-    }
-    }
-    return os;
 }
+// clang-format on
 
 struct Params {
     ov::Shape inputShape;

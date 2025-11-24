@@ -911,3 +911,139 @@ func.func @OptimizeSigmoidReorder(%arg0: tensor<1x16x32x32xf16, {order = #NHCW}>
    // CHECK:        [[SIGMOID:%.+]] = IE.Sigmoid([[INPUT]]) : tensor<1x16x32x32xf16, {order = #NHCW}> -> tensor<1x16x32x32xf16, {order = #NHCW}>
    // CHECK:        [[REORDER:%.+]] = IE.Reorder([[SIGMOID]])  {dstOrder = #NCHW} : tensor<1x16x32x32xf16, {order = #NHCW}> -> tensor<1x16x32x32xf16>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SwapBatchedMemPermuteSlice
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x16x126x224xf16>
+func.func @SwapBatchedMemPermuteSlice(%arg0: tensor<4x16x126x224xf16>) -> (tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    %2 = IE.Slice %0 [1, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    %3 = IE.Slice %0 [2, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    %4 = IE.Slice %0 [3, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+
+    return %1, %2, %3, %4 : tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>
+
+    // CHECK:       [[SLICE0:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM0:%.+]] = IE.MemPermute([[SLICE0]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[INPUT]] [1, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM1:%.+]] = IE.MemPermute([[SLICE1]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[INPUT]] [2, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM2:%.+]] = IE.MemPermute([[SLICE2]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE3:%.+]] = IE.Slice [[INPUT]] [3, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM3:%.+]] = IE.MemPermute([[SLICE3]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @SwapBatchedMemPermuteSliceWithPartialSliceCoverage
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x16x126x224xf16>
+func.func @SwapBatchedMemPermuteSliceWithPartialSliceCoverage(%arg0: tensor<4x16x126x224xf16>) -> (tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    %2 = IE.Slice %0 [1, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+
+    return %1, %2 : tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<1x16x126x224xf16, {order = #NHWC}>
+
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM1:%.+]] = IE.MemPermute([[SLICE1]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[INPUT]] [1, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16> to tensor<1x16x126x224xf16>
+    // CHECK:       [[MEMPERM2:%.+]] = IE.MemPermute([[SLICE2]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x16x126x224xf16> -> tensor<1x16x126x224xf16, {order = #NHWC}>
+
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotSwapBatchedMemPermuteSliceWithMultipleDimensions
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x16x126x224xf16>
+func.func @NotSwapBatchedMemPermuteSliceWithMultipleDimensions(%arg0: tensor<4x16x126x224xf16>) -> tensor<1x8x63x112xf16, {order = #NHWC}> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 8, 63, 112] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x8x63x112xf16, {order = #NHWC}>
+
+    return %1 : tensor<1x8x63x112xf16, {order = #NHWC}>
+
+    // CHECK:       [[MEMPERM:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[MEMPERM]] [0, 0, 0, 0] [1, 8, 63, 112] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x8x63x112xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotSwapBatchedMemPermuteSliceWithNonSliceUser
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x16x126x224xf16>
+func.func @NotSwapBatchedMemPermuteSliceWithNonSliceUser(%arg0: tensor<4x16x126x224xf16>) -> (tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<4x16x126x224xf16, {order = #NHWC}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+
+    return %1, %0 : tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<4x16x126x224xf16, {order = #NHWC}>
+
+    // CHECK:       [[MEMPERM:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[MEMPERM]] [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @NotSwapBatchedMemPermuteSliceWithMismatchedBatchSize
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<4x16x126x224xf16>
+func.func @NotSwapBatchedMemPermuteSliceWithMismatchedBatchSize(%arg0: tensor<4x16x126x224xf16>) -> (tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<2x16x126x224xf16, {order = #NHWC}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    %2 = IE.Slice %0 [1, 0, 0, 0] [2, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<2x16x126x224xf16, {order = #NHWC}>
+
+    return %1, %2 : tensor<1x16x126x224xf16, {order = #NHWC}>, tensor<2x16x126x224xf16, {order = #NHWC}>
+
+    // CHECK:       [[MEMPERM:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<4x16x126x224xf16> -> tensor<4x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[MEMPERM]] [0, 0, 0, 0] [1, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<1x16x126x224xf16, {order = #NHWC}>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[MEMPERM]] [1, 0, 0, 0] [2, 16, 126, 224] : tensor<4x16x126x224xf16, {order = #NHWC}> to tensor<2x16x126x224xf16, {order = #NHWC}>
+}
+
+// -----
+
+#HWCN = affine_map<(d0, d1, d2, d3) -> (d2, d3, d1, d0)>
+
+// CHECK-LABEL: @NotSwapBatchedMemPermuteSliceWithNDimPositionChange
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<2x32x2x16xf16>
+func.func @NotSwapBatchedMemPermuteSliceWithNDimPositionChange(%arg0: tensor<2x32x2x16xf16>) -> (tensor<1x32x2x16xf16, {order = #HWCN}>, tensor<1x32x2x16xf16, {order = #HWCN}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #HWCN, mem_perm = #HWCN} : tensor<2x32x2x16xf16> -> tensor<2x32x2x16xf16, {order = #HWCN}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 32, 2, 16] : tensor<2x32x2x16xf16, {order = #HWCN}> to tensor<1x32x2x16xf16, {order = #HWCN}>
+    %2 = IE.Slice %0 [1, 0, 0, 0] [1, 32, 2, 16] : tensor<2x32x2x16xf16, {order = #HWCN}> to tensor<1x32x2x16xf16, {order = #HWCN}>
+
+    return %1, %2 : tensor<1x32x2x16xf16, {order = #HWCN}>, tensor<1x32x2x16xf16, {order = #HWCN}>
+
+    // CHECK:       [[MEMPERM:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #map, mem_perm = #map} : tensor<2x32x2x16xf16> -> tensor<2x32x2x16xf16, {order = #map}>
+    // CHECK:       [[SLICE1:%.+]] = IE.Slice [[MEMPERM]] [0, 0, 0, 0] [1, 32, 2, 16] : tensor<2x32x2x16xf16, {order = #map}> to tensor<1x32x2x16xf16, {order = #map}>
+    // CHECK:       [[SLICE2:%.+]] = IE.Slice [[MEMPERM]] [1, 0, 0, 0] [1, 32, 2, 16] : tensor<2x32x2x16xf16, {order = #map}> to tensor<1x32x2x16xf16, {order = #map}>
+    // CHECK:       return [[SLICE1]], [[SLICE2]]
+}
+
+// -----
+
+#HWCN = affine_map<(d0, d1, d2, d3) -> (d2, d3, d1, d0)>
+#CNHW = affine_map<(d0, d1, d2, d3) -> (d1, d0, d2, d3)>
+#CNWH = affine_map<(d0, d1, d2, d3) -> (d1, d0, d3, d2)>
+
+// CHECK-LABEL: @SwapBatchedMemPermuteSliceIfRealBatchNotChanged
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<2x4x6x8xf16>
+func.func @SwapBatchedMemPermuteSliceIfRealBatchNotChanged(%arg0: tensor<2x4x6x8xf16>) -> (tensor<1x4x6x8xf16, {order = #CNWH}>, tensor<1x4x6x8xf16, {order = #CNWH}>) {
+    %0 = IE.MemPermute(%arg0) {dst_order = #CNWH, mem_perm = #CNWH} : tensor<2x4x6x8xf16> -> tensor<2x4x6x8xf16, {order = #CNWH}>
+    %1 = IE.Slice %0 [0, 0, 0, 0] [1, 4, 6, 8] : tensor<2x4x6x8xf16, {order = #CNWH}> to tensor<1x4x6x8xf16, {order = #CNWH}>
+    %2 = IE.Slice %0 [1, 0, 0, 0] [1, 4, 6, 8] : tensor<2x4x6x8xf16, {order = #CNWH}> to tensor<1x4x6x8xf16, {order = #CNWH}>
+
+    return %1, %2 : tensor<1x4x6x8xf16, {order = #CNWH}>, tensor<1x4x6x8xf16, {order = #CNWH}>
+
+    // CHECK:       [[SLICE0:%.*]] = IE.Slice [[INPUT]] [0, 0, 0, 0] [1, 4, 6, 8] : tensor<2x4x6x8xf16> to tensor<1x4x6x8xf16>
+    // CHECK:       [[MEMPERMUTE0:%.*]] = IE.MemPermute([[SLICE0]]) {dst_order = #map{{[0-9]*}}, mem_perm = #map{{[0-9]*}}} : tensor<1x4x6x8xf16> -> tensor<1x4x6x8xf16, {order = #map{{[0-9]*}}}>
+    // CHECK:       [[SLICE1:%.*]] = IE.Slice [[INPUT]] [1, 0, 0, 0] [1, 4, 6, 8] : tensor<2x4x6x8xf16> to tensor<1x4x6x8xf16>
+    // CHECK:       [[MEMPERMUTE1:%.*]] = IE.MemPermute([[SLICE1]]) {dst_order = #map{{[0-9]*}}, mem_perm = #map{{[0-9]*}}} : tensor<1x4x6x8xf16> -> tensor<1x4x6x8xf16, {order = #map{{[0-9]*}}}>
+    // CHECK:       return [[MEMPERMUTE0]], [[MEMPERMUTE1]] : tensor<1x4x6x8xf16, {order = #map{{[0-9]*}}}>, tensor<1x4x6x8xf16, {order = #map{{[0-9]*}}}>
+}

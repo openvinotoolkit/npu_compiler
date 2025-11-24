@@ -108,10 +108,6 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
         return mlir::failure();
     }
 
-    if (nceOp.getWeightTable() == nullptr) {
-        return mlir::failure();
-    }
-
     auto origType = mlir::cast<vpux::NDTypeInterface>(nceOp.getOutput().getType());
     const ShapeRef origShape = origType.getShape();
     if (origShape.size() != DimsGroups5D::Act::numDims) {
@@ -122,7 +118,11 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
 
     const auto inputStep = getStep(nceOp.getInput().getType());
     const auto weightsStep = getStep(nceOp.getWeights().getType());
-    const auto weightTableStep = getStep(nceOp.getWeightTable().getType());
+    const auto weightTableStep = nceOp.getWeightTable() == nullptr ? 0 : getStep(nceOp.getWeightTable().getType());
+    const auto scaleTableStep =
+            nceOp.getWeightTableScale() == nullptr ? 0 : getStep(nceOp.getWeightTableScale().getType());
+    const auto biasTableStep =
+            nceOp.getWeightTableBias() == nullptr ? 0 : getStep(nceOp.getWeightTableBias().getType());
     const auto parentInputStep = getStep(nceOp.getParentInput().getType());
     const auto parentOutputStep = getStep(nceOp.getParentOutput().getType());
     const auto outputProducerStep = getStep(nceOp.getOutputBuff().getType());
@@ -137,7 +137,6 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
         const auto pos = batchSize - idx - 1;
         auto inputProducer4d = createNewValue(innerTask.getInput(), inputStep * pos, rewriter);
         auto weightProducer4d = createNewValue(innerTask.getWeights(), weightsStep * pos, rewriter);
-        auto weightTableProducer4d = createNewValue(innerTask.getWeightTable(), weightTableStep * pos, rewriter);
         auto parentInputProducer4d = createNewValue(innerTask.getParentInput(), parentInputStep * pos, rewriter);
         auto parentOutputProducer4d = createNewValue(innerTask.getParentOutput(), parentOutputStep * pos, rewriter);
         auto outputProducer4d = createNewValue(innerTask.getOutputBuff(), outputProducerStep * pos, rewriter);
@@ -145,7 +144,18 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
         mlir::IRMapping mapper;
         mapper.map(innerTask.getInput(), inputProducer4d);
         mapper.map(innerTask.getWeights(), weightProducer4d);
-        mapper.map(innerTask.getWeightTable(), weightTableProducer4d);
+        if (innerTask.getWeightTable() != nullptr) {
+            auto weightTableProducer4d = createNewValue(innerTask.getWeightTable(), weightTableStep * pos, rewriter);
+            mapper.map(innerTask.getWeightTable(), weightTableProducer4d);
+        }
+        if (innerTask.getWeightTableScale() != nullptr) {
+            auto scaleTableProducer4d = createNewValue(innerTask.getWeightTableScale(), scaleTableStep * pos, rewriter);
+            mapper.map(innerTask.getWeightTableScale(), scaleTableProducer4d);
+        }
+        if (innerTask.getWeightTableBias() != nullptr) {
+            auto biasTableProducer4d = createNewValue(innerTask.getWeightTableBias(), biasTableStep * pos, rewriter);
+            mapper.map(innerTask.getWeightTableBias(), biasTableProducer4d);
+        }
         mapper.map(innerTask.getParentInput(), parentInputProducer4d);
         mapper.map(innerTask.getParentOutput(), parentOutputProducer4d);
         mapper.map(innerTask.getOutputBuff(), outputProducer4d);
@@ -160,7 +170,6 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
     // Erase original VPURT task
     auto inputProducer = nceOp.getInput().getDefiningOp();
     auto weightProducer = nceOp.getWeights().getDefiningOp();
-    auto weightTableProducer = nceOp.getWeightTable().getDefiningOp();
     auto parentInputProducer = nceOp.getParentInput().getDefiningOp();
     auto parentOutputProducer = nceOp.getParentOutput().getDefiningOp();
     auto outputProducer = nceOp.getOutputBuff().getDefiningOp();
@@ -168,17 +177,36 @@ mlir::LogicalResult MatMulRewriter::matchAndRewrite(VPURT::TaskOp vpurtTask, mli
     const auto sameInput = parentInputProducer == inputProducer;
     const auto sameOutput = parentOutputProducer == outputProducer;
 
-    if (nceOp->use_empty()) {
-        rewriter.eraseOp(nceOp);
-    }
     if (inputProducer->use_empty()) {
         rewriter.eraseOp(inputProducer);
     }
     if (weightProducer->use_empty()) {
         rewriter.eraseOp(weightProducer);
     }
-    if (weightTableProducer->use_empty()) {
-        rewriter.eraseOp(weightTableProducer);
+
+    if (nceOp.getWeightTable() != nullptr) {
+        auto weightTableProducer = nceOp.getWeightTable().getDefiningOp();
+        if (weightTableProducer->use_empty()) {
+            rewriter.eraseOp(weightTableProducer);
+        }
+    }
+
+    if (nceOp.getWeightTableScale() != nullptr) {
+        auto scaleTableProducer = nceOp.getWeightTableScale().getDefiningOp();
+        if (scaleTableProducer->use_empty()) {
+            rewriter.eraseOp(scaleTableProducer);
+        }
+    }
+
+    if (nceOp.getWeightTableBias() != nullptr) {
+        auto biasTableProducer = nceOp.getWeightTableBias().getDefiningOp();
+        if (biasTableProducer->use_empty()) {
+            rewriter.eraseOp(biasTableProducer);
+        }
+    }
+
+    if (nceOp->use_empty()) {
+        rewriter.eraseOp(nceOp);
     }
 
     if (!sameInput && parentInputProducer->use_empty()) {

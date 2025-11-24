@@ -5,8 +5,10 @@
 
 #include "vpux/compiler/core/cost_model_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
+#include "vpux/compiler/dialect/VPU/utils/cost_model/factories/cost_model_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/ops.hpp"
@@ -16,8 +18,11 @@
 #include "vpux/compiler/utils/swizzling_utils.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+#include <vpu/dma_types.h>
+#include <vpu/dpu_types.h>
 #include <vpu/layer.h>
 #include <vpu/shave/layers.h>
+#include <vpu/vpu_tiling_strategy.h>
 #include <vpu_cost_model.h>
 
 #include <bitset>
@@ -69,18 +74,18 @@ VPUNN::DataType getElementType(mlir::Type type, [[maybe_unused]] VPUNN::VPUDevic
         return VPUNN::DataType::UINT8;
     } else if (auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(type)) {
         auto storageType = qType.getStorageType();
-        if (storageType.isFloat8E5M2()) {
+        if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
             return VPUNN::DataType::BF8;
-        } else if (storageType.isFloat8E4M3FN()) {
+        } else if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
             return VPUNN::DataType::HF8;
         }
 
         if (qType.getStorageTypeIntegralWidth() == 8) {
             return qType.isSigned() ? VPUNN::DataType::INT8 : VPUNN::DataType::UINT8;
         }
-    } else if (type.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(type)) {
         return VPUNN::DataType::BF8;
-    } else if (type.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(type)) {
         return VPUNN::DataType::HF8;
     }
 
@@ -712,173 +717,316 @@ std::string getSwKernelOperationName(VPUIP::SwKernelOp swKernelOp) {
     return strKernelOp.substr(prefEndIndex, nameSize);
 }
 
-#define SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT(_NAME_STR_, _VPUNN_TYPE_)                                      \
-    {_NAME_STR_, [](VPUNN::VPUDevice vpuDev, VPUNN::VPUTensor inputTensor, VPUNN::VPUTensor outputTensor) { \
-         return std::make_unique<_VPUNN_TYPE_>(vpuDev, inputTensor, outputTensor);                          \
-     }}
+// Define a map for operation handlers used only for Shave2 API
+// Some functions might have the default parameters but we extract and profile the exact parameters via
+// ExtraParameters which save the exact attrs and let us know the exact workload which is done in
+// If modifications happen into getKernelInfo(mlir::Operation* origOp) that has the transforming switch-case from
+// VPU to VPUIP dialect, or any other optimization place that will change the order of the parameters, please revise
+// accordingly in this place and request a cache update.
+// getShaveWorkloadFunction
+std::map<std::string, std::function<void(VPUNN::SHAVEWorkload::Parameters&, std::string&, VPUIP::SwKernelOp)>>
+        operationHandlersVPUIP = {
+                {"MVN",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string& shaveFunction,
+                    VPUIP::SwKernelOp swKernelOp) {
+                     auto swKernelRunOps = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+                     auto swKernelRunOp = *swKernelRunOps.begin();
+                     auto attributeArray = mlir::dyn_cast_or_null<mlir::ArrayAttr>(swKernelRunOp->getAttr("attrs"));
+                     VPUX_THROW_WHEN(!attributeArray || attributeArray.empty(),
+                                     "MVN operation does not have valid attributes");
 
-#define SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT(_NAME_STR_, _VPUNN_TYPE_)                                             \
-    {_NAME_STR_,                                                                                                     \
-     [](VPUNN::VPUDevice vpuDev, const std::vector<VPUNN::VPUTensor>& inputTensors, VPUNN::VPUTensor outputTensor) { \
-         return std::make_unique<_VPUNN_TYPE_>(vpuDev, inputTensors, outputTensor);                                  \
-     }}
+                     auto acrossChannels = mlir::dyn_cast_or_null<mlir::BoolAttr>(attributeArray[0]);
+                     VPUX_THROW_WHEN(!acrossChannels, "MVN operation does not have the accross channels attribute");
 
-std::map<std::string,
-         std::function<std::unique_ptr<VPUNN::SWOperation>(VPUNN::VPUDevice, VPUNN::VPUTensor, VPUNN::VPUTensor)>>
-        swKernelNameToVpunn1InputFuncMap = {
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Sigmoid", VPUNN::SHVSigmoid),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Elu", VPUNN::SHVELU),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("HardSigmoid", VPUNN::SHVHardSigmoid),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("SoftMax", VPUNN::SHVSoftmax),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Clamp", VPUNN::SHVClamp),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("FakeQuantize", VPUNN::SHVFakeQuantize),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Quantize", VPUNN::SHVQuantizeCast),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Tanh", VPUNN::SHVTanh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Sin", VPUNN::SHVSin),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Cos", VPUNN::SHVCos),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Sqrt", VPUNN::SHVSqrt),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Sinh", VPUNN::SHVSinh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Cosh", VPUNN::SHVCosh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Asinh", VPUNN::SHVAsinh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Acosh", VPUNN::SHVAcosh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Abs", VPUNN::SHVAbs),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Atan", VPUNN::SHVAtan),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Asin", VPUNN::SHVAsin),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Acos", VPUNN::SHVAcos),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Atanh", VPUNN::SHVAtanh),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Log", VPUNN::SHVLog),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Selu", VPUNN::SHVSelu),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Gelu", VPUNN::SHVGelu),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Exp", VPUNN::SHVExp),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Floor", VPUNN::SHVFloor),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Round", VPUNN::SHVRound),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Mish", VPUNN::SHVMish),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Erf", VPUNN::SHVErf),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Negative", VPUNN::SHVNegative),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Sign", VPUNN::SHVSign),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("YuvToRgb", VPUNN::SHVYuvToRgb),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("SoftPlus", VPUNN::SHVSoftPlus),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Swish", VPUNN::SHVSwish),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("MVN", VPUNN::SHVMVN),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Ceiling", VPUNN::SHVCeiling),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Roll", VPUNN::SHVRoll),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("Gather", VPUNN::SHVGather),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("ScatterNDUpdate", VPUNN::SHVScatterNDUpdate),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("ScatterUpdate", VPUNN::SHVScatterUpdate),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("PermuteQuantize", VPUNN::SHVPermuteQuantize),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("DepthToSpace", VPUNN::SHVDepthToSpace),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("SpaceToDepth", VPUNN::SHVSpaceToDepthOp),
-                SW_KERNEL_NAME_TO_VPUNN_1_IN_ELEMENT("MemPermute", VPUNN::SHVMemPermute)};
+                     shaveFunction = acrossChannels.getValue() ? "MVN_3Ax" : "MVN_2Ax";
+                     VPUNN::SHAVEWorkload::Param param =
+                             acrossChannels.getValue() ? 3 : 2;  // how many axes are selected
+                     params = std::vector{param};
+                 }},
+                {"MVN6",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPUIP::SwKernelOp) {
+                     VPUNN::SHAVEWorkload::Param param = 1;  // how many axes are selected
+                     params = std::vector{param};
+                 }},
+                {"softmax",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPUIP::SwKernelOp) {
+                     VPUNN::SHAVEWorkload::Param param = 1;  // select dimension (N(0), C(1), H(2), W(3))
+                     params = std::vector{param};
+                 }},
+                {"gather",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPUIP::SwKernelOp) {
+                     VPUNN::SHAVEWorkload::Param paramAxis = 1;
+                     VPUNN::SHAVEWorkload::Param paramBatches = 1;
+                     params = std::vector{paramAxis, paramBatches};
+                 }},
+                {"normalizel2onlyc",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPUIP::SwKernelOp) {
+                     VPUNN::SHAVEWorkload::Param param = 1;  // select dimension (N(0), C(1), H(2), W(3))
+                     params = std::vector{param};
+                 }},
+};
 
-std::map<std::string, std::function<std::unique_ptr<VPUNN::SWOperation>(
-                              VPUNN::VPUDevice, const std::vector<VPUNN::VPUTensor>&, VPUNN::VPUTensor)>>
-        swKernelNameToVpunnVecInputFuncMap = {
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Power", VPUNN::SHVPower),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Add", VPUNN::SHVAdd),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Divide", VPUNN::SHVDivide),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("SquaredDifference", VPUNN::SHVSquaredDiff),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("FloorMod", VPUNN::SHVFloorMod),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Less", VPUNN::SHVLess),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("LessEqual", VPUNN::SHVLessEqual),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Greater", VPUNN::SHVGreater),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("GreaterEqual", VPUNN::SHVGreaterEqual),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("LogicalOr", VPUNN::SHVLogicalOr),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("LogicalNot", VPUNN::SHVLogicalNot),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("LogicalXor", VPUNN::SHVLogicalXor),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Multiply", VPUNN::SHVMultiply),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("And", VPUNN::SHVAnd),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Minimum", VPUNN::SHVMinimum),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Maximum", VPUNN::SHVMaximum),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Subtract", VPUNN::SHVSubtract),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("NotEqual", VPUNN::SHVNotEqual),
-                SW_KERNEL_NAME_TO_VPUNN_VEC_IN_ELEMENT("Equal", VPUNN::SHVEqual)};
+std::map<std::string, std::function<void(VPUNN::SHAVEWorkload::Parameters&, std::string&, VPU::SWOpInterface)>>
+        operationHandlersVPU = {
+                {"MVN",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string& shave_function,
+                    VPU::SWOpInterface operation) {
+                     auto acrossChannelsAttr = operation->getAttr("across_channels");
+                     auto acrossChannels = mlir::dyn_cast_or_null<mlir::BoolAttr>(acrossChannelsAttr);
+                     VPUX_THROW_WHEN(!acrossChannels, "MVN operation does not have the across_channels attribute");
+                     shave_function = acrossChannels.getValue() ? "MVN_3Ax" : "MVN_2Ax";
+                     VPUNN::SHAVEWorkload::Param param =
+                             acrossChannels.getValue() ? 3 : 2;  // how many axes are selected
+                     params = std::vector{param};
+                 }},
+                {"MVN6",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPU::SWOpInterface operation) {
+                     auto axesAttr = operation->getAttr("axes");
+                     auto axes = mlir::dyn_cast_or_null<mlir::ArrayAttr>(axesAttr);
+                     VPUX_THROW_WHEN(!axes, "MVN6 operation does not have the axes attribute");
+                     VPUNN::SHAVEWorkload::Param param = static_cast<int>(axes.size());  // how many axes are selected
+                     params = std::vector{param};
+                 }},
+                {"softmax",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPU::SWOpInterface operation) {
+                     auto axisIndAttr = operation->getAttr("axisInd");
+                     auto axisInd = mlir::dyn_cast_or_null<mlir::IntegerAttr>(axisIndAttr);
+                     VPUX_THROW_WHEN(!axisInd, "softmax operation does not have the axisInd attribute");
+                     VPUNN::SHAVEWorkload::Param param =
+                             static_cast<int>(axisInd.getInt());  // select dimension (N(0), C(1), H(2), W(3))
+                     params = std::vector{param};
+                 }},
+                {"gather",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPU::SWOpInterface operation) {
+                     auto gatherOp = mlir::dyn_cast<vpux::VPU::GatherOp>(operation.getOperation());
+                     VPUX_THROW_WHEN(!gatherOp, "Operation is not a GatherOp");
 
-std::unique_ptr<VPUNN::SWOperation> queryKernelMap(const std::string& swKernelName, VPUNN::VPUDevice vpuDev,
-                                                   ArrayRef<vpux::NDTypeInterface> inputNdTypes,
-                                                   vpux::NDTypeInterface outputNdType) {
-    VPUX_THROW_WHEN(inputNdTypes.empty(), "No inputs identified for op {0}", swKernelName);
+                     // Access GatherOp-specific attributes
+                     auto axis = gatherOp.getAxisValueAttr();
+                     auto batchDims = gatherOp.getBatchDimsAttr();
 
-    auto outputTensor = getVPUNNTensor(outputNdType.getShape(), getElementType(outputNdType.getElementType(), vpuDev));
+                     VPUNN::SHAVEWorkload::Param paramAxis = axis ? static_cast<int>(axis.getInt()) : 1;
+                     VPUNN::SHAVEWorkload::Param paramBatches = batchDims ? static_cast<int>(batchDims.getInt()) : 1;
+                     params = std::vector{paramAxis, paramBatches};
+                 }},
+                {"normalizel2onlyc",
+                 [](VPUNN::SHAVEWorkload::Parameters& params, std::string&, VPU::SWOpInterface) {
+                     VPUNN::SHAVEWorkload::Param param = 1;  // select dimension (N(0), C(1), H(2), W(3))
+                     params = std::vector{param};
+                 }},
+};
 
-    if (swKernelNameToVpunn1InputFuncMap.find(swKernelName) != swKernelNameToVpunn1InputFuncMap.end()) {
-        auto input0NdType = inputNdTypes.front();
-        auto inputTensor =
-                getVPUNNTensor(input0NdType.getShape(), getElementType(input0NdType.getElementType(), vpuDev));
-
-        return swKernelNameToVpunn1InputFuncMap[swKernelName](vpuDev, inputTensor, outputTensor);
-    } else if (swKernelNameToVpunnVecInputFuncMap.find(swKernelName) != swKernelNameToVpunnVecInputFuncMap.end()) {
-        std::vector<VPUNN::VPUTensor> inputTensors;
-        for (auto inputNd : inputNdTypes) {
-            inputTensors.push_back(
-                    getVPUNNTensor(inputNd.getShape(), getElementType(inputNd.getElementType(), vpuDev)));
-        }
-
-        return swKernelNameToVpunnVecInputFuncMap[swKernelName](vpuDev, inputTensors, outputTensor);
+std::vector<VPUNN::VPUTensor> getVPUNNTensorFromArrayRef(ArrayRef<mlir::Value> values, VPUNN::VPUDevice vpuDev) {
+    std::vector<VPUNN::VPUTensor> tensors;
+    for (const auto& value : values) {
+        auto ndType = mlir::cast<vpux::NDTypeInterface>(value.getType());
+        tensors.push_back(getVPUNNTensor(ndType.getShape(), getElementType(ndType.getElementType(), vpuDev)));
     }
-
-    return nullptr;
+    return tensors;
 }
 
-std::unique_ptr<VPUNN::SWOperation> queryKernelMap(const std::string& swKernelName, VPUNN::VPUDevice vpuDev,
-                                                   ArrayRef<mlir::Value> inputs, mlir::Value output) {
-    SmallVector<vpux::NDTypeInterface> inputTypes;
-    inputTypes.reserve(inputs.size());
-    llvm::transform(inputs, std::back_inserter(inputTypes), [](mlir::Value value) {
-        return mlir::cast<vpux::NDTypeInterface>(value.getType());
-    });
-    return queryKernelMap(swKernelName, vpuDev, inputTypes, mlir::cast<vpux::NDTypeInterface>(output.getType()));
-}
+std::unique_ptr<VPUNN::SHAVEWorkload> getShaveWorkloadFunction(VPUIP::SwKernelOp swKernelOp, config::ArchKind arch,
+                                                               ArrayRef<mlir::Value> inputs,
+                                                               ArrayRef<mlir::Value> outputs, bool isShave2ApiUsed) {
+    auto swKernelName = getSwKernelOperationName(swKernelOp);
+    auto vpuDev = vpux::VPU::getVPUDeviceType(arch);
+    const auto& shaveUtilIntf = vpux::VPU::CostModelConfig::getShaveCostModelUtilsInterface(arch);
 
-size_t getShaveActCycleForSwKernelFunc(const std::string& swKernelName, config::ArchKind arch,
-                                       ArrayRef<mlir::Value> inputs, ArrayRef<mlir::Value> outputs,
-                                       const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
+    VPUNN::SHAVEWorkload::Parameters params = {};
+    VPUNN::SHAVEWorkload::ExtraParameters extraParams = {};
+    std::string baseLevelString{"VPUIP"};
+    extraParams["level"] = baseLevelString;
+
     VPUX_THROW_WHEN(inputs.empty(), "No inputs identified for op {0}", swKernelName);
     VPUX_THROW_WHEN(outputs.empty(), "No outputs identified for op {0}", swKernelName);
 
-    auto vpuDev = vpux::VPU::getVPUDeviceType(arch);
+    // Getting the input and output tensors
+    std::vector<VPUNN::VPUTensor> inputTensors = getVPUNNTensorFromArrayRef(inputs, vpuDev);
+    std::vector<VPUNN::VPUTensor> outputTensors = getVPUNNTensorFromArrayRef(outputs, vpuDev);
 
-    std::unique_ptr<VPUNN::SWOperation> vpunnLayer = queryKernelMap(swKernelName, vpuDev, inputs, outputs[0]);
+    // search operation
+    std::string shaveFunction;
+    auto mapOfKernels = shaveUtilIntf.getSwKernelContainer();
+    auto it = mapOfKernels.find(swKernelName);
 
-    return vpunnLayer != nullptr ? costModel->SHAVE(*vpunnLayer) : 1;
+    if (it == mapOfKernels.end()) {
+        return nullptr;
+    }
+
+    shaveFunction = it->second;
+    // Execute the handler for the current operation
+    if (isShave2ApiUsed) {
+        auto handlerIt = operationHandlersVPUIP.find(shaveFunction);
+        if (handlerIt != operationHandlersVPUIP.end()) {
+            // Since for some operations that are influenced by some extraparamteres since we cannot figure out
+            // them from the operation attributes, we are going to take that specific array, then we will get the values
+            // and add them into a single string which will be passed to VPUNN as extra parameter. VPUNN profiling
+            // system will cover the specific implementation of the higher level operation and will retrieve from cache
+            // the correct result.
+            auto swKernelRunOps = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+            auto swKernelRunOp = *swKernelRunOps.begin();
+            auto attributeArray = mlir::dyn_cast_or_null<mlir::ArrayAttr>(swKernelRunOp->getAttr("attrs"));
+
+            std::string attrValuesStr;
+            if (attributeArray != nullptr) {
+                llvm::raw_string_ostream rso(attrValuesStr);
+                for (auto attr : attributeArray) {
+                    std::string attrStr;
+                    llvm::raw_string_ostream attrStream(attrStr);
+                    attr.print(attrStream);
+                    attrStream.flush();
+                    std::replace(attrStr.begin(), attrStr.end(), ',', '.');
+                    rso << attrStr << ";";
+                }
+                rso.flush();
+            }
+            extraParams["attrs"] = attrValuesStr;
+            handlerIt->second(params, shaveFunction, swKernelOp);
+        }
+    }
+
+    auto swwl = std::make_unique<VPUNN::SHAVEWorkload>(shaveFunction, vpuDev, inputTensors, outputTensors, params,
+                                                       extraParams);
+    return swwl;
 }
 
-std::unique_ptr<VPUNN::SWOperation> vpux::getVPUNNSWKernelOp(VPUIP::SwKernelOp swKernelOp) {
+std::unique_ptr<VPUNN::SHAVEWorkload> getShaveWorkloadFunction(VPU::SWOpInterface operation, config::ArchKind arch,
+                                                               std::vector<VPUNN::VPUTensor> inputTensors,
+                                                               std::vector<VPUNN::VPUTensor> outputTensors,
+                                                               bool isShave2ApiUsed) {
+    auto swKernelName = operation->getName().stripDialect().str();
+    auto vpuDev = vpux::VPU::getVPUDeviceType(arch);
+    const auto& shaveUtilIntf = vpux::VPU::CostModelConfig::getShaveCostModelUtilsInterface(arch);
+
+    VPUNN::SHAVEWorkload::Param param;
+    VPUNN::SHAVEWorkload::Parameters params = {};
+
+    VPUNN::SHAVEWorkload::ExtraParameters extraParams = {};
+    std::string baseLevelString{"VPU"};
+    extraParams["level"] = baseLevelString;
+
+    auto mapOfKernels = shaveUtilIntf.getSwKernelContainer();
+    auto it = mapOfKernels.find(swKernelName);
+
+    if (it == mapOfKernels.end()) {
+        return nullptr;
+    }
+
+    std::string shaveFunction = it->second;
+    if (isShave2ApiUsed) {
+        auto handlerIt = operationHandlersVPU.find(shaveFunction);
+        if (handlerIt != operationHandlersVPU.end()) {
+            // Process attributes and populate extraParams
+            for (auto attr : operation->getAttrs()) {
+                auto attrName = attr.getName().str();
+                if (attrName == "multiClusterStrategy") {
+                    continue;
+                }
+                extraParams[attrName] = formatv("{0}", attr.getValue()).str();
+            }
+            handlerIt->second(params, shaveFunction, operation);
+        }
+    }
+
+    auto swwl = std::make_unique<VPUNN::SHAVEWorkload>(shaveFunction, vpuDev, inputTensors, outputTensors, params,
+                                                       extraParams);
+    return swwl;
+}
+
+std::unique_ptr<VPUNN::SHAVEWorkload> getShaveWorkloadFunction(VPU::SWOpInterface operation, config::ArchKind arch,
+                                                               ArrayRef<mlir::Value> inputs,
+                                                               ArrayRef<mlir::Value> outputs, bool isShave2ApiUsed) {
+    auto vpuDev = vpux::VPU::getVPUDeviceType(arch);
+
+    std::vector<VPUNN::VPUTensor> inputTensors = getVPUNNTensorFromArrayRef(inputs, vpuDev);
+    std::vector<VPUNN::VPUTensor> outputTensors = getVPUNNTensorFromArrayRef(outputs, vpuDev);
+
+    return getShaveWorkloadFunction(operation, arch, std::move(inputTensors), std::move(outputTensors),
+                                    isShave2ApiUsed);
+}
+
+size_t getShaveActCycleForSwKernelFunc(VPUIP::SwKernelOp swKernelOp, config::ArchKind arch,
+                                       ArrayRef<mlir::Value> inputs, ArrayRef<mlir::Value> outputs,
+                                       const std::shared_ptr<VPUNN::VPUCostModel>& costModel) {
+    auto log = vpux::Logger::global().nest("Get Shave Act Cycle For SW Kernel Function", 0);
+
+    auto swwl = getShaveWorkloadFunction(swKernelOp, arch, inputs, outputs, costModel->isShave2ApiUsed());
+    if (swwl == nullptr) {
+        return 1;
+    }
+
+    std::string infoOut;
+    auto cost = VPU::checkAndReturnCost(costModel->SHAVE(*swwl, infoOut), log, true);
+
+    const auto logCb = [&](const formatv_object_base& msg) {
+        log.trace("{0}", msg.str());
+    };
+    if (cost >= VPU::INVALID_COST_BASE) {
+        log.trace("[VPUNN LOG] getShaveActCycleForSwKernelFunc: INVALID_COST is caught. Please check possible VPUNN "
+                  "debug info: {0}",
+                  infoOut);
+        VPU::printVPUNNWorkloadConfig(*swwl, logCb);
+        return 1;
+    }
+    return cost;
+}
+
+std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPUIP::SwKernelOp swKernelOp, bool isShave2ApiUsed) {
     // Exclude strange sw ops produced by compiler like cache_flush_invalidate op
     if (swKernelOp.getInputs().empty() || swKernelOp.getOutputBuffs().empty()) {
         return nullptr;
     }
-    const auto swKernelName = getSwKernelOperationName(swKernelOp);
-    auto vpuDev = VPU::getVPUDeviceType(config::getArch(swKernelOp.getOperation()));
 
-    auto inputs = to_small_vector(swKernelOp->getOperands());
-    auto output = swKernelOp->getResult(0);
+    auto inputs = to_small_vector(swKernelOp.getInputs());
+    auto outputs = to_small_vector(swKernelOp.getOutputBuffs());
 
-    std::unique_ptr<VPUNN::SWOperation> vpunnLayer = queryKernelMap(swKernelName, vpuDev, inputs, output);
+    SmallVector<mlir::Value> smallVecInputs(inputs.begin(), inputs.end());
+    SmallVector<mlir::Value> smallVecOutputs{outputs[0]};
 
-    return vpunnLayer;
+    return getShaveWorkloadFunction(swKernelOp, config::getArch(swKernelOp.getOperation()), smallVecInputs,
+                                    smallVecOutputs, isShave2ApiUsed);
 }
 
-std::unique_ptr<VPUNN::SWOperation> vpux::getVPUNNSWKernelOp(VPU::SWOpInterface operation) {
-    auto vpuDev = VPU::getVPUDeviceType(config::getArch(operation));
+std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPU::SWOpInterface operation, bool isShave2ApiUsed) {
+    auto vpuDev = config::getArch(operation);
     const auto operName = operation->getName().stripDialect().str();
 
     auto inputs = to_small_vector(operation->getOperands());
     auto output = operation->getResult(0);
 
-    std::unique_ptr<VPUNN::SWOperation> vpunnLayer = queryKernelMap(operName, vpuDev, inputs, output);
-
-    return vpunnLayer;
+    return getShaveWorkloadFunction(operation, vpuDev, inputs, {output}, isShave2ApiUsed);
 }
 
-std::unique_ptr<VPUNN::SWOperation> vpux::getVPUNNSWKernelOp(VPU::SWOpInterface operation,
-                                                             vpux::NDTypeInterface outputNDType,
-                                                             ArrayRef<vpux::NDTypeInterface> types) {
-    auto vpuDev = VPU::getVPUDeviceType(config::getArch(operation));
+std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPU::SWOpInterface operation,
+                                                               vpux::NDTypeInterface outputNDType,
+                                                               ArrayRef<vpux::NDTypeInterface> inputTypes,
+                                                               bool isShave2APIused) {
+    auto arch = config::getArch(operation);
+    auto vpuDev = vpux::VPU::getVPUDeviceType(arch);
+
+    const auto operName = operation->getName().stripDialect().str();
+    auto outputTensor = getVPUNNTensor(outputNDType.getShape(), getElementType(outputNDType.getElementType(), vpuDev));
+    std::vector<VPUNN::VPUTensor> outputTensors = {outputTensor};
+
+    std::vector<VPUNN::VPUTensor> inputTensors;
+    for (auto inputNd : inputTypes) {
+        inputTensors.push_back(getVPUNNTensor(inputNd.getShape(), getElementType(inputNd.getElementType(), vpuDev)));
+    }
+
+    return getShaveWorkloadFunction(operation, arch, std::move(inputTensors), std::move(outputTensors),
+                                    isShave2APIused);
+}
+
+std::unique_ptr<VPUNN::SHAVEWorkload> vpux::getVPUNNSWKernelOp(VPU::SWOpInterface operation,
+                                                               std::vector<VPUNN::VPUTensor> outputTensors,
+                                                               std::vector<VPUNN::VPUTensor> inputTensors,
+                                                               bool isShave2ApiUsed) {
+    auto arch = config::getArch(operation);
+
     const auto operName = operation->getName().stripDialect().str();
 
-    std::unique_ptr<VPUNN::SWOperation> vpunnLayer = queryKernelMap(operName, vpuDev, types, outputNDType);
-
-    return vpunnLayer;
+    return getShaveWorkloadFunction(operation, arch, std::move(inputTensors), std::move(outputTensors),
+                                    isShave2ApiUsed);
 }
 
 size_t vpux::calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp,
@@ -886,19 +1034,21 @@ size_t vpux::calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp,
     if (swKernelOp.getInputs().empty() || swKernelOp.getOutputBuffs().empty()) {
         return 1;
     }
+
     auto inputNdType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getOperand(0).getType());
     auto outputNdType = mlir::cast<vpux::NDTypeInterface>(swKernelOp->getResult(0).getType());
     auto inputElemType = inputNdType.getElementType();
     auto outputElemType = outputNdType.getElementType();
 
     // CostModel does not support F32/SI32 layers
-    if (inputElemType.isF32() || outputElemType.isF32()) {
-        return 1;
+    if (!costModel->isShave2ApiUsed()) {
+        if (inputElemType.isF32() || outputElemType.isF32()) {
+            return 1;
+        }
+        if (inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) {
+            return 1;
+        }
     }
-    if (inputElemType.isSignedInteger(32) || outputElemType.isSignedInteger(32)) {
-        return 1;
-    }
-
     auto inputs = to_small_vector(swKernelOp.getInputs());
     auto outputs = to_small_vector(swKernelOp.getOutputBuffs());
 
@@ -923,9 +1073,7 @@ size_t vpux::calculateShaveActCycles(VPUIP::SwKernelOp swKernelOp,
         }
     }
 
-    auto swKernelName = getSwKernelOperationName(swKernelOp);
-
-    return getShaveActCycleForSwKernelFunc(swKernelName, arch, inputsForLargestKernelRun, outputsForLargestKernelRun,
+    return getShaveActCycleForSwKernelFunc(swKernelOp, arch, inputsForLargestKernelRun, outputsForLargestKernelRun,
                                            costModel);
 }
 

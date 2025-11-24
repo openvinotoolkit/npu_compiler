@@ -6,6 +6,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/permute_quantize_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -16,6 +17,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -42,9 +44,6 @@ bool checkSupportedOutputDataType(const mlir::Type outputType) {
     return mlir::isa<mlir::quant::UniformQuantizedType>(elemType) || elemType.isF16() || elemType.isF32();
 }
 
-std::vector<int64_t> expandShape(const ShapeRef shape, const int64_t expandedChannels) {
-    return {shape[Dims4D::Act::N], expandedChannels, shape[Dims4D::Act::H], shape[Dims4D::Act::W]};
-}
 }  // namespace
 
 //
@@ -55,6 +54,8 @@ bool vpux::VPU::NCEPermuteOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTy
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
                    reservedMem.count() <=
@@ -206,19 +207,23 @@ mlir::LogicalResult vpux::VPU::NCEPermuteOp::inferReturnTypes(mlir::MLIRContext*
         return mlir::failure();
     }
 
-    const auto shape = getShape(op.getInput());
-    const auto targetShape = expandShape(shape, op.getExpandedChannels());
-    const auto order = DimsOrder::fromAffineMap(op.getDstOrder());
     const auto elemType = op.getDstElemType();
     VPUX_THROW_WHEN(regions.empty(), "NCEPermuteOp::inferReturnTypes got empty list of regions");
     const auto moduleOp = regions[0]->getParentOfType<mlir::ModuleOp>();
     VPUX_THROW_WHEN(moduleOp == nullptr, "NCEPermuteOp::inferReturnTypes region parent is not a ModuleOp");
 
     auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
-    const auto tensorAttr =
-            vpux::getTensorAttr(ctx, order.toAffineMap(ctx), inputType.getMemSpace(), getBounds(inputType));
+    auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inputType, [&](const auto& inShape) {
+        auto outShape = copyShape(inShape);
+        outShape[Dims4D::Act::C] = op.getExpandedChannels();
+        return splitShapeAndRepresentation(outShape);
+    });
 
-    auto outputType = mlir::RankedTensorType::get(targetShape, elemType, tensorAttr);
+    SmallVector<int64_t> outputShape(outStaticShape.begin(), outStaticShape.end());
+    const auto tensorAttr = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outputShape.size()),
+                                                inputType.getMemSpace(), outBounds, outDimMask);
+
+    auto outputType = mlir::RankedTensorType::get(outputShape, elemType, tensorAttr);
 
     inferredReturnTypes.push_back(outputType);
     return mlir::success();

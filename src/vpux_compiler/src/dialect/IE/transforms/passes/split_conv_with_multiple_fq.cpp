@@ -131,22 +131,26 @@ bool checkQuantize(mlir::Operation* fqOp, Logger log) {
 
 using Branch = std::deque<mlir::Operation*>;
 
-void splitBranch(Branch& branch, mlir::PatternRewriter& rewriter, Logger log) {
+void splitBranch(Branch& branch, int64_t idx, mlir::PatternRewriter& rewriter, Logger log) {
     log.trace("Split branch:");
     mlir::Operation* producerOp = rewriter.clone(*branch.front());
+    extendOpLoc(producerOp, llvm::formatv("_branch_{0}", idx));
     log.nest().trace("Got root operation: {0}", producerOp->getLoc());
     branch.pop_front();
     mlir::Operation* lastOp = branch.back();
     branch.pop_back();
 
     mlir::IRMapping mapper;
-    for (auto& op : branch) {
+    for (auto item : branch | indexed) {
+        auto op = item.value();
         mapper.map(op->getOperand(0), producerOp->getResult(0));
         auto newOp = rewriter.clone(*op, mapper);
+        extendOpLoc(newOp, llvm::formatv("_branch_{0}_{1}", idx, item.index()));
         log.nest().trace("Next operation in branch: {0}", newOp->getLoc());
         producerOp = newOp;
     }
     lastOp->setOperand(0, producerOp->getResult(0));
+    extendOpLoc(lastOp, llvm::formatv("_branch_{0}", idx));
     log.nest().trace("Got last operation: {0}", lastOp->getLoc());
 }
 
@@ -189,8 +193,10 @@ mlir::LogicalResult SplitConvWithOnlyFakeQuantConsumers::matchAndRewrite(IE::Con
     if (branches.empty()) {
         return mlir::failure();
     }
-    for (auto& branch : branches) {
-        splitBranch(branch, rewriter, innerLog);
+    for (auto item : branches | indexed) {
+        auto branch = item.value();
+        auto idx = item.index();
+        splitBranch(branch, idx, rewriter, innerLog);
     }
 
     return mlir::success();
@@ -289,7 +295,7 @@ mlir::LogicalResult SplitConvWithPostOpAndFakeQuant::matchAndRewrite(IE::FakeQua
     }
 
     branch.push_back(origOp);
-    splitBranch(branch, rewriter, innerLog);
+    splitBranch(branch, 0, rewriter, innerLog);
 
     return mlir::success();
 }

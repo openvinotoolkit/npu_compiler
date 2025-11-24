@@ -59,6 +59,8 @@ private:
 public:
     void setReferenceSoftwareMode();
     void setDefaultHardwareMode();
+    void setHostCompileMode();
+
     void setMLIRCompilerType();
     void setBatchCompilerMode(const std::string& mode);
 

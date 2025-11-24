@@ -637,15 +637,12 @@ public:
 
 class FuseM2IOpsPass final : public VPU::impl::FuseM2IOpsBase<FuseM2IOpsPass> {
 public:
-    explicit FuseM2IOpsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FuseM2IOpsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void FuseM2IOpsPass::safeRunOnFunc() {

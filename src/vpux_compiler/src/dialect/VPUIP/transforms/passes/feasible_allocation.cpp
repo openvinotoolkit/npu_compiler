@@ -797,9 +797,6 @@ void FeasibleAllocationPass::safeRunOnFunc() {
         signalPassFailure();
         return;
     }
-
-    _log.info("[FeasibleAllocation phase]");
-    _log.info("[NN Cache statistics]  {0}", costModel->getPreloadedCacheCounter().printString());
 }
 
 }  // namespace

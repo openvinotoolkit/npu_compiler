@@ -694,7 +694,7 @@ func.func @DoNotExpandInterpolateLinearChannels(%arg0: tensor<1x3x30x30xf16>) ->
 module @main {
 
     config.PipelineOptions @Options {
-            config.Option @VPU.FP16CompressedConv : true
+            config.Option @config.FP16CompressedConv : true
     }
 
     // CHECK-LABEL: @ConvToNCE4channels

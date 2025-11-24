@@ -65,6 +65,9 @@ struct MemoryAllocationOptionsBase : mlir::PassPipelineOptions<MemoryAllocationO
     BoolOption enableGroupAsyncExecuteOps{*this, "group-async-execute-ops",
                                           llvm::cl::desc("Enable group-async-execute-ops pass"), llvm::cl::init(false)};
 
+    BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
+                                     ::llvm::cl::init(vpux::isDeveloperBuild())};
+
     MemoryAllocationOptionsBase() = default;
 
     template <class OtherOptions>

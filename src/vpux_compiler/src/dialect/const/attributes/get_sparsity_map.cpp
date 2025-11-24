@@ -109,10 +109,10 @@ Const::Content vpux::Const::GetSparsityMapAttr::transform(vpux::Const::Content& 
     } else if (inputElementType.isF32()) {
         return generateSparsityMap<float>(input, sparsifyValues, input.getType(), outputType, isOutputSplat,
                                           getContext());
-    } else if (inputElementType.isFloat8E5M2()) {
+    } else if (mlir::isa<mlir::Float8E5M2Type>(inputElementType)) {
         return generateSparsityMap<vpux::type::float8_e5m2>(input, sparsifyValues, input.getType(), outputType,
                                                             isOutputSplat, getContext());
-    } else if (inputElementType.isFloat8E4M3FN()) {
+    } else if (mlir::isa<mlir::Float8E4M3FNType>(inputElementType)) {
         return generateSparsityMap<vpux::type::float8_e4m3>(input, sparsifyValues, input.getType(), outputType,
                                                             isOutputSplat, getContext());
     }

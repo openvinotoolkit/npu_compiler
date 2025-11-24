@@ -198,3 +198,26 @@ bool vpux::VPU::TopKOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers
 bool vpux::VPU::TopKOp::supportCycleCostCalculation() {
     return false;
 }
+
+SmallVector<mlir::Value> VPU::TopKOp::getAuxiliaryBuffers() {
+    return {getLineBuffer()};
+}
+
+mlir::LogicalResult VPU::TopKOp::setAuxiliaryBuffers(ArrayRef<mlir::Value> buffers) {
+    if (buffers.size() != 1 || buffers.front() == nullptr) {
+        return mlir::failure();
+    }
+    getLineBufferMutable().assign(buffers.front());
+    return mlir::success();
+}
+
+SmallVector<mlir::Type> VPU::TopKOp::getBufferTypes() {
+    constexpr int64_t int32Size = sizeof(int32_t);
+
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(getInput().getType());
+    const auto axisDim = inputType.getShape().raw()[getAxis()];
+    const int64_t bufferSizePerShave =
+            axisDim * (2 * std::max(int32Size, inputType.getElemTypeSize().to<Byte>().count()));
+    const auto auxBuffType = mlir::RankedTensorType::get({1, 1, 1, 2 * bufferSizePerShave}, getUInt8Type(getContext()));
+    return {auxBuffType};
+}

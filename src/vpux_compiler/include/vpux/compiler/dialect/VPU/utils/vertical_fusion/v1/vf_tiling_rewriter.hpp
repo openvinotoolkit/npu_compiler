@@ -5,9 +5,7 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_scheduling_factory.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_tiling_base_rewriter.hpp"
 
 namespace vpux::VPU::VF::v1 {
@@ -30,6 +28,11 @@ protected:
         VPUX_THROW_WHEN(!dim.has_value(), "There is no tiling for VF");
         DimArr dims = {dim.value()};
         return std::make_pair(dims, strategy[dim.value().ind()]);
+    }
+
+    virtual TilingStorage restoreTilingStorage(VFConfig& config, ArrayRef<int64_t> /*strategy*/,
+                                               TilingOperationStorage::UPtr& operationStorage) const override {
+        return restoreTilingRegions(config.getSubgraph(), _log, operationStorage);
     }
 };
 }  // namespace vpux::VPU::VF::v1

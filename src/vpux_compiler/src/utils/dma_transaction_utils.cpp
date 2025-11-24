@@ -9,8 +9,37 @@
 #include <vpux/compiler/dialect/VPUIP/utils/utils.hpp>
 #include <vpux/compiler/utils/dma_transaction_utils.hpp>
 #include <vpux/compiler/utils/types.hpp>
+#include "vpux/compiler/core/attributes/dim.hpp"
+#include "vpux/utils/core/error.hpp"
 
 namespace vpux {
+// Expand DMA helper, to keep the original strides but change the shapes for output type (from which we subtract the
+// padding info).
+namespace {
+NDTypeInterface changeShapeAndKeepStrides(vpux::NDTypeInterface type, vpux::ShapeRef newShape) {
+    auto originalStrides = type.getStrides();
+    auto newType = type;
+    auto distributedCopy = mlir::dyn_cast<vpux::VPU::DistributedTypeInterface>(type);
+    if (distributedCopy == nullptr || !distributedCopy.containsDistributedTypes()) {
+        newType = newType.changeShape(newShape);
+        return newType.changeStrides(originalStrides);
+    }
+
+    auto outputType = mlir::cast<vpux::VPUIP::DistributedBufferType>(distributedCopy.getDistributedTypes().front());
+    const auto oldDistribution = outputType.getDistribution();
+    if (!VPU::isDistributedAttrWithExplicitShapesAndOffsets(oldDistribution)) {
+        newType = newType.changeShape(newShape);
+        return newType.changeStrides(originalStrides);
+    }
+
+    const auto newDistribution = VPU::getNonOverlappedDistributedAttr(
+            newShape, oldDistribution.getMode(), oldDistribution.getNumTiles(), oldDistribution.getNumClusters(),
+            oldDistribution.getAlignment(), oldDistribution.getUniformDistributedSegments(), type.getContext());
+
+    newType = outputType.changeShapeForExplicitDistribution(newShape, newDistribution);
+    return newType.changeStrides(originalStrides);
+}
+}  // namespace
 
 //
 // Below function reduceDimsForDma, tries to collapse contiguous dimensions in memory
@@ -321,6 +350,46 @@ DMATransaction getDMATransactionFromPermutation(vpux::NDTypeInterface inType, vp
 
     dmaTransaction.outputs.push_back(reduceDimsForDma(std::move(outPermutedMemDims), std::move(outPermutedMemStrides),
                                                       outType.getElemTypeSize().count()));
+
+    return dmaTransaction;
+}
+
+DMATransaction getDMATransactionFromExpand(vpux::NDTypeInterface inType, vpux::NDTypeInterface outType,
+                                           mlir::ArrayAttr padsBegin, mlir::ArrayAttr padsEnd) {
+    // Only support ExpandDMA padding at end
+    // TODO: support padding at begin E65670
+    VPUX_THROW_WHEN(llvm::any_of(parseIntArrayAttr<int64_t>(padsBegin),
+                                 [](auto padValue) {
+                                     return padValue != 0;
+                                 }),
+                    "ExpandDMA doesn't support padding at begin!");
+
+    DMATransaction dmaTransaction;
+    auto inMemDims = to_small_vector(inType.getMemShape());
+    auto inMemStrides = to_small_vector(inType.getMemStrides());
+
+    dmaTransaction.inputs.push_back(
+            reduceDimsForDma(std::move(inMemDims), std::move(inMemStrides), inType.getElemTypeSize().count()));
+
+    auto padEnd = parseIntArrayAttr<int64_t>(padsEnd);
+    const auto nonZeroAxisPredicate = [](const int64_t dim) -> bool {
+        return dim > 0;
+    };
+    const auto padEndAxisIter = std::find_if(padEnd.begin(), padEnd.end(), nonZeroAxisPredicate);
+    VPUX_THROW_WHEN(padEndAxisIter == padEnd.end(), "Can not find padding axis");
+
+    const auto padEndAxis = std::distance(padEnd.begin(), padEndAxisIter);
+    auto outShapes = outType.getShape().toValues();
+    VPUX_THROW_UNLESS(outShapes[Dim(padEndAxis)] > padEnd[padEndAxis], "Can't subtract padding from shape!");
+    outShapes[Dim(padEndAxis)] = outShapes[Dim(padEndAxis)] - padEnd[padEndAxis];
+
+    auto newOutType = changeShapeAndKeepStrides(outType, outShapes);
+
+    auto outMemDims = to_small_vector(newOutType.getMemShape());
+    auto outMemStrides = to_small_vector(newOutType.getMemStrides());
+
+    dmaTransaction.outputs.push_back(
+            reduceDimsForDma(std::move(outMemDims), std::move(outMemStrides), newOutType.getElemTypeSize().count()));
 
     return dmaTransaction;
 }

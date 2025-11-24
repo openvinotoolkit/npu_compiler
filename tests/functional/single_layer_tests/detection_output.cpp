@@ -817,6 +817,7 @@ TEST_P(DetectionOutputLayerTestCommon, NPU4000_HW) {
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
+
 //
 // 3 Inputs tests, all permutations
 //

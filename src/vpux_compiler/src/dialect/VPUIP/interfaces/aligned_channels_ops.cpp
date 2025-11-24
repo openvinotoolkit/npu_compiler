@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/core/interfaces/type_interfaces.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
@@ -40,7 +41,8 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) && VPU::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
+            config::hasAutoPaddingODU(getModuleOp(op))) {
             return 1;
         }
 
@@ -66,7 +68,8 @@ public:
         return vpux::VPU::NCEInvariant::VPU_COMPRESSED_INPUT_CHANNEL_NUM;
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) && VPU::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
+            config::hasAutoPaddingODU(getModuleOp(op))) {
             return 1;
         }
 
@@ -105,7 +108,8 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) && VPU::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
+            config::hasAutoPaddingODU(getModuleOp(op))) {
             return 1;
         }
 
@@ -132,7 +136,8 @@ public:
         return VPU::NCEInvariant::getAlignment(inputType.getElementType());
     }
     int64_t getOutputChannelAlignment(mlir::Operation* op) const {
-        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) && VPU::hasAutoPaddingODU(getModuleOp(op))) {
+        if (VPU::outputCompatibleWithAutoPad(op->getResult(0).getType()) &&
+            config::hasAutoPaddingODU(getModuleOp(op))) {
             return 1;
         }
 

@@ -1,0 +1,44 @@
+<?xml version="1.0" ?>
+<net name="scalar_conversion_test" version="11">
+  <rt_info/>
+  <layers>
+    <layer id="0" name="scalar_input" type="Parameter" version="opset1">
+      <data shape="" element_type="f32"/>
+      <output>
+        <port id="0" precision="FP32" names="scalar_input">
+        </port>
+      </output>
+    </layer>
+    <layer id="1" name="scalar_const" type="Const" version="opset1">
+      <data offset="0" size="4" shape="" element_type="f32"/>
+      <output>
+        <port id="0" precision="FP32">
+        </port>
+      </output>
+    </layer>
+    <layer id="2" name="scalar_add" type="Add" version="opset1">
+      <data auto_broadcast="numpy"/>
+      <input>
+        <port id="0" precision="FP32">
+        </port>
+        <port id="1" precision="FP32">
+        </port>
+      </input>
+      <output>
+        <port id="2" precision="FP32">
+        </port>
+      </output>
+    </layer>
+    <layer id="3" name="Result" type="Result" version="opset1">
+      <input>
+        <port id="0" precision="FP32">
+        </port>
+      </input>
+    </layer>
+  </layers>
+  <edges>
+    <edge from-layer="0" from-port="0" to-layer="2" to-port="0"/>
+    <edge from-layer="1" from-port="0" to-layer="2" to-port="1"/>
+    <edge from-layer="2" from-port="2" to-layer="3" to-port="0"/>
+  </edges>
+</net>

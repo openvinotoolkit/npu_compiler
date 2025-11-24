@@ -7,6 +7,9 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_axis_increment.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
+
+#include "vpux/utils/core/numeric.hpp"
 
 namespace vpux::VPU::VF::v2 {
 
@@ -61,13 +64,69 @@ bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {
     return !isSpatialTiling(tiling);
 }
 
+int64_t getTilingLimit(Dim axis, VFConfig& config, bool tilingOnHW) {
+    SmallVector<int64_t> axisLengthsOfNonChannelAlignedOps;
+    SmallVector<int64_t> axisLengthsOfChannelAlignedOps;
+    auto hasChannelAxis = axis == Dims4D::Act::C;
+    // Using queue to traverse all ops in VF block and back-infer their tiling dims
+    // The data structure pattern - {(op, tilingDim)...}
+    std::queue<std::pair<mlir::Operation*, Dim>> opQueue;
+
+    VPUX_THROW_WHEN(config.getOutputs().empty(), "VF has no output operations");
+    auto* lastOp = config.getOutputs().back();
+    opQueue.push({lastOp, axis});
+    auto operations = config.getVFOperations().getArrayRef();
+    while (!opQueue.empty()) {
+        auto curOp = opQueue.front().first;
+        auto curAxis = opQueue.front().second;
+        opQueue.pop();
+
+        auto limit = getMaxNumTiles(curOp)[curAxis.ind()];
+        if (curAxis.ind() >= Dims4D::Act::getSpatialDim(0).ind()) {
+            if (tilingOnHW) {
+                limit = divUp(limit, (MINIMUM_LENGTH_TILING * MINIMUM_LENGTH_TILING));
+            } else {
+                limit = limit / MINIMUM_LENGTH_TILING;
+            }
+        }
+        limit = std::min(limit, VPU::NCEInvariant::VPU_DIMENSION_LIMIT / MINIMUM_LENGTH_TILING);
+        if (mlir::isa<IE::AlignedChannelsOpInterface>(curOp)) {
+            axisLengthsOfChannelAlignedOps.emplace_back(limit);
+        } else {
+            axisLengthsOfNonChannelAlignedOps.emplace_back(limit);
+        }
+
+        // Get the next parent ops in this VF region
+        for (auto input : curOp->getOperands()) {
+            auto parentOp = input.getDefiningOp();
+            if (parentOp != nullptr && llvm::find(operations, parentOp) != operations.end()) {
+                if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
+                    curAxis = tilingViewLikeOp.backInferTilingDim(curAxis);
+                    hasChannelAxis = hasChannelAxis || curAxis == Dims4D::Act::C;
+                }
+                opQueue.push({parentOp, curAxis});
+            }
+        }
+    }
+
+    auto axisIncrement = getVFAxisIncrement(axis);
+    if (hasChannelAxis && axis != Dims4D::Act::C) {
+        // If there exists channel tiling, use the channel axis increment logic to get divisible factors
+        // otherwise, use the default axis increment
+        axisIncrement = getVFAxisIncrement(Dims4D::Act::C);
+    }
+    VPUX_THROW_WHEN(axisIncrement == nullptr, "Cannot get functions to get values for axis {0}", axis);
+
+    return axisIncrement->getLimitValue(axisLengthsOfChannelAlignedOps, axisLengthsOfNonChannelAlignedOps);
+}
+
 mlir::FailureOr<TilingStorage> calculateTilingRegions(VFConfig& config, ArrayRef<int64_t> tilingStrategy, Logger log,
                                                       const TilingOperationStorage::UPtr& opStorage) {
     auto outputOp = config.getSubgraph() != nullptr ? config.getSubgraph() : config.getOutputs().back();
-    const auto outputShape = getShape(outputOp->getResult(0));
+    const auto outputShape = getBoundedShape(outputOp->getResult(0));
     const auto strategy = Shape(tilingStrategy);
 
-    const auto tiles = fillDividedTiles(outputOp, strategy, outputShape);
+    const auto tiles = fillDividedTiles(config.getVFOperations().getArrayRef(), strategy, outputShape);
     if (mlir::failed(tiles)) {
         return mlir::failure();
     }
@@ -243,5 +302,18 @@ std::optional<int64_t> getCbrtMaxTileCandidate(int64_t minTile, int64_t maxTile)
         return cbrtMaxTile;
     }
     return std::nullopt;
+}
+
+bool isOperandSharedWeightsForTiling(mlir::Operation* op, mlir::Value operand, ShapeRef tiledShape) {
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(op);
+    if (nceOp == nullptr || operand != nceOp.getWeightsOperand()) {
+        return false;
+    }
+
+    // Sparse weights are duplicated for each tile, referring to the OptimizeParallelCopies pass
+    if (mlir::isa<VPU::SparseTensorType>(operand.getType())) {
+        return false;
+    }
+    return getShape(operand) == tiledShape;
 }
 }  // namespace vpux::VPU::VF::v2

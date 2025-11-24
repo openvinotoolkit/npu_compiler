@@ -5,6 +5,9 @@
 
 #pragma once
 
+#include "vpux/utils/core/array_ref.hpp"
+#include "vpux/utils/core/small_vector.hpp"
+
 #include <mlir/Bytecode/BytecodeImplementation.h>
 #include <mlir/IR/Attributes.h>
 
@@ -24,5 +27,10 @@ mlir::LogicalResult convertFromAttribute(std::optional<bool>& prop, mlir::Attrib
 mlir::Attribute convertToAttribute(mlir::MLIRContext* ctx, const std::optional<bool>& prop);
 mlir::LogicalResult readFromMlirBytecode(mlir::DialectBytecodeReader&, std::optional<bool>& prop);
 void writeToMlirBytecode(mlir::DialectBytecodeWriter&, const std::optional<bool>& prop);
+
+mlir::LogicalResult convertFromAttribute(SmallVector<uint8_t>& storage, mlir::Attribute attr,
+                                         llvm::function_ref<mlir::InFlightDiagnostic()>);
+mlir::Attribute convertToAttribute(mlir::MLIRContext* ctx, ArrayRef<uint8_t> storage);
+llvm::hash_code hash_value(ArrayRef<uint8_t> storage);
 
 }  // namespace vpux

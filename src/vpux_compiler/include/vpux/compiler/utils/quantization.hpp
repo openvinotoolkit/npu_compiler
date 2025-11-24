@@ -14,7 +14,6 @@
 #include <mlir/Dialect/Quant/QuantTypes.h>
 #include <mlir/IR/BuiltinTypes.h>
 
-#include <flatbuffers/flatbuffers.h>
 #include <llvm/ADT/bit.h>
 
 #include <cstdint>

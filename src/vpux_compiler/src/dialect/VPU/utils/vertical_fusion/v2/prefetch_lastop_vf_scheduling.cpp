@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/prefetch_lastop_vf_scheduling.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 
+#include <llvm/ADT/SetOperations.h>
+
 namespace vpux::VPU::VF::v2 {
 PrefetchingLastOpVFScheduling::PrefetchingLastOpVFScheduling(Logger log, bool prefetching)
         : v2::VFScheduling(log, prefetching) {
@@ -22,16 +24,20 @@ bool PrefetchingLastOpVFScheduling::validate(VFConfig& config, const TilingOpera
     auto* lastOp = outputOperations.back();
     // assuming almost all tiles are same
     const auto index = 0;
-    auto inputSize = getInputsSize(config, tilingInfo);
+    auto inputSize =
+            getInputsSize(config, tilingInfo) - getSharedSizeByAllTiles(config.getInputs(), config, tilingInfo);
 
     auto opTiling = tilingInfo->get(lastOp, index);
     VPUX_THROW_WHEN(!opTiling.has_value(), "There is no information about tile {0} of operation {1}", index, *lastOp);
+
+    auto largestOpSize = VPU::getRequiredCMX(
+            lastOp, config.getOperationTypes(lastOp, opTiling.value().second, opTiling.value().first.tiles));
+    largestOpSize -= getSharedSizeByAllTiles({lastOp}, config, tilingInfo);
+
+    auto sharedSize = getSharedSizeByAllTiles(config.getVFOperations().getArrayRef(), config, tilingInfo);
+
     const auto thresholdCMXSize = getTotalCMXFragmentationAwareSize(lastOp);
-    return inputSize +
-                   VPU::getRequiredCMX(lastOp, config.getOperationTypes(lastOp, opTiling.value().second,
-                                                                        opTiling.value().first.tiles)) +
-                   reservedMemory <
-           thresholdCMXSize;
+    return inputSize + sharedSize + largestOpSize + reservedMemory < thresholdCMXSize;
 }
 
 VFScenario PrefetchingLastOpVFScheduling::getType() const {

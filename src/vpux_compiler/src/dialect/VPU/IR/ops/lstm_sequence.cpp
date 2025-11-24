@@ -115,7 +115,11 @@ mlir::Value createIntermediateSumsBuffer(mlir::OpBuilder& rewriter, int64_t hidd
                    VPU::getDPUInvariantDataSize(config::getArch(module));
 
     size = size / sizeof(int32_t);  // int32_t type format
-    const auto shape = Shape{1, 1, 1, size};
+
+    auto tileOp = config::getTileExecutor(module);
+    const auto numShavesPerTile = tileOp.getSubExecutor(VPU::ExecutorKind::SHAVE_ACT).getCount();
+
+    const auto shape = Shape{1, 1, numShavesPerTile, size};
     const auto auxIndicesType = mlir::RankedTensorType::get(shape.raw(), getSInt32Type(rewriter.getContext()));
     return Const::createConst(rewriter,
                               appendLoc(mlir::UnknownLoc::get(rewriter.getContext()), "LstmDpu_InternalSumsBuffer"),

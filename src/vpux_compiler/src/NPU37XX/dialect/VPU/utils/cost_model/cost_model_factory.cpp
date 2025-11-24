@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/NPU37XX/dialect/VPU/utils/cost_model_factory.hpp"
+#include "vpux/compiler/NPU37XX/dialect/VPU/utils/cost_model_shave_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model_data.hpp"
 #include "vpux/utils/core/array_ref.hpp"
 
@@ -60,6 +61,10 @@ std::shared_ptr<VPUNN::VPULayerCostModel> CostModelFactory::createLayerCostModel
     layerCostModel->set_maxWorkloadsPerIntraTileSplit(50U);
     return layerCostModel;
 }
+
+std::unique_ptr<IShaveCostModelUtils> CostModelFactory::createShaveCostModelUtil() const {
+    return std::make_unique<arch37xx::CostModelShaveUtil>(_isShave2ApiUsedInVPUNN);
+};
 
 }  // namespace arch37xx
 }  // namespace VPU

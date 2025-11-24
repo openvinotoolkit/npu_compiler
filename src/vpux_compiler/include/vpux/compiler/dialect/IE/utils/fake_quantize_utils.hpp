@@ -5,6 +5,7 @@
 
 #pragma once
 
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
@@ -124,6 +125,7 @@ private:
     mlir::Value scale = nullptr;  // From multiply op (if present)
 
     mlir::Value inputValue = nullptr;            // Input of the WD structure (sometimes with Convert Op)
+    mlir::Type lowPrecisionType = nullptr;       // Low precision type
     SmallVector<mlir::Operation*> opChain = {};  // The operations that are part of WD structure
 
     [[nodiscard]] mlir::LogicalResult initializeStructure(IE::MultiplyOp& multiplyOp);
@@ -169,6 +171,7 @@ public:
     bool isKVcachedPattern() const;
 
     mlir::Type getInputElemType() const;
+    mlir::Type getLowPrecisionElemType() const;
 
     Const::ContentAttr getStaticScaleAttr() const;
     Const::ContentAttr getStaticShiftAttr() const;
@@ -186,6 +189,14 @@ public:
 
 std::set<int64_t> findAxes(IE::FakeQuantizeOp origOp);
 std::set<int64_t> findAxes(IE::DynamicDequantizeOp origOp);
+
+template <typename AnyOp>
+type::QuantileFloatType tryParsingNF4(AnyOp) {
+    return nullptr;
+}
+
+template <>
+type::QuantileFloatType tryParsingNF4(Const::DeclareOp constOp);
 
 }  // namespace IE
 }  // namespace vpux

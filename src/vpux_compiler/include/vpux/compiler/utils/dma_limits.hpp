@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#pragma once
+
 #include <vpux/compiler/dialect/config/IR/attributes.hpp>
 #include <vpux/compiler/utils/types.hpp>
 #include <vpux/utils/core/mem_size.hpp>

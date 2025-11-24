@@ -59,4 +59,25 @@ def AddProfilingSection : PassBase<"add-profiling-section", "vpux::ModulePass"> 
     ];
 }
 
+//
+// AddCompilerHash
+//
+
+def AddCompilerHash : PassBase<"add-compiler-hash", "vpux::FunctionPass"> {
+    let summary = "Add compiler hash information to IR";
+
+    let description = [{
+        This pass adds the latest git commit hash info of the compiler into the IR.
+        It can be used for tracking which compiler version is used to generate the binary,
+        and for checking commit hash info by the ELF loader during compatibility check.
+    }];
+
+    let constructor = "vpux::VPUASM::createAddCompilerHashPass()";
+
+    let dependentDialects = [
+        "vpux::VPUASM::VPUASMDialect",
+        "vpux::ELF::ELFDialect"
+    ];
+}
+
 #endif // VPUX_COMPILER_DIALECT_VPUASM_PASSES

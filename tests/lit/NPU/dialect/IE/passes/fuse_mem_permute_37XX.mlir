@@ -1030,3 +1030,34 @@ func.func @FuseMemPermuteToConvThroughViewOpsAndSliceOp(%arg0: tensor<1x16x26214
 
     // CHECK:               return     [[SLICE]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWHC = affine_map<(d0, d1, d2, d3) -> (d0, d3, d2, d1)>
+
+// CHECK-LABEL: @MemPermuteInterpolate
+func.func @MemPermuteInterpolate(%arg0: tensor<1x16x5x5xf16, {order = #NHWC}>) -> tensor<1x16x10x10xf16> {
+    %0 = IE.Interpolate(%arg0)
+         {attr = #IE.Interpolate<antialias = false, coord_mode = <ASYMMETRIC>, cube_coeff = -7.500000e-01 : f64, mode = <NEAREST>, nearest_mode = <FLOOR>,
+         pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0], shape_calc_mode = <SCALES>>, axes_attr = [2, 3],
+         operandSegmentSizes = array<i32: 1, 0, 0, 0>, scales_attr = [2.000000e+00, 2.000000e+00], sizes_attr = [60, 60]
+         } : tensor<1x16x5x5xf16, {order = #NHWC}> -> tensor<1x16x10x10xf16, {order = #NHWC}>
+
+    %1 = IE.MemPermute(%0) {
+        dst_order = #NCHW,
+        mem_perm = #NWHC
+    } : tensor<1x16x10x10xf16, {order = #NHWC}> -> tensor<1x16x10x10xf16>
+
+    return %1 : tensor<1x16x10x10xf16>
+
+    // CHECK:   [[INTERPOLATE:%.+]] = IE.Interpolate
+    // CHECK-SAME: -> tensor<1x16x10x10xf16, {order = #NCWH}>
+    // CHECK-NOT: IE.MemPermute
+
+    // CHECK:   [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[INTERPOLATE]]) {dst_order = #NCHW, mem_perm = #NCHW}
+    // CHECK-SAME:  tensor<1x16x10x10xf16, {order = #NCWH}>
+    // CHECK-SAME:  -> tensor<1x16x10x10xf16>
+    // CHECK:   return [[PERMUTE_CAST]] : tensor<1x16x10x10xf16>
+}

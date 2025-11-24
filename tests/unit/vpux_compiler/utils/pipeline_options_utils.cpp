@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/setup_pipeline_options_utils.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -17,7 +17,7 @@
 using namespace vpux;
 using MLIR_GetAttributeFromOption = MLIR_UnitBase;
 
-using vpux::VPU::getAttributeFromOption;
+using vpux::config::getAttributeFromOption;
 namespace {
 
 struct ManyOptionsPassOptions {

@@ -75,7 +75,7 @@ void chainTasksInLists(mlir::func::FuncOp funcOp) {
 
         auto index = task.getIndexType();
         auto key = std::make_tuple(task.getTaskType(), index.getTileIdx(), index.getListIdx());
-        auto& [_, previousTask] = lastTaskInListResult.FindAndConstruct(key);
+        auto& previousTask = lastTaskInListResult[key];
         if (previousTask) {
             task.setPreviousTask(previousTask);
         }
@@ -127,7 +127,7 @@ void replaceReturnOpWithOpRanges(mlir::func::FuncOp funcOp) {
 
     mlir::DenseMap<Range, size_t> rangesSizes;
     const auto getRangeSize = [&](auto taskOp) {
-        auto& [_, rangeSize] = rangesSizes.FindAndConstruct(getRange(taskOp));
+        auto& rangeSize = rangesSizes[getRange(taskOp)];
         if (rangeSize != 0) {
             return rangeSize;
         }

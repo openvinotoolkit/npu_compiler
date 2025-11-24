@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
+#include "vpux/utils/core/range.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 
@@ -547,9 +548,6 @@ SmallVector<vpux::NDTypeInterface> getTileTypesCommon(mlir::Operation* origOp, c
     }
 
     mlir::SmallVector<vpux::NDTypeInterface> inputTileTypes;
-    if (IE::hasDynamicTensors(origOp)) {
-        return inputTileTypes;
-    }
 
     VPUX_THROW_UNLESS(inTiles.size() == origOp->getOperands().size(),
                       "Unexpected inputTile size '{0}' and Op operands size '{1}'", inTiles.size(),
@@ -571,7 +569,7 @@ SmallVector<vpux::NDTypeInterface> getTileTypesCommon(mlir::Operation* origOp, c
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp);
     VPUX_THROW_WHEN(clusteredOp == nullptr, "Op {0} has multiClusterStrategy but is not an ClusteredOp",
                     origOp->getLoc());
-    auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
+    auto numClusters = VPU::getOptimalNumClusters(clusteredOp, getBoundedShape(outputTileType),
                                                   clusteredOp.getMultiClusterStrategy().value());
 
     SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
@@ -677,7 +675,8 @@ Byte getRequiredCMXForWeight(VPU::NCEMatMulOp matMulOp, const vpux::TileInfo& ti
     const auto OC = outputTileType.getShape()[DimsGroups5D::Act::C];
     const auto G = outputTileType.getShape()[DimsGroups5D::Act::G];
 
-    return getRequiredCMXSizeForNCEOps({lastFilterTileType}, OC * G);
+    return getRequiredCMXSizeForNCEOps({lastFilterTileType}, OC * G,
+                                       countElementsPerOutputChannelInWeightTable(matMulOp));
 }
 
 Byte getRequiredCMXForWeight(VPU::NCECompressConvolutionOp convOp, const vpux::TileInfo& tiling,
@@ -826,7 +825,8 @@ Byte getRequiredCMX(VPU::NCEMatMulOp matMulOp, const SmallVector<NDTypeInterface
     const auto lastOutputTileType = tileTypes[2];
     const auto OC = lastOutputTileType.getShape()[DimsGroups5D::Act::C];
     const auto G = lastOutputTileType.getShape()[DimsGroups5D::Act::G];
-    return getRequiredCMXSizeForNCEOps({lastInputTileType, lastFilterTileType, lastOutputTileType}, OC * G);
+    return getRequiredCMXSizeForNCEOps({lastInputTileType, lastFilterTileType, lastOutputTileType}, OC * G,
+                                       countElementsPerOutputChannelInWeightTable(matMulOp));
 }
 
 Byte getRequiredCMX(VPU::NCEMatMulOp matMulOp,
@@ -837,7 +837,8 @@ Byte getRequiredCMX(VPU::NCEMatMulOp matMulOp,
     const auto lastOutputTileType = tileDistributions[2];
     const auto OC = lastOutputTileType.first.getShape()[DimsGroups5D::Act::C];
     const auto G = lastOutputTileType.first.getShape()[DimsGroups5D::Act::G];
-    return getRequiredCMXSizeForNCEOps({lastInputTileType, lastFilterTileType, lastOutputTileType}, OC * G);
+    return getRequiredCMXSizeForNCEOps({lastInputTileType, lastFilterTileType, lastOutputTileType}, OC * G,
+                                       countElementsPerOutputChannelInWeightTable(matMulOp));
 }
 
 Byte getRequiredCMX(VPU::NCEMatMulOp matMulOp, const vpux::TileInfo& tiling,
@@ -1589,35 +1590,51 @@ bool isSupportedIsolatedTilingEltwise(mlir::Operation* origOp, const OutputTilin
     });
 }
 
-SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface origOp, const TileInfo& outputTile,
+SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface origOp, const TileInfo& firstOutputTile,
                                                              Logger log) {
-    vpux::OutputTiling inputTiles{outputTile};
-    if (auto tilingBuilderInterface = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation())) {
-        inputTiles = tilingBuilderInterface.backInferTileInfo(outputTile, log).tiles;
+    auto tilingOp = mlir::dyn_cast<VPU::TilingBuilderOpInterface>(origOp.getOperation());
+    if (tilingOp == nullptr) {
+        log.trace("'{0}' doesn't implement TilingBuilderOpInterface", origOp->getName());
+
+        auto ndTypes = SmallVector<NDTypeInterface>();
+        ndTypes.reserve(origOp->getNumOperands() + origOp->getNumResults());
+
+        for (auto type : origOp->getOperandTypes()) {
+            ndTypes.push_back(mlir::cast<NDTypeInterface>(type));
+        }
+
+        for (auto type : origOp->getResultTypes()) {
+            ndTypes.push_back(mlir::cast<NDTypeInterface>(type));
+        }
+
+        return ndTypes;
     }
 
-    VPUX_THROW_UNLESS(inputTiles.size() == origOp->getOperands().size(),
+    const auto inputTiles = tilingOp.backInferTileInfo(firstOutputTile, log).tiles;
+    const auto outputTiles = tilingOp.getOutputTiling(firstOutputTile, log);
+
+    VPUX_THROW_UNLESS(inputTiles.size() == origOp->getNumOperands(),
                       "Unexpected inputTile size '{0}' and Op operands size '{1}'", inputTiles.size(),
-                      origOp->getOperands().size());
+                      origOp->getNumOperands());
 
-    mlir::SmallVector<vpux::NDTypeInterface> inputTileTypes;
-    for (auto input : origOp->getOperands() | indexed) {
-        const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.value().getType());
-        inputTileTypes.push_back(
-                inputType.extractDenseTile(inputTiles[input.index()].offsets, inputTiles[input.index()].shape));
+    VPUX_THROW_UNLESS(outputTiles.size() == origOp->getNumResults(),
+                      "Unexpected outputTile size '{0}' and Op results size '{1}'", outputTiles.size(),
+                      origOp->getNumResults());
+
+    auto inputTileTypes = mlir::SmallVector<vpux::NDTypeInterface>();
+    for (const auto& [input, inputTile] : zip(origOp->getOperands(), inputTiles)) {
+        const auto inputType = mlir::cast<vpux::NDTypeInterface>(input.getType());
+        inputTileTypes.push_back(inputType.extractDenseTile(inputTile.offsets, inputTile.shape));
     }
 
-    auto valueTypes = inputTileTypes;
-    mlir::SmallVector<vpux::NDTypeInterface> outputTileTypes;
-    for (const auto& output : origOp->getResults()) {
+    auto outputTileTypes = mlir::SmallVector<vpux::NDTypeInterface>();
+    for (const auto& [output, outputTile] : zip(origOp->getResults(), outputTiles)) {
         const auto outputType = mlir::cast<vpux::NDTypeInterface>(output.getType());
-        const auto outputTileType = outputType.extractDenseTile(outputTile.offsets, outputTile.shape);
-        outputTileTypes.push_back(outputTileType);
-        valueTypes.push_back(outputTileType);
+        outputTileTypes.push_back(outputType.extractDenseTile(outputTile.offsets, outputTile.shape));
     }
 
     if (!origOp->hasAttr(VPU::multiClusterStrategy)) {
-        return valueTypes;
+        return to_small_vector(concat<NDTypeInterface>(inputTileTypes, outputTileTypes));
     }
 
     auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
@@ -1626,19 +1643,19 @@ SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface 
     auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTileTypes[0].getShape(),
                                                   clusteredOp.getMultiClusterStrategy().value());
 
-    if (!llvm::all_of(outputTileTypes, [&](const vpux::NDTypeInterface& outputTileType) {
-            auto numClustersOfPerOutput = VPU::getOptimalNumClusters(clusteredOp, outputTileType.getShape(),
-                                                                     clusteredOp.getMultiClusterStrategy().value());
-            return numClustersOfPerOutput == numClusters;
-        })) {
-        // at least one of the output tiles has invalid multiclustering
+    // Check only the first output's cluster tiling
+    const auto firstOutputType = outputTileTypes.front();
+    auto numClustersOfPerOutput = VPU::getOptimalNumClusters(clusteredOp, firstOutputType.getShape(),
+                                                             clusteredOp.getMultiClusterStrategy().value());
+    if (numClustersOfPerOutput != numClusters) {
         return SmallVector<vpux::NDTypeInterface>{};
     }
 
     SmallVector<vpux::NDTypeInterface> distributedTensorTypes;
     for (auto [idx, inputTileType] : inputTileTypes | indexed) {
-        auto inDistributedType = VPU::getDistributedActivationTypeFromOp(
-                clusteredOp, clusteredOp->getOperand(idx), inputTileType, numClusters, outputTileTypes[0], outputTile);
+        auto inDistributedType =
+                VPU::getDistributedActivationTypeFromOp(clusteredOp, clusteredOp->getOperand(idx), inputTileType,
+                                                        numClusters, outputTileTypes[0], firstOutputTile);
         distributedTensorTypes.push_back(mlir::cast<vpux::NDTypeInterface>(inDistributedType));
     }
 
@@ -1650,6 +1667,8 @@ SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface 
 
     return distributedTensorTypes;
 }
+
+namespace {
 
 bool isSupportedIsolatedTilingSwInterface(VPU::SWOpInterface origOp, const OutputTiling& tiles, Logger log) {
     log.trace("isSupportedIsolatedTilingSwInterface OpName: {0}", origOp->getName());
@@ -2047,6 +2066,8 @@ bool isSupportedIsolatedTiling(VPU::GroupConvolutionOp origOp, const OutputTilin
         return origOp.fitIntoCMX(inputTileType, filterTileType, outputTileType);
     });
 }
+
+}  // namespace
 
 bool isSupportedIsolatedTilingSwLayer(mlir::Operation* origOp, const OutputTiling& tiles, Logger log) {
     return llvm::TypeSwitch<mlir::Operation*, bool>(origOp)

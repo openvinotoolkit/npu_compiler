@@ -80,7 +80,8 @@ bool vpux::Const::LayoutCastAttr::inferOutputSplat(bool inputIsSplat, vpux::NDTy
 //
 
 Const::Content vpux::Const::LayoutCastAttr::transform(vpux::Const::Content& input) const {
-    return Const::Content::moveBuffer(inferOutputType(input.getType()), std::move(input));
+    const auto outputType = inferOutputType(input.getType());
+    return Const::Content::moveBuffer(outputType, std::move(input));
 }
 
 //

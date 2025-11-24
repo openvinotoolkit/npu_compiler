@@ -577,11 +577,7 @@ mlir::LogicalResult MergeVFRegionRewriter::matchAndRewrite(VPU::VerticalFusionOp
         // in case Operation1's user goes to Operation2, which can be fused with Eltwise
         // switch to Operation2, try to merge it first and then come back later to this case
         if (!allInOldBlock) {
-            if (waitOtherUsers(parentVFOp, vfOp)) {
-                continue;
-            }
-            // if Operation1 from example above has other users, skip this case
-            return mlir::failure();
+            continue;
         }
 
         vfBlock = fuseOpsInBlock(rewriter, vfOp, parentVFOp.getOperation());

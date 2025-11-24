@@ -189,18 +189,11 @@ void OptimizeSparsityOpsPass::safeRunOnFunc() {
     if (_sparsityProfile != ActivationSparsityProfile::S1) {
         mlir::ConversionTarget target(ctx);
         target.addIllegalOp<VPU::SparsifyOp>();
-        target.addLegalDialect<Core::CoreDialect>();
-        target.addLegalDialect<Const::ConstDialect>();
-        target.addLegalDialect<VPU::VPUDialect>();
-        target.addLegalDialect<mlir::linalg::LinalgDialect>();
-        target.addLegalDialect<mlir::math::MathDialect>();
-
-        target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
         mlir::RewritePatternSet legalPatterns(&ctx);
         legalPatterns.add<RemoveExtraSparsifyOp>(&ctx, _log);
 
-        if (mlir::failed(mlir::applyFullConversion(func, target, std::move(legalPatterns)))) {
+        if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(legalPatterns)))) {
             signalPassFailure();
         }
     }

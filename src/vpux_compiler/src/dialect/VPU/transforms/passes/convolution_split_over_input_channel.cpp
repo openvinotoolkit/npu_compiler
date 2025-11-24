@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/mpe_engine_utils.hpp"
@@ -51,235 +52,19 @@ public:
             : mlir::OpRewritePattern<VPU::NCEConvolutionOp>(ctx), _numClusters(numClusters), _log(log) {
         this->setDebugName("NCEConvolutionSplitOverInputChannel");
     }
-    bool splitNCEConvolutionWithLegacyWeightTable(VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput,
-                                                  SmallVector<VPU::NCEConvolutionOp>& convOps,
-                                                  const OutputTiling& tiles, int64_t maxTiles,
-                                                  VPU::DequantizeOp& weightDequantizeOp, VPU::PPEAttr& strippedPpeAttr,
-                                                  mlir::PatternRewriter& rewriter) const;
-    bool splitNCEConvolutionWithNewWeightTable(VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput,
-                                               SmallVector<VPU::NCEConvolutionOp>& convOps, const OutputTiling& tiles,
-                                               int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-                                               VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const;
+
     bool getStrategies(mlir::Operation* op, llvm::ArrayRef<VPU::MultiClusterStrategy> clusterStrategies,
                        std::optional<vpux::Shape>& tilingStrategy,
                        std::optional<VPU::MultiClusterStrategy>& clusterStrategy, Logger log) const;
     template <typename OpType>
     void setStrategies(llvm::ArrayRef<OpType> newOps,
-                       llvm::ArrayRef<VPU::MultiClusterStrategy> clusterStrategies) const;
+                       llvm::ArrayRef<VPU::MultiClusterStrategy> clusterStrategies = {}) const;
     mlir::LogicalResult matchAndRewrite(VPU::NCEConvolutionOp origOp, mlir::PatternRewriter& rewriter) const final;
 
 private:
     int64_t _numClusters;
     Logger _log;
 };
-
-bool NCEConvolutionSplitOverInputChannel::splitNCEConvolutionWithLegacyWeightTable(
-        VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput, SmallVector<VPU::NCEConvolutionOp>& convOps,
-        const OutputTiling& tiles, int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-        VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const {
-    // Get the NCEConvolutionOp's input and kernel sizes
-    const auto inputShape = getShape(origOp.getInput());
-    auto inputW = inputShape[Dims4D::Act::W];
-    auto inputH = inputShape[Dims4D::Act::H];
-    auto inputN = inputShape[Dims4D::Act::N];
-
-    const auto kernelShape = getShape(origOp.getFilter());
-    auto kernelW = kernelShape[Dims4D::Filter::KX];
-    auto kernelH = kernelShape[Dims4D::Filter::KY];
-    auto kernelN = kernelShape[Dims4D::Filter::OC];
-
-    auto filterType = mlir::cast<vpux::NDTypeInterface>(origOp.getFilter().getType());
-    auto filterElemType = filterType.getElementType();
-
-    auto weightsTable = origOp.getWeightsTable();
-    auto weightsTableConst = weightsTable.getDefiningOp<Const::DeclareOp>();
-    if (weightsTableConst == nullptr) {
-        _log.trace("Could not extract constant from weights table.");
-        return false;
-    }
-    auto weightsTableContent = weightsTableConst.getContent();
-    auto weightsTableValues = weightsTableContent.getValues<int32_t>();
-    auto weightsTableVecSize = weightsTableValues.size();
-    std::vector<int32_t> weightsTableVec(weightsTableVecSize);
-    std::copy(weightsTableValues.begin(), weightsTableValues.end(), weightsTableVec.begin());
-
-    auto origDataType = mlir::cast<vpux::NDTypeInterface>(origOp.getType());
-    auto f16Type = mlir::FloatType::getF16(rewriter.getContext());
-    // used as Eltwise inputs
-    // the outputs of ConvOps are used as intermediate data between ConvOps and AddOps
-    // convert it to fp16 to make allowance for both precision and compatibility with Eltwise
-    const auto f16TypeOutputs = origDataType.changeElemType(f16Type);
-
-    for (auto tile = 0; tile < maxTiles; tile++) {
-        auto offsetIC = tiles[tile].offsets[Dims4D::Act::C];
-        auto sizeIC = tiles[tile].shape[Dims4D::Act::C];
-        _log.nest().trace("Slicing channels {0} - {1}", offsetIC, sizeIC);
-
-        // Slice inputs
-        const Shape inSliceOffsets{0, offsetIC, 0, 0};
-        const Shape inSliceShape{inputN, sizeIC, inputH, inputW};
-        auto convInput = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origOp.getInput(),
-                                                       getIntArrayAttr(rewriter, inSliceOffsets.raw()),
-                                                       getIntArrayAttr(rewriter, inSliceShape.raw()));
-
-        // Slice kernels
-        const Shape kernelSliceOffsets{0, offsetIC, 0, 0};
-        const Shape kernelSliceShape{kernelN, sizeIC, kernelH, kernelW};
-        const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
-        auto weightSlice = rewriter.create<VPU::SliceOp>(origOp.getLoc(), weightInput,
-                                                         getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
-                                                         getIntArrayAttr(rewriter, kernelSliceShape.raw()));
-        auto weightSliceResult = weightSlice.getResult();
-        if (weightDequantizeOp != nullptr) {
-            // Slice over VPU.DequantizeOp
-            // TODO: This logic may also be practicable to other element-wise operaions, E#178703
-            // input1            input2
-            //                     |
-            //    \             VPU.DequantizeOp
-            //                     /
-            //    VPU.NCE.Convolution
-
-            // To:
-
-            //  input1                input2
-            //      |                   |
-            // VPU.SlicexN          VPU.SlicexN
-            //                          |
-            //       \          VPU.DequantizeOpxN
-            //                          /
-            //         VPU.NCE.ConvolutionxN
-            //                  |
-            //          VPU.NCE.Eltwise.ADDx(N-1)
-
-            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
-                                                                      weightDequantizeOp.getDstElemTypeAttr(),
-                                                                      weightDequantizeOp.getMultiClusterStrategyAttr());
-            weightSliceResult = dequantizeSlice.getResult();
-        }
-
-        // Adjust the weights table pointers to correspond to the new offsets of the slices
-        const auto noOfBits = vpux::getElemTypeSize(filterElemType);
-        const auto weightSetSize = alignMemSize(kernelH * kernelW * sizeIC * noOfBits,
-                                                Byte(VPU::NCEInvariant::VPU_WEIGHT_SET_BYTE_ALIGNMENT))
-                                           .to<Byte>()
-                                           .count();
-        const auto sparsitySetSize =
-                alignValUp(divUp(kernelH * kernelW * sizeIC, CHAR_BIT * getValuesPerSparsityBit(filterElemType)),
-                           static_cast<int64_t>(VPU::NCEInvariant::VPU_WEIGHT_SET_BYTE_ALIGNMENT));
-
-        auto const weightsOffset = 0;
-        auto const sparsityOffset = 1;
-        auto const biasOffset = 3;
-        for (size_t i = 0; i < weightsTableVecSize / VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC; ++i) {
-            auto index = VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC * i;
-            // Apply bias for the first convolution only
-            // originalConvOp+bias = (convOp0+convOp1+...+convOpN)+bias = (convOp0+bias)+convOp1+...+convOpN
-            if (tile != 0) {
-                weightsTableVec[index + biasOffset] = checked_cast<int32_t>(0);
-            }
-            weightsTableVec[index + weightsOffset] = checked_cast<int32_t>(i * weightSetSize);
-            weightsTableVec[index + sparsityOffset] = checked_cast<int32_t>(i * sparsitySetSize);
-        }
-
-        auto weightsTable = VPU::createWeightsTableTensor(rewriter, origOp->getLoc(), weightsTableVec);
-        auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                origOp.getLoc(), f16TypeOutputs, convInput.getResult(), weightSliceResult, weightsTable,
-                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
-                origOp.getWeightTableBias(), origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(),
-                strippedPpeAttr, origOp.getMpeEngineAttr(), rawKernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-
-        convOps.push_back(convOp);
-    }
-
-    return true;
-}
-
-bool NCEConvolutionSplitOverInputChannel::splitNCEConvolutionWithNewWeightTable(
-        VPU::NCEConvolutionOp& origOp, mlir::Value& weightInput, SmallVector<VPU::NCEConvolutionOp>& convOps,
-        const OutputTiling& tiles, int64_t maxTiles, VPU::DequantizeOp& weightDequantizeOp,
-        VPU::PPEAttr& strippedPpeAttr, mlir::PatternRewriter& rewriter) const {
-    // Get the NCEConvolutionOp's input and kernel sizes
-    const auto inputShape = getShape(origOp.getInput());
-    auto inputW = inputShape[Dims4D::Act::W];
-    auto inputH = inputShape[Dims4D::Act::H];
-    auto inputN = inputShape[Dims4D::Act::N];
-
-    const auto kernelShape = getShape(origOp.getFilter());
-    auto kernelW = kernelShape[Dims4D::Filter::KX];
-    auto kernelH = kernelShape[Dims4D::Filter::KY];
-    auto kernelN = kernelShape[Dims4D::Filter::OC];
-
-    auto biasTable = origOp.getWeightTableBias();
-    std::vector<float> biasTableVec;
-    auto biasTableVecSize = biasTableVec.size();
-    if (biasTable != nullptr) {
-        auto biasTableConst = biasTable.getDefiningOp<Const::DeclareOp>();
-        if (biasTableConst == nullptr) {
-            _log.trace("Could not extract constant from bias table.");
-            return false;
-        }
-        auto biasTableContent = biasTableConst.getContent();
-        auto biasTableValues = biasTableContent.getValues<float>();
-        biasTableVecSize = biasTableValues.size();
-        biasTableVec.resize(biasTableVecSize, 0);
-        std::copy(biasTableValues.begin(), biasTableValues.end(), biasTableVec.begin());
-    }
-
-    auto origDataType = mlir::cast<vpux::NDTypeInterface>(origOp.getType());
-    auto f16Type = mlir::FloatType::getF16(rewriter.getContext());
-    // used as Eltwise inputs
-    const auto f16TypeOutputs = origDataType.changeElemType(f16Type);
-
-    for (auto tile = 0; tile < maxTiles; tile++) {
-        auto offsetIC = tiles[tile].offsets[Dims4D::Act::C];
-        auto sizeIC = tiles[tile].shape[Dims4D::Act::C];
-        _log.nest().trace("Slicing channels {0} - {1}", offsetIC, sizeIC);
-
-        // Slice inputs
-        const Shape inSliceOffsets{0, offsetIC, 0, 0};
-        const Shape inSliceShape{inputN, sizeIC, inputH, inputW};
-        auto convInput = rewriter.create<VPU::SliceOp>(origOp->getLoc(), origOp.getInput(),
-                                                       getIntArrayAttr(rewriter, inSliceOffsets.raw()),
-                                                       getIntArrayAttr(rewriter, inSliceShape.raw()));
-
-        // Slice kernels
-        const Shape kernelSliceOffsets{0, offsetIC, 0, 0};
-        const Shape kernelSliceShape{kernelN, sizeIC, kernelH, kernelW};
-        const auto rawKernelSliceShape = getIntArrayAttr(rewriter, kernelSliceShape);
-        auto weightSlice = rewriter.create<VPU::SliceOp>(origOp.getLoc(), weightInput,
-                                                         getIntArrayAttr(rewriter, kernelSliceOffsets.raw()),
-                                                         getIntArrayAttr(rewriter, kernelSliceShape.raw()));
-        auto weightSliceResult = weightSlice.getResult();
-        if (weightDequantizeOp != nullptr) {
-            auto dequantizeSlice = rewriter.create<VPU::DequantizeOp>(weightDequantizeOp->getLoc(), weightSliceResult,
-                                                                      weightDequantizeOp.getDstElemTypeAttr(),
-                                                                      weightDequantizeOp.getMultiClusterStrategyAttr());
-            weightSliceResult = dequantizeSlice.getResult();
-        }
-
-        // Apply bias for the first convolution only
-        if (tile != 0) {
-            // Set the bias values to 0
-            std::fill(biasTableVec.begin(), biasTableVec.end(), checked_cast<float>(0));
-        }
-
-        auto newBiasTable = biasTable == nullptr
-                                    ? origOp.getWeightTableBias()
-                                    : VPU::createNewWeightsTableTensor<float>(rewriter, origOp->getLoc(), biasTableVec,
-                                                                              rewriter.getF32Type());
-        auto convOp = rewriter.create<VPU::NCEConvolutionOp>(
-                origOp.getLoc(), f16TypeOutputs, convInput.getResult(), weightSliceResult, origOp.getWeightsTable(),
-                origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
-                newBiasTable, origOp.getWeightZeroPoints(), origOp.getStrides(), origOp.getPad(), strippedPpeAttr,
-                origOp.getMpeEngineAttr(), rawKernelSliceShape, origOp.getMultiClusterStrategyAttr(),
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-
-        convOps.push_back(convOp);
-    }
-
-    return true;
-}
 
 // TODO: need to investigate if we can find a better logic to identify the optimal tiling/clustering strategy for new
 // Conv/Add/DequantizeOps, and reuse logic from MultiClusterStrategyAssignment. E#178645
@@ -319,10 +104,13 @@ bool NCEConvolutionSplitOverInputChannel::getStrategies(mlir::Operation* op,
         return false;
     };
 
-    for (auto& strategy : clusterStrategies) {
-        if (_numClusters != 1) {
+    auto strategyIter = clusterStrategies.begin();
+    do {
+        std::optional<VPU::MultiClusterStrategy> strategy = std::nullopt;
+        if (_numClusters != 1 && strategyIter != clusterStrategies.end()) {
+            strategy = *strategyIter;
             auto clusteredOp = mlir::cast<VPU::ClusteredOpInterface>(op);
-            clusteredOp.setMultiClusterStrategy(strategy);
+            clusteredOp.setMultiClusterStrategy(strategy.value());
         }
         for (auto& dimOrder : dimOrders) {
             auto tilingMode = TilingMode::PIPELINING;
@@ -332,23 +120,27 @@ bool NCEConvolutionSplitOverInputChannel::getStrategies(mlir::Operation* op,
                 continue;
             }
             vpux::Shape tempTilingStrategy = tempOptionalTilingStrategyOutputTiling.value()[0].axis;
-            log.trace("Attempt tilingStrategy for op {0}: {1}, {2}", tempTilingStrategy, strategy, op->getName());
+            log.trace("Attempt tilingStrategy for op {0}: {1}", tempTilingStrategy, op->getName());
             if (getNonOneDim(tempTilingStrategy).size() <= 1) {
                 if (updateStrategy(tempTilingStrategy, tilingMode)) {
                     clusterStrategy = strategy;
                 }
             }
         }
-        if (_numClusters == 1) {
-            break;
+        if (strategyIter != clusterStrategies.end()) {
+            ++strategyIter;
         }
-    }
+    } while (strategyIter != clusterStrategies.end() && _numClusters != 1);
+
     return tilingStrategy.has_value();
 }
 
 template <typename OpType>
 void NCEConvolutionSplitOverInputChannel::setStrategies(
         llvm::ArrayRef<OpType> newOps, llvm::ArrayRef<VPU::MultiClusterStrategy> clusterStrategies) const {
+    if (newOps.empty()) {
+        return;
+    }
     auto firstOp = newOps[0];
     std::optional<VPU::MultiClusterStrategy> opMultiClusterStrategy = std::nullopt;
     std::optional<vpux::Shape> opTilingStrategy = std::nullopt;
@@ -359,16 +151,13 @@ void NCEConvolutionSplitOverInputChannel::setStrategies(
         VPUX_THROW("Failed to find legal tilingStrategy for new ops: {0}", firstOp);
     }
 
-    VPUX_THROW_UNLESS(opMultiClusterStrategy.has_value() || _numClusters == 1,
-                      "Operation '{0}' doesn't get a valid multiClusterStrategy: {1}", firstOp->getName(), firstOp);
-
-    _log.debug("[{0}] Set '{1}' at '{2}': '{3}' '{4}' '{5}'", this->getDebugName(), firstOp->getName(),
-               firstOp->getLoc(), opTilingStrategy.value(), opMultiClusterStrategy, firstOp);
+    _log.debug("[{0}] Set '{1}' at '{2}': '{3}' '{4}'", this->getDebugName(), firstOp->getName(), firstOp->getLoc(),
+               opTilingStrategy.value(), firstOp);
 
     for (auto newOp : newOps) {
         newOp.getOperation()->setAttr(vpux::tilingStrategy,
                                       getIntArrayAttr(newOp.getOperation()->getContext(), opTilingStrategy.value()));
-        if (_numClusters > 1) {
+        if (_numClusters > 1 && opMultiClusterStrategy.has_value()) {
             newOp.setMultiClusterStrategy(opMultiClusterStrategy.value());
         }
     }
@@ -432,7 +221,7 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
         return mlir::failure();
     }
 
-    const auto f16Type = mlir::FloatType::getF16(rewriter.getContext());
+    const auto f16Type = mlir::Float16Type::get(rewriter.getContext());
     // used as Eltwise Add inputs
     const auto f16TypeOutputs = ndOutputs.changeElemType(f16Type);
 
@@ -458,6 +247,7 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
                    roundTripFactor, origOp);
         return mlir::failure();
     }
+
     _log.debug("[{0}] Got '{1}' at '{2}': '{3}' '{4}'", this->getDebugName(), origOp->getName(), origOp->getLoc(),
                originalTilingStrategy, origOp);
 
@@ -486,13 +276,6 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
         return mlir::failure();
     }
 
-    // A stripped PPE is generated, ignoring post-op's and per-tensor scale/bias (since NCEConvolutionOp is not a
-    // LayerWithPostOp and scale/bias info is discarded)
-    auto strippedPpeAttr = VPU::PpeVersionConfig::retrievePPEAttribute(origOp);
-    // The original PPE attribute of the convolution (containing post-op and per-tensor scale/bias info), ends up in the
-    // final Add
-    auto finalPpeAttr = origOp.getPpeAttr();
-
     auto weightInput = origOp.getFilter();
     // check for parent weight shave dequantize op
     auto weightDequantizeOp = weightInput.getDefiningOp<VPU::DequantizeOp>();
@@ -500,85 +283,35 @@ mlir::LogicalResult NCEConvolutionSplitOverInputChannel::matchAndRewrite(VPU::NC
         weightInput = weightDequantizeOp.getInput();
     }
 
-    SmallVector<VPU::NCEConvolutionOp> convOps;
-    if (origOp.getWeightsTable() != nullptr) {
-        if (!splitNCEConvolutionWithLegacyWeightTable(origOp, weightInput, convOps, tiles.value(), maxTiles,
-                                                      weightDequantizeOp, strippedPpeAttr, rewriter)) {
-            _log.debug("[{0}] Failed to split over input channel with legacy weight table at '{1}': '{2}'",
-                       this->getDebugName(), origOp->getLoc(), origOp);
-            return mlir::failure();
+    bool isNonConstWTorBias = [](VPU::NCEConvolutionOp origOp) {
+        auto weightsOrBiasTable =
+                origOp.getWeightsTable() != nullptr ? origOp.getWeightsTable() : origOp.getWeightTableBias();
+        if (weightsOrBiasTable != nullptr) {
+            if (weightsOrBiasTable.getDefiningOp<Const::DeclareOp>() == nullptr) {
+                return true;
+            }
         }
-    } else if (!splitNCEConvolutionWithNewWeightTable(origOp, weightInput, convOps, tiles.value(), maxTiles,
-                                                      weightDequantizeOp, strippedPpeAttr, rewriter)) {
-        _log.debug("[{0}] Failed to split over input channel with new weight table at '{1}': '{2}'",
+        return false;
+    }(origOp);
+
+    if (isNonConstWTorBias) {
+        _log.debug("[{0}] Failed to split over input channel since the WT or bias is not a constant at '{1}': '{2}'",
                    this->getDebugName(), origOp->getLoc(), origOp);
         return mlir::failure();
     }
 
-    // Add the outputs of the convolutions with NCEEltwise Add operations. This is needed because NCEConvolutionOp
-    // accumulates all its input channels into 1 output channel. Splitting the Convolutions into smaller Convolutions,
-    // the outputs have to be added together.
-
-    const auto opType = VPU::EltwiseType::ADD;
+    SmallVector<VPU::NCEConvolutionOp> convOps;
     SmallVector<VPU::NCEEltwiseOp> addOps;
-    VPU::NCEEltwiseOp addResult;
-
-    // Elwise-ops do not have a weights table, thus per-channel scale/bias need to be applied through Convolutions. The
-    // PPE for the generated Add's must reflect this by setting neutral values to scale and bias.
-    // TODO: E#150106, a similar logic is also needed for IntPPE
-    if (const auto wtInfoAdapter = VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterWeightsTableInfo*>()) {
-        finalPpeAttr = wtInfoAdapter->discardWeightsTableIfPresent(finalPpeAttr);
-        strippedPpeAttr = wtInfoAdapter->discardWeightsTableIfPresent(strippedPpeAttr);
-    }
-
-    for (size_t index = 0; index < convOps.size() - 1; index++) {
-        const auto addOperand = index == 0 ? convOps[index].getOutput() : addResult.getOutput();
-
-        // NCEEltwise inType and outType are always same with convOp outType
-        // TODO: check how in-place works here, E#178731
-        addResult = rewriter.create<VPU::NCEEltwiseOp>(
-                appendLoc(origOp->getLoc(), "_accumulator"), (index == convOps.size() - 2 ? ndOutputs : f16TypeOutputs),
-                addOperand, convOps[index + 1].getOutput(), opType,
-                (index == convOps.size() - 2 ? finalPpeAttr : strippedPpeAttr), nullptr, nullptr,
-                origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
-
-        // change NCEConv's output layout to supported NCEEltwise input layout
-        // Eg: if NCEConv (inL=NHWC,outL=NCHW) splits into 3 small NCEConv:
-        //   NCEConv (inL=NHWC,out=NHWC)    NCEConv (inL=NHWC,out=NHWC)     NCEConv (inL=NHWC,out=NHWC)
-        //              \                         /                                     /
-        //               NCEElt (inL=NHWC,out=NHWC)                                    /
-        //                             \                                              /
-        //                                         NCEElt (inL=NHWC,out=NCHW)
-        if (auto iface = mlir::dyn_cast<IE::LayoutInfoOpInterface>(addResult.getOperation())) {
-            auto orderInfo = iface.getLayoutInfo();
-            iface.inferLayoutInfo(orderInfo, /*seOpsEnabled=*/false, /*seExperimentalOpsEnabled=*/false);
-            const auto supportOrder1 = orderInfo.getInput(0);
-            const auto supportOrder2 = orderInfo.getInput(1);
-            const auto inputOrder1 = DimsOrder::fromValue(addResult.getInput1());
-            const auto inputOrder2 = DimsOrder::fromValue(addResult.getInput2());
-
-            if (supportOrder1 != inputOrder1 && supportOrder2 != inputOrder2) {
-                const auto newInput1Type = mlir::dyn_cast<vpux::NDTypeInterface>(addResult.getInput1().getType())
-                                                   .changeDimsOrder(supportOrder1);
-                const auto newInput2Type = mlir::dyn_cast<vpux::NDTypeInterface>(addResult.getInput2().getType())
-                                                   .changeDimsOrder(supportOrder2);
-
-                auto input1Op = addResult.getInput1().getDefiningOp();
-                auto input2Op = addResult.getInput2().getDefiningOp();
-                input1Op->getResult(0).setType(newInput1Type);
-                input2Op->getResult(0).setType(newInput2Type);
-
-                addResult.getOperation()->setOperands({input1Op->getResult(0), input2Op->getResult(0)});
-            }
-        }
-        addOps.push_back(addResult);
-    }
+    SmallVector<VPU::DequantizeOp> dequantizeOps;
+    mlir::Value result = VPU::splitNCEConvolutionOverIC(origOp, weightInput, convOps, addOps, dequantizeOps,
+                                                        tiles.value(), weightDequantizeOp, rewriter, _log.nest());
 
     setStrategies<VPU::NCEConvolutionOp>(
             convOps, {VPU::MultiClusterStrategy::SplitOverKernel, VPU::MultiClusterStrategy::SplitOverHeight});
     setStrategies<VPU::NCEEltwiseOp>(addOps, {VPU::MultiClusterStrategy::SplitOverHeight});
+    setStrategies<VPU::DequantizeOp>(dequantizeOps);
 
-    rewriter.replaceOp(origOp, addResult.getOutput());
+    rewriter.replaceOp(origOp, result);
 
     return mlir::success();
 }

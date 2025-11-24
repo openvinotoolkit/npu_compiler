@@ -4,10 +4,11 @@
 //
 
 #include "vpux/compiler/core/barrier_info.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
-#include "vpux/compiler/utils/shave.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 namespace vpux::VPURT {
 #define GEN_PASS_DECL_OPTIMIZEBARRIERSSLOTSUSAGE
@@ -37,7 +38,7 @@ void OptimizeBarriersSlotsUsagePass::safeRunOnFunc() {
 
     mlir::DenseSet<vpux::VPU::ExecutorKind> executorsKind{VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU};
 
-    if (VPU::isFifoPerShaveEngineEnabled(func)) {
+    if (config::isFifoPerShaveEngineEnabled(func)) {
         executorsKind.insert(VPU::ExecutorKind::SHAVE_ACT);
     }
 

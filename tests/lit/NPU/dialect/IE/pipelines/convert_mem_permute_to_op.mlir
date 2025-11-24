@@ -267,8 +267,8 @@ func.func @SkipTrivialMemPermute(%arg0: tensor<1x32x48x64xf16, {order = affine_m
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: @UnsupportedDimN
-func.func @UnsupportedDimN(%arg0: tensor<25x14x14x2304xf16>) -> tensor<25x14x2304x14xf16> {
+// CHECK-LABEL: @ReshapeDimN
+func.func @ReshapeDimN(%arg0: tensor<25x14x14x2304xf16>) -> tensor<25x14x2304x14xf16> {
     %MEM_PERMUTE = IE.MemPermute(%arg0) {
         dst_order = #NCHW,
         mem_perm = #NHWC
@@ -276,12 +276,11 @@ func.func @UnsupportedDimN(%arg0: tensor<25x14x14x2304xf16>) -> tensor<25x14x230
 
     return %MEM_PERMUTE : tensor<25x14x2304x14xf16>
 
-    // CHECK-NOT:   IE.ShapeCast
-    // CHECK-NOT:   IE.LayoutCast
-    // CHECK-NOT:   IE.MaxPool
-    // CHECK:       [[MEM_PERMUTE:%.+]] = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NHWC} :
-    // CHECK-SAME:  tensor<25x14x14x2304xf16> -> tensor<25x14x2304x14xf16>
-    // CHECK:       return [[MEM_PERMUTE]] : tensor<25x14x2304x14xf16>
+    // CHECK:       [[SHAPE_CAST1:%.+]] = IE.ShapeCast {shape = [1, 25, 14, 32256]} inputs(%arg0 : tensor<25x14x14x2304xf16>) -> tensor<1x25x14x32256xf16>
+    // CHECK:       [[MEM_PERMUTE:%.+]] = IE.MemPermute([[SHAPE_CAST1]]) {dst_order = #NCHW, mem_perm = #NCWH} :
+    // CHECK-SAME:  tensor<1x25x14x32256xf16> -> tensor<1x25x32256x14xf16>
+    // CHECK:       [[SHAPE_CAST2:%.+]] = IE.ShapeCast {shape = [25, 14, 2304, 14]} inputs([[MEM_PERMUTE]] : tensor<1x25x32256x14xf16>) -> tensor<25x14x2304x14xf16>
+    // CHECK:       return [[SHAPE_CAST2]] : tensor<25x14x2304x14xf16>
 }
 
 // -----
@@ -1524,8 +1523,10 @@ func.func @DoNotConvertMemPermuteIntoMultipleMaxPool(%arg0: tensor<12x64x64x4x!q
 
     return %0 : tensor<12x4x64x64x!qElemType>
 
-    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<12x64x64x4x!qElemType> -> tensor<12x4x64x64x!qElemType>
-    // CHECK:       return [[MEMPERMUTE]] : tensor<12x4x64x64x!qElemType>
+    // CHECK:       [[SHAPE_CAST1:%.+]] = IE.ShapeCast {shape = [1, 12, 4096, 4]} inputs([[INPUT]] : tensor<12x64x64x4x!qElemType>) -> tensor<1x12x4096x4x!qElemType>
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[SHAPE_CAST1]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x12x4096x4x!qElemType> -> tensor<1x12x4x4096x!qElemType>
+    // CHECK:       [[SHAPE_CAST2:%.+]] = IE.ShapeCast {shape = [12, 4, 64, 64]} inputs([[MEMPERMUTE]] : tensor<1x12x4x4096x!qElemType>) -> tensor<12x4x64x64x!qElemType>
+    // CHECK:       return [[SHAPE_CAST2]] : tensor<12x4x64x64x!qElemType>
 }
 
 // -----
@@ -1567,3 +1568,42 @@ func.func @MemPermuteWithSmallByteSize(%arg0: tensor<1x16x32x2xf16, {order = #NH
     // CHECK:       [[PERMUTECAST:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NHWC, mem_perm = #NCHW} : tensor<1x16x32x2xf16, {order = #NCWH}> -> tensor<1x32x16x2xf16, {order = #NHWC}>
     // CHECK:       return [[PERMUTECAST]] : tensor<1x32x16x2xf16, {order = #NHWC}>
 }
+
+// -----
+
+!qElemType = !quant.uniform<u16:f16, 0.0039686492845123888>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @DoNotConvertQuantized16bitsMemPermuteIntoMaxPoolNBatches
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<12x64x64x4x!qElemType>
+func.func @DoNotConvertQuantized16bitsMemPermuteIntoMaxPoolNBatches(%arg0: tensor<12x64x64x4x!qElemType>) -> tensor<12x4x64x64x!qElemType> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<12x64x64x4x!qElemType> -> tensor<12x4x64x64x!qElemType>
+
+    return %0 : tensor<12x4x64x64x!qElemType>
+
+    // CHECK:       [[SHAPE_CAST1:%.+]] = IE.ShapeCast {shape = [1, 12, 4096, 4]} inputs([[INPUT]] : tensor<12x64x64x4x!qElemType>) -> tensor<1x12x4096x4x!qElemType>
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute([[SHAPE_CAST1]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x12x4096x4x!qElemType> -> tensor<1x12x4x4096x!qElemType>
+    // CHECK:       [[SHAPE_CAST2:%.+]] = IE.ShapeCast {shape = [12, 4, 64, 64]} inputs([[MEMPERMUTE]] : tensor<1x12x4x4096x!qElemType>) -> tensor<12x4x64x64x!qElemType>
+    // CHECK:       return [[SHAPE_CAST2]] : tensor<12x4x64x64x!qElemType>
+}
+
+// -----
+
+!qElemType = !quant.uniform<u16:f16, 0.0039686492845123888>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL: @DoNotConvertQuantized16bitsMemPermuteIntoMaxPool1Batch
+// CHECK-SAME:        [[INPUT:%arg[0-9]]]: tensor<1x64x64x4x!qElemType>
+func.func @DoNotConvertQuantized16bitsMemPermuteIntoMaxPool1Batch(%arg0: tensor<1x64x64x4x!qElemType>) -> tensor<1x4x64x64x!qElemType> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x64x64x4x!qElemType> -> tensor<1x4x64x64x!qElemType>
+
+    return %0 : tensor<1x4x64x64x!qElemType>
+
+    // CHECK:       [[MEMPERMUTE:%.+]] = IE.MemPermute(%arg0) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x64x64x4x!qElemType> -> tensor<1x4x64x64x!qElemType>
+    // CHECK:       return [[MEMPERMUTE]] : tensor<1x4x64x64x!qElemType>
+}
+
+
+

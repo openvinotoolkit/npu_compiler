@@ -334,20 +334,27 @@ private:
         return vector;
     }
 
-    void setBarrierAttributes(const TaskVector& tasks, mlir::MLIRContext* ctx) {
-        for (auto task : tasks) {
-            auto& op = std::get<0>(task);
-            const auto& barrierConfig = std::get<1>(task);
+    void setBarrierAttributes(const TaskVector& tasks, mlir::MLIRContext* ctx, bool startAfter = true,
+                              bool cleanAfter = true) {
+        if (startAfter) {
+            for (auto task : tasks) {
+                auto& op = std::get<0>(task);
+                const auto& barrierConfig = std::get<1>(task);
+                auto newStartAfterAttr = mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Unsigned), barrierConfig.start_after_);
+                op->setAttr("start_after", newStartAfterAttr);
+            }
+        }
 
-            auto newStartAfterAttr = mlir::IntegerAttr::get(
-                    mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Unsigned), barrierConfig.start_after_);
+        if (cleanAfter) {
+            for (auto task : tasks) {
+                auto& op = std::get<0>(task);
+                const auto& barrierConfig = std::get<1>(task);
+                auto newCleanAfterAttr = mlir::IntegerAttr::get(
+                        mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Unsigned), barrierConfig.clean_after_);
 
-            op->setAttr("start_after", newStartAfterAttr);
-
-            auto newCleanAfterAttr = mlir::IntegerAttr::get(
-                    mlir::IntegerType::get(ctx, 64, mlir::IntegerType::Unsigned), barrierConfig.clean_after_);
-
-            op->setAttr("clean_after", newCleanAfterAttr);
+                op->setAttr("clean_after", newCleanAfterAttr);
+            }
         }
     }
 
@@ -399,8 +406,9 @@ private:
         for (auto& dma : dmas) {
             setBarrierAttributes(dma, ctx);
         }
-        setBarrierAttributes(dpus, ctx);
-        setBarrierAttributes(acts, ctx);
+        // do not change clean_after attributes for DPU and SHV tasks, as these were set by BarrierSimulation pass
+        setBarrierAttributes(dpus, ctx, true, false);
+        setBarrierAttributes(acts, ctx, true, false);
         setBarrierAttributes(m2is, ctx);
     }
 };

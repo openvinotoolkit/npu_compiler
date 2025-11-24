@@ -443,11 +443,11 @@ func.func @NotOptConcatAndSliceWithAffineReshapeAndSplitConcatAxis(
 
 // -----
 
-// CHECK-LABEL: @OptConcatAndSliceWithAffineReshapeAndMergeConcatAxis
+// CHECK-LABEL: @NotOptConcatAndSliceWithAffineReshapeAndMergeConcatAxis
 // CHECK-SAME:      [[INPUT0:%.+]]: tensor<1x2x3x4xf16>
 // CHECK-SAME:      [[INPUT1:%.+]]: tensor<1x2x4x4xf16>
 // CHECK-SAME:      [[INPUT2:%.+]]: tensor<1x2x5x4xf16>
-func.func @OptConcatAndSliceWithAffineReshapeAndMergeConcatAxis(
+func.func @NotOptConcatAndSliceWithAffineReshapeAndMergeConcatAxis(
                 %arg0: tensor<1x2x3x4xf16>, %arg1: tensor<1x2x4x4xf16>, %arg2: tensor<1x2x5x4xf16>) -> tensor<1x6x1x4xf16> {
     %0 = IE.Concat(%arg0, %arg1, %arg2) {
             static_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 7, 0]]
@@ -459,9 +459,11 @@ func.func @OptConcatAndSliceWithAffineReshapeAndMergeConcatAxis(
 
     return %2 : tensor<1x6x1x4xf16>
 
-    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[INPUT1]]) {
-    // CHECK-SAME{LITERAL}:       dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 8, 1, 4]} : tensor<1x2x4x4xf16> -> tensor<1x8x1x4xf16>
-    // CHECK:       [[SLICE:%.+]] = IE.Slice [[RESHAPE]] [0, 1, 0, 0] [1, 6, 1, 4] : tensor<1x8x1x4xf16> to tensor<1x6x1x4xf16>
+    // CHECK:       [[CONCAT:%.+]] = IE.Concat([[INPUT0]], [[INPUT1]], [[INPUT2]]) {
+    // CHECK-SAME{LITERAL}:       static_offsets = [[0, 0, 0, 0], [0, 0, 3, 0], [0, 0, 7, 0]]} : tensor<1x2x3x4xf16>, tensor<1x2x4x4xf16>, tensor<1x2x5x4xf16> -> tensor<1x2x12x4xf16>
+    // CHECK:       [[RESHAPE:%.+]] = IE.AffineReshape([[CONCAT]]) {
+    // CHECK-SAME{LITERAL}:       dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 24, 1, 4]} : tensor<1x2x12x4xf16> -> tensor<1x24x1x4xf16>
+    // CHECK:       [[SLICE:%.+]] = IE.Slice [[RESHAPE]] [0, 7, 0, 0] [1, 6, 1, 4] : tensor<1x24x1x4xf16> to tensor<1x6x1x4xf16>
 
     // CHECK:       return [[SLICE]] : tensor<1x6x1x4xf16>
 }

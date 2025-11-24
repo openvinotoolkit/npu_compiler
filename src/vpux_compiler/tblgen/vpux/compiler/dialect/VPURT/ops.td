@@ -257,7 +257,9 @@ def VPURT_TaskOp :
         Optional<VPURT_Barrier>:$enqueueBarrier,
         DefaultValuedAttr<BoolAttr, "false">:$isTrailingSWLayer,
         OptionalAttr<IntAttr>:$wlmPage,
-        Property<"std::optional<int64_t>">:$taskIndex
+        Property<"std::optional<int64_t>">:$taskIndex,
+        OptionalAttr<IntAttr>:$start_after,
+        OptionalAttr<IntAttr>:$clean_after
     );
 
     let regions = (region

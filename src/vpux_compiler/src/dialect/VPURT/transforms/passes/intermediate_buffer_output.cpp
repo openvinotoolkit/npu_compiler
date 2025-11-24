@@ -211,11 +211,11 @@ void updateOutputType(mlir::Type newOutType, mlir::func::FuncOp funcOp) {
 
     auto newOutTypeND = mlir::cast<vpux::NDTypeInterface>(newOutType);
     // precision must be float or integer
-    mlir::Type elementType = mlir::FloatType::getF32(funcOp.getContext());
+    mlir::Type elementType = mlir::Float32Type::get(funcOp.getContext());
     if (newOutTypeND.getElementType().isF32()) {
-        elementType = mlir::FloatType::getF16(funcOp.getContext());
+        elementType = mlir::Float16Type::get(funcOp.getContext());
     } else if (newOutTypeND.getElementType().isF16()) {
-        elementType = mlir::FloatType::getF16(funcOp.getContext());
+        elementType = mlir::Float16Type::get(funcOp.getContext());
     } else if (auto integerInput = mlir::dyn_cast<mlir::IntegerType>(newOutTypeND.getElementType())) {
         elementType =
                 mlir::IntegerType::get(funcOp.getContext(), integerInput.getWidth(), integerInput.getSignedness());

@@ -6,11 +6,41 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
 #include "vpux/compiler/dialect/IE/utils/const_attributes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
 
 using namespace vpux;
+
+namespace {
+
+std::tuple<vpux::Shape, vpux::Bounds, vpux::DynamicDimsMask> calcFullyConnectedOutputShape(mlir::Value input,
+                                                                                           mlir::Value weights) {
+    const auto inType = mlir::cast<mlir::ShapedType>(input.getType());
+    const auto weightsType = mlir::cast<mlir::ShapedType>(weights.getType());
+    mlir::ShapedType dynType = inType;
+    mlir::ShapedType statType = weightsType;
+    size_t dynamicIdx = 0;
+    size_t staticIdx = 1;
+
+    if (mlir::dyn_cast<Core::BoundedTensorType>(weightsType)) {
+        dynType = weightsType;
+        statType = inType;
+        dynamicIdx = 1;
+        staticIdx = 0;
+    }
+
+    return callOnShapeOf(dynType, [&](const auto& dynShape) {
+        auto outShape = copyShape(dynShape);
+        outShape[Dim(dynamicIdx)] = dynShape[Dim(0)];
+        outShape[Dim(staticIdx)] = statType.getShape()[0];
+        return splitShapeAndRepresentation(outShape);
+    });
+}
+}  // namespace
 
 mlir::LogicalResult vpux::IE::FullyConnectedOp::inferReturnTypeComponents(
         mlir::MLIRContext* ctx, std::optional<mlir::Location> optLoc, mlir::ValueShapeRange operands,
@@ -23,8 +53,8 @@ mlir::LogicalResult vpux::IE::FullyConnectedOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::ShapedType>(fullyConnected.getInput().getType());
-    const auto weightsType = mlir::cast<mlir::ShapedType>(fullyConnected.getWeights().getType());
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(fullyConnected.getInput().getType());
+    const auto weightsType = mlir::cast<vpux::NDTypeInterface>(fullyConnected.getWeights().getType());
     const auto inShape = inType.getShape();
     const auto weightsShape = weightsType.getShape();
     const auto inRank = inShape.size();
@@ -34,11 +64,11 @@ mlir::LogicalResult vpux::IE::FullyConnectedOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    SmallVector<int64_t> outShape;
-    outShape.push_back(inShape[0]);
-    outShape.push_back(weightsShape[0]);
-
-    inferredReturnShapes.emplace_back(outShape, inType.getElementType());
+    auto [outStaticShape, outBounds, outDimMask] =
+            calcFullyConnectedOutputShape(fullyConnected.getInput(), fullyConnected.getWeights());
+    SmallVector<int64_t> outShape(outStaticShape.begin(), outStaticShape.end());
+    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), outBounds, outDimMask);
+    inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }
@@ -104,6 +134,7 @@ mlir::LogicalResult FuseFCAndBias::matchAndRewrite(IE::AddOp biasOp, mlir::Patte
     }
 
     auto* newFC = rewriter.clone(*fullyConnectedOp);
+    extendOpLoc(newFC, "as_fc");
     newFC->insertOperands(newFC->getNumOperands(), biasOp.getInput2());
 
     rewriter.replaceOp(biasOp, newFC->getOpResults());

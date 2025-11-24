@@ -2314,7 +2314,7 @@ TEST_F(MLIR_ClusterShapeUtilsDeathTest, AlignedBufferDistribution) {
 
     const auto numClustersAttr = getIntAttr(&ctx, 4);
 
-    const auto elemType = mlir::Float16Type::get(&ctx);
+    const mlir::Type elemType = mlir::Float16Type::get(&ctx);
     const auto dimsOrder = mlir::AffineMapAttr::get(DimsOrder::NHWC.toAffineMap(&ctx));
     const auto dimsSpace = vpux::IndexedSymbolAttr::get(&ctx, CMX_NAME);
 
@@ -2326,25 +2326,19 @@ TEST_F(MLIR_ClusterShapeUtilsDeathTest, AlignedBufferDistribution) {
     const auto shape = SmallVector<int64_t>({1, 60, 59, 15});
     const auto elemStrides = SmallVector<int64_t>({60 * 15 * 59, 1, 60 * 15, 60});
     const auto stridesAttr = getIntArrayAttr(&ctx, elemStrides);
-    const auto layout = vpux::MemRefAttr::get(dimsOrder, stridesAttr,
-                                              /*allocSize=*/nullptr, &ctx);
+    const mlir::MemRefLayoutAttrInterface layout = vpux::MemRefAttr::get(dimsOrder, stridesAttr,
+                                                                         /*allocSize=*/nullptr, &ctx);
     const auto distributionModeAttr = VPU::DistributionModeAttr::get(&ctx, VPU::DistributionMode::OVERLAPPED);
     const auto numTilesAttr = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 4, 1}));
     const auto alignment = getIntArrayAttr(&ctx, SmallVector<int64_t>({1, 1, 9, 1}));
     const auto distributedAttr = VPU::DistributionInfoAttr::get(&ctx, distributionModeAttr, numTilesAttr, kernel, pads,
                                                                 strides, numClustersAttr, alignment, nullptr, nullptr,
                                                                 nullptr, nullptr, nullptr, nullptr);
+    const VPUIP::SparsityCompressionAttr sparsityCompressionAttr = nullptr;
 
-#if !defined(NDEBUG)
-    EXPECT_DEATH(VPUIP::DistributedBufferType::get(&ctx, shape, elemType, layout, dimsSpace, distributedAttr),
-                 "Overlapped cluster tiling does not support alignment on the same axis used for tiling");
-#else
-    const auto distributedType =
-            VPUIP::DistributedBufferType::get(&ctx, shape, elemType, layout, dimsSpace, distributedAttr);
-    EXPECT_TRUE(VPU::verify(mlir::detail::getDefaultDiagnosticEmitFn(&ctx), distributedType.getDistribution(),
-                            distributedType.getShape().raw())
-                        .failed());
-#endif
+    EXPECT_EQ(VPUIP::DistributedBufferType::getChecked(mlir::UnknownLoc::get(&ctx), &ctx, ArrayRef(shape), elemType,
+                                                       layout, dimsSpace, distributedAttr, sparsityCompressionAttr),
+              nullptr);
 }
 
 // SOH, K striding

@@ -120,7 +120,7 @@ func.func @DifferentQuantizationParams(%arg0: tensor<1x2x4x4x!qElemType>) -> ten
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x12x512x8xf16>)
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @FuseReshapeQuantizationParamsDifferent(%input: tensor<1x12x512x8xf16>) -> tensor<1x12288x4x1xf16> {
@@ -152,7 +152,7 @@ func.func @FuseReshapeQuantizationParamsDifferent(%input: tensor<1x12x512x8xf16>
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x12x512x8xf16>)
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @FuseAffineReshapeQuantizationParamsDifferent(%input: tensor<1x12x512x8xf16>) -> tensor<1x12288x4x1xf16> {
@@ -184,7 +184,7 @@ func.func @FuseAffineReshapeQuantizationParamsDifferent(%input: tensor<1x12x512x
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x12x256x2xf16>)
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @FuseSliceQuantizationParamsDifferent(%input: tensor<1x12x256x2xf16>) -> tensor<1x12x256x1xf16> {
@@ -216,7 +216,7 @@ func.func @FuseSliceQuantizationParamsDifferent(%input: tensor<1x12x256x2xf16>) 
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x12x256x2xf16>)
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @FuseTileQuantizationParamsDifferent(%input: tensor<1x12x256x2xf16>) -> tensor<1x12x256x4xf16> {
@@ -250,7 +250,7 @@ func.func @FuseTileQuantizationParamsDifferent(%input: tensor<1x12x256x2xf16>) -
 // CHECK-SAME:     ([[INPUT:%.+]]: tensor<1x512x12x8xf16>)
 module {
 config.PipelineOptions @Options {
-    config.Option @VPU.EnableAdaptiveStripping : true
+    config.Option @config.EnableAdaptiveStripping : true
 }
 
 func.func @FuseTransposeQuantizationParamsDifferent(%input: tensor<1x512x12x8xf16>) -> tensor<1x12x512x8xf16> {

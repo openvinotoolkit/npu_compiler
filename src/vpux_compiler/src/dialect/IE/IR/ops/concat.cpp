@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
+#include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -89,10 +90,14 @@ Shape getDynamicShape(const mlir::Value val) {
 }
 
 Shape getUpperBounds(const mlir::Value val) {
-    auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(val.getType());
-    VPUX_THROW_UNLESS(boundedType != nullptr, "Failed to cast {0} to BoundedTensorType at {1}", val.getType(),
-                      val.getLoc());
-    return Shape(boundedType.getBounds().raw());
+    auto tensorType = val.getType();
+    if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(tensorType)) {
+        const auto bounds = boundedType.getBounds();
+        return Shape(bounds.raw());
+    }
+
+    auto staticShape = mlir::cast<mlir::RankedTensorType>(tensorType).getShape();
+    return Shape(staticShape);
 }
 
 mlir::FailureOr<Shape> inferOutShapeWithAxis(IE::ConcatOpAdaptor concat, const GetShapeFunc& getShapeFunctor,
@@ -100,10 +105,6 @@ mlir::FailureOr<Shape> inferOutShapeWithAxis(IE::ConcatOpAdaptor concat, const G
     const auto axis = normalizeAxis(concat);
 
     Shape outShape = getShapeFunctor(concat.getInputs().front());
-
-    if (outShape[axis] == mlir::ShapedType::kDynamic) {
-        return errorAt(loc, "Concatenation over dynamic dimension is not supported.");
-    }
 
     for (const auto val : concat.getInputs().drop_front()) {
         const auto curShape = getShapeFunctor(val);
@@ -113,7 +114,9 @@ mlir::FailureOr<Shape> inferOutShapeWithAxis(IE::ConcatOpAdaptor concat, const G
                            outShape.size());
         }
 
-        outShape[axis] += curShape[axis];
+        if (outShape[axis] != mlir::ShapedType::kDynamic) {
+            outShape[axis] += curShape[axis];
+        }
     }
 
     const auto perAxis = concat.getPerAxis().value();
@@ -128,9 +131,18 @@ mlir::FailureOr<Shape> inferOutShapeWithAxis(IE::ConcatOpAdaptor concat, const G
         maxLatestIdx = std::max(maxLatestIdx, latestElemIdx);
     }
 
-    if (maxLatestIdx >= outShape[axis]) {
-        return errorAt(loc, "Concat with offset '{0}' and stride '{1}' doesn't fit to output dimension '{2}'", offset,
-                       stride, outShape[axis]);
+    if (outShape[axis] == mlir::ShapedType::kDynamic) {
+        const auto bounds = getUpperBounds(concat.getInputs().front());
+
+        if (maxLatestIdx >= bounds[axis]) {
+            return errorAt(loc, "Concat with offset '{0}' and stride '{1}' doesn't fit to output dimension '{2}'",
+                           offset, stride, bounds[axis]);
+        }
+    } else {
+        if (maxLatestIdx >= outShape[axis]) {
+            return errorAt(loc, "Concat with offset '{0}' and stride '{1}' doesn't fit to output dimension '{2}'",
+                           offset, stride, outShape[axis]);
+        }
     }
 
     return outShape;
@@ -172,7 +184,6 @@ mlir::FailureOr<Shape> inferReturnShapeWithOffsets(IE::ConcatOpAdaptor concat, c
             const auto d = Dim(ind);
 
             if (curShape[d] == mlir::ShapedType::kDynamic) {
-                VPUX_THROW_UNLESS(curOffsets[d] == 0, "Concatenation over dynamic dimension is not supported.");
                 outShape[d] = curShape[d];
             } else {
                 outShape[d] = std::max(outShape[d], curOffsets[d] + curShape[d]);
@@ -251,7 +262,15 @@ mlir::LogicalResult vpux::IE::ConcatOp::inferReturnTypeComponents(
         const auto curDesc = vpux::getTensorAttr(curType);
 
         if (curDesc != inDesc) {
-            return errorAt(loc, "Misaligned TensorType attributes for '{0}' inputs", IE::ConcatOp::getOperationName());
+            if ((!curType.hasStaticShape() && inType.hasStaticShape()) ||
+                (curType.hasStaticShape() && !inType.hasStaticShape())) {
+                continue;
+            }
+            // Bounds may be different.
+            if (curDesc.getOrder() != inDesc.getOrder() || curDesc.getMemSpace() != inDesc.getMemSpace()) {
+                return errorAt(loc, "Misaligned TensorType attributes for '{0}' inputs",
+                               IE::ConcatOp::getOperationName());
+            }
         }
     }
 
@@ -322,6 +341,9 @@ mlir::LogicalResult ConvertPerAxisToOffsets::matchAndRewrite(IE::ConcatOp origOp
     // Negative value means counting dimension from the end
     if (axis < 0) {
         axis += rank;
+    }
+    if (outType.getShape()[Dim(axis)] == mlir::ShapedType::kDynamic) {
+        return mlir::failure();
     }
     const auto finalOffsetsAttr = inferOffsetsAttrWithAxis(origOp, axis);
 

@@ -175,6 +175,10 @@ bool isBranchingPassthroughOp(mlir::Operation* op) {
     return false;
 }
 
+bool isTransparentOp(mlir::Operation* op) {
+    return mlir::isa<VPU::QuantizeCastOp, VPU::GroupSparseTensorOp>(op);
+}
+
 using SiblingSearchStackFrame = std::pair<mlir::Value, int64_t>;
 
 void findSiblings(mlir::Value operand, std::set<VPU::ClusteredOpInterface>& siblings,
@@ -211,17 +215,17 @@ void findSiblings(mlir::Value operand, std::set<VPU::ClusteredOpInterface>& sibl
                 stack.emplace(user->getResult(0), currentLevel - 1);
             }
 
-            const bool notBranchingPassthrough = !isBranchingPassthroughOp(user) && isPassthroughOp(user);
             for (const auto siblingOperand : user->getOperands()) {
-                if (siblingOperand != currentOperand) {
-                    if (notBranchingPassthrough) {
-                        for (const auto siblingUser : siblingOperand.getUsers()) {
-                            if (!isBranchingPassthroughOp(siblingUser) && isPassthroughOp(siblingUser)) {
-                                stack.emplace(siblingUser->getResult(0), currentLevel - 1);
-                            }
+                if (siblingOperand == currentOperand) {
+                    continue;
+                }
+                stack.emplace(siblingOperand, currentLevel - 1);
+                if (isTransparentOp(user)) {
+                    for (const auto siblingUser : siblingOperand.getUsers()) {
+                        if (isTransparentOp(siblingUser)) {
+                            stack.emplace(siblingUser->getResult(0), currentLevel - 1);
                         }
                     }
-                    stack.emplace(siblingOperand, currentLevel - 1);
                 }
             }
         };
@@ -253,7 +257,7 @@ bool vpux::VPU::isPassthroughOp(mlir::Operation* op) {
     //     NceOp0          NceOp1
     // NceOp0 and NceOp1 should be aware of each other as siblings to be able to properly set their input distributions
     // TODO: 104112 avoid spilling due to other view ops besides of QuantizeCast
-    if (mlir::isa<VPU::QuantizeCastOp, VPU::GroupSparseTensorOp>(op)) {
+    if (isTransparentOp(op)) {
         return true;
     }
 
@@ -554,7 +558,7 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
     const auto numTilesPerDim = (kernelTileAxis == Dims4D::Kernel::Y.ind())
                                         ? activationTensorNumTiles[Dims4D::Act::H.ind()]
                                         : activationTensorNumTiles[Dims4D::Act::W.ind()];
-    const auto inputShape = inType.getShape();
+    const auto inputShape = getBoundedShape(inType);
     auto isOverlappedParamsValidForSplit = [&]() {
         const std::pair<int64_t, int64_t> inputHW = {inputShape[Dims4D::Act::H], inputShape[Dims4D::Act::W]};
         auto pads = candidateOverlappedParams.getPads();
@@ -608,12 +612,12 @@ OverlapDistributionParams vpux::VPU::getActivationOverlappedParams(VPU::Clustere
     const auto optionalCandidateShapes = getPerClusterMemoryShapes(inputShape, candidateDistribution);
     VPUX_THROW_UNLESS(optionalCandidateShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", candidateDistribution);
-    const auto candidateShapes = optionalCandidateShapes.value();
+    const auto& candidateShapes = optionalCandidateShapes.value();
     const auto localOffsets = getPerClusterMemoryShapeOffsets(inputShape, localDistributedAttr);
     const auto optionalLocalShapes = getPerClusterMemoryShapes(inputShape, localDistributedAttr);
     VPUX_THROW_UNLESS(optionalLocalShapes.has_value(),
                       "Cannot get per cluster memory shapes. Unsupported distribution: {0}", localDistributedAttr);
-    const auto localShapes = optionalLocalShapes.value();
+    const auto& localShapes = optionalLocalShapes.value();
 
     for (auto offsetPerClusterZip : zip(candidateOffsets, localOffsets)) {
         for (auto dimZip : zip(std::get<0>(offsetPerClusterZip), std::get<1>(offsetPerClusterZip))) {
@@ -827,7 +831,8 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(VPU::ClusteredOpI
     const auto strides = SmallVector<int64_t>{1, 1};
     const auto fallbackOverlappedParams = OverlapDistributionParams(kernel, pads, strides, equalComputeAndMemoryView);
 
-    const auto outputShape = (outputType == nullptr) ? getShape(clusteredOp->getResult(0)) : outputType.getShape();
+    const auto outputShape =
+            (outputType == nullptr) ? getBoundedShape(clusteredOp->getResult(0)) : getBoundedShape(outputType);
     const auto optionalCandidateMemoryShapes = getPerClusterMemoryShapes(outputShape, candidateDistribution);
     if (!optionalCandidateMemoryShapes.has_value()) {
         // If NCEProducer has tiling required and the tiled shape does not satisfy producer op
@@ -848,7 +853,7 @@ OverlapDistributionParams vpux::VPU::getOutputOverlappedParams(VPU::ClusteredOpI
         }
     }
 
-    const auto candidateMemoryShapes = optionalCandidateMemoryShapes.value();
+    const auto& candidateMemoryShapes = optionalCandidateMemoryShapes.value();
     const auto candidateMemoryEndOffset = getPerClusterEndOffset(candidateMemoryOffsets, candidateMemoryShapes);
     const auto candidateComputeEndOffset = getPerClusterEndOffset(candidateComputeOffsets, candidateComputeShapes);
 

@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/IE/utils/auto_padding_utils.hpp"
+#include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"

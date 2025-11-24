@@ -5,7 +5,6 @@
 
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 #include <map>
 #include <mutex>
 #include <sstream>
@@ -319,7 +318,8 @@ private:
 IRSerializer::IRSerializer(const std::shared_ptr<const ov::Model>& origModel, const std::string& logLevelStr,
                            const uint32_t supportedOpset)
         : _supportedOpset(supportedOpset) {
-    _vclLogger = std::make_shared<VPUXDriverCompiler::VCLLogger>("serializeIR", getLogLevel(logLevelStr), false);
+    _vclLogger = std::make_shared<VPUXDriverCompiler::VCLLogger>(llvm::StringLiteral("serializeIR"),
+                                                                 getLogLevel(logLevelStr), false);
     // There is no const variant of run_passes so use const_cast here
     // as model serialization does not mutate the model
     _model = std::const_pointer_cast<ov::Model>(origModel);

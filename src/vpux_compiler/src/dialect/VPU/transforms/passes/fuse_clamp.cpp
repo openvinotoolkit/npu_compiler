@@ -86,15 +86,12 @@ bool isLegalClamp(VPU::ClampOp clampOp) {
 
 class FuseClampPass final : public VPU::impl::FuseClampPassBase<FuseClampPass> {
 public:
-    explicit FuseClampPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FuseClampPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void FuseClampPass::safeRunOnFunc() {

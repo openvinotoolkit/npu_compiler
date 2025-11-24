@@ -44,6 +44,7 @@ def VPU_DeformablePSROIPoolingOp :
 def VPU_ExperimentalDetectronROIFeatureExtractorOp :
         VPU_LayerOp<
             "ExperimentalDetectronROIFeatureExtractor", [
+               DeclareOpInterfaceMethods<VPU_AuxiliaryBufferOpInterface>,
                AttrSizedOperandSegments
             ]
         > {
@@ -267,23 +268,58 @@ def VPU_YuvToRgbOp :
             "YuvToRgb",
             [
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
-                AttrSizedOperandSegments
+                AttrSizedOperandSegments,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
             ]
         > {
     let summary = "InferenceEngine NV12/I420 to RGB/BGR layer";
 
     let arguments = (ins
-                 4DTensorOf<[UI8, F16, F32]> :$input1,
-        Optional<4DTensorOf<[UI8, F16, F32]>>:$input2,
-        Optional<4DTensorOf<[UI8, F16, F32]>>:$input3,
+                 AnyTypeOf<[RankedTensorOf<[UI8, F16, F32]>, VPU_DistributedTensor]> :$input1,
+        Optional<AnyTypeOf<[RankedTensorOf<[UI8, F16, F32]>, VPU_DistributedTensor]>>:$input2,
+        Optional<AnyTypeOf<[RankedTensorOf<[UI8, F16, F32]>, VPU_DistributedTensor]>>:$input3,
 
         IE_ColorFmtAttr:$inFmt,
-        IE_ColorFmtAttr:$outFmt
+        IE_ColorFmtAttr:$outFmt,
+
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
     );
 
     let results = (outs
-        4DTensorOf<[UI8, F16, F32]>:$output
+        AnyTypeOf<[RankedTensorOf<[UI8, F16, F32]>, VPU_DistributedTensor]>:$output
     );
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "::mlir::Value":$input3,
+            "vpux::IE::ColorFmtAttr":$inFmt,
+            "vpux::IE::ColorFmtAttr":$outFmt
+        )>,
+
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "::mlir::Value":$input2,
+            "vpux::IE::ColorFmtAttr":$inFmt,
+            "vpux::IE::ColorFmtAttr":$outFmt
+        )>,
+
+        OpBuilder<(ins
+            "::mlir::Value":$input1,
+            "vpux::IE::ColorFmtAttr":$inFmt,
+            "vpux::IE::ColorFmtAttr":$outFmt
+        )>,
+    ];
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
 #endif

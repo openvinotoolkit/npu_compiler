@@ -457,13 +457,7 @@ public:
         if (!IE::hasDynamicTensors(op)) {
             return mlir::failure();
         }
-        const auto module = getModuleOp(op);
-        auto tileOp = config::getTileExecutor(module);
-        const auto numOfTiles = tileOp.getCount();
-        if (numOfTiles == 1) {
-            return decompose(op, rewriter, true);
-        }
-        return mlir::failure();
+        return decompose(op, rewriter, true);
     }
 };
 
@@ -484,7 +478,7 @@ public:
 
     mlir::LogicalResult matchAndRewrite(IE::LSTMSequenceOp op, mlir::PatternRewriter& rewriter) const final {
         // At this stage this optimization will not be needed in case of dynamic shapes.
-        if (VPU::LSTMSequenceOp::isSupported(op)) {
+        if (VPU::LSTMSequenceOp::isSupported(op) || IE::hasDynamicTensors(op)) {
             return mlir::failure();
         }
         return decompose(op, rewriter, false);

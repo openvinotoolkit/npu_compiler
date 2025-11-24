@@ -3,7 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
 
 using namespace vpux;
@@ -34,7 +38,8 @@ mlir::LogicalResult vpux::VPU::YuvToRgbOp::inferReturnTypes(mlir::MLIRContext* c
         outShape[1] = outShape[1] * 2 / 3;
     }
 
-    const auto outType = inType.changeShape(ShapeRef(outShape));
+    const auto outType =
+            mlir::RankedTensorType::get(outShape, inType.getElementType(), createTensorAttrFromType(inType));
     inferredReturnTypes.push_back(outType);
 
     return mlir::success();
@@ -131,5 +136,116 @@ mlir::FailureOr<OutputTiling> vpux::VPU::YuvToRgbOp::getTilingStrategy(TilingMod
         VPUX_THROW("Operation 'Yuv2RGB' cannot be tiled");
     }
 
-    return fillDividedTiles(op, nTilesOnDimforYuv2RGB, outputShape);
+    return vpux::fillDividedTiles(op, nTilesOnDimforYuv2RGB, outputShape);
+}
+
+//
+// ClusteredOpInterface
+//
+
+// For SoK and SoH we make sure the UV plane (NV12) or U/V planes (I420) can be split up more if needed,
+// since the input planes are half the size the output dimensions.
+// This helps us tile even small tensors and keep things parallel.
+bool vpux::VPU::YuvToRgbOp::checkStrategyCompatibility(VPU::MultiClusterStrategy strategy, size_t numTiles) {
+    const auto outputShape = getShape(getOutput());
+    // singlePlane MC disabled
+    if (getInput2() == nullptr) {
+        return false;
+    }
+
+    if (strategy == VPU::MultiClusterStrategy::Clustering) {
+        return true;
+    }
+
+    if (strategy == VPU::MultiClusterStrategy::SplitOverKernel) {
+        return outputShape[Dims4D::Act::C] / 2 >= checked_cast<int64_t>(numTiles) * 2;
+    }
+
+    if (strategy == VPU::MultiClusterStrategy::SplitOverHeight) {
+        return outputShape[Dims4D::Act::H] / 2 >= checked_cast<int64_t>(numTiles) * 2;
+    }
+
+    return false;
+}
+
+vpux::VPU::DistributionInfo vpux::VPU::YuvToRgbOp::getExplicitDistributionInfoAttr(
+        vpux::ShapeRef shape, vpux::VPU::DistributionMode distributionMode, ArrayRef<int64_t> numTiles,
+        const int64_t numClusters, ArrayRef<int64_t> /* alignment */, const bool uniformDistributedSegments,
+        const vpux::VPU::OverlapDistributionParams& overlapParams) {
+    SmallVector<int64_t> yuvAlignment(shape.size(), 1);
+
+    // Set alignment to 2 only on the dimension that is being tiled AND is even
+    for (size_t i = 0; i < numTiles.size() && i < yuvAlignment.size(); ++i) {
+        if (numTiles[i] > 1 && shape[Dim(i)] % 2 == 0) {
+            yuvAlignment[i] = 2;
+        }
+    }
+
+    return VPU::getSWExplicitDistributionInfo(mlir::cast<VPU::SWOpInterface>(getOperation()), shape, distributionMode,
+                                              numTiles, numClusters, yuvAlignment, uniformDistributedSegments,
+                                              overlapParams);
+}
+
+//
+// SWOpInterface
+//
+
+bool vpux::VPU::YuvToRgbOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers) {
+    return fitIntoCMX(buffers, Byte(0));
+}
+
+bool vpux::VPU::YuvToRgbOp::fitIntoCMX(llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem) {
+    auto singlePlane = (getInput2() == nullptr);
+
+    if (singlePlane) {
+        VPUX_THROW_UNLESS(buffers.size() == 2,
+                          "YuvToRgbOp (single plane) requires 1 input and 1 output, but the number of buffers is {0}",
+                          buffers.size());
+    } else {
+        if (getInFmt() == IE::ColorFmt::NV12) {
+            VPUX_THROW_UNLESS(buffers.size() == 3,
+                              "YuvToRgbOp (NV12) requires 2 inputs and 1 output, but the number of buffers is {0}",
+                              buffers.size());
+        } else {
+            VPUX_THROW_UNLESS(buffers.size() == 4,
+                              "YuvToRgbOp (I420) requires 3 inputs and 1 output, but the number of buffers is {0}",
+                              buffers.size());
+        }
+    }
+
+    SmallVector<Byte> buffersSize;
+    std::transform(buffers.begin(), buffers.end(), std::back_inserter(buffersSize), [](const auto buffer) {
+        return buffer.getTotalAllocSize();
+    });
+
+    auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
+                                                          : getTotalCMXFragmentationAwareSize(getOperation()).count();
+
+    return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffersSize).count() +
+                   reservedMem.count() <=
+           totalAvailableCMXSize;
+}
+
+bool vpux::VPU::YuvToRgbOp::supportCycleCostCalculation() {
+    return false;
+}
+
+//
+// build
+//
+
+void vpux::VPU::YuvToRgbOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input1,
+                                  vpux::IE::ColorFmtAttr inFmt, vpux::IE::ColorFmtAttr outFmt) {
+    build(builder, state, input1, nullptr, nullptr, inFmt, outFmt, {});
+}
+
+void vpux::VPU::YuvToRgbOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input1,
+                                  ::mlir::Value input2, vpux::IE::ColorFmtAttr inFmt, vpux::IE::ColorFmtAttr outFmt) {
+    build(builder, state, input1, input2, nullptr, inFmt, outFmt, {});
+}
+
+void vpux::VPU::YuvToRgbOp::build(::mlir::OpBuilder& builder, ::mlir::OperationState& state, ::mlir::Value input1,
+                                  ::mlir::Value input2, ::mlir::Value input3, vpux::IE::ColorFmtAttr inFmt,
+                                  vpux::IE::ColorFmtAttr outFmt) {
+    build(builder, state, input1, input2, input3, inFmt, outFmt, {});
 }

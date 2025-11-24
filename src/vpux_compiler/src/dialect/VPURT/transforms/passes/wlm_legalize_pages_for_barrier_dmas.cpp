@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_pages_split.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/options.hpp"
 
@@ -38,8 +38,9 @@ VPUIP::PhysicalBarrierRangeAttr getPidRangeForDMAProgBarrier(mlir::OpBuilder& bu
                                                              int64_t barPDmaPage) {
     int64_t pidStart = 0;
     int64_t pidEnd = nPhysBarrs - 1;
-
-    if (barPDmaPage % 2 == 1) {
+    if (barPDmaPage == 0) {
+        pidEnd = nPhysBarrs - 1;
+    } else if (barPDmaPage % 2 == 1) {
         // Odd pages → First half of barriers
         pidEnd = (nPhysBarrs / 2) - 1;
     } else {
@@ -57,7 +58,7 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
     auto module = func->getParentOfType<mlir::ModuleOp>();
     auto nPhysBarrs = VPUIP::getNumAvailableBarriers(func);
 
-    if (VPU::getWorkloadManagementStatus(module) != VPU::WorkloadManagementStatus::ENABLED) {
+    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
         // WLM is not supported, no need to run this pass
         return;
     }
@@ -145,6 +146,14 @@ void WlmLegalizePagesForBarrierDmasPass::safeRunOnFunc() {
         barrierPagesSplitHandler.updateTaskPageAssignmentForQueue(barProgDma.insertAfter + 1, pageInd,
                                                                   barProgDmaQueueType, barProgDMATaskOp);
     }
+
+    // Bootstrap BarProgDmaOp
+    auto insertPointOp = barrierInfo.getTaskOpAtIndex(0);
+    builder.setInsertionPoint(insertPointOp);
+    auto pidAttr = getPidRangeForDMAProgBarrier(builder, numBarriers, 0);
+    auto barProgDMATaskOp = VPUIP::createBarProgDMA(builder, inBuffer, outBuffer, 0, {}, {}, pidAttr);
+    barProgDMATaskOp.setWlmPage(0);
+    barrierInfo.addNewTaskOp(barProgDMATaskOp);
 
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log, true);
 

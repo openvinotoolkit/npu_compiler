@@ -4,7 +4,9 @@
 //
 
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
+#include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
 
@@ -30,7 +32,6 @@ mlir::LogicalResult vpux::IE::AvgPoolOp::inferReturnTypeComponents(
     const auto roundingType = avgPool.getRoundingType();
 
     auto inputType = mlir::cast<vpux::NDTypeInterface>(avgPool.getInput().getType());
-    const auto inType = inputType.getElementType();
     auto inShapeInfo = ShapeInfo::fromNDType(inputType);
     if (mlir::failed(IE::unpadInputShape(inShapeInfo.shape, avgPool.getInputPaddingAttr(), loc))) {
         return mlir::failure();
@@ -43,7 +44,10 @@ mlir::LogicalResult vpux::IE::AvgPoolOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    inferredReturnShapes.emplace_back(outShape.shape, inType);
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(outShape.bounds));
+
+    inferredReturnShapes.emplace_back(outShape.shape, inputType.getElementType(), outDesc);
 
     return mlir::success();
 }

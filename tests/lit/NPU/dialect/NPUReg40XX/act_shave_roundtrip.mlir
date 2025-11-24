@@ -51,7 +51,7 @@ module @SingleHswishFP16 attributes {config.arch = #config.arch_kind<NPU40XX>} {
       ELF.CreateSection @program.shave.data aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.DeclareKernelData @DeclareKernelArgs0 : "activation_hswish"
       }
-      ELF.CreateSection @progra.shave.parameter aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+      ELF.CreateSection @program.shave.parameter aligned(1024) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
         VPUASM.KernelParams @KernelParams0 inputs([@buffer.CMX_NN.0::@DeclareBuffer2]) outputs([@buffer.CMX_NN.0::@DeclareBuffer3]) dynamicInputShapes([]) dynamicOutputShapes([]) kernel_type("activation_hswish") < {kernel_params = [0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 33, 67, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0]}>
       }
       ELF.CreateSection @program.barrier aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
@@ -94,7 +94,7 @@ module @SingleHswishFP16 attributes {config.arch = #config.arch_kind<NPU40XX>} {
               UINT start_after_ = 0,
               UINT clean_after_ = 0,
             }
-            invo_index = UINT 0,
+            invo_index = UINT 4,
             invo_tile = UINT 0,
             kernel_range_index = UINT 0,
             next_aki_wl_addr = UINT 0,
@@ -142,7 +142,7 @@ module @SingleHswishFP16 attributes {config.arch = #config.arch_kind<NPU40XX>} {
 // CHECK:     UINT start_after_ = 0,
 // CHECK:     UINT clean_after_ = 0,
 // CHECK:   }
-// CHECK:   invo_index = UINT 0,
+// CHECK:   invo_index = UINT 4,
 // CHECK:   invo_tile = UINT 0,
 // CHECK:   kernel_range_index = UINT 0,
 // CHECK:   next_aki_wl_addr = UINT 0,

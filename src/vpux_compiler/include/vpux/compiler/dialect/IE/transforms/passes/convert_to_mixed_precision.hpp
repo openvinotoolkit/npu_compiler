@@ -9,8 +9,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
 
 #include <mlir/Dialect/Quant/QuantTypes.h>
@@ -151,8 +151,10 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
         return mlir::failure();
     }
 
-    const auto dequantizeType = IE::findQuantizedInput(convOp.getInput(), false);
-    const auto filterDequantizeType = IE::findQuantizedInput(convOp.getFilter(), true);
+    auto op = convOp.getOperation();
+
+    const auto dequantizeType = IE::findQuantizedInput(op->getOperand(0), false);
+    const auto filterDequantizeType = IE::findQuantizedInput(op->getOperand(1), true);
 
     // Not fit for input weights mixed precision, other rewriters will apply
     if (dequantizeType != nullptr || filterDequantizeType == nullptr) {
@@ -188,8 +190,8 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
     const auto perTensorQuantType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(quantFilterDequantizeType);
     const auto isSymmetricQuant = IE::isSymmetricQuantType(quantFilterDequantizeType);
     auto moduleOp = getModuleOp(convOp.getOperation());
-    const auto isAsymmetricPerChannelSupported = vpux::VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
-    const auto isAsymmetricPerTensorSupported = vpux::VPU::asymmetricPerTensorZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerChannelSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerTensorSupported = config::asymmetricPerTensorZeroPointSupported(moduleOp);
 
     // Only signed quant is supported for input + wt mixed precision
     if (!isSignedQuantizedType(quantFilterDequantizeType) ||
@@ -225,7 +227,7 @@ mlir::LogicalResult MixedFloatInQuantWeightsRewriter<ConcreteOp>::matchAndRewrit
     }
 
     mlir::IRMapping mapper;
-    mapper.map(convOp.getFilter(), filterDequantizeType);
+    mapper.map(op->getOperand(1), filterDequantizeType);
     auto newOp = rewriter.clone(*convOp, mapper);
     if (!IE::checkRescaledQuantApproximationForConvBasedOp(newOp)) {
         rewriter.eraseOp(newOp);

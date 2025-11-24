@@ -33,6 +33,7 @@ struct IPpeAdapterClamp {
     [[nodiscard]] virtual vpux::VPU::PPEAttr updateClamps(vpux::VPU::PPEAttr orig, PPEAttr newClamps) const = 0;
     [[nodiscard]] virtual vpux::VPU::PPEAttr intersectClamps(vpux::VPU::PPEAttr orig, double newLow, double newHigh,
                                                              mlir::Type outputElemType) const = 0;
+    [[nodiscard]] virtual vpux::VPU::PPEAttr discardClamp(vpux::VPU::PPEAttr orig, mlir::Type outputElemType) const = 0;
 
     virtual ~IPpeAdapterClamp() = default;
 };
@@ -40,11 +41,14 @@ struct IPpeAdapterClamp {
 /*!
  * @brief Interface for modifying the scale factor of an existing PPE attribute across different architectures.
  */
-struct IPpeAdapterScale {
-    [[nodiscard]] virtual SmallVector<double> getScale(vpux::VPU::PPEAttr orig) const = 0;
+struct IPpeAdapterScaleBias {
+    [[nodiscard]] virtual std::optional<SmallVector<double>> getScale(vpux::VPU::PPEAttr orig) const = 0;
+    [[nodiscard]] virtual std::optional<double> getBias(vpux::VPU::PPEAttr orig) const = 0;
     [[nodiscard]] virtual vpux::VPU::PPEAttr updateScale(vpux::VPU::PPEAttr orig, ArrayRef<double> scale) const = 0;
+    [[nodiscard]] virtual vpux::VPU::PPEAttr updateBias(vpux::VPU::PPEAttr orig, double perTensorBias) const = 0;
+    [[nodiscard]] virtual vpux::VPU::PPEAttr discardScaleBias(vpux::VPU::PPEAttr orig) const = 0;
 
-    virtual ~IPpeAdapterScale() = default;
+    virtual ~IPpeAdapterScaleBias() = default;
 };
 
 /*!

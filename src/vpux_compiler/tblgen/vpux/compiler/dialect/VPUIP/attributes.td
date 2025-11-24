@@ -189,8 +189,10 @@ def VPUIP_GatherAddressingMode :
 
     let description = [{
       Gather operation done by DMA engine can have two addressing modes:
-        - Absolute addressing
-        - Indexed addressing
+        - Absolute addressing - each element in the indices list represents the raw address value
+                                that is used by the DMA for accessing memory
+        - Indexed addressing - each element in the indices list represents the index
+                                to access into a Virtual Array in memory
     }];
 }
 

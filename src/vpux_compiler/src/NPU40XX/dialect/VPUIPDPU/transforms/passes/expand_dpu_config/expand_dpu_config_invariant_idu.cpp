@@ -101,9 +101,7 @@ mlir::LogicalResult configurePalletization(const Logger& log, IDUConfig::Weights
 
 mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& config, VPUIP::NCETaskType taskType,
                                      mlir::Type inActType, mlir::Type weightsType, bool wtSparse) {
-    if (taskType == VPUIP::NCETaskType::MAXPOOL || taskType == VPUIP::NCETaskType::AVEPOOL ||
-        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE ||
-        taskType == VPUIP::NCETaskType::REDUCESUM) {
+    if (taskType == VPUIP::NCETaskType::MAXPOOL || taskType == VPUIP::NCETaskType::AVEPOOL) {
         config.wMode = getBaseType(inActType);
     } else {
         if (!weightsType) {
@@ -115,17 +113,16 @@ mlir::LogicalResult configureWeights(const Logger& log, IDUConfig::Weights& conf
         config.wMode = getBaseType(weightsType, isPalletModeEnabled);
     }
 
-    if (taskType == VPUIP::NCETaskType::AVEPOOL || taskType == VPUIP::NCETaskType::REDUCEMEAN ||
-        taskType == VPUIP::NCETaskType::REDUCESUMSQUARE || taskType == VPUIP::NCETaskType::REDUCESUM) {
+    if (taskType == VPUIP::NCETaskType::AVEPOOL) {
         if (config.wMode.isInteger(CHAR_BIT * sizeof(uint8_t))) {
             config.poolWtData = 0x0101;  // Two I8/U8 values => 0x0101;
         } else if (config.wMode.isF16()) {
             config.poolWtData = 0x3c00;  // fp16 1
         } else if (config.wMode.isBF16()) {
             config.poolWtData = 0x3f80;  // bf16 1
-        } else if (config.wMode.isFloat8E5M2()) {
+        } else if (mlir::isa<mlir::Float8E5M2Type>(config.wMode)) {
             config.poolWtData = 0x3c3c;  // bf8 1
-        } else if (config.wMode.isFloat8E4M3FN()) {
+        } else if (mlir::isa<mlir::Float8E4M3FNType>(config.wMode)) {
             config.poolWtData = 0x3838;  // hf8 1
         } else {
             log.error("Input data type not supported for AVEPOOL");
@@ -154,9 +151,7 @@ mlir::LogicalResult configureSparsityPattern(const Logger&, IDUConfig::InputLaye
 mlir::LogicalResult configureStorageElement(const Logger& log, IDUConfig::StorageElement& config,
                                             VPUIP::NCETaskType taskType, const NDTypeInterface& inActType,
                                             bool inSparsityEnabled, std::optional<int64_t> seSize) {
-    if (taskType == VPUIP::NCETaskType::CONV || taskType == VPUIP::NCETaskType::ELTWISE ||
-        taskType == VPUIP::NCETaskType::REDUCEMEAN || taskType == VPUIP::NCETaskType::REDUCESUMSQUARE ||
-        taskType == VPUIP::NCETaskType::REDUCESUM) {
+    if (taskType == VPUIP::NCETaskType::CONV || taskType == VPUIP::NCETaskType::ELTWISE) {
         auto seSizeVal = seSize.value_or(0);
         if (inSparsityEnabled && seSizeVal) {
             auto inputZ = inActType.getShape()[Dims4D::Act::C];
@@ -202,15 +197,6 @@ mlir::LogicalResult configureStride(const Logger&, IDUConfig::Stride& config,
 mlir::LogicalResult configureWorkload(const Logger& log, IDUConfig::WorkloadCfg& config, VPUIP::NCETaskType taskType,
                                       int64_t kernelX, int64_t kernelY) {
     switch (taskType) {
-    case VPUIP::NCETaskType::REDUCEMEAN:
-        config.workloadType = IDUWorkloadType::REDUCEMEAN;
-        break;
-    case VPUIP::NCETaskType::REDUCESUMSQUARE:
-        config.workloadType = IDUWorkloadType::REDUCESUMSQUARE;
-        break;
-    case VPUIP::NCETaskType::REDUCESUM:
-        config.workloadType = IDUWorkloadType::REDUCESUM;
-        break;
     case VPUIP::NCETaskType::CONV:
         config.workloadType = IDUWorkloadType::CONV;
         break;
@@ -297,8 +283,10 @@ mlir::LogicalResult configureEltwiseCfg(const Logger& log, IDUConfig::EltWiseCfg
             config.elopScapeFp = true;
         }
 
-        if (((inType.isFloat8E5M2() || inType.isFloat8E4M3FN()) && wtType.isBF16()) ||
-            (inType.isBF16() && (wtType.isFloat8E5M2() || wtType.isFloat8E4M3FN()))) {
+        if ((mlir::isa<mlir::Float8E5M2Type, mlir::Float8E4M3FNType>(inType) &&
+             mlir::isa<mlir::BFloat16Type>(wtType)) ||
+            (mlir::isa<mlir::BFloat16Type>(inType) &&
+             mlir::isa<mlir::Float8E5M2Type, mlir::Float8E4M3FNType>(wtType))) {
             config.bf16FlowOn = true;
         }
     }

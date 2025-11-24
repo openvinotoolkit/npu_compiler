@@ -29,11 +29,24 @@ bool IE::isLegalReorderAddPattern(IE::ReorderOp origOp) {
         if (opAdd.getInput1() != opAdd.getInput2()) {
             return false;
         }
-        if (!opAdd.getOutput().hasOneUse()) {
-            return false;
-        }
-        if (!mlir::isa<IE::QuantizeCastOp>(*opAdd.getOutput().getUsers().begin())) {
-            return false;
+        for (auto user : llvm::make_early_inc_range(opAdd.getOutput().getUsers())) {
+            if (!mlir::isa<IE::QuantizeCastOp>(user)) {
+                return false;
+            }
+            // Pattern: Reorder -> Add -> QuantizeCastOp -> Reorder should not be optimized
+            // If the remained Reorder cannot be optimized by following passes, it will be a
+            // low-efficient MemPermute. If disable this fusion, the second Reorder will be
+            // propagated to the front of Add, it will be optimized to PermuteCast.
+            auto quantizeCastOp = mlir::dyn_cast<IE::QuantizeCastOp>(user);
+            for (auto quantUser : llvm::make_early_inc_range(quantizeCastOp.getOutput().getUsers())) {
+                if (auto reorderOp = mlir::dyn_cast<IE::ReorderOp>(quantUser)) {
+                    auto inOrder = DimsOrder::fromValue(reorderOp.getInput());
+                    auto outOrder = DimsOrder::fromValue(reorderOp.getOutput());
+                    if (inOrder == DimsOrder::NHWC && outOrder == DimsOrder::NCHW) {
+                        return false;
+                    }
+                }
+            }
         }
         return true;
     }

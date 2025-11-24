@@ -4,7 +4,6 @@
 //
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 
 namespace vpux::VPU::VF {

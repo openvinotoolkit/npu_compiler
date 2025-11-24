@@ -524,7 +524,7 @@ def IE_ReverseSequenceOp :
 
     let arguments = (ins
         AnyRankedTensor:$data,
-        1DTensorOf<[AnyInteger]>:$seq_length,
+        RankedTensorOf<[AnyInteger]>:$seq_length,
 
         IntAttr:$seq_axis,
         IntAttr:$batch_axis

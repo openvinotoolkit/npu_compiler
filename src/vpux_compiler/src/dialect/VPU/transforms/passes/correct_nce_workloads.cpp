@@ -30,15 +30,12 @@ namespace {
 
 class CorrectNCEWorkloadsPass final : public VPU::impl::CorrectNCEWorkloadsBase<CorrectNCEWorkloadsPass> {
 public:
-    explicit CorrectNCEWorkloadsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit CorrectNCEWorkloadsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void CorrectNCEWorkloadsPass::safeRunOnFunc() {

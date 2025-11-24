@@ -41,16 +41,12 @@ function(add_npu_library name)
         set_property(GLOBAL APPEND PROPERTY MLIR_DIALECT_LIBS ${name})
     endif()
 
-    # The npu_mlir_compiler_schema and cpp_schema targets are added as dependencies to ensure
-    # that the following generated headers are built before the compiler code:
-    # - elf/schema.hpp
-    # - vpunn_generated.h
     add_mlir_library(${name}
         STATIC ${SRC_FILES}
         EXCLUDE_FROM_LIBMLIR
         DISABLE_INSTALL
         LINK_LIBS ${ARG_LINK_LIBS}
-        DEPENDS MLIRVPUXIncGenList npu_mlir_compiler_schema cpp_schema ${ARG_DEPENDS})
+        DEPENDS MLIRVPUXIncGenList ${ARG_DEPENDS})
 
     target_include_directories(${name} SYSTEM PRIVATE
         $<BUILD_INTERFACE:${MLIR_INCLUDE_DIRS}>

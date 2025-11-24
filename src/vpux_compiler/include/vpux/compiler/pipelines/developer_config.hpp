@@ -62,8 +62,6 @@ private:
     std::string _printAsTextualPipelineFilePath = "";
     std::string _printDotOptions;
 
-    llvm::raw_ostream* _timingStream = nullptr;
-
     std::unique_ptr<llvm::Regex> _irDumpFilter;
     std::unique_ptr<llvm::raw_fd_ostream> _irDumpFile;
     llvm::raw_ostream* _irDumpStream = nullptr;

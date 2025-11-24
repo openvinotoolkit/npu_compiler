@@ -9,7 +9,6 @@
 
 #include <algorithm>
 #include <cassert>
-#include <iostream>
 #include <memory>
 #include <stdexcept>
 using namespace vpux::bitc;

@@ -1,6 +1,3 @@
-[submodule "thirdparty/flatbuffers"]
-	path = thirdparty/flatbuffers
-	url = https://github.com/google/flatbuffers.git
 [submodule "thirdparty/elf"]
 	path = thirdparty/elf
 	url = https://github.com/openvinotoolkit/npu_plugin_elf.git

@@ -15,8 +15,8 @@ func.func @FoldMultiplyNonSplat() -> tensor<1x1x2x2xf32> {
        tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
   return %2 : tensor<1x1x2x2xf32>
 
-  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
-  // CHECK-LITERAL{LITERAL}:        dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>, 
+  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> =
+  // CHECK-LITERAL{LITERAL}:        dense<[[[[1.000000e+00, 2.000000e+00], [3.000000e+00, 4.000000e+00]]]]> : tensor<1x1x2x2xf32>,
   // CHECK-LITERAL{LITERAL}:       [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]>>]
 
   // CHECK-NEXT: return [[CST]]
@@ -33,8 +33,10 @@ func.func @FoldMultiplyLhsSplat() -> tensor<1x1x2x2xf32> {
        tensor<1x1x2x2xf32>, tensor<1x1x2x2xf32> -> tensor<1x1x2x2xf32>
   return %2 : tensor<1x1x2x2xf32>
 
-  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> = 
-  // CHECK-SAME{LITERAL}:     dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]> : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>, #const.Rescale<2.000000e+00 : f64>]
+  // CHECK: [[CST:%.+]] = const.Declare tensor<1x1x2x2xf32> =
+  // CHECK-SAME{LITERAL}:     dense<2.000000e+00> : tensor<1x1x2x2xf32>,
+  // CHECK-SAME{LITERAL}:       [#const.Rescale<Content<dense<[[[[5.000000e+00, 6.000000e+00], [7.000000e+00, 8.000000e+00]]]]>
+  // CHECK-SAME{LITERAL}:           : tensor<1x1x2x2xf32>, [#const.Add<1.000000e+00 : f64>]
 
   // CHECK-NEXT: return [[CST]]
 }
@@ -51,7 +53,7 @@ func.func @DoNotFoldMultiplyRhsSplat() -> tensor<1x1x2x2xf32> {
   return %2 : tensor<1x1x2x2xf32>
 
   // CHECK-DAG: IE.Multiply
-  
+
 }
 
 // -----

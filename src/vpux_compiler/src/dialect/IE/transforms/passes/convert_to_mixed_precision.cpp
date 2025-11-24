@@ -258,15 +258,13 @@ namespace {
 
 class ConvertToMixedPrecisionPass final : public IE::impl::ConvertToMixedPrecisionBase<ConvertToMixedPrecisionPass> {
 public:
-    ConvertToMixedPrecisionPass(bool enableFloatInQuantWeightsMixedMode, Logger log): _log(log) {
+    ConvertToMixedPrecisionPass(bool enableFloatInQuantWeightsMixedMode, Logger log) {
         this->enableFloatInQuantWeightsMixedMode = enableFloatInQuantWeightsMixedMode;
-        _log.setName(Base::getArgumentName());
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() override;
-
-    Logger _log;
 };
 
 void ConvertToMixedPrecisionPass::safeRunOnFunc() {

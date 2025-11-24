@@ -83,41 +83,25 @@ mlir::LogicalResult vpux::IE::DepthToSpaceOp::inferReturnTypeComponents(
             return errorAt(loc, "Invalid block size {0}, which is not divisible by input shape {1}", block_size,
                            unpaddedChannels);
         }
-
-        if (paddedOC != 0 &&
-            (inShape[Dims4D::Act::C] / blockSizeSquare != unpaddedChannels / blockSizeSquare + paddedOC)) {
-            return errorAt(loc, "Invalid padded output channels {0}", paddedOC);
-        }
     }
 
-    int64_t W_out = inShape[Dims4D::Act::W] == mlir::ShapedType::kDynamic
-                            ? mlir::ShapedType::kDynamic
-                            : checked_cast<int64_t>(inShape[Dims4D::Act::W] * block_size);
-    int64_t H_out = inShape[Dims4D::Act::H] == mlir::ShapedType::kDynamic
-                            ? mlir::ShapedType::kDynamic
-                            : checked_cast<int64_t>(inShape[Dims4D::Act::H] * block_size);
     int64_t C_out = checked_cast<int64_t>((inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC);
-    int64_t N_out = checked_cast<int64_t>(inShape[Dims4D::Act::N]);
 
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(depthToSpace.getInput().getType());
 
-    auto [outDesc, outShape] = callOnShapeOf(inputType, [&](const auto& shape) {
-        SmallVector<int64_t> outShape{N_out, C_out, H_out, W_out};
-        if constexpr (std::is_same_v<std::decay_t<decltype(shape)>, BoundedShape>) {
-            SmallVector<int64_t> outBounds{inShape[Dims4D::Act::N],
-                                           (inShape[Dims4D::Act::C] - paddedIC) / blockSizeSquare + paddedOC,
-                                           static_cast<int64_t>(shape[Dims4D::Act::H].dimValue() * block_size),
-                                           static_cast<int64_t>(shape[Dims4D::Act::W].dimValue() * block_size)};
-            auto desc =
-                    vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace(), BoundsRef(outBounds));
-            return std::make_pair(std::move(desc), std::move(outShape));
-        } else {
-            auto desc = vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace());
-            return std::make_pair(std::move(desc), std::move(outShape));
-        }
+    auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inputType, [&](const auto& inShape) {
+        auto outShape = copyShape(inShape);
+        outShape[Dims4D::Act::C] = C_out;
+        outShape[Dims4D::Act::H] *= block_size;
+        outShape[Dims4D::Act::W] *= block_size;
+        return splitShapeAndRepresentation(outShape);
     });
 
-    inferredReturnShapes.emplace_back(outShape, inType, outDesc);
+    SmallVector<int64_t> outShape(outStaticShape.begin(), outStaticShape.end());
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), inputType.getMemSpace(), outBounds, outDimMask);
+    inferredReturnShapes.emplace_back(outShape, inputType.getElementType(), outDesc);
+
     return mlir::success();
 }
 

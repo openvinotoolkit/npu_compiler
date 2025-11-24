@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/strategy_manager/strategy_state_provider.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/VPU/utils/cost_model/layer_vpunn_cost.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
@@ -333,12 +334,8 @@ bool DefaultStateProvider::canStayInCMX(const OperationStrategy& parentState,
 
 bool DefaultStateProvider::doMCStrategiesMatch(const MultiClusterStrategy parentStrategy,
                                                const MultiClusterStrategy childStrategy) const {
-    if ((parentStrategy == childStrategy && parentStrategy != MultiClusterStrategy::HKSwitch) ||
-        strategyMatch[parentStrategy] == childStrategy) {
-        return true;
-    }
-
-    return false;
+    return (parentStrategy == childStrategy && parentStrategy != MultiClusterStrategy::HKSwitch) ||
+           strategyMatch[parentStrategy] == childStrategy;
 }
 
 bool DefaultStateProvider::isCMXConcatentationAvaliable(mlir::Operation* operation, const TilingMode mode,

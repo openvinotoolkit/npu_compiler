@@ -5,15 +5,10 @@
 
 #pragma once
 
-#include <vpux/compiler/utils/passes.hpp>
-#include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/setup_pipeline_options_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
 
 namespace vpux {
 namespace VPU {
-
-constexpr StringRef FRAGMENTATION_AVOID_RATIO_PIPELINING_LARGE_WEIGHTS =
-        "VPU.FragmentationAvoidRatioPipeliningLargeWeights";
 
 double getFragmentationAvoidRatioPipeliningLargeWeights(config::ArchKind archKind);
 }  // namespace VPU

@@ -124,9 +124,8 @@ const std::vector<ov::Shape> shapesHW = {
         {1, 32, 16, 8},
 };
 
-const std::vector<ov::Shape> shapesSW = {
-        {1, 1, 1, 100}, {1, 3, 8, 32}, {1, 8, 3, 21}, {1, 13, 16, 8}, {1, 16, 3, 5}, {1, 21, 2, 3},
-};
+const std::vector<ov::Shape> shapesSW = {{1, 1, 1, 100}, {1, 3, 8, 32}, {1, 8, 3, 21},  {1, 13, 16, 8},
+                                         {1, 16, 3, 5},  {1, 21, 2, 3}, {1, 32, 8, 16}, {1, 64, 3, 4}};
 
 const std::vector<ov::Shape> shapesSWcustomLimits = {{1, 3, 199, 199}};
 

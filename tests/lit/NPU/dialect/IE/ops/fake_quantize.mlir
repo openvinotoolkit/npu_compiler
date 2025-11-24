@@ -432,4 +432,3 @@ func.func @WAINoInsertTranspose(%arg0: tensor<1280x2560xf32>) -> tensor<1280x256
     return %RESHAPE2 : tensor<1280x2560xf32>
     // CHECK:   return [[RESHAPE2]] : tensor<1280x2560xf32>
 }
-

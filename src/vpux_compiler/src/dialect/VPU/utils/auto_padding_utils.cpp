@@ -4,27 +4,14 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/utils/analysis.hpp"
-
-#include <llvm/ADT/TypeSwitch.h>
-#include <mlir/Support/LLVM.h>
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
-
-bool VPU::hasAutoPadding(mlir::ModuleOp module) {
-    return VPU::tryGetBoolPassOption(module, AUTO_PADDING_IDU).value_or(false) ||
-           VPU::tryGetBoolPassOption(module, AUTO_PADDING_ODU).value_or(false);
-}
-
-bool VPU::hasAutoPaddingIDU(mlir::ModuleOp module) {
-    return VPU::tryGetBoolPassOption(module, AUTO_PADDING_IDU).value_or(false);
-}
-
-bool VPU::hasAutoPaddingODU(mlir::ModuleOp module) {
-    return VPU::tryGetBoolPassOption(module, AUTO_PADDING_ODU).value_or(false);
-}
 
 bool VPU::areChannelsCompatibleWithIDUAutoPad(int64_t inputChannels, int64_t elemTypeBitWidth) {
     return elemTypeBitWidth >= CHAR_BIT &&
@@ -59,15 +46,23 @@ bool VPU::canAutopadInput(mlir::Operation* op) {
         return false;
     }
     const auto inputType = mlir::cast<NDTypeInterface>(op->getOperand(0).getType());
-    return inputCompatibleWithAutoPad(inputType) && hasAutoPaddingIDU(getModuleOp(op));
+    return inputCompatibleWithAutoPad(inputType) && config::hasAutoPaddingIDU(getModuleOp(op));
 }
 
 bool VPU::canAutopadOutput(mlir::Operation* op, std::optional<vpux::NDTypeInterface> optType) {
     const auto outputType = optType.value_or(mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()));
-    return outputCompatibleWithAutoPad(outputType) && hasAutoPaddingODU(getModuleOp(op));
+    return outputCompatibleWithAutoPad(outputType) && config::hasAutoPaddingODU(getModuleOp(op));
 }
 
 bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
+    // The current implementation of autopad does not support the cases where the data or sparsity pointer tables are
+    // present, as these cases require the tables to be adjusted to the new number of channels
+    // Once the logic to adjust these tables is added, this condition can be removed
+    if (nceConvOp.getWeightTableDataPtr() != nullptr || nceConvOp.getWeightTableSpPtr() != nullptr) {
+        logCb(formatv("The split weight / sparsity pointer tables are not currently supported with IDU autopad"));
+        return false;
+    }
+
     const auto inputPaddingAttr = nceConvOp.getInputPaddingAttr();
     if (inputPaddingAttr == nullptr) {
         logCb(formatv("Missing input_padding attribute"));
@@ -106,4 +101,11 @@ bool VPU::canConsumeIDUAutopad(VPU::NCEConvolutionOp nceConvOp, LogCb logCb) {
     };
 
     return true;
+}
+
+std::optional<int64_t> VPU::getWeightsChannelsAutopad(mlir::Operation* op) {
+    if (VPU::canAutopadOutput(op)) {
+        return vpux::VPU::NCEInvariant::VPU_CHANNEL_ALIGNMENT;
+    }
+    return std::nullopt;
 }

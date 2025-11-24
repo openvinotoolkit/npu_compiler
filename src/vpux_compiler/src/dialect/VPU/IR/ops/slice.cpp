@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/dialect/IE/utils/slice_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
@@ -156,6 +157,48 @@ mlir::OpFoldResult VPU::SliceOp::fold(FoldAdaptor adaptor) {
     }
 
     return nullptr;
+}
+
+//
+// verify
+//
+
+mlir::LogicalResult vpux::VPU::SliceOp::verify() {
+    const auto loc = getLoc();
+
+    const auto inShape = getShape(getInput());
+    const auto outShape = getShape(getOutput());
+    const auto sliceOffsets = parseIntArrayAttr<int64_t>(getStaticOffsets());
+    if (inShape.size() != outShape.size()) {
+        return errorAt(loc, "Input shape '{0}' and output shape '{1}' must have the same rank", inShape, outShape);
+    }
+    if (inShape.size() != sliceOffsets.size()) {
+        return errorAt(loc, "Input shape '{0}' and slice offsets '{1}' must have the same rank", inShape, sliceOffsets);
+    }
+
+    const auto sliceDims = IE::getDiffInOutSizeDims(inShape, outShape);
+
+    for (auto idx : irange(inShape.size())) {
+        auto dim = Dim(idx);
+        auto isSliceDim = llvm::find(sliceDims, dim) != sliceDims.end();
+        if (isSliceDim) {
+            if (outShape[dim] + sliceOffsets[idx] > inShape[dim]) {
+                return errorAt(loc,
+                               "Slice offset '{0}' and output shape '{1}' exceed input shape '{2}' on dimension '{3}'",
+                               sliceOffsets[idx], outShape[dim], inShape[dim], dim);
+            }
+        } else {
+            if (inShape[dim] != outShape[dim]) {
+                return errorAt(loc, "Input shape '{0}' and output shape '{1}' must match on non-sliced dimensions",
+                               inShape, outShape);
+            }
+            if (sliceOffsets[idx] != 0) {
+                return errorAt(loc, "Slice offset '{0}' for non-sliced dimension '{1}' must be zero", sliceOffsets[idx],
+                               dim);
+            }
+        }
+    }
+    return mlir::success();
 }
 
 //

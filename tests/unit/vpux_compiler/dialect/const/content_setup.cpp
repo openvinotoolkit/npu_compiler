@@ -5,6 +5,8 @@
 
 #include "common/utils.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
+#include "vpux/compiler/core/types/quantile_float/dialect.hpp"
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/constant_transformations_control.hpp"
@@ -979,6 +981,31 @@ TEST_F(MLIR_ContentSetupTest, FuseCastElemType_Quantized) {
     // Note: no fusing in this case
     checkCastElemTypeAttr(actualTransformations[0], mlir::Float32Type::get(&ctx));
     checkCastElemTypeAttr(actualTransformations[1], quantizedType);
+}
+
+TEST_F(MLIR_ContentSetupTest, FuseCastElemType_QuantileFloat) {
+    ctx.loadDialect<vpux::type::QuantileFloatDialect>();
+
+    const int64_t IC = 4;
+    const int64_t IH = 8;
+    const int64_t IW = 3;
+
+    auto baseContentAttrSetup = getContentSetup(ArrayRef<int64_t>{IC, IH, IW}, getUInt4Type(&ctx));
+
+    // hide the storage type
+    auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::Float16Type::get(&ctx));
+
+    // cast to quantized type
+    const auto nf4Type = vpux::type::NF4Type::get(&ctx, getUInt4Type(&ctx), mlir::Float16Type::get(&ctx));
+    contentAttrSetup = contentAttrSetup.castElemType(nf4Type);
+
+    // check casts
+    auto actualTransformations = contentAttrSetup.getTransformations();
+    ASSERT_EQ(actualTransformations.size(), 2);
+
+    // Note: no fusing in this case
+    checkCastElemTypeAttr(actualTransformations[0], mlir::Float16Type::get(&ctx));
+    checkCastElemTypeAttr(actualTransformations[1], nf4Type);
 }
 
 TEST_F(MLIR_ContentSetupTest, FuseInterpolate) {
@@ -2111,7 +2138,7 @@ TEST_F(MLIR_ContentSetupTest, SwapCastElemTypeAndReshape) {
     auto contentAttrSetup = baseContentAttrSetup.castElemType(mlir::Float16Type::get(&ctx));
 
     // second SubView
-    SmallVector<int64_t> expectedShape = {1, 2, 1};
+    SmallVector<int64_t> expectedShape = {4, 4, 6};
     contentAttrSetup = contentAttrSetup.reshape(ShapeRef(expectedShape));
 
     // check
@@ -2134,7 +2161,7 @@ TEST_F(MLIR_ContentSetupTest, SwapConvertElemTypeAndReshape) {
     auto contentAttrSetup = baseContentAttrSetup.convertElemType(mlir::Float16Type::get(&ctx));
 
     // second Reshape
-    SmallVector<int64_t> expectedShape = {1, 2, 1};
+    SmallVector<int64_t> expectedShape = {4, 4, 6};
     contentAttrSetup = contentAttrSetup.reshape(ShapeRef(expectedShape));
 
     // check

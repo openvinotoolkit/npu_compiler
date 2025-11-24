@@ -57,7 +57,7 @@ mlir::quant::QuantizedType changeWeightTypeToLUT(mlir::quant::QuantizedType orig
 
     auto ctx = originWeightType.getContext();
     const auto newStorageIntegerType = mlir::IntegerType::get(ctx, bitWidth, mlir::IntegerType::Unsigned);
-    const auto newQuantileType = mlir::FloatType::getF16(ctx);
+    const auto newQuantileType = mlir::Float16Type::get(ctx);
     constexpr unsigned newStorageIntegerTypeMin = 0;
     const unsigned newStorageIntegerTypeMax = (1 << bitWidth) - 1;
 

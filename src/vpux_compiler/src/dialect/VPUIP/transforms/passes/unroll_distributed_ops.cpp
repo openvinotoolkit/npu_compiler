@@ -6,7 +6,11 @@
 #include "vpux/compiler/dialect/VPUIP/transforms/passes/unroll_distributed_ops.hpp"
 #include "vpux/compiler/core/attributes/stride_reqs.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
+#include "vpux/compiler/dialect/VPUIP/transforms/factories/unroll_distributed_ops_getter.hpp"
+#include "vpux/compiler/dialect/VPUIP/transforms/passes.hpp"
+#include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
@@ -18,6 +22,14 @@
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/compiler/utils/strings.hpp"
 #include "vpux/compiler/utils/swizzling_utils.hpp"
+
+#include <mlir/Transforms/GreedyPatternRewriteDriver.h>
+
+namespace vpux::VPUIP {
+#define GEN_PASS_DECL_UNROLLDISTRIBUTEDOPS
+#define GEN_PASS_DEF_UNROLLDISTRIBUTEDOPS
+#include "vpux/compiler/dialect/VPUIP/passes.hpp.inc"
+}  // namespace vpux::VPUIP
 
 using namespace vpux;
 
@@ -1638,4 +1650,42 @@ void VPUIP::unrollDistributedOpsCommon40XXPlus(mlir::func::FuncOp func,
             convertDMARewriter.matchAndRewrite(dmaOp, builder);
         }
     });
+}
+
+namespace {
+
+//
+// UnrollDistributedOpsPass
+//
+
+class UnrollDistributedOpsPass final : public VPUIP::impl::UnrollDistributedOpsBase<UnrollDistributedOpsPass> {
+public:
+    explicit UnrollDistributedOpsPass(Logger log, std::optional<bool> enableSegmentedDmaFusion)
+            : _enableSegmentedDmaFusion(enableSegmentedDmaFusion) {
+        Base::initLogger(log, Base::getArgumentName());
+    }
+
+private:
+    void safeRunOnFunc() override;
+
+    std::optional<bool> _enableSegmentedDmaFusion;
+};
+
+void UnrollDistributedOpsPass::safeRunOnFunc() {
+    auto& ctx = getContext();
+    auto func = getOperation();
+
+    auto strategy = VPUIP::createUnrollDistributedOpsStrategy(func, _enableSegmentedDmaFusion);
+    strategy->prepareOps(ctx, _log);
+}
+
+}  // namespace
+
+//
+// createUnrollDistributedOpsPass
+//
+
+std::unique_ptr<mlir::Pass> vpux::VPUIP::createUnrollDistributedOpsPass(Logger log,
+                                                                        std::optional<bool> enableSegmentedDmaFusion) {
+    return std::make_unique<UnrollDistributedOpsPass>(log, enableSegmentedDmaFusion);
 }

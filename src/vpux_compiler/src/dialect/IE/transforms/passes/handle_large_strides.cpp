@@ -108,7 +108,7 @@ mlir::LogicalResult generalSplitter(mlir::Operation* origOp, mlir::PatternRewrit
             const SmallVector<int64_t> newPadBegin = {padTop, padLeft};
             const SmallVector<int64_t> newPadEnd = {padBottom, padRight};
 
-            auto* newOp = makeOperation(loc, slicedInput->getResult(0),
+            auto* newOp = makeOperation(appendLoc(loc, "_op"), slicedInput->getResult(0),
                                         {getIntArrayAttr(ctx, newStrides), getIntArrayAttr(ctx, newPadBegin),
                                          getIntArrayAttr(ctx, newPadEnd)});
             // TODO: temporary FQ propagation
@@ -125,9 +125,9 @@ mlir::LogicalResult generalSplitter(mlir::Operation* origOp, mlir::PatternRewrit
         offsets[Dims4D::Act::H] += strides[0] - padTop;
 
         if (!wSliced.empty()) {
-            hSliced.push_back(wSliced.size() != 1
-                                      ? rewriter.create<IE::ConcatOp>(origOp->getLoc(), wSliced, Dims4D::Act::W)
-                                      : wSliced.front());
+            auto loc = takeOpLoc(origOp, llvm::formatv("_concat_{0}", i));
+            hSliced.push_back(wSliced.size() != 1 ? rewriter.create<IE::ConcatOp>(loc, wSliced, Dims4D::Act::W)
+                                                  : wSliced.front());
         }
     }
 

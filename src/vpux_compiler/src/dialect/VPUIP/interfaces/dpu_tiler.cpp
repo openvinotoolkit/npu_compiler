@@ -9,6 +9,8 @@
 #include "vpux/compiler/utils/factors.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
+#include <vpu/dpu_types.h>
+
 #include <set>
 
 using namespace vpux;

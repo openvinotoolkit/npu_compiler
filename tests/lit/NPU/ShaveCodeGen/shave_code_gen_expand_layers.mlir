@@ -182,3 +182,40 @@ module @SingleCosF16Layer {
 // CHECK-NEXT:  }
 // CHECK-NEXT:  return [[ARG1]] : memref<1x1x1x1000xf16>
 // CHECK-NEXT:}
+
+// -----
+// IE.RoundEven
+
+module @RoundEvenFP16Layer {
+  module @VPU.SW {
+    func.func @generated_0(%arg0: f16) -> f16 {
+      %0 = math.roundeven %arg0 : f16
+      return %0 : f16
+    }
+  }
+}
+
+// CHECK-LABEL: RoundEvenFP16Layer 
+// CHECK: func.func @generated_0([[ARG0:%.+]]: f16) -> f16
+// CHECK-DAG:  [[C327:%.+]] = arith.constant 32767 : i16
+// CHECK-DAG:  [[CM1:%.+]] = arith.constant -1 : i16
+// CHECK-DAG:  [[C255_I16:%.+]] = arith.constant 25599 : i16
+// CHECK-DAG:  [[C15:%.+]] = arith.constant 15 : i16
+// CHECK-DAG:  [[CST:%.+]] = arith.constant 1.024000e+03 : f16
+// CHECK-DAG:  [[C328:%.+]] = arith.constant -32768 : i16
+// CHECK:       [[BCAST:%.+]] = arith.bitcast [[ARG0]] : f16 to i16
+// CHECK-NEXT:  [[XABS:%.+]] = arith.andi [[BCAST]], [[C327]] : i16
+// CHECK-NEXT:  [[XSIGN:%.+]] = arith.andi [[BCAST]], [[C328]] : i16
+// CHECK-NEXT:  [[DIFFG:%.+]] = arith.subi [[C255_I16]], [[XABS]] : i16
+// CHECK-NEXT:  [[ISGREAT:%.+]] = arith.shrsi [[DIFFG]], [[C15]] : i16
+// CHECK-NEXT:  [[FXABS:%.+]] = arith.bitcast [[XABS]] : i16 to f16
+// CHECK-NEXT:  [[SUM:%.+]] = arith.addf [[FXABS]], [[CST]] : f16
+// CHECK-NEXT:  [[VROUND:%.+]] = arith.subf [[SUM]], [[CST]] : f16
+// CHECK-NEXT:  [[IVROUND:%.+]] = arith.bitcast [[VROUND]] : f16 to i16
+// CHECK-NEXT:  [[ISNOTG:%.+]] = arith.xori [[ISGREAT]], [[CM1]] : i16
+// CHECK-NEXT:  [[ONE:%.+]] = arith.andi [[ISNOTG]], [[IVROUND]] : i16
+// CHECK-NEXT:  [[TWO:%.+]] = arith.andi [[ISGREAT]], [[BCAST]] : i16
+// CHECK-NEXT:  [[COMBINED1:%.+]] = arith.ori [[ONE]], [[TWO]] : i16
+// CHECK-NEXT:  [[COMBINED:%.+]] = arith.ori [[COMBINED1]], [[XSIGN]] : i16
+// CHECK-NEXT:  [[RES:%.+]] = arith.bitcast [[COMBINED]] : i16 to f16
+

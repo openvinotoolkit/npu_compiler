@@ -85,6 +85,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
 
     const auto indexWithOnlyTileSet = VPURegMapped::IndexType::get(ctx, tileIndex, 0, 0);
     const auto zeroUI64Attr = mlir::IntegerAttr::get(getUInt64Type(ctx), 0);
+    auto cleanAfterAttr = !origTaskOp.getCleanAfter().has_value() ? zeroUI64Attr : origTaskOp.getCleanAfterAttr();
+    auto startAfterAttr = !origTaskOp.getStartAfter().has_value() ? zeroUI64Attr : origTaskOp.getStartAfterAttr();
 
     auto weights = convertOrExtractBuffer(rewriter, adaptor.getWeights(), tileIndex);
     auto weightTable = convertOrExtractBuffer(rewriter, adaptor.getWeightTable(), tileIndex);
@@ -119,8 +121,8 @@ mlir::LogicalResult NCEClusterTaskRewriter::matchAndRewrite(VPUIP::NCEClusterTas
             adaptor.getProfilingMetadataAttr(),
             mlir::ValueRange(),           // waitBarriers
             mlir::ValueRange(),           // updateBarriers
-            zeroUI64Attr,                 // startAfter
-            zeroUI64Attr,                 // cleanAfter
+            startAfterAttr,               // startAfter
+            cleanAfterAttr,               // cleanAfter
             nullptr,                      // enqueueBarrier
             origTaskOp.getWlmPageAttr(),  // wlmPageAttr
             adaptor.getDynamicScaleConfigAttr(), adaptor.getLocalRegionAttr()

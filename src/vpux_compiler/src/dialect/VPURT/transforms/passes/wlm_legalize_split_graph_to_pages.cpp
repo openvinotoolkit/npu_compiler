@@ -3,12 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_pages_split.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/options.hpp"
 
 namespace vpux::VPURT {
@@ -39,7 +39,7 @@ void WlmLegalizeSplitGraphToPagesPass::safeRunOnFunc() {
     const auto numBarriers =
             numBarriersOpt.hasValue() ? numBarriersOpt.getValue() : VPUIP::getNumAvailableBarriers(func);
 
-    if (VPU::getWorkloadManagementStatus(module) != VPU::WorkloadManagementStatus::ENABLED) {
+    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
         // WLM is not supported, no need to run this pass
         return;
     }

@@ -99,8 +99,8 @@ module @DmaSpillSingleClusterNoCompressionCandSmallBuf {
 
 // -----
 
-!dataTypeDdr = memref<1x256x56x56xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
-!dataTypeCmx = memref<1x256x56x56xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
+!dataTypeDdr = memref<1x256x28x28xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, @DDR>
+!dataTypeCmx = memref<1x256x28x28xf16, affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>, [@CMX_NN, 0]>
 
 module @DmaSpillSingleCluster {
   config.Resources 1 of @NCE at 1.300000e+03 MHz {
@@ -112,9 +112,9 @@ module @DmaSpillSingleCluster {
   }
 
   net.NetworkInfo entryPoint : @main inputsInfo : {
-    DataInfo "data" : tensor<1x256x56x56xf16>
+    DataInfo "data" : tensor<1x256x28x28xf16>
   } outputsInfo : {
-    DataInfo "prob" : tensor<1x256x56x56xf16>
+    DataInfo "prob" : tensor<1x256x28x28xf16>
   }
   func.func @main(%arg0: !dataTypeDdr) -> !dataTypeDdr {
 
@@ -122,7 +122,6 @@ module @DmaSpillSingleCluster {
     %buf_spill_write = memref.alloc() : !dataTypeDdr
     %buf_spill_read = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> !dataTypeCmx
     %buf_out = memref.alloc() : !dataTypeDdr
-
 
     %t0, %r0 = async.execute -> !async.value<!dataTypeCmx> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 0 : i64, cycleBegin = 0 : i64, cycleEnd = 100 : i64} {
         %0 = VPUIP.NNDMA inputs(%arg0 : !dataTypeDdr) outputs(%buf_in : !dataTypeCmx) -> !dataTypeCmx
@@ -148,42 +147,38 @@ module @DmaSpillSingleCluster {
     return %r4 : !dataTypeDdr
   }
 
-    // CHECK:       [[BUF_IN:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:       [[BUF_SPILL_WRITE:%.*]] = memref.alloc() : memref<1x256x56x56xf16, {allocSize = 1630752 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>
-    // CHECK:       [[BUF_SPILL_READ:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:       [[BUF_OUT:%.*]] = memref.alloc() : memref<1x256x56x56xf16, #NHWC, @DDR>
+    // CHECK:       [[BUF_IN:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[BUF_SPILL_WRITE:%.*]] = memref.alloc() : memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>
+    // CHECK:       [[BUF_SPILL_READ:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[BUF_SPILL_WRITE0:%.*]] = memref.alloc() : memref<1x256x28x28xf16, #NHWC, @DDR>
 
-    // CHECK:       [[T0:%.+]], [[R0:%.+]] = async.execute
-    // CHECK-SAME:      -> !async.value<memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>>
-    // CHECK-NEXT:      VPUIP.NNDMA
-    // CHECK-SAME:          inputs(%arg0 : memref<1x256x56x56xf16, #NHWC, @DDR>)
-    // CHECK-SAME:          outputs([[BUF_IN]] : memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK:       [[T0:%.*]], [[R0:%.*]] = async.execute -> !async.value<memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 0 : i64, cycleBegin = 0 : i64, cycleEnd = 100 : i64} {
 
-    // CHECK:       [[T1:%.+]], [[R1:%.+]] = async.execute
+    // CHECK:       [[T1:%.*]], [[R1:%.*]] = async.execute
     // CHECK-SAME:      [[T0]]
-    // CHECK-SAME:      -> !async.value<memref<1x256x56x56xf16, {allocSize = 1630752 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>>
-    // CHECK-NEXT:      VPUIP.NNDMA {compress_candidate, spillId = 0 : i64}
-    // CHECK-SAME:          inputs([[BUF_IN]] : memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:          outputs([[BUF_SPILL_WRITE]] : memref<1x256x56x56xf16, {allocSize = 1630752 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>)
+    // CHECK-SAME:     -> !async.value<memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 1 : i64, cycleBegin = 100 : i64, cycleEnd = 200 : i64} {
+    // CHECK-NEXT:     VPUIP.NNDMA {compress_candidate, spillId = 0 : i64}
+    // CHECK-SAME:          inputs([[BUF_IN]] : memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:          outputs([[BUF_SPILL_WRITE]] : memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>) -> memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>
 
-    // CHECK:       [[T2:%.+]], [[R2:%.+]] = async.execute
+    // CHECK:       [[T2:%.*]], [[R2:%.*]] = async.execute
     // CHECK-SAME:      [[T1]]
-    // CHECK-SAME:      ([[R1]] as [[ARG0:%.*]]: !async.value<memref<1x256x56x56xf16, {allocSize = 1630752 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>>)
-    // CHECK-SAME:      -> !async.value<memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>>
+    // CHECK-SAME:      ([[R1]] as [[ARG0:%.*]]: !async.value<memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>>)
+    // CHECK-SAME:     -> !async.value<memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0, 1], "async-deps-index" = 2 : i64, cycleBegin = 200 : i64, cycleEnd = 300 : i64} {
     // CHECK-NEXT:      VPUIP.NNDMA {compress_candidate, spillId = 0 : i64}
-    // CHECK-SAME:          inputs([[ARG0]] : memref<1x256x56x56xf16, {allocSize = 1630752 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>)
-    // CHECK-SAME:          outputs([[BUF_SPILL_READ]] : memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:          inputs([[ARG0]] : memref<1x256x28x28xf16, {allocSize = 407712 : i64, compression = #VPUIP.Compression<CompressionCandidate>, order = #NHWC}, @DDR>)
+    // CHECK-SAME:          outputs([[BUF_SPILL_READ]] : memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>
 
     // CHECK:       [[T3:%.+]], [[R3:%.+]] = async.execute
     // CHECK-SAME:      [[T2]]
-    // CHECK-SAME:      ([[R2]] as [[ARG3:%.*]]: !async.value<memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>>)
-    // CHECK-SAME:      -> !async.value<memref<1x256x56x56xf16, #NHWC, @DDR>>
+    // CHECK-SAME:      ([[R2]] as [[ARG3:%.*]]: !async.value<memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>>)
+    // CHECK-SAME:     -> !async.value<memref<1x256x28x28xf16, #NHWC, @DDR>>
     // CHECK-NEXT:      VPUIP.NNDMA
-    // CHECK-SAME:          inputs([[ARG3]] : memref<1x256x56x56xf16, #NHWC, [@CMX_NN, 0]>)
-    // CHECK-SAME:          outputs([[BUF_OUT]] : memref<1x256x56x56xf16, #NHWC, @DDR>)
+    // CHECK-SAME:          inputs([[ARG3]] : memref<1x256x28x28xf16, #NHWC, [@CMX_NN, 0]>)
+    // CHECK-SAME:          outputs([[BUF_SPILL_WRITE0]] : memref<1x256x28x28xf16, #NHWC, @DDR>) -> memref<1x256x28x28xf16, #NHWC, @DDR>
 
-    // CHECK:       [[R4:%.+]] = async.await [[R3]] : !async.value<memref<1x256x56x56xf16, #NHWC, @DDR>>
-    // CHECK-NEXT:  return [[R4]] : memref<1x256x56x56xf16, #NHWC, @DDR>
+    // CHECK:       [[R4:%.*]] = async.await [[R3]] : !async.value<memref<1x256x28x28xf16, #NHWC, @DDR>>
+    // CHECK-NEXT:  return [[R4]] : memref<1x256x28x28xf16, #NHWC, @DDR>
 }
 
 // -----

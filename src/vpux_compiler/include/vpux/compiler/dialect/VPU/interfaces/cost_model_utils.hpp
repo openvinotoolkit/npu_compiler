@@ -23,6 +23,9 @@ public:
     // indicate whether the cost model supports NCEOps with int4 weights.
     virtual bool isNCEWithInt4WeightsSupported() const = 0;
 
+    // indicate whether the cost model cache is supported.
+    virtual bool isNNCacheStatisticsSupported() const = 0;
+
     // indicate whether the cost model supports NCEOps with multi-dim pipeline tiling.
     virtual bool isMultiDimPipelineTilingSupported() const = 0;
 };

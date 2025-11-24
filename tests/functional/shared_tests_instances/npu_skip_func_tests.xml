@@ -155,10 +155,10 @@ Example:
     <skip_config>
         <message>Tests with unsupported precision</message>
         <filters>
-            <filter>.*InferRequestCheckTensorPrecision.*type=boolean.*</filter>
-            <filter>.*InferRequestCheckTensorPrecision.*type=bf16.*</filter>
-            <filter>.*InferRequestCheckTensorPrecision.*type=f64.*</filter>
-            <filter>.*InferRequestCheckTensorPrecision.*type=u1\D.*</filter>
+            <filter>.*InferRequestCheckTensorPrecision.*type=boolean.*device=MULTI.*</filter>
+            <filter>.*InferRequestCheckTensorPrecision.*type=boolean.*device=AUTO.*</filter>
+            <filter>.*InferRequestIOTensorSetPrecisionTest.*type=boolean.*device=MULTI.*</filter>
+            <filter>.*InferRequestIOTensorSetPrecisionTest.*type=boolean.*device=AUTO.*</filter>
         </filters>
     </skip_config>
 
@@ -197,7 +197,6 @@ Example:
     <skip_config>
         <message>Cannot call setShape for Blobs</message>
         <filters>
-            <filter>.*(smoke_Behavior|smoke_Multi_Behavior|smoke_Auto_Behavior).*OVInferRequestIOTensorTest.*canInferAfterIOBlobReallocation.*</filter>
             <filter>.*(smoke_Behavior|smoke_Multi_Behavior).*OVInferRequestIOTensorTest.*InferStaticNetworkSetChangedInputTensorThrow.*targetDevice=(NPU_|MULTI_configItem=MULTI_DEVICE_PRIORITIES_NPU).*</filter>
         </filters>
     </skip_config>
@@ -452,7 +451,6 @@ Example:
             <filter>.*smoke_IfTest.*</filter>
         </filters>
     </skip_config>
-
     <!-- E#171305 -->
     <skip_config>
         <message>Dynamic output issue in sync infer request where keepDims is off</message>
@@ -470,22 +468,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- E#118999 -->
-    <skip_config>
-        <message>Newly enabled, never tested</message>
-        <enable_rules>
-            <backend>LEVEL0</backend>
-        </enable_rules>
-        <filters>
-            <filter>.*smoke_BehaviorTests_Driver/OVCompiledGraphImportExportTest.importExportedFunctionConstantResultOnly.*</filter>
-            <filter>.*smoke_BehaviorTests_OVClassImportExportTestP/OVClassCompiledModelImportExportTestP.smoke_ImportNetworkThrowWithDeviceName.*</filter>
-            <filter>.*ClassExecutableNetworkTestSuite1NPU.PropertyIsSupportedAndImmutableAndGet.*</filter>
-            <filter>.*ClassExecutableNetworkTestSuite2NPU.PropertyIsSupportedAndImmutableAndCanNotSet.*</filter>
-            <filter>.*ClassPluginPropertiesTestSuite4NPU.CanNotSetGetInexistentProperty.*</filter>
-            <filter>.*BehaviorTests_OVCheckSetSupportedRWMandatoryMetricsPropsTests/OVCheckSetSupportedRWMetricsPropsTests.ChangeCorrectProperties.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#83423 -->
     <skip_config>
         <message>QueryNetwork is only supported by 3720 platform</message>
@@ -494,15 +476,6 @@ Example:
         </enable_rules>
         <filters>
             <filter>.*QueryNetworkTestSuite.*</filter>
-        </filters>
-    </skip_config>
-
-    <!-- E#111455 -->
-    <skip_config>
-        <message>Failing properties tests for AUTO / MULTI</message>
-        <filters>
-            <filter>.*OVCheckSetSupportedRWMetricsPropsTests.ChangeCorrectProperties.*MULTI.*LOG_LEVEL.*</filter>
-            <filter>.*OVCheckSetSupportedRWMetricsPropsTests.ChangeCorrectProperties.*AUTO.*LOG_LEVEL.*</filter>
         </filters>
     </skip_config>
 
@@ -843,14 +816,6 @@ Example:
         </filters>
     </skip_config>
 
-    <!-- C#156952 -->
-    <skip_config>
-        <message>Template plugin doesn't implement evaluate method for RoPE Op</message>
-        <filters>
-            <filter>.*FuseRoPE.*</filter>
-        </filters>
-    </skip_config>
-
     <!-- E#112064 -->
     <skip_config>
         <message>compiled_blob test uses CACHE_MODE which is not supported on NPU.</message>
@@ -910,7 +875,7 @@ Example:
 
     <!-- C#166668 -->
     <skip_config>
-        <message>Tests enabled only for platforms NPU3720 and NPU4000. Related to new getDevice logic from OV PR#30586.</message>
+        <message>Tests enabled only for public platforms, NPU3720 and NPU4000. Related to new getDevice logic from OV PR#30586.</message>
         <enable_rules>
         </enable_rules>
         <filters>
@@ -948,21 +913,45 @@ Example:
         </filters>
     </skip_config>
 
+    <!-- E#172890 -->
+    <skip_config>
+        <message>Pipeline does not support 4 DMA engines, thus exceeding link agent limit</message>
+        <enable_rules>
+        </enable_rules>
+        <filters>
+        </filters>
+    </skip_config>
+
     <!-- E#170977 -->
     <skip_config>
-        <message>Skip tests with u2 precision not supported on NPU3720.</message>
+        <message>Data type u1/u2 not supported by NPU3720.</message>
         <enable_rules>
             <device>3720</device>
         </enable_rules>
         <filters>
+            <filter>.*InferRequestCheckTensorPrecision.*type=u1\D.*</filter>
             <filter>.*InferRequestCheckTensorPrecision.*type=u2.*</filter>
+            <filter>.*InferRequestIOTensorSetPrecisionTest.*type=u1\D.*</filter>
+            <filter>.*InferRequestIOTensorSetPrecisionTest.*type=u2.*</filter>
             <filter>.*ConversionLayerTestCommon.*=u2.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#187909 -->
+    <skip_config>
+        <message>Data type u1 not supported by NPU4000.</message>
+        <enable_rules>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*InferRequestCheckTensorPrecision.*type=u1\D.*</filter>
+            <filter>.*InferRequestIOTensorSetPrecisionTest.*type=u1\D.*</filter>
         </filters>
     </skip_config>
 
     <!-- E#175296 -->
     <skip_config>
-        <message>MLIR test cases enabled only for platforms NPU3720 and NPU4000.</message>
+        <message>MLIR test cases enabled only for public platforms, NPU3720 and NPU4000.</message>
         <enable_rules>
         </enable_rules>
         <filters>
@@ -971,4 +960,43 @@ Example:
         </filters>
     </skip_config>
 
+    <!-- E#184993-->
+    <!-- E#185104-->
+    <skip_config>
+        <message>Skip dynamic convolution tests till E#184993 and E#185104 are resolved</message>
+        <enable_rules>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*ConvolutionLayerTest_HostCompile.*1.3.1..1280.1280.*</filter>
+            <filter>.*ConvolutionLayerTest_HostCompile.*1..1280.1..1280.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#186778-->
+    <skip_config>
+        <message>Skip dynamic tests till "dynamicSizes size doesn't match dynamic sizes count in memref shape" fixed.</message>
+        <enable_rules>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*DynamicShapes.*EltwiseAddLayerTest_HostCompile.*1.3.1..1280.1280.*</filter>
+            <filter>.*DynamicShapes.*EltwiseAddLayerTest_HostCompile.*1.3.1..1280.1..1280.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#187022-->
+    <skip_config>
+        <message>OutlineEntireMainContentPass failed with assertion argument of incompatible type!</message>
+        <enable_rules>
+            <device>4000</device>
+        </enable_rules>
+        <filters>
+            <filter>.*EltwiseAddLayerTest_HostCompile.*1.3.1280.1280.*</filter>
+        </filters>
+    </skip_config>
+
+    <!-- E#181313 -->
+    <!-- E#186100 -->
+    <!-- E#188029 -->
 </skip_configs>

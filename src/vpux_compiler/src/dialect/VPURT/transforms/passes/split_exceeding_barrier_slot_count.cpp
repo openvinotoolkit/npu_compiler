@@ -59,7 +59,7 @@ void SplitExceedingBarrierSlotCountPass::safeRunOnFunc() {
                           taskOp->getLoc(), barrierInfo.getNumOfSlotsUsed(taskOp), availableSlots);
     });
 
-    barrierInfo.splitBarriersWithExceedingVariantCount(availableSlots, maxSlotsSum, maxAvailableSlots);
+    barrierInfo.splitBarriersWithExceedingVariantCount(availableSlots, maxSlotsSum, maxSlotsSumLimitEnabled);
 
     VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");

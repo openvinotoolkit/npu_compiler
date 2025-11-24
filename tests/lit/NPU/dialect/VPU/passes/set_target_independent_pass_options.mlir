@@ -15,9 +15,9 @@ module @mainModule attributes {} {
 
 // CHECK-PAD: module @mainModule
 // CHECK-PAD: config.PipelineOptions @Options
-// CHECK-PAD: config.Option @VPU.AutoPaddingODU : true
-// CHECK-PAD: config.Option @VPU.AutoPaddingIDU : true
-// CHECK-REDUCE: config.Option @VPU.ReduceSupported : true
+// CHECK-PAD: config.Option @config.AutoPaddingODU : true
+// CHECK-PAD: config.Option @config.AutoPaddingIDU : true
+// CHECK-REDUCE: config.Option @config.ReduceSupported : true
 
 // -----
 
@@ -27,8 +27,8 @@ module @mainModule attributes {} {
 
 // CHECK-REDUCE: module @mainModule
 // CHECK-REDUCE: config.PipelineOptions @Options
-// CHECK-REDUCE: config.Option @VPU.ReduceSupported : true
-// CHECK-PAD: config.Option @VPU.AutoPaddingIDU : true
+// CHECK-REDUCE: config.Option @config.ReduceSupported : true
+// CHECK-PAD: config.Option @config.AutoPaddingIDU : true
 
 // -----
 
@@ -41,6 +41,6 @@ module @NoInsertionNeeded {
 
 // CHECK-CUSTOM: module @NoInsertionNeeded
 // CHECK-CUSTOM: config.PipelineOptions @Options
-// CHECK-REDUCE: config.Option @VPU.ReduceSupported : true
-// CHECK-PAD: config.Option @VPU.AutoPaddingIDU : true
+// CHECK-REDUCE: config.Option @config.ReduceSupported : true
+// CHECK-PAD: config.Option @config.AutoPaddingIDU : true
 // CHECK-CUSTOM: config.Option @VPU.MyOptions : false

@@ -37,8 +37,8 @@ bool vpux::VPU::RoPEOp::checkStrategyCompatibility(VPU::MultiClusterStrategy str
 }
 
 void vpux::VPU::RoPEOp::build(::mlir::OpBuilder& odsBuilder, ::mlir::OperationState& odsState, ::mlir::Value input,
-                              ::mlir::Value input_cos, ::mlir::Value input_sin) {
-    build(odsBuilder, odsState, input, input_cos, input_sin, {});
+                              ::mlir::Value input_cos, ::mlir::Value input_sin, ::mlir::UnitAttr is_interleaved) {
+    build(odsBuilder, odsState, input, input_cos, input_sin, is_interleaved, {});
 }
 
 vpux::VPU::DistributionInfo vpux::VPU::RoPEOp::getExplicitDistributionInfoAttr(
@@ -92,19 +92,15 @@ InputTiling vpux::VPU::RoPEOp::backInferTileInfo(const vpux::TileInfo& outputTil
     // - Height: Unlike channels, the height for Cosine and Sine operations can differ from the input height
     if (cosTile.shape[Dim(Dims4D::Act::C)] > 1) {
         if (cosTile.shape[Dim(Dims4D::Act::H)] != inTile.shape[Dim(Dims4D::Act::H)]) {
-            sinTile.shape[Dim(Dims4D::Act::C)] = inTile.shape[Dim(Dims4D::Act::C)];
-            cosTile.shape[Dim(Dims4D::Act::C)] = inTile.shape[Dim(Dims4D::Act::C)];
-            sinTile.offsets[Dim(Dims4D::Act::C)] = inTile.offsets[Dim(Dims4D::Act::C)];
-            cosTile.offsets[Dim(Dims4D::Act::C)] = inTile.offsets[Dim(Dims4D::Act::C)];
+            transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::C)});
+            transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::C)});
         } else {
             cosTile = inTile;
             sinTile = inTile;
         }
     } else {
-        sinTile.shape[Dim(Dims4D::Act::H)] = inTile.shape[Dim(Dims4D::Act::H)];
-        cosTile.shape[Dim(Dims4D::Act::H)] = inTile.shape[Dim(Dims4D::Act::H)];
-        sinTile.offsets[Dim(Dims4D::Act::H)] = inTile.offsets[Dim(Dims4D::Act::H)];
-        cosTile.offsets[Dim(Dims4D::Act::H)] = inTile.offsets[Dim(Dims4D::Act::H)];
+        transferTilingInfo(sinTile, inTile, {Dim(Dims4D::Act::H), Dim(Dims4D::Act::N)});
+        transferTilingInfo(cosTile, inTile, {Dim(Dims4D::Act::H), Dim(Dims4D::Act::N)});
     }
 
     return TilingInfo{{std::move(inTile), std::move(cosTile), std::move(sinTile)}};

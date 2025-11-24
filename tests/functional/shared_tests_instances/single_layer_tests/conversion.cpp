@@ -6,6 +6,7 @@
 #include "vpu_ov2_layer_test.hpp"
 
 using namespace ov::test::utils;
+using namespace ov::element;
 
 namespace ov {
 namespace test {
@@ -56,77 +57,34 @@ const std::vector<std::vector<ov::Shape>> inShapeTiling = {{{2000, 2000}}};
 
 const std::vector<std::vector<ov::Shape>> inShapeOdd = {{{1, 1, 1, 111}}};
 
-const std::vector<ov::element::Type> netPrecisions = {ov::element::f32, ov::element::f16, ov::element::u8,
-                                                      ov::element::i8, ov::element::i32};
+const std::vector<ov::element::Type> netPrecisions = {f32, f16, u8, i8, i32};
 
-const auto configParamsBF16ToF16 =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
-                           ::testing::Values(ov::element::bf16),                                // Input type
-                           ::testing::Values(ov::element::f16),                                 // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-const auto configParams =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
-                           ::testing::ValuesIn(netPrecisions),                                  // Input type
-                           ::testing::ValuesIn(netPrecisions),                                  // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
+const auto genParams = [](std::vector<ov::element::Type> srcPrec, std::vector<ov::element::Type> dstPrec, auto inShapes,
+                          bool includeConvertLike = true) {
+    std::vector<ConversionTypes> cvtOpTypes = {ConversionTypes::CONVERT};
+    if (includeConvertLike) {
+        // For some types, 'ConvertLike' triggers:
+        // "Exception from src/plugins/template/backend/ops/convert.cpp:119:
+        //  Unhandled data type ... in evaluate_node()"
+        cvtOpTypes.push_back(ConversionTypes::CONVERT_LIKE);
+    }
+    return ::testing::Combine(::testing::ValuesIn(cvtOpTypes),                                      // Conversion type
+                              ::testing::ValuesIn(static_shapes_to_test_representation(inShapes)),  // Input shapes
+                              ::testing::ValuesIn(srcPrec),                                         // Input type
+                              ::testing::ValuesIn(dstPrec),                                         // Output type
+                              ::testing::Values(test_utils::TARGET_DEVICE));
+};
 
-const auto configParamsF64ToI64 =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
-                           ::testing::Values(ov::element::f64),                                 // Input type
-                           ::testing::Values(ov::element::i64),                                 // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-
-const auto configParamsI64ToF64 =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                              // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShape)),  // Input shapes
-                           ::testing::Values(ov::element::i64),                                 // Input type
-                           ::testing::Values(ov::element::f64),                                 // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-
-const auto configParamsU4Tiling =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                    // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
-                           ::testing::Values(ov::element::u4),                                        // Input type
-                           ::testing::ValuesIn({ov::element::f16, ov::element::u8, ov::element::i8}),  // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));                              // Device name
-
-const auto configParamsU2Tiling =
-        ::testing::Combine(::testing::Values(ConversionTypes::CONVERT),                               // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
-                           ::testing::Values(ov::element::u2),                                        // Input type
-                           ::testing::ValuesIn({ov::element::f16}),                                   // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));                             // Device name
-
-const auto configParamsI4Tiling =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                    // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeTiling)),  // Input shapes
-                           ::testing::Values(ov::element::i4),                                        // Input type
-                           ::testing::ValuesIn({ov::element::i8, ov::element::f16}),                  // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-
-const auto configParamsU4OddShape =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
-                           ::testing::Values(ov::element::u4),                                     // Input type
-                           ::testing::ValuesIn({ov::element::f16, ov::element::u8, ov::element::i8}),  // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-
-const auto configParamsU16ToF16 =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
-                           ::testing::Values(ov::element::u16),                                    // Input type
-                           ::testing::Values(ov::element::f16),                                    // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
-
-const auto configParamsF16ToU16 =
-        ::testing::Combine(::testing::ValuesIn(conversionOpTypes),                                 // Conversion type
-                           ::testing::ValuesIn(static_shapes_to_test_representation(inShapeOdd)),  // Input shapes
-                           ::testing::Values(ov::element::f16),                                    // Input type
-                           ::testing::Values(ov::element::u16),                                    // Convert type
-                           ::testing::Values(test_utils::TARGET_DEVICE));
+const auto configParams = genParams(netPrecisions, netPrecisions, inShape);
+const auto configParamsBF16ToF16 = genParams({bf16}, {f16}, inShape);
+const auto configParamsF64ToI64 = genParams({f64}, {i64}, inShape);
+const auto configParamsI64ToF64 = genParams({i64}, {f64}, inShape);
+const auto configParamsU4Tiling = genParams({u4}, {f16, u8, i8}, inShapeTiling);
+const auto configParamsU2Tiling = genParams({u2}, {f16}, inShapeTiling, false);
+const auto configParamsI4Tiling = genParams({i4}, {i8, f16}, inShapeTiling);
+const auto configParamsU4OddShape = genParams({u4}, {f16, u8, i8}, inShapeOdd);
+const auto configParamsU16ToF16 = genParams({u16}, {f16}, inShapeOdd);
+const auto configParamsF16ToU16 = genParams({f16}, {u16}, inShapeOdd);
 
 // ------ HW ------
 

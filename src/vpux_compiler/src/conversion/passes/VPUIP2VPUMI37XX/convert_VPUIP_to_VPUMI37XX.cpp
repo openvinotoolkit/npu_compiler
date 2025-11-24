@@ -366,7 +366,7 @@ private:
 
     void createComputeOpSwKernel(
             mlir::MLIRContext* ctx, VPUIP::SwKernelOp op, mlir::OpBuilder builderBlk,
-            mlir::func::FuncOp kernel_info_funcOp, std::string& kernel_elf2, bool isCompiled,
+            mlir::func::FuncOp kernel_info_funcOp, const std::string& kernel_elf2, bool isCompiled,
             mlir::Operation::operand_range wait_bars, mlir::Operation::operand_range update_bars,
             VPURegMapped::IndexType indexType,
             llvm::DenseMap<mlir::StringAttr,
@@ -388,7 +388,7 @@ private:
 
         std::string kernel_elf;
         if (kernel_info_funcOp == nullptr) {
-            kernel_elf = std::move(kernel_elf2);
+            kernel_elf = kernel_elf2;
             isCompiled = true;
         } else {
             kernel_elf =

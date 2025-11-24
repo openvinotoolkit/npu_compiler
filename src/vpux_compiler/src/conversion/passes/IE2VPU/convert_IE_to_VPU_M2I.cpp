@@ -9,7 +9,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/m2i.hpp"
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -140,15 +140,12 @@ mlir::LogicalResult BatchNormToM2I::matchAndRewrite(IE::BatchNormInferenceOp ori
 
 class ConvertIEToVPUM2IPass final : public impl::ConvertIEToVPUM2IBase<ConvertIEToVPUM2IPass> {
 public:
-    explicit ConvertIEToVPUM2IPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertIEToVPUM2IPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ConvertIEToVPUM2IPass::safeRunOnFunc() {

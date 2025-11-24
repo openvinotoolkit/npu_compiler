@@ -877,7 +877,7 @@ func.func @SplitNCEPermute(%arg0: tensor<1x3x224x224xf16>) -> tensor<1x4x224x224
     // CHECK-SAME:      dstElemType = !qElemType, dstOrder = #NHWC,
     // CHECK-SAME:      expandedChannels = 4 : i64,
     // CHECK-SAME:      minimumHardwareExecutionCost = {{[1-9][0-9]+}} : i64
-    // CHCEK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>}
+    // CHECK-SAME:      ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>}
     // CHECK-SAME:      -> tensor<1x4x224x224x!qElemType, {order = #NHWC}> {
     // CHECK:               DPU.Workload outOffsets [0, 0, 0, 0] outSizes [1, 4, 224, 224] <left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64> <CUBOID_16x16>
     // CHECK:           }

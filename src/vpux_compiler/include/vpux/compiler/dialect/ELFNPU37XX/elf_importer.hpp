@@ -14,8 +14,6 @@
 
 #include <npu_37xx_nnrt.hpp>
 
-#include <flatbuffers/flatbuffers.h>
-
 #include <vpux_elf/reader.hpp>
 #include <vpux_elf/types/section_header.hpp>
 

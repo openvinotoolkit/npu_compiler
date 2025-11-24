@@ -13,6 +13,7 @@
 using intel_npu::envVarStrToBool;
 
 namespace test_utils {
+// Default set to 'NPU' Plugin, but can be overwritten via CLI argument.
 const char* TARGET_DEVICE = "NPU";
 }  // namespace test_utils
 

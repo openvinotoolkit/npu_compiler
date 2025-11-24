@@ -6,7 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/m2i.hpp"
 #include "vpux/utils/core/error.hpp"
 
 namespace vpux {

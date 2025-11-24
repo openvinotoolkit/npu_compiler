@@ -48,11 +48,12 @@ void HostExec::buildHostExecPipeline(mlir::OpPassManager& pm, Logger /*log*/) {
 
     // Lowering to LLVM passes
     pm.addPass(mlir::createConvertSCFToCFPass());
-    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
     pm.addPass(mlir::memref::createExpandStridedMetadataPass());
+    pm.addPass(mlir::createConvertControlFlowToLLVMPass());
     pm.addPass(mlir::createLowerAffinePass());
-    pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
     pm.addPass(mlir::createConvertFuncToLLVMPass());
+
+    pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());
 
     pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 

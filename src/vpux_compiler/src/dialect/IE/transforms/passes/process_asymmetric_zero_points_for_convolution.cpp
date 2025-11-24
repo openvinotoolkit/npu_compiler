@@ -207,15 +207,12 @@ mlir::LogicalResult ZeroPointWithConvolution::matchAndRewrite(IE::ConvolutionOp 
 class ProcessAsymmetricZeroPointsForConvolutionPass final :
         public IE::impl::ProcessAsymmetricZeroPointsForConvolutionBase<ProcessAsymmetricZeroPointsForConvolutionPass> {
 public:
-    explicit ProcessAsymmetricZeroPointsForConvolutionPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ProcessAsymmetricZeroPointsForConvolutionPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ProcessAsymmetricZeroPointsForConvolutionPass::safeRunOnFunc() {

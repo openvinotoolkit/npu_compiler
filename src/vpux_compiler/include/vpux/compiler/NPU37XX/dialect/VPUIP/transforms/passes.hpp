@@ -15,28 +15,6 @@ namespace VPUIP {
 namespace arch37xx {
 
 //
-// Passes
-//
-
-std::unique_ptr<mlir::Pass> createAddSwKernelCacheHandlingOpsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createUnrollDistributedOpsPass(Logger log = Logger::global());
-
-//
-// Optimize copies pipeline
-//
-
-struct OptimizeCopiesOptions final : public VPUIP::OptimizeCopiesOptionsBase {
-    OptimizeCopiesOptions() = default;
-
-    template <class OtherOptions>
-    explicit OptimizeCopiesOptions(const OtherOptions& options): OptimizeCopiesOptionsBase(options) {
-    }
-};
-
-void buildOptimizeCopiesPipeline(mlir::OpPassManager& pm, const OptimizeCopiesOptions& options,
-                                 Logger log = Logger::global());
-
-//
 // Memory allocation pipeline
 //
 
@@ -73,7 +51,6 @@ void buildReferenceSWPipeline(mlir::OpPassManager& pm, const DefaultHWOptions& o
 //
 
 void registerVPUIPPipelines();
-void registerPasses();
 
 }  // namespace arch37xx
 }  // namespace VPUIP

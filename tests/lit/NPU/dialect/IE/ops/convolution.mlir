@@ -371,8 +371,8 @@ func.func @GroupsToAttr(%arg0: tensor<1x16x300x300xf32>) -> tensor<1x16x300x300x
 
     return %0 : tensor<1x16x300x300xf32>
 
-    // CHECK-DAG:       %[[FILTERS:.*]] = const.Declare tensor<16x1x3x3xf32> =
-    // CHECK-SAM:       dense<1.000000e+00> : tensor<16x1x1x3x3xf32>, [#const.Reshape<[16, 1, 3, 3]>]
+    // CHECK:       %[[FILTERS:.*]] = const.Declare tensor<16x1x3x3xf32> =
+    // CHECK-SAME:       dense<1.000000e+00> : tensor<16x1x1x3x3xf32>, [#const.Reshape<[16, 1, 3, 3]>]
     // CHECK:       %[[VAL0:.*]] = IE.GroupConvolution(%arg0, %[[FILTERS]])
     // CHECK-SAME:      dilations = [1, 1]
     // CHECK-SAME:      groups = 16
@@ -435,8 +435,7 @@ func.func @NotFuseGroupConvAndBias(%arg0: tensor<1x11x16x16xf32>) -> tensor<1x11
 
     return %1 : tensor<1x11x14x18xf32>
 
-    // CHECK-DAG:   %[[FILTERS:.*]] = const.Declare tensor<11x1x3x3xf32> =
-    // CHECK-SAM:       dense<1.000000e+00> : tensor<11x1x1x3x3xf32>, [#const.Reshape<[11, 1, 3, 3]>]
+    // CHECK-DAG:   %[[FILTERS:.*]] = const.Declare tensor<11x1x3x3xf32> = dense<1.000000e+00> : tensor<11x1x1x3x3xf32>, [#const.Reshape<[11, 1, 3, 3]>]
     // CHECK-DAG:   %[[BIAS:.*]] = const.Declare tensor<1x11x1x1xf32> = dense<1.000000e+00> : tensor<1x11x1x1xf32>
     // CHECK:       %[[VAL0:.*]] = IE.GroupConvolution(%arg0, %[[FILTERS]])
     // CHECK-SAME:      dilations = [1, 1]

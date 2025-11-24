@@ -173,6 +173,18 @@ INSTANTIATE_TEST_SUITE_P(smoke_TopK_K300, TopKLayerTestCommon,
                                             ::testing::Values(test_utils::TARGET_DEVICE)),
                          TopKLayerTestCommon::getTestCaseName);
 
+INSTANTIATE_TEST_SUITE_P(smoke_TopK_K21, TopKLayerTestCommon,
+                         ::testing::Combine(::testing::ValuesIn(std::vector<int64_t>{1}),
+                                            ::testing::ValuesIn(std::vector<int64_t>{3}),
+                                            ::testing::ValuesIn(modes_Tilling),
+                                            ::testing::ValuesIn(std::vector<ov::op::v3::TopK::SortType>{
+                                                    ov::op::v3::TopK::SortType::SORT_VALUES}),
+                                            ::testing::ValuesIn(modelTypes_Tilling),
+                                            ::testing::ValuesIn(ov::test::static_shapes_to_test_representation(
+                                                    std::vector<std::vector<ov::Shape>>{{{1, 8, 16, 21}}})),
+                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+                         TopKLayerTestCommon::getTestCaseName);
+
 }  // namespace
 
 namespace {  // opset v11

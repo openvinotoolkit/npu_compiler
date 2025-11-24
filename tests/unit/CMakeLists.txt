@@ -24,6 +24,7 @@ set(MANDATORY_UNIT_TESTS_LIBS
     "npu_ov_utils"
     "npu_profiling_utils"
     "openvino::npu_logger_utils"
+    "npu_costmodel"
 )
 
 # Skip tests for plugin targets

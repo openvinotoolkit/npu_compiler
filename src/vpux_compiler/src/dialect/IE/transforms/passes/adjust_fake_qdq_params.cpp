@@ -451,6 +451,7 @@ struct MulPropData {
         auto defoper = opervalue.getDefiningOp();
         auto mulOp = defoper ? createMultiplyOp(defoper, rewriter, ctx, scale)
                              : createMultiplyOp(opervalue, rewriter, ctx, scale);
+        extendOpLoc(mulOp, StringLiteral("user_operand_{0}"), user_operand_index);
         user->setOperand(user_operand_index, mulOp);
         return mulOp;
     }

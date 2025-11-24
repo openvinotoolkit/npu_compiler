@@ -27,4 +27,3 @@ func.func @UngroupBoundedBuffer(%arg0: !VPUIP.BoundedBuffer<data=memref<1x8x384x
     // CHECK:     [[VAR0:%.*]], [[VAR1:%.*]] = VPUIP.UngroupBoundedBuffer({{[^:]+}})
     // CHECK:     return [[VAR0]], [[VAR1]] : memref<1x8x384x384xf16>, memref<4xsi32>
 }
-

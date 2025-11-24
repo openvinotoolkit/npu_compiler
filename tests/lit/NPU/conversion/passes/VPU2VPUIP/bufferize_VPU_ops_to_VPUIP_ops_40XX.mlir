@@ -62,11 +62,11 @@ func.func @GatherDMA(%arg0: tensor<1x1x8404x512xf16>, %arg1:  tensor<1x1000x1x1x
     // CHECK:       [[INDICES_ALLOC:%.+]] = memref.alloc() : memref<1x1x1000x1xi64, [@CMX_NN, 0]>
     // CHECK:       [[INDICES_IN:%.+]] = VPUIP.Copy inputs([[CONVERT_OUT_COPY]] : memref<1x1x1000x1xi64>)
     // CHECK-SAME:                                  outputs([[INDICES_ALLOC]] : memref<1x1x1000x1xi64, [@CMX_NN, 0]>)
-    // CHECK:       [[GATHE_OUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1000x512xf16, [@CMX_NN, 0]>
-    // CHECK:       [[GATHER_DMA:%.+]] = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
+    // CHECK:       [[GATHER_OUT_ALLOC:%.+]] = memref.alloc() : memref<1x1x1000x512xf16, [@CMX_NN, 0]>
+    // CHECK:       [[GATHER_DMA:%.+]] = VPUIP.GatherDMA {addressingMode = 1 : i64, channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64}
     // CHECK-SAME:                          inputs([[INPUT_0]] : memref<1x1x8404x512xf16>
     // CHECK-SAME:                          indices([[INDICES_IN]] : memref<1x1x1000x1xi64, [@CMX_NN, 0]>
-    // CHECK-SAME:                          outputs([[GATHE_OUT_ALLOC]] : memref<1x1x1000x512xf16, [@CMX_NN, 0]>
+    // CHECK-SAME:                          outputs([[GATHER_OUT_ALLOC]] : memref<1x1x1000x512xf16, [@CMX_NN, 0]>
     // CHECK:       [[GATHER_DDR_ALLOC:%.+]] = memref.alloc() : memref<1x1x1000x512xf16>
     // CHECK:       [[GATHER_OUT_COPY:%.+]] = VPUIP.Copy inputs([[GATHER_DMA]] : memref<1x1x1000x512xf16, [@CMX_NN, 0]>)
     // CHECK-SAME:                                outputs([[GATHER_DDR_ALLOC]] : memref<1x1x1000x512xf16>) -> memref<1x1x1000x512xf16>

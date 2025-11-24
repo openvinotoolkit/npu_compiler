@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_sparsity_converters.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 
@@ -23,11 +24,12 @@ std::vector<int32_t> createWeightsTableData(mlir::Value opInput, mlir::Value opO
                                             VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale,
                                             bool hasAutopad);
 
-mlir::Value createWeightsTableTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<int32_t> weightsTable);
+mlir::Value createWeightsTableTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<int32_t> weightsTable,
+                                     vpux::ShapeRef weightsTableShape);
 
 template <typename T>
 std::vector<int32_t> createDataPointerTableData(mlir::Value opInput, mlir::Value opOutput,
-                                                ArrayRef<int32_t> workloadsSizes, mlir::Value weights,
+                                                ArrayRef<int32_t> workloadSizes, mlir::Value weights,
                                                 int32_t weightPtrOffset, int64_t OC,
                                                 ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     const auto weightPtrStep = VPU::NCESparsity::getWeightPtrStep(weights);
@@ -35,13 +37,13 @@ std::vector<int32_t> createDataPointerTableData(mlir::Value opInput, mlir::Value
     const auto inElemType = mlir::cast<vpux::NDTypeInterface>(opInput.getType()).getElementType();
     const auto outElemType = mlir::cast<vpux::NDTypeInterface>(opOutput.getType()).getElementType();
 
-    return VPU::NCESparsity::getDataPointerTable(inElemType, outElemType, workloadsSizes, weightPtrOffset,
-                                                 weightPtrStep, OC, zeroPoints);
+    return VPU::NCESparsity::getDataPointerTable(inElemType, outElemType, workloadSizes, weightPtrOffset, weightPtrStep,
+                                                 OC, zeroPoints);
 }
 
 template <typename T>
 std::pair<std::vector<int32_t>, std::vector<int32_t>> createSparseDataPointerTableDataPair(
-        mlir::Value opInput, mlir::Value opOutput, ArrayRef<int32_t> workloadsSizes, mlir::Value weights,
+        mlir::Value opInput, mlir::Value opOutput, ArrayRef<int32_t> workloadSizes, mlir::Value weights,
         int32_t weightPtrOffset, int32_t sparsityPtrOffset, ArrayRef<uint8_t> sparsityArray, int64_t OC,
         ArrayRef<T> zeroPoints = ArrayRef<T>()) {
     const auto inElemType = mlir::cast<vpux::NDTypeInterface>(opInput.getType()).getElementType();
@@ -51,7 +53,7 @@ std::pair<std::vector<int32_t>, std::vector<int32_t>> createSparseDataPointerTab
 
     const auto weightsShape = getShape(weights);
 
-    return VPU::NCESparsity::getSparseDataPointerTablePair(inElemType, outElemType, workloadsSizes, weightPtrOffset,
+    return VPU::NCESparsity::getSparseDataPointerTablePair(inElemType, outElemType, workloadSizes, weightPtrOffset,
                                                            weightsShape, sparsityPtrOffset, sparsityArray, OC,
                                                            weightsElemType, zeroPoints);
 }
@@ -83,22 +85,18 @@ std::vector<float> createBiasTableData(mlir::Value opInput, mlir::Value opOutput
                                        VPU::NCESparsity::BiasConverterCb biasConverter);
 
 template <typename T>
-std::vector<T> createZeroPointOnlyTableData(mlir::Value weights, int64_t OC, bool isZeroPoint4Bit,
-                                            ArrayRef<T> zeroPoints) {
+std::vector<T> createZeroPointOnlyTableData(ArrayRef<int32_t> workloadSizes, mlir::Value weights, int64_t OC,
+                                            bool isZeroPoint4Bit, ArrayRef<T> zeroPoints) {
     const auto weightsElemType =
             weights ? mlir::cast<vpux::NDTypeInterface>(weights.getType()).getElementType() : nullptr;
 
-    return VPU::NCESparsity::getZeroPointOnlyTable<T>(OC, weightsElemType, isZeroPoint4Bit, zeroPoints);
+    return VPU::NCESparsity::getZeroPointOnlyTable(workloadSizes, OC, weightsElemType, isZeroPoint4Bit, zeroPoints);
 }
 
 template <typename Type>
 mlir::Value createNewWeightsTableTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<Type> table,
-                                        mlir::Type elemType) {
-    const int64_t numberOfElements = table.size();
-
-    const auto tableShape = NCESparsity::inferWeightsTableShape(numberOfElements, /*newFormat=*/true);
-
-    const auto dataStorageType = mlir::RankedTensorType::get(tableShape.raw(), elemType);
+                                        vpux::ShapeRef weightsTableShape, mlir::Type elemType) {
+    const auto dataStorageType = mlir::RankedTensorType::get(weightsTableShape.raw(), elemType);
     return Const::createConst(builder, loc, dataStorageType, table);
 }
 
@@ -125,11 +123,13 @@ private:
 struct NewWeightsTableTensors {
     NewWeightsTableTensors(bool useNewWeightTableFormat, mlir::OpBuilder& builder, mlir::Location loc,
                            mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights,
-                           const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
+                           const Const::ContentAttr& bias, ShapeRef weightTableShape,
+                           VPU::NCESparsity::PPEConverterCb ppeConverter,
                            VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale = nullptr);
     NewWeightsTableTensors(bool useNewWeightTableFormat, mlir::OpBuilder& builder, mlir::Location loc,
                            mlir::Value opInput, mlir::Value opOutput, mlir::Value weights,
-                           const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
+                           const Const::ContentAttr& bias, ShapeRef weightTableShape,
+                           VPU::NCESparsity::PPEConverterCb ppeConverter,
                            VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale = nullptr);
 
     mlir::Value dataPointerTensor = nullptr, sparsityPointerTensor = nullptr, scaleTensor = nullptr,
@@ -138,8 +138,11 @@ struct NewWeightsTableTensors {
 private:
     void initializeTensors(bool useNewWeightTableFormat, mlir::OpBuilder& builder, mlir::Location loc,
                            mlir::Value opInput, mlir::Type opOutputElemType, mlir::Value weights,
-                           const Const::ContentAttr& bias, int64_t OC, VPU::NCESparsity::PPEConverterCb ppeConverter,
+                           const Const::ContentAttr& bias, ShapeRef weightTableShape,
+                           VPU::NCESparsity::PPEConverterCb ppeConverter,
                            VPU::NCESparsity::BiasConverterCb biasConverter, mlir::FloatAttr constScale);
+    mlir::Value initializeScaleBiasTensor(mlir::OpBuilder& builder, mlir::Location loc, ArrayRef<float> tableData,
+                                          ShapeRef weightTableShape);
 };
 
 mlir::Value alignDepthWiseWeightsTensor(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value origFilter);

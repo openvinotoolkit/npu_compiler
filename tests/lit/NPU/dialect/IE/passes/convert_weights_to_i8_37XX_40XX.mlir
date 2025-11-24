@@ -32,4 +32,3 @@ func.func @NotConvertU8Weights(%arg0: tensor<1x3x16x16xf16>) -> tensor<1x3x14x14
     // CHECK-SAME:      : tensor<1x3x16x16xf16>, tensor<3x3x3x3xf16> -> tensor<1x3x14x14xf16>
     // CHECK:       return [[CONV]]
 }
-

@@ -468,8 +468,8 @@ void createComputeOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder build
                                                      mlir::ValueRange(),  // updateBarriers
                                                      kernelRangeOp.getResult(), kernelParamsOp.getResult(),
                                                      swKernelOp.getProfilingData(), indexType.getTileIdx(),
-                                                     0,  // start_after
-                                                     0,  // clean_after
+                                                     parentTaskOp.getStartAfter().value_or(0),  // start_after
+                                                     parentTaskOp.getCleanAfter().value_or(0),  // clean_after
                                                      swKernelOp.getProfilingMetadataAttr(),
                                                      nullptr,                       // enqueueBarrier
                                                      parentTaskOp.getWlmPageAttr()  // wlmPageAttr
@@ -541,11 +541,11 @@ void createCacheOpSwKernel(VPUIP::SwKernelOp swKernelOp, mlir::OpBuilder builder
                                                      kernelRangeOp.getResult(), kernelParamsOp.getResult(),
                                                      nullptr,  // profiling_data
                                                      indexType.getTileIdx(),
-                                                     0,                             // start_after
-                                                     0,                             // clean_after
-                                                     nullptr,                       // profilingMetadata
-                                                     nullptr,                       // enqueueBarrier
-                                                     parentTaskOp.getWlmPageAttr()  // wlmPageAttr
+                                                     parentTaskOp.getStartAfter().value_or(0),  // start_after
+                                                     parentTaskOp.getCleanAfter().value_or(0),  // clean_after
+                                                     nullptr,                                   // profilingMetadata
+                                                     nullptr,                                   // enqueueBarrier
+                                                     parentTaskOp.getWlmPageAttr()              // wlmPageAttr
     );
 }
 

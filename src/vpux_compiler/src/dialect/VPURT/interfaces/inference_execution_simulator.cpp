@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/shave.hpp"
 
@@ -121,7 +122,7 @@ vpux::VPURT::InferenceExecutionSimulator::InferenceExecutionSimulator(Logger log
         : _log(log), _funcOp(funcOp), _cycleCostInfo(cycleCostInfo) {
     auto module = funcOp->getParentOfType<mlir::ModuleOp>();
 
-    _supportsDedicatedActShaveQueues = VPU::isFifoPerShaveEngineEnabled(funcOp);
+    _supportsDedicatedActShaveQueues = config::isFifoPerShaveEngineEnabled(funcOp);
 
     if (auto tileOp = config::getTileExecutor(module)) {
         // In case of ActShave tasks on a single cluster compiler does not assign it to a dedicated engine instance
@@ -372,7 +373,7 @@ double vpux::VPURT::InferenceExecutionSimulator::getSHAVETotalEnergy() {
     std::set<std::string> unsupportedOps;
     _funcOp->walk([&](VPUIP::SwKernelOp swKernelOp) {
         double shaveEnergy = 0;
-        auto vpunnSwOp = getVPUNNSWKernelOp(swKernelOp);
+        auto vpunnSwOp = getVPUNNSWKernelOp(swKernelOp, _cycleCostInfo.getCostModel()->isShave2ApiUsed());
         if (vpunnSwOp != nullptr) {
             shaveEnergy = _cycleCostInfo.getCostModel()->SHAVEEnergy(*vpunnSwOp);
         } else {

@@ -135,6 +135,83 @@ static mlir::LogicalResult Roundfp16(mlir::math::RoundOp op, mlir::PatternRewrit
     return success();
 }
 
+// Lowers a math::RoundEvenOp for fp16 operands using round-even semantics
+static mlir::LogicalResult RoundEvenfp16(mlir::math::RoundEvenOp op, mlir::PatternRewriter& rewriter) {
+    constexpr int FP16_BIAS = 15;      /* expo bias */
+    constexpr int FP16_TOTALBITS = 16; /* total number of bits */
+    constexpr int FP16_FRACTBITS = 10; /* number of explicit fraction bits */
+    constexpr uint16_t FP16_GREATINT = static_cast<uint16_t>(
+            (FP16_BIAS + FP16_FRACTBITS) << FP16_FRACTBITS); /* big: all equal or above are integers */
+
+    mlir::Location loc = op.getLoc();
+    mlir::ImplicitLocOpBuilder b(loc, rewriter);
+    mlir::Value operand = op.getOperand();
+    mlir::Type opType = operand.getType();
+    mlir::Type opEType = getElementTypeOrSelf(opType);
+
+    if (!opEType.isF16()) {
+        return rewriter.notifyMatchFailure(op, "not a round of f16.");
+    }
+
+    if (mlir::isa<mlir::ShapedType>(opType)) {
+        return rewriter.notifyMatchFailure(op, "ShapedType not supported");
+    }
+
+    auto f16Type = operand.getType();
+    auto i16Type = rewriter.getIntegerType(16);
+
+    // const shortx signMask = (shortx)(1 << (FP16_TOTALBITS - 1));
+    constexpr uint16_t TOTALBITS_ONE = static_cast<uint16_t>(FP16_TOTALBITS - 1);
+    constexpr uint16_t signMaskValue = static_cast<uint16_t>(1u << TOTALBITS_ONE);
+    mlir::Value signMask = rewriter.create<mlir::arith::ConstantOp>(
+            loc, rewriter.getI16IntegerAttr(static_cast<int16_t>(signMaskValue)));
+
+    // halfx roundShift = (halfx)((shortx)FP16_GREATINT);
+    mlir::Value roundShift = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(FP16_GREATINT));
+    mlir::Value froundShift = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, roundShift);
+
+    mlir::Value totalBitsMinusOne =
+            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(TOTALBITS_ONE));
+    constexpr uint16_t greatIntMinusOnevalue = static_cast<uint16_t>(FP16_GREATINT - 1);
+    mlir::Value greatIntMinusOne =
+            rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(greatIntMinusOnevalue));
+    auto allOnesAttr = rewriter.getIntegerAttr(i16Type, llvm::APInt::getAllOnes(i16Type.getIntOrFloatBitWidth()));
+    mlir::Value allOnes = rewriter.create<mlir::arith::ConstantOp>(loc, allOnesAttr);
+
+    mlir::Value xInt = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, operand);
+
+    // xAbs = xInt & ~signMask
+    constexpr uint16_t absMaskvalue = static_cast<uint16_t>(0x7FFF);  //~signMask
+    mlir::Value absMask = rewriter.create<mlir::arith::ConstantOp>(loc, rewriter.getI16IntegerAttr(absMaskvalue));
+    mlir::Value xAbs = rewriter.create<mlir::arith::AndIOp>(loc, xInt, absMask);
+
+    // xSign = xInt & signMask.
+    mlir::Value xSign = rewriter.create<mlir::arith::AndIOp>(loc, xInt, signMask);
+
+    // isGreat = ((shortx)(FP16_GREATINT - 1) - xAbs) >> (FP16_TOTALBITS - 1);
+    mlir::Value diffGreat = rewriter.create<mlir::arith::SubIOp>(loc, greatIntMinusOne, xAbs);
+    mlir::Value isGreat = rewriter.create<mlir::arith::ShRSIOp>(loc, diffGreat, totalBitsMinusOne);
+
+    // halfx vround = v_sub(((halfx)xAbs + roundShift), roundShift);
+    mlir::Value fxAbs = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, xAbs);
+    mlir::Value sum = rewriter.create<mlir::arith::AddFOp>(loc, froundShift, fxAbs);
+    mlir::Value vround = rewriter.create<mlir::arith::SubFOp>(loc, sum, froundShift);
+    mlir::Value Ivround = rewriter.create<mlir::arith::BitcastOp>(loc, i16Type, vround);
+
+    // halfx xres = (halfx)((~isGreat & (shortx)vround) | ((isGreat)&xInt) | xSign);
+    mlir::Value isNotGreat = rewriter.create<mlir::arith::XOrIOp>(loc, i16Type, isGreat, allOnes);
+
+    mlir::Value partOne = rewriter.create<mlir::arith::AndIOp>(loc, isNotGreat, Ivround);
+    mlir::Value partTwo = rewriter.create<mlir::arith::AndIOp>(loc, isGreat, xInt);
+    mlir::Value combined1 = rewriter.create<mlir::arith::OrIOp>(loc, partOne, partTwo);
+    mlir::Value combined = rewriter.create<mlir::arith::OrIOp>(loc, combined1, xSign);
+
+    mlir::Value res = rewriter.create<mlir::arith::BitcastOp>(loc, f16Type, combined);
+
+    rewriter.replaceOp(op, res);
+    return mlir::success();
+}
+
 using namespace vpux;
 
 namespace {
@@ -145,14 +222,12 @@ namespace {
 
 class ExpandLayersPass final : public impl::ExpandLayersBase<ExpandLayersPass> {
 public:
-    explicit ExpandLayersPass(Logger log): _log(log) {
+    explicit ExpandLayersPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnModule() final;
-
-    Logger _log;
 };
 
 void ExpandLayersPass::safeRunOnModule() {
@@ -182,7 +257,10 @@ void ExpandLayersPass::safeRunOnModule() {
         patterns.add<mlir::math::ErfPolynomialApproximation>(&ctx);
         mlir::populateExpandRoundEvenPattern(patterns);
         mlir::populateExpandRoundFPattern(patterns);
-        patterns.add(Roundfp16);
+
+        // Increase pattern benefit to take precedence over native mlir patterns.
+        patterns.add(Roundfp16, mlir::PatternBenefit(100));
+        patterns.add(RoundEvenfp16, mlir::PatternBenefit(100));
         mlir::populateExpandFmaFPattern(patterns);
 
         if (mlir::failed(

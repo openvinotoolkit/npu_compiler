@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
 #include <mlir/Transforms/DialectConversion.h>
@@ -127,8 +128,8 @@ mlir::LogicalResult PermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantize
         paddedInput = origOp->getOperand(0);
     } else {
         _log.trace("Expand input tensor");
-        paddedInput = rewriter.createOrFold<IE::ExpandOp>(origOp->getLoc(), origOp->getOperand(0), std::nullopt,
-                                                          ShapeRef(inPadsEnd));
+        paddedInput = rewriter.createOrFold<IE::ExpandOp>(appendLoc(origOp->getLoc(), "_expand_input"),
+                                                          origOp->getOperand(0), std::nullopt, ShapeRef(inPadsEnd));
     }
 
     SmallVector<mlir::Value> paddedInputs = {paddedInput};
@@ -145,8 +146,10 @@ mlir::LogicalResult PermuteQuantizeRewriter::matchAndRewrite(IE::PermuteQuantize
         const auto outShape = outputType.getShape();
         const SmallVector<int64_t> offsets(outShape.size(), 0);
 
-        rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, origOp->getResult(0).getType(), newOp->getResult(0),
-                                                 getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
+        auto newSlice =
+                rewriter.replaceOpWithNewOp<IE::SliceOp>(origOp, origOp->getResult(0).getType(), newOp->getResult(0),
+                                                         getIntArrayAttr(ctx, offsets), getIntArrayAttr(ctx, outShape));
+        extendOpLoc(newSlice, "_slice_output");
     }
 
     return mlir::success();

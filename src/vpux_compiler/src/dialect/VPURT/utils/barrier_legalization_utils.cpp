@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 
 using namespace vpux;
@@ -208,6 +209,15 @@ void VPURT::orderExecutionTasksAndBarriers(mlir::func::FuncOp funcOp, BarrierInf
         if (readyOps.empty()) {
             if (!lastReadyOps.empty()) {
                 log.error("Last readyOps before failure: {0}", lastReadyOps);
+
+                log.error("Dump queues state:");
+                for (auto [taskQueueType, nextTaskOpIt] : frontTasks) {
+                    log.nest().error(
+                            "Queue '{0}:{1}' next task: {2}", VPU::stringifyExecutorKind(taskQueueType.type),
+                            taskQueueType.id,
+                            (nextTaskOpIt != taskOpQueues.at(taskQueueType).end() ? std::to_string(*nextTaskOpIt)
+                                                                                  : "<end of queue>"));
+                }
             }
             VPUX_THROW("Failed to simulate execution. Possible deadlock or barrier misconfiguration");
         }
@@ -420,4 +430,67 @@ bool VPURT::isShareWaitAndUpdateBarriersNeeded(std::optional<WorkloadManagementM
     }
     // enable shared wait and update barriers
     return true;
+}
+
+SmallVector<size_t> VPURT::getBarriersOrder(mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo,
+                                            bool orderByConsumptionReady) {
+    auto getBarsOrder = [&](mlir::func::FuncOp funcOp, BarrierInfo& barrierInfo, bool orderByConsumptionReady = false) {
+        SmallVector<size_t> newBarrierOrder;
+        auto taskOpQueues = VPURT::getTaskOpQueues(funcOp, barrierInfo);
+        std::set<size_t> newBarrierOrderSet;
+
+        // initialize front task from each FIFO
+        auto frontTasks = VPURT::initializeTaskOpQueueIterators(taskOpQueues);
+
+        // reduce producer count for barrier of ready op
+        // reset barrier if producer count reaches 0
+        const auto removeBarrierProducer = [&](size_t readyOp) {
+            const auto updateBarriers = barrierInfo.getUpdateBarriers(readyOp);
+            for (const auto& updateBarrier : updateBarriers) {
+                auto barrierOp = barrierInfo.getBarrierOpAtIndex(updateBarrier);
+                barrierInfo.removeProducer(barrierOp, readyOp);
+
+                if (!orderByConsumptionReady && !newBarrierOrderSet.count(updateBarrier)) {
+                    newBarrierOrder.push_back(updateBarrier);
+                    newBarrierOrderSet.insert(updateBarrier);
+                }
+
+                if (barrierInfo.getBarrierProducers(barrierOp).empty()) {
+                    if (orderByConsumptionReady) {
+                        // barriers will be ordered by order of consumption, each barrier is consumed only once
+                        newBarrierOrder.push_back(updateBarrier);
+                    }
+                    barrierInfo.resetBarrier(barrierOp);
+                }
+            }
+        };
+
+        // simulate per FIFO execution - all FIFOs must reach end
+        SmallVector<size_t> lastReadyOps;
+        while (!VPURT::allQueuesReachedEnd(frontTasks, taskOpQueues)) {
+            auto readyOps = VPURT::findReadyOpsFromTaskOpQueues(frontTasks, taskOpQueues, barrierInfo);
+
+            // If simulation fails (no ready ops), dump previous
+            if (readyOps.empty()) {
+                VPUX_THROW("Failed to simulate execution. Possible deadlock or barrier misconfiguration");
+            }
+
+            for (auto& readyOp : readyOps) {
+                removeBarrierProducer(readyOp);
+            }
+            lastReadyOps = std::move(readyOps);
+        }
+        return newBarrierOrder;
+    };
+
+    auto newBarrierOrder = getBarsOrder(funcOp, barrierInfo, orderByConsumptionReady);
+    SmallVector<size_t> barrierOrder(newBarrierOrder.size());
+
+    for (size_t barIdx = 0; barIdx < barrierInfo.getNumOfBarrierOps(); ++barIdx) {
+        barrierOrder[newBarrierOrder[barIdx]] = barIdx;
+    }
+
+    // regenerate barrier info
+    barrierInfo = vpux::BarrierInfo{funcOp};
+    return barrierOrder;
 }

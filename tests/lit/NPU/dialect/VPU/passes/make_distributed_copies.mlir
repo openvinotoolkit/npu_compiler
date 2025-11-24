@@ -41,5 +41,3 @@ func.func @DeleteUnrolledType(%arg0: tensor<1x3x112x112xf16>) -> tensor<1x4x112x
 
     //CHECK-NOT: VPU.UnrolledType
 }
-
-

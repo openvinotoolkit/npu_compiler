@@ -14,9 +14,7 @@ add_npu_library(npu_compiler_core
         MLIRAsyncDialect
         MLIRControlFlowInterfaces
         MLIRViewLikeInterface
-        flatbuffers
         npu_elf
         npu_compiler_dialect_vpurt
         npu_profiling_schema
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)

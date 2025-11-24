@@ -75,10 +75,10 @@ func.func @VfTilingWithEltwise(%arg0: tensor<1x16x256x256x!qElemType, {order = #
 // CHECK-LABEL: @VfTilingWithEltwiseAdjustOffset
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16, {order = #NHWC}>
 // CHECK-SAME:      [[W1:%.+]]: tensor<32x16x3x3xf16, {order = #NHWC}>
-// CHECK-SAME:      [[W2:%.+]]: tensor<32x32x3x3xf16, {order = #NHWC}>
+// CHECK-SAME:      [[W2:%.+]]: tensor<32x32x7x7xf16, {order = #NHWC}>
 func.func @VfTilingWithEltwiseAdjustOffset(
             %arg0: tensor<1x16x128x128xf16, {order = #NHWC}>, %weights_1: tensor<32x16x3x3xf16, {order = #NHWC}>,
-            %weights_2: tensor<32x32x3x3xf16, {order = #NHWC}>) -> tensor<1x32x128x128xf16, {order = #NHWC}>  {
+            %weights_2: tensor<32x32x7x7xf16, {order = #NHWC}>) -> tensor<1x32x128x128xf16, {order = #NHWC}>  {
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x128x128xf16, {order = #NHWC}>, %weights_1 as %arg2: tensor<32x16x3x3xf16, {order = #NHWC}>,
                             %weights_2 as %arg4: tensor<32x32x7x7xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> {
       %1 = VPU.NCE.Convolution(%arg1, %arg2)
@@ -316,10 +316,10 @@ func.func @InterpAndAvgpoolPropagateAxis(%arg0: tensor<1x64x96x160xf16, {order =
 // CHECK-LABEL: @VfTilingWithMultiEltwiseAdjustOffset
 // CHECK-SAME:      [[INPUT:%.+]]: tensor<1x16x128x128xf16, {order = #NHWC}>
 // CHECK-SAME:      [[W1:%.+]]: tensor<32x16x3x3xf16, {order = #NHWC}>
-// CHECK-SAME:      [[W2:%.+]]: tensor<32x32x3x3xf16, {order = #NHWC}>
+// CHECK-SAME:      [[W2:%.+]]: tensor<32x32x7x7xf16, {order = #NHWC}>
 func.func @VfTilingWithMultiEltwiseAdjustOffset(
             %arg0: tensor<1x16x128x128xf16, {order = #NHWC}>, %weights_1: tensor<32x16x3x3xf16, {order = #NHWC}>,
-            %weights_2: tensor<32x32x3x3xf16, {order = #NHWC}>) -> tensor<1x32x128x128xf16, {order = #NHWC}>  {
+            %weights_2: tensor<32x32x7x7xf16, {order = #NHWC}>) -> tensor<1x32x128x128xf16, {order = #NHWC}>  {
     %0 = VPU.VerticalFusion (%arg0 as %arg1: tensor<1x16x128x128xf16, {order = #NHWC}>, %weights_1 as %arg2: tensor<32x16x3x3xf16, {order = #NHWC}>,
                             %weights_2 as %arg4: tensor<32x32x7x7xf16, {order = #NHWC}>) attributes {tilingStrategy = [1, 1, 2, 1]} -> tensor<1x32x128x128xf16, {order = #NHWC}> {
       %1 = VPU.NCE.Convolution(%arg1, %arg2)

@@ -30,14 +30,13 @@ using namespace vpux;
 namespace {
 class SerializeELFToBinaryPass : public HostExec::impl::SerializeELFToBinaryBase<SerializeELFToBinaryPass> {
 public:
-    explicit SerializeELFToBinaryPass(Logger log): _log(log) {
+    explicit SerializeELFToBinaryPass(Logger log) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
     mlir::func::FuncOp serialize(vpux::Core::NestedCallOp callOp, mlir::func::FuncOp funcOp, config::ArchKind& arch);
-    Logger _log;
 };
 
 mlir::FunctionType constructFunctionType(mlir::ModuleOp moduleOp, net::NetworkInfoOp netInfo, Logger& log) {

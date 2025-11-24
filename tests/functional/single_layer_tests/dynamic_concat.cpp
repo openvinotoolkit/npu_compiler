@@ -76,7 +76,8 @@ TEST_P(DynamicConcatLayerTest, NPU4000_HW) {
 }
 
 const std::vector<std::vector<BoundedShape>> inShapes = {
-        {generateTestShape(1, 1, 640_Dyn, 128), generateTestShape(1, 1, 640_Dyn, 128)}};
+        {generateTestShape(1, 1, 640_Dyn, 128), generateTestShape(1, 1, 640_Dyn, 128)},
+        {generateTestShape(1, 640_Dyn, 1, 128), generateTestShape(1, 1, 1, 128)}};
 const std::vector<Axis> axis = {1};
 const std::vector<InputType> inputPrecision = {ov::element::f16};
 

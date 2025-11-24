@@ -8,7 +8,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/activation.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 
 #include <mlir/IR/Operation.h>
@@ -78,6 +82,7 @@ public:
     static mlir::LogicalResult verifyChannels(IE::ReduceSumOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(IE::MultiplyOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(IE::SoftMaxOp origOp, Logger log = Logger::global());
+    static mlir::LogicalResult verifyChannels(IE::SDPAExtendedOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(IE::SubtractOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyChannels(VPU::NCEEltwiseOp origOp, Logger log = Logger::global());
     static mlir::LogicalResult verifyEltwiseChannels(mlir::Operation* op, vpux::NDTypeInterface firstInputType,

@@ -98,6 +98,9 @@ std::shared_ptr<ov::Model> preprocessModel(const std::shared_ptr<ov::Model>& mod
         useIndices = useIndicesMatch->second.as<bool>();
     }
 
+    logger->debug("useIndices is {0}, using {1} for parameter/result node identification", useIndices,
+                  useIndices ? "indices" : "names");
+
     // Compiler needs to maintain compatiblity with older OpenVINO (plugin) versions.
     // Compiler needs to support applications that are still using OV 1.0 API.
     //     | OV API Version | IR version | Needs preprocessing? |
@@ -127,6 +130,7 @@ std::shared_ptr<ov::Model> preprocessModel(const std::shared_ptr<ov::Model>& mod
     const ov::ParameterVector& parameters = model->get_parameters();
     const ov::ResultVector& results = model->get_results();
 
+    logger->trace("Configuring {0} parameter nodes for preprocessing...", parameters.size());
     for (size_t parameterIndex = 0; parameterIndex < parameters.size(); ++parameterIndex) {
         const std::shared_ptr<ov::op::v0::Parameter>& parameter = parameters[parameterIndex];
         const std::string inputID = useIndices ? std::to_string(parameterIndex) : parameter->get_friendly_name();
@@ -140,13 +144,47 @@ std::shared_ptr<ov::Model> preprocessModel(const std::shared_ptr<ov::Model>& mod
         inputInfo.model().set_layout(modelLayout);
         inputInfo.tensor().set_element_type(inputPrecisions.at(inputID));
     }
+    logger->trace("Completed the configuration of all parameter nodes!");
 
+    logger->trace("Configuring {0} result nodes for preprocessing...", results.size());
     for (size_t resultIndex = 0; resultIndex < results.size(); ++resultIndex) {
         const std::shared_ptr<ov::op::v0::Result>& result = results[resultIndex];
-        const std::string outputID =
-                useIndices ? std::to_string(resultIndex) : ov::op::util::get_ie_output_name(result->input_value(0));
 
-        const ov::Layout tensorLayout(outputLayouts.at(outputID));
+        std::string outputID;
+
+        if (useIndices) {
+            outputID = std::to_string(resultIndex);
+        } else {
+            // Otherwise, the legacy name of the result node (refers to the name of its parent node) will be used
+            outputID = result->get_input_node_ptr(0)->get_friendly_name();
+            if (result->get_input_node_ptr(0)->get_output_size() != 1) {
+                // If the parent node does not have exactly 1 output port
+                if (!outputLayouts.count(outputID)) {
+                    // If the legacy name is not found, append the index of the parent node's output port linked to this
+                    // result node. Otherwise, do not append anything.
+                    outputID += "." + std::to_string(result->input_value(0).get_index());
+                }
+            }
+        }
+
+        ov::Layout tensorLayout;
+
+        try {
+            tensorLayout = ov::Layout(outputLayouts.at(outputID));
+        } catch (const std::out_of_range& e) {
+            // Throw an error and print the list of available indices/names
+            std::string availableIDs;
+            for (const auto& allIDs : outputLayouts) {
+                availableIDs += "\n" + allIDs.first;
+            }
+
+            throw std::runtime_error(std::string(e.what()) + "\nFailed to resolve obtained " +
+                                     std::string(useIndices ? "index" : "name") + " '" + outputID + "' at the " +
+                                     std::to_string(resultIndex) +
+                                     "th result node (node name: " + result->get_friendly_name() + "). Available " +
+                                     std::string(useIndices ? "indices" : "names") + ": " + availableIDs);
+        }
+
         const size_t rank = result->get_shape().size();
         const ov::Layout modelLayout(rankToLegacyLayoutString(rank));
 
@@ -155,6 +193,7 @@ std::shared_ptr<ov::Model> preprocessModel(const std::shared_ptr<ov::Model>& mod
         outputInfo.model().set_layout(modelLayout);
         outputInfo.tensor().set_element_type(outputPrecisions.at(outputID));
     }
+    logger->trace("Completed the configuration of all result nodes!");
 
     return preprocessor.build();
 }
@@ -205,8 +244,8 @@ VPUXCompilerL0::VPUXCompilerL0(vcl_compiler_desc_t* compilerDesc, vcl_device_des
     _options->add<intel_npu::EXECUTION_MODE_HINT>();
     _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
     _options->add<intel_npu::BATCH_COMPILER_MODE_SETTINGS>();
-    _options->add<intel_npu::QDQ_OPTIMIZATION>();
     _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
+    _options->add<intel_npu::QDQ_OPTIMIZATION>();
     _options->add<intel_npu::TURBO>();
 
 #ifdef VPUX_DEVELOPER_BUILD

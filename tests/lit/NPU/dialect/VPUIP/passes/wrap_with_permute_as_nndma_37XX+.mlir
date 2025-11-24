@@ -1165,6 +1165,107 @@ func.func @WrapExpandWithCopyAsExpandDMADirectSlicedResult(%input: memref<1x1x24
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @WrapExpandWithCopyAsExpandDMAIsSuperdense
+// CHECK-SAME:  [[INPUT:%.+]]: memref<1x8x24x24xf16, #NHWC>
+func.func @WrapExpandWithCopyAsExpandDMAIsSuperdense(%input: memref<1x8x24x24xf16, #NHWC>) -> memref<1x30x8x24xf16, [@CMX_NN, 0]> {
+    %cst_weights_table = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+
+    %input_buff = memref.alloc() : memref<1x16x24x24xf16, #NHWC>
+    %input_expand = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]}
+            inputs(%input : memref<1x8x24x24xf16, #NHWC>) outputs(%input_buff : memref<1x16x24x24xf16, #NHWC>) -> memref<1x16x24x24xf16, #NHWC>
+
+    %input_cmx_buff = memref.alloc() : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %input_cmx = VPUIP.Copy inputs(%input_expand : memref<1x16x24x24xf16, #NHWC>) outputs(%input_cmx_buff : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %weights_table_cmx_buff = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %weights_table_cmx = VPUIP.Copy inputs(%cst_weights_table : memref<16x1x1x4xsi32>) outputs(%weights_table_cmx_buff : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+
+    %output_cmx_buff = memref.alloc() : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %nce = VPUIP.NCEClusterTask {
+              is_superdense,
+              kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+              kernel_size = [1, 1],
+              kernel_strides = [1, 1],
+              task_type = #VPUIP.nce_task_type<MAXPOOL>
+            }
+              input(%input_cmx : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              weight_table(%weights_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
+              parent_input(%input_cmx : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              parent_output(%output_cmx_buff : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              outputs(%output_cmx_buff : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>
+            ) -> memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]> variants : {
+              DPUTask {outStart = [0, 0, 0], outEnd = [23, 23, 0], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+        } PPE : {
+              PPETask {ppe = #VPU.PPEStub<>}
+        }
+
+    %perm_cast = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW}
+      inputs(%nce: memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x24x8x24xf16, [@CMX_NN, 0]>
+    %output_buff = memref.alloc() : memref<1x30x8x24xf16, [@CMX_NN, 0]>
+    %output_expand = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 6, 0, 0]}
+            inputs(%perm_cast : memref<1x24x8x24xf16, [@CMX_NN, 0]>) outputs(%output_buff : memref<1x30x8x24xf16, [@CMX_NN, 0]>) -> memref<1x30x8x24xf16, [@CMX_NN, 0]>
+
+    return %output_expand: memref<1x30x8x24xf16, [@CMX_NN, 0]>
+
+    // CHECK-NOT:   VPUIP.Expand
+    // CHECK-DAG:   [[OUT_BUFF:%.+]] = memref.alloc() : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:       [[EXPAND_DMA:%.+]] = VPUIP.ExpandDMA {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]
+    // CHECK-SAME:      inputs([[INPUT]] : memref<1x8x24x24xf16, #NHWC>
+    // CHECK-SAME:      outputs([[OUT_BUFF]] : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+
+// CHECK-LABEL: @WrapExpandWithCopyWithoutIsSuperdense
+// CHECK-SAME:  [[INPUT:%.+]]: memref<1x8x24x24xf16, #NHWC>
+func.func @WrapExpandWithCopyWithoutIsSuperdense(%input: memref<1x8x24x24xf16, #NHWC>) -> memref<1x30x8x24xf16, [@CMX_NN, 0]> {
+    %cst_weights_table = const.Declare memref<16x1x1x4xsi32> = dense<1> : tensor<16x1x1x4xsi32>
+
+    %input_buff = memref.alloc() : memref<1x16x24x24xf16, #NHWC>
+    %input_expand = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 8, 0, 0]}
+            inputs(%input : memref<1x8x24x24xf16, #NHWC>) outputs(%input_buff : memref<1x16x24x24xf16, #NHWC>) -> memref<1x16x24x24xf16, #NHWC>
+
+    %input_cmx_buff = memref.alloc() : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %input_cmx = VPUIP.Copy inputs(%input_expand : memref<1x16x24x24xf16, #NHWC>) outputs(%input_cmx_buff : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %weights_table_cmx_buff = memref.alloc() : memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+    %weights_table_cmx = VPUIP.Copy inputs(%cst_weights_table : memref<16x1x1x4xsi32>) outputs(%weights_table_cmx_buff : memref<16x1x1x4xsi32, [@CMX_NN, 0]>) -> memref<16x1x1x4xsi32, [@CMX_NN, 0]>
+
+    %output_cmx_buff = memref.alloc() : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>
+    %nce = VPUIP.NCEClusterTask {
+              kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+              kernel_size = [1, 1],
+              kernel_strides = [1, 1],
+              task_type = #VPUIP.nce_task_type<MAXPOOL>
+            }
+              input(%input_cmx : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              weight_table(%weights_table_cmx : memref<16x1x1x4xsi32, [@CMX_NN, 0]>)
+              parent_input(%input_cmx : memref<1x16x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              parent_output(%output_cmx_buff : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>)
+              outputs(%output_cmx_buff : memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>
+            ) -> memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]> variants : {
+              DPUTask {outStart = [0, 0, 0], outEnd = [23, 23, 0], mpe_mode = #VPU.mpe_mode<CUBOID_4x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>}
+        } PPE : {
+              PPETask {ppe = #VPU.PPEStub<>}
+        }
+
+    %perm_cast = VPUIP.PermuteCast {dst_order = #NCHW, mem_perm = #NCHW}
+      inputs(%nce: memref<1x8x24x24xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x24x8x24xf16, [@CMX_NN, 0]>
+    %output_buff = memref.alloc() : memref<1x30x8x24xf16, [@CMX_NN, 0]>
+    %output_expand = VPUIP.Expand {pads_begin = [0, 0, 0, 0], pads_end = [0, 6, 0, 0]}
+            inputs(%perm_cast : memref<1x24x8x24xf16, [@CMX_NN, 0]>) outputs(%output_buff : memref<1x30x8x24xf16, [@CMX_NN, 0]>) -> memref<1x30x8x24xf16, [@CMX_NN, 0]>
+
+    return %output_expand: memref<1x30x8x24xf16, [@CMX_NN, 0]>
+
+    // CHECK-NOT:       VPUIP.ExpandDMA
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 #map = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 
 !InputDistributedType = !VPUIP.DistributedBuffer<
@@ -1807,4 +1908,3 @@ func.func @WrapExpandWithClusterCopyAsExpandDMAMultiChildren(%arg0: memref<1x232
     //CHECK:   [[NCE2:%.*]] = VPUIP.NCEClusterTask
     // CHECK-SAME: input([[EXPAND_DMA]] 
 }
-

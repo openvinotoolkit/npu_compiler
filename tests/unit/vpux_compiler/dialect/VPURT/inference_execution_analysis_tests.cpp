@@ -46,7 +46,7 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith1ActShaveEngineOn1Cl
     constexpr StringLiteral inputIR = R"(
         module @test attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
             config.PipelineOptions @Options {
-                config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
+                config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -142,7 +142,7 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateWith2ActShaveEngineOn1Cl
     constexpr StringLiteral inputIR = R"(
         module @test attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
             config.PipelineOptions @Options {
-                config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
+                config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware
@@ -243,7 +243,7 @@ TEST_F(MLIR_InferenceExecutionAnalysis, CheckCycleUpdateOnMultiQueueIR) {
     constexpr StringLiteral inputIR = R"(
         module @test attributes {config.arch = #config.arch_kind<NPU37XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
             config.PipelineOptions @Options {
-                config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
+                config.Option @config.UseDedicatedFifoPerShaveEngine : false
             }
             config.Resources 6 of @NCE at 1.700000e+03 MHz {
                 config.MemoryResource 1327104 bytes of @CMX_NN_FragmentationAware

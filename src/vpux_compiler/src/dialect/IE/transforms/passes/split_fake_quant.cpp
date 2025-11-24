@@ -8,8 +8,8 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/asymmetric_quant_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/analysis.hpp"
@@ -139,28 +139,36 @@ mlir::LogicalResult UseQuantDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     const auto realType = mlir::cast<vpux::NDTypeInterface>(origOp.getInput().getType());
     const auto realElemType = mlir::cast<mlir::FloatType>(realType.getElementType());
 
-    auto isSigned = false;
-    mlir::Value value = origOp.getInput();
-    auto op = value.getDefiningOp();
-    // Go upwards through the traversing chain comprising
-    // BlockArgument->ViewLikeOp*N->ConvertOp->ViewLikeOp*N->FakeQuantOp
-    while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface, IE::TransposeOp>(op)) {
-        value = *op->getOperands().begin();
-        op = value.getDefiningOp();
-    }
-    if (op != nullptr && mlir::isa<IE::ConvertOp>(op)) {
-        value = *op->getOperands().begin();
-        if (!mlir::isa<mlir::BlockArgument>(value)) {
+    auto lowFpType = origOp.getLowFpType();
+    VPUX_THROW_WHEN(
+            (lowFpType.has_value() && !mlir::isa<mlir::Float8E4M3FNType, mlir::Float8E5M2Type>(lowFpType.value())),
+            "[{0}] Unsupported low precision type"),
+            getDebugName();
+    auto isSigned = lowFpType.has_value() && mlir::isa<mlir::Float8E4M3FNType, mlir::Float8E5M2Type>(lowFpType.value());
+
+    if (!lowFpType.has_value()) {
+        mlir::Value value = origOp.getInput();
+        auto op = value.getDefiningOp();
+        // Go upwards through the traversing chain comprising
+        // BlockArgument->ViewLikeOp*N->ConvertOp->ViewLikeOp*N->FakeQuantOp
+        while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface, IE::TransposeOp>(op)) {
+            value = *op->getOperands().begin();
             op = value.getDefiningOp();
-            while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface>(op)) {
-                value = *op->getOperands().begin();
-                op = value.getDefiningOp();
-            }
         }
-        if (mlir::isa<mlir::BlockArgument>(value)) {
-            auto valueElemType = mlir::cast<vpux::NDTypeInterface>(value.getType()).getElementType();
-            if (mlir::isa<mlir::IntegerType>(valueElemType)) {
-                isSigned = mlir::cast<mlir::IntegerType>(valueElemType).isSigned();
+        if (op != nullptr && mlir::isa<IE::ConvertOp>(op)) {
+            value = *op->getOperands().begin();
+            if (!mlir::isa<mlir::BlockArgument>(value)) {
+                op = value.getDefiningOp();
+                while (op != nullptr && mlir::isa<IE::ViewLikeOpInterface>(op)) {
+                    value = *op->getOperands().begin();
+                    op = value.getDefiningOp();
+                }
+            }
+            if (mlir::isa<mlir::BlockArgument>(value)) {
+                auto valueElemType = mlir::cast<vpux::NDTypeInterface>(value.getType()).getElementType();
+                if (auto intElemType = mlir::dyn_cast_or_null<mlir::IntegerType>(valueElemType)) {
+                    isSigned = mlir::cast<mlir::IntegerType>(valueElemType).isSigned();
+                }
             }
         }
     }
@@ -373,7 +381,7 @@ mlir::LogicalResult UseConstDequant::matchAndRewrite(IE::FakeQuantizeOp origOp, 
     auto newInConstAttrSetup = inConstAttr.transform();
     newInConstAttrSetup = newInConstAttrSetup.castElemType(qElemType);
     const auto moduleOp = getModuleOp(origOp.getOperation());
-    const auto isAsymmetricPerChannelZeroPointSupported = VPU::asymmetricPerChannelZeroPointSupported(moduleOp);
+    const auto isAsymmetricPerChannelZeroPointSupported = config::asymmetricPerChannelZeroPointSupported(moduleOp);
     // Fuse dequantize to const directly since it could not convert to HW for multi Zero Point case
     if (!isAsymmetricPerChannelZeroPointSupported && multiZeroPoint) {
         newInConstAttrSetup = newInConstAttrSetup.dequantize();

@@ -22,9 +22,12 @@ bool FuseWithConv::isSupportedConvBasedOp(IE::ConvolutionOp conv, Logger log) co
 IE::ConvolutionOp FuseWithConv::createNewConvBasedOp(IE::QuantizeOp quantizeOp, IE::ConvolutionOp conv,
                                                      mlir::Value newInput, mlir::Value newWeights,
                                                      mlir::PatternRewriter& rewriter) const {
+    auto users = conv.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(conv, llvm::formatv("_{0}", userSize));
     auto newConv = rewriter.create<IE::ConvolutionOp>(
-            conv->getLoc(), quantizeOp.getType(), newInput, newWeights, conv.getBias(), conv.getStrides(),
-            conv.getPadsBegin(), conv.getPadsEnd(), conv.getDilations(), conv.getPostOpAttr(), conv.getClampAttr(),
+            newLoc, quantizeOp.getType(), newInput, newWeights, conv.getBias(), conv.getStrides(), conv.getPadsBegin(),
+            conv.getPadsEnd(), conv.getDilations(), conv.getPostOpAttr(), conv.getClampAttr(),
             conv.getStaticScaleAttr(), conv.getOutputPaddingAttr(), conv.getInputPaddingAttr());
 
     return newConv;
@@ -38,8 +41,12 @@ IE::GroupConvolutionOp FuseWithGroupConv::createNewConvBasedOp(IE::QuantizeOp qu
                                                                IE::GroupConvolutionOp grConvOp, mlir::Value newInput,
                                                                mlir::Value newWeights,
                                                                mlir::PatternRewriter& rewriter) const {
+    auto users = grConvOp.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(grConvOp, llvm::formatv("_{0}", userSize));
+
     auto newGroupConv = rewriter.create<IE::GroupConvolutionOp>(
-            grConvOp->getLoc(), quantizeOp.getType(), newInput, newWeights, grConvOp.getBias(), grConvOp.getStrides(),
+            newLoc, quantizeOp.getType(), newInput, newWeights, grConvOp.getBias(), grConvOp.getStrides(),
             grConvOp.getPadsBegin(), grConvOp.getPadsEnd(), grConvOp.getDilations(), grConvOp.getGroupsAttr(),
             grConvOp.getPostOpAttr(), grConvOp.getClampAttr(), grConvOp.getOutputPaddingAttr(),
             grConvOp.getInputPaddingAttr());
@@ -59,8 +66,12 @@ IE::TransposedConvolutionOp FuseWithTransposedConv::createNewConvBasedOp(IE::Qua
                                                                          IE::TransposedConvolutionOp transposedConvOp,
                                                                          mlir::Value newInput, mlir::Value newWeights,
                                                                          mlir::PatternRewriter& rewriter) const {
+    auto users = transposedConvOp.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(transposedConvOp, llvm::formatv("_{0}", userSize));
+
     auto newTransposedConv = rewriter.create<IE::TransposedConvolutionOp>(
-            transposedConvOp->getLoc(), quantizeOp.getType(), newInput, newWeights, transposedConvOp.getOutputShape(),
+            newLoc, quantizeOp.getType(), newInput, newWeights, transposedConvOp.getOutputShape(),
             transposedConvOp.getBias(), transposedConvOp.getStrides(), transposedConvOp.getPadsBegin(),
             transposedConvOp.getPadsEnd(), transposedConvOp.getDilations(),
             transposedConvOp.getSpatialOutputPaddingAttr(), transposedConvOp.getPostOpAttr(),
@@ -150,14 +161,16 @@ mlir::LogicalResult FuseWithAveragePool::matchAndRewrite(IE::QuantizeOp quantize
     if (isPerAxisQuant(inputDequantizeOp.getInput())) {
         return mlir::failure();
     }
-
+    auto users = avgPoolOp.getResult().getUsers();
+    auto userSize = std::distance(users.begin(), users.end());
+    auto newLoc = takeOpLoc(avgPoolOp, llvm::formatv("_{0}", userSize));
     rewriter.replaceOpWithNewOp<IE::AvgPoolOp>(
                     quantizeOp, quantizeOp.getType(), inputDequantizeOp.getInput(), avgPoolOp.getKernelSize(),
                     avgPoolOp.getStrides(), avgPoolOp.getPadsBegin(), avgPoolOp.getPadsEnd(),
                     avgPoolOp.getRoundingTypeAttr(), avgPoolOp.getExcludePadsAttr(), avgPoolOp.getPostOpAttr(),
                     avgPoolOp.getClampAttr(), avgPoolOp.getStaticScaleAttr(), avgPoolOp.getOutputPaddingAttr(),
                     avgPoolOp.getInputPaddingAttr())
-            ->setLoc(avgPoolOp->getLoc());
+            ->setLoc(newLoc);
 
     return mlir::success();
 }

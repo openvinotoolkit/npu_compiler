@@ -407,15 +407,4 @@ def AddMappedInferenceVersionOp : PassBase<"add-mapped-inference-version-op", "v
 
     let constructor = "vpux::VPUMI40XX::createAddMappedInferenceVersionOpPass()";
 }
-
-def CheckFWLMModeConstraints : PassBase<"check-fwlm-mode-constraints", "vpux::FunctionPass"> {
-    let summary = "Check that schedule is FWLM";
-
-    let description = [{
-        This pass analyzing IR, check ops and verify that schedule is FWLM
-    }];
-
-    let constructor = "vpux::VPUMI40XX::createCheckFWLMModeConstraintsPass()";
-}
-
 #endif

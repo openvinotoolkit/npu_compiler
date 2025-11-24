@@ -30,12 +30,12 @@ func.func @MemPermuteProcessingWithFusing(%arg0: tensor<1x3x32x64xf16, {order = 
 
     return %2 : tensor<1x3x64x32xf16>
 
-    // CHEK:    [[CST:%.*]] = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<3x3x1x1xf16, {order = #NHWC}>, [#const.PadWithZero<[0, 0, 0, 0], [13, 13, 0, 0]>]
-    // CHEK:    [[EXPAND:%.*]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x32x64xf16, {order = #NHWC}> -> tensor<1x16x32x64xf16, {order = #NHWC}>
-    // CHEK:    [[CONV:%.*]] = IE.Convolution([[EXPAND]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x64xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x32x64xf16, {order = #NCWH}>
-    // CHEK:    [[SLICE:%.*]] = IE.Slice [[CONV]] [0, 0, 0, 0] [1, 3, 32, 64] : tensor<1x16x32x64xf16, {order = #NCWH}> to tensor<1x3x32x64xf16, {order = #NCWH}>
-    // CHEK:    [[PERMUTECAST:%.*]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x3x32x64xf16, {order = #NCWH}> -> tensor<1x3x64x32xf16>
-    // CHEK:    return [[PERMUTECAST]] : tensor<1x3x64x32xf16>
+    // CHECK:    [[CST:%.*]] = const.Declare tensor<16x16x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<3x3x1x1xf16, {order = #NHWC}>, [#const.PadWithZero<[0, 0, 0, 0], [13, 13, 0, 0]>]
+    // CHECK:    [[EXPAND:%.*]] = IE.Expand([[INPUT]]) {pads_begin = [0, 0, 0, 0], pads_end = [0, 13, 0, 0]} : tensor<1x3x32x64xf16, {order = #NHWC}> -> tensor<1x16x32x64xf16, {order = #NHWC}>
+    // CHECK:    [[CONV:%.*]] = IE.Convolution([[EXPAND]], [[CST]]) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<1x16x32x64xf16, {order = #NHWC}>, tensor<16x16x1x1xf16, {order = #NHWC}> -> tensor<1x16x32x64xf16, {order = #NCWH}>
+    // CHECK:    [[SLICE:%.*]] = IE.Slice [[CONV]] [0, 0, 0, 0] [1, 3, 32, 64] : tensor<1x16x32x64xf16, {order = #NCWH}> to tensor<1x3x32x64xf16, {order = #NCWH}>
+    // CHECK:    [[PERMUTECAST:%.*]] = IE.PermuteCast([[SLICE]]) {dst_order = #NCHW, mem_perm = #NCHW} : tensor<1x3x32x64xf16, {order = #NCWH}> -> tensor<1x3x64x32xf16>
+    // CHECK:    return [[PERMUTECAST]] : tensor<1x3x64x32xf16>
 }
 
 // -----
@@ -117,7 +117,7 @@ func.func @MemPermuteProcessingForNHCWMemPermute(%arg0: tensor<1x380x720x1xf16>)
     // CHECK: [[PERMUTECAST_IN:%.+]] = IE.PermuteCast([[INPUT]]) {dst_order = #NHWC, mem_perm = #NCWH} : tensor<1x380x720x1xf16> -> tensor<1x720x380x1xf16, {order = #NHWC}>
     // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[PERMUTECAST_IN]]) {kernel_size = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]} : tensor<1x720x380x1xf16, {order = #NHWC}> -> tensor<1x720x380x1xf16, {order = #NCWH}>
     // CHECK: [[PERMUTECAST_OUT:%.+]] = IE.PermuteCast([[MAXPOOL]]) {dst_order = #NCHW, mem_perm = #NCWH} : tensor<1x720x380x1xf16, {order = #NCWH}> -> tensor<1x720x380x1xf16>
-    
+
     // CHECK: return [[PERMUTECAST_OUT]] : tensor<1x720x380x1xf16>
 }
 

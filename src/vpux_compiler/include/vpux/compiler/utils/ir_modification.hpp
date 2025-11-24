@@ -26,23 +26,22 @@ class ArgumentCache {
     using Cache = mlir::DenseMap<CacheEntry, mlir::BlockArgument>;
 
     mlir::Block* _block;
-    mlir::Location _loc;
     Cache _cache;
 
 public:
     //! @brief Creates a new cache object. Assumes block is not nullptr.
-    ArgumentCache(mlir::Block* block, mlir::Location loc): _block(block), _loc(loc) {
+    ArgumentCache(mlir::Block* block): _block(block) {
         assert(block != nullptr && "Specified block shouldn't be nullptr");
     }
     //! @brief Creates a new cache object. Assumes function has a body.
-    ArgumentCache(mlir::func::FuncOp funcOp): ArgumentCache(&funcOp.getFunctionBody().front(), funcOp.getLoc()) {
+    ArgumentCache(mlir::func::FuncOp funcOp): ArgumentCache(&funcOp.getFunctionBody().front()) {
     }
 
     //! @brief Returns a block argument that corresponds to the specified entry.
-    mlir::BlockArgument addArgument(const CacheEntry& entry, mlir::Type type) {
+    mlir::BlockArgument addArgument(mlir::Location baseLoc, const CacheEntry& entry, mlir::Type type) {
         auto& value = _cache[entry];
         if (value == nullptr) {
-            const auto newLoc = appendLoc(_loc, "arg_{0}", _block->getNumArguments());
+            const auto newLoc = appendLoc(baseLoc, "arg{0}", _block->getNumArguments());
             value = _block->addArgument(type, newLoc);
         }
 

@@ -72,6 +72,9 @@ public:
         std::ostringstream result;
         result << "TestKind" << ov::test::utils::testKind(__FILE__) << sep;
         result << "TestIdx=" << obj.index << sep;
+        result << "In1=" << obj.param.input1Shape << sep;
+        result << "In2=" << obj.param.input2Shape << sep;
+        result << "In3=" << obj.param.input3Shape;
         return result.str();
     };
 
@@ -88,7 +91,9 @@ INSTANTIATE_TEST_SUITE_P(smoke_MatMulSoftmaxMatMul, MatMulSoftmaxMatMulTestCommo
                          ::testing::ValuesIn({TestParams{{64, 4, 49, 32}, {64, 4, 49, 32}, {64, 4, 49, 32}, -1},
                                               TestParams{{1, 32, 1, 128}, {1, 32, 1024, 128}, {1, 32, 1024, 128}, -1},
                                               TestParams{{16, 8, 49, 32}, {16, 8, 49, 32}, {16, 8, 49, 32}, -1},
-                                              TestParams{{4, 16, 49, 32}, {4, 16, 49, 32}, {4, 16, 49, 32}, -1}}),
+                                              TestParams{{4, 16, 49, 32}, {4, 16, 49, 32}, {4, 16, 49, 32}, -1},
+                                              // SdapExtended fused resolution combinations
+                                              TestParams{{1, 12, 225, 16}, {1, 12, 225, 16}, {1, 12, 225, 16}, -1}}),
                          MatMulSoftmaxMatMulTestCommon::getTestCaseName);
 
 }  // namespace ov::test

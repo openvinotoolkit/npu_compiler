@@ -123,7 +123,7 @@ bool VPU::isOperationSplitOverWidthCompatible(mlir::Operation* op, ShapeRef outp
 
     const auto arch = config::getArch(clusteredOp);
     if (outputShape == ShapeRef()) {
-        outputShape = getShape(clusteredOp->getResult(0));
+        outputShape = getBoundedShape(clusteredOp->getResult(0));
     }
 
     auto widthCompatibleCheck = [&](ShapeRef outputShape) {
@@ -144,7 +144,7 @@ bool VPU::isOperationSplitOverWidthCompatible(mlir::Operation* op, ShapeRef outp
         // the output OVERLAP DistributedTensor in an correct manner.
         for (auto consumer : clusteredOp->getResult(0).getUsers()) {
             if (auto clusteredConsumer = mlir::dyn_cast<VPU::ClusteredOpInterface>(consumer)) {
-                isSOWCompatible &= widthCompatibleCheck(getShape(clusteredConsumer->getResult(0)));
+                isSOWCompatible &= widthCompatibleCheck(getBoundedShape(clusteredConsumer->getResult(0)));
             }
         }
     }
@@ -252,7 +252,7 @@ bool VPU::isOperationSplitOverBatchCompatible(mlir::Operation* op, ShapeRef outp
     }
 
     if (outputShape == ShapeRef()) {
-        outputShape = getShape(clusteredOp->getResult(0));
+        outputShape = getBoundedShape(clusteredOp->getResult(0));
     }
 
     // Currently, SOB supported with condition batch being less or equal to number tiles used
@@ -275,7 +275,7 @@ bool VPU::isOperationSplitOverGroupCompatible(mlir::Operation* op, const vpux::T
 
     auto outputShape = ShapeRef(outputTile.shape);
     if (outputShape == ShapeRef()) {
-        outputShape = getShape(clusteredOp->getResult(0));
+        outputShape = getBoundedShape(clusteredOp->getResult(0));
     }
 
     auto groupCompatibleCheck = [&](ShapeRef outputShape) {
@@ -296,8 +296,8 @@ bool VPU::checkMCRestrictions(mlir::Operation* op) {
         return false;
     }
 
-    auto inputShape = getShape(op->getOperand(0));
-    auto outputShape = getShape(op->getResult(0));
+    auto inputShape = getBoundedShape(op->getOperand(0));
+    auto outputShape = getBoundedShape(op->getResult(0));
     return !((inputShape.front() > VPU::SINGLE_BATCH && isSingleBatchRequired(op)) ||
              inputShape.size() != VPU::RANK_REQUIRED_FOR_TILING || outputShape.size() != VPU::RANK_REQUIRED_FOR_TILING);
 }

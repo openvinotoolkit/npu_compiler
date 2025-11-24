@@ -371,4 +371,45 @@ def VPU_ReduceSumOp :
     let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
 }
 
+def VPU_ReduceMeanSquareOp :
+        VPU_LayerOp<
+            "ReduceMeanSquare",
+            [
+                DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
+                DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
+            ]
+        > {
+    let summary = "ReduceMeanSquare VPU Layer";
+
+    let arguments = (ins
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$input,
+
+        I64ArrayAttr:$axes_value,
+        UnitAttr:$keep_dims,
+        OptionalAttr<VPU_MultiClusterStrategyAttr>:$multiClusterStrategy
+    );
+
+    let results = (outs
+        AnyTypeOf<[AnyRankedTensor, VPU_DistributedTensor]>:$output
+    );
+
+    let extraClassDeclaration = [{
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers, Byte reservedMem);
+        bool fitIntoCMX(::llvm::ArrayRef<vpux::NDTypeInterface> buffers);
+    }] # baseExtraClassDeclaration;
+
+    let builders = [
+        OpBuilder<(ins
+            "::mlir::Value":$input,
+            "::mlir::ArrayAttr":$axes_value,
+            "::mlir::UnitAttr":$keep_dims
+        )>
+    ];
+
+    let hasFolder = 1;
+
+    let elemComparisonModes = [IE_TypeComparisonMode_ALLOW_DISTRIBUTED_OUTPUT];
+}
+
 #endif

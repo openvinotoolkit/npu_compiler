@@ -13,17 +13,6 @@
 
 using namespace vpux;
 
-namespace {
-
-// ConvertOp is always bufferized to VPUIP Software Kernel Operation in arch37XX
-void registerConvertOpBufferizableOpInterfaces(mlir::DialectRegistry& registry) {
-    registry.addExtension(+[](mlir::MLIRContext* ctx, VPU::VPUDialect*, VPUIP::VPUIPDialect*) {
-        VPU::ConvertOp::attachInterface<SoftwareLayerOpBufferizeModel<VPU::ConvertOp>>(*ctx);
-    });
-}
-
-}  // namespace
-
 //
 // registerBufferizableOpInterfaces
 //
@@ -35,7 +24,6 @@ void vpux::arch37xx::registerBufferizableOpInterfaces(mlir::DialectRegistry& reg
     vpux::registerSoftwareLayerBufferizableOpInterfaces(registry);
     vpux::registerVpuNceBufferizableOpInterfaces(registry);
     vpux::registerVPUBufferizableOpInterfaces(registry);
-    registerConvertOpBufferizableOpInterfaces(registry);
 
     mlir::tensor::registerBufferizableOpInterfaceExternalModels(registry);
     mlir::scf::registerBufferizableOpInterfaceExternalModels(registry);

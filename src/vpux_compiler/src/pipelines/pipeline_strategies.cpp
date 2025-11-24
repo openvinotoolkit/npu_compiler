@@ -67,55 +67,6 @@ void ReferenceSWStrategy::buildPipeline(mlir::OpPassManager& pm) {
 }
 
 //
-// WSMonolithicStrategy
-//
-
-void WSMonolithicStrategy::buildPipeline(mlir::OpPassManager& pm) {
-    auto defaultHWStrategy = _createPipelineStrategy(config::CompilationMode::WSMonolithic);
-
-    defaultHWStrategy->initializePipeline(pm, _log);
-    defaultHWStrategy->buildIEPipeline(pm, _log);
-    defaultHWStrategy->buildLowerIE2VPUPipeline(pm, _log);
-    defaultHWStrategy->buildVPUPipeline(pm, _log);
-
-    // Create the @init() function from constant transformations in @main() and nest it into a sub module.
-    pm.addPass(VPU::createConstructWsAnalysisPass(_log));
-    pm.addPass(VPU::createIntroduceInitFunctionPass("gen-all", /* initPart = */ std::nullopt,
-                                                    /* memLimit = */ std::nullopt, _log));
-    pm.addPass(VPU::createConcatInitResultsPass("gen-all", /* initPart = */ std::nullopt, /* memLimit = */ std::nullopt,
-                                                _log));
-    pm.addPass(VPU::createDestructWsAnalysisPass(_log));
-    pm.addPass(Core::createPackNestedModulesPass(_log));
-
-    // This pass manager only executes on functions that are inside a nested module. In this case only the @init()
-    // function is compiled.
-    auto& nestedPm = pm.nest<mlir::ModuleOp>();
-    {
-        auto initStrategy = _createPipelineStrategy(config::CompilationMode::WSInit);
-        nestedPm.addPass(vpux::Core::createAddNetInfoToModulePass(_log, true /* hasTensorSemantics */));
-        initStrategy->initializePipeline(nestedPm, _log);
-        initStrategy->buildIEPipeline(nestedPm, _log);
-        initStrategy->buildLowerIE2VPUPipeline(nestedPm, _log);
-        initStrategy->buildVPUPipeline(nestedPm, _log);
-    }
-
-    // Unpack the nested @init() function back into the top-level module...
-    pm.addPass(Core::createUnpackNestedModulesPass(_log));
-    // ...and inline to create a single network function.
-    pm.addPass(mlir::createInlinerPass());
-
-    // Note: canonicalize before folding to ensure more casts would fold.
-    pm.addPass(mlir::createCanonicalizerPass());
-    pm.addPass(Core::createWsFoldReinterpretCastIntoConstPass(_log));
-
-    // For easier verification we want to disable the VPUIP pipeline for LIT tests.
-    if (!_disableVPUIP) {
-        defaultHWStrategy->buildLowerVPU2VPUIPPipeline(pm, _log);
-        defaultHWStrategy->buildVPUIPPipeline(pm, _log);
-    }
-}
-
-//
 // HostPipelineStrategy
 //
 
@@ -144,7 +95,7 @@ void HostPipelineStrategy::buildPipeline(mlir::OpPassManager& pm) {
     pm.addPass(mlir::createCanonicalizerPass());
     pm.addPass(mlir::createCSEPass());
 
-    pm.addPass(vpux::HostExec::createWrapFuncCallsIntoAsyncRegionsPass(_log));
+    pm.addPass(vpux::HostExec::createPrepareHostFuncForAsyncExecutionPass(_log));
 
     auto& nestedPm = pm.nest<mlir::ModuleOp>();
     {
@@ -166,8 +117,6 @@ std::unique_ptr<IFrontendPipelineStrategy> createPipelineFactory(config::Compila
         return std::make_unique<DefaultHwStrategy>(createPipelineStrategy, log);
     case config::CompilationMode::ReferenceSW:
         return std::make_unique<ReferenceSWStrategy>(createPipelineStrategy, log);
-    case config::CompilationMode::WSMonolithic:
-        return std::make_unique<WSMonolithicStrategy>(createPipelineStrategy, log);
     case config::CompilationMode::HostCompile:
         return std::make_unique<HostPipelineStrategy>(createPipelineStrategy, log);
     default:

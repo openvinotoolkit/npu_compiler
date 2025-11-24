@@ -5,6 +5,8 @@
 
 #include "vpux/compiler/dialect/VPU/utils/m2i_utils.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/image.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
 using namespace vpux;

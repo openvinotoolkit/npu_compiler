@@ -3,10 +3,11 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/IE/IR/dialect.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
@@ -98,7 +99,7 @@ void UnrollReduceMinAllAxesPass::safeRunOnFunc() {
             return true;
         }
 
-        const auto maxKernelSize = VPU::getMaxKernelSize(op);
+        const auto maxKernelSize = config::getMaxKernelSize(op);
         if ((getShape(op->getResult(0)).totalSize() == 1) && (inputTotalSize > std::pow(maxKernelSize, 2))) {
             return false;
         }

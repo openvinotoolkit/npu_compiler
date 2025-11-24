@@ -20,10 +20,13 @@ mlir::LogicalResult applySCFTiling(mlir::Operation* operation, mlir::RewriterBas
 mlir::FailureOr<SmallVector<mlir::Operation*>> applySCFVerticalFusion(mlir::Operation* operation,
                                                                       mlir::RewriterBase& builder, Logger log);
 
-SmallVector<mlir::OpFoldResult> staticTileSizeComputation(mlir::OpBuilder& builder, mlir::Operation* operation,
-                                                          ShapeRef strategy, ShapeRef outputShape);
+SmallVector<mlir::OpFoldResult> staticTileSizeComputation(mlir::OpBuilder& builder,
+                                                          ArrayRef<mlir::Operation*> operations,
+                                                          mlir::Operation* lastOperation, ShapeRef strategy,
+                                                          ShapeRef outputShape);
 
-SmallVector<mlir::OpFoldResult> dynamicTileSizeComputation(mlir::OpBuilder& builder, mlir::Operation* operation,
-                                                           ShapeRef strategy);
+SmallVector<mlir::OpFoldResult> dynamicTileSizeComputation(mlir::OpBuilder& builder,
+                                                           ArrayRef<mlir::Operation*> operations,
+                                                           mlir::Operation* lastOperation, ShapeRef strategy);
 
 }  // namespace vpux::VPU

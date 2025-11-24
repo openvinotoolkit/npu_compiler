@@ -180,6 +180,8 @@ public:
 protected:
     mlir::LogicalResult layerSpecificRewriter(ConcreteOp origOp, mlir::PatternRewriter& rewriter) const override;
     void reshapeForEltwiseOp(ConcreteOp eltwiseOp, mlir::PatternRewriter& rewriter) const;
+    void createNewEltwiseOp(ConcreteOp eltwiseOp, mlir::PatternRewriter& rewriter, mlir::RankedTensorType resultType,
+                            mlir::Value input1, mlir::Value input2, const Shape& outputShape) const;
 };
 
 template <class ConcreteOp>
@@ -188,6 +190,20 @@ mlir::LogicalResult EltwiseLayerConverter<ConcreteOp>::layerSpecificRewriter(Con
     if (!getDimEqualsToOne({origOp.getInput1(), origOp.getInput2()}).has_value()) {
         reshapeForEltwiseOp(origOp, rewriter);
         _log.trace("Reshape {0} directly for not suitable transpose cases", origOp->getName());
+        return mlir::success();
+    }
+
+    return mlir::failure();
+}
+
+// Specialization for PowerOp - use the same logic as other eltwise ops but handle the attributes properly
+template <>
+mlir::LogicalResult EltwiseLayerConverter<IE::PowerOp>::layerSpecificRewriter(IE::PowerOp origOp,
+                                                                              mlir::PatternRewriter& rewriter) const {
+    if (!getDimEqualsToOne({origOp.getInput1(), origOp.getInput2()}).has_value()) {
+        // No suitable dimension for transpose, use ShapeCast path
+        reshapeForEltwiseOp(origOp, rewriter);
+        _log.trace("Reshape PowerOp using ShapeCast path for not suitable transpose cases", origOp->getName());
         return mlir::success();
     }
 
@@ -219,13 +235,37 @@ void EltwiseLayerConverter<ConcreteOp>::reshapeForEltwiseOp(ConcreteOp eltwiseOp
     auto inShapeCast2 = rewriter.create<IE::ShapeCastOp>(eltwiseOp->getLoc(), eltwiseOp.getInput2(),
                                                          getIntArrayAttr(ctx, newInShape2));
 
-    auto newEltwiseOp = rewriter.create<ConcreteOp>(eltwiseOp->getLoc(), resultType, inShapeCast1.getResult(),
-                                                    inShapeCast2.getResult(), eltwiseOp.getAutoBroadcastAttr(),
-                                                    eltwiseOp.getPostOpAttr(), eltwiseOp.getClampAttr(),
-                                                    eltwiseOp.getOutputPaddingAttr(), eltwiseOp.getInputPaddingAttr());
+    createNewEltwiseOp(eltwiseOp, rewriter, resultType, inShapeCast1.getResult(), inShapeCast2.getResult(),
+                       Shape(outputShape));
+}
+
+// Helper function to create new eltwise operations with proper attributes
+template <class ConcreteOp>
+void EltwiseLayerConverter<ConcreteOp>::createNewEltwiseOp(ConcreteOp eltwiseOp, mlir::PatternRewriter& rewriter,
+                                                           mlir::RankedTensorType resultType, mlir::Value input1,
+                                                           mlir::Value input2, const Shape& outputShape) const {
+    const auto ctx = eltwiseOp->getContext();
+
+    auto newEltwiseOp = rewriter.create<ConcreteOp>(eltwiseOp->getLoc(), resultType, input1, input2,
+                                                    eltwiseOp.getAutoBroadcastAttr(), eltwiseOp.getPostOpAttr(),
+                                                    eltwiseOp.getClampAttr(), eltwiseOp.getOutputPaddingAttr(),
+                                                    eltwiseOp.getInputPaddingAttr());
 
     rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(eltwiseOp, newEltwiseOp.getOutput(),
                                                  getIntArrayAttr(ctx, outputShape));
+}
+
+// Specialization for PowerOp which has different attributes
+template <>
+void EltwiseLayerConverter<IE::PowerOp>::createNewEltwiseOp(IE::PowerOp eltwiseOp, mlir::PatternRewriter& rewriter,
+                                                            mlir::RankedTensorType resultType, mlir::Value input1,
+                                                            mlir::Value input2, const Shape& outputShape) const {
+    const auto ctx = eltwiseOp->getContext();
+
+    auto newPowerOp = rewriter.create<IE::PowerOp>(eltwiseOp->getLoc(), resultType, input1, input2,
+                                                   eltwiseOp.getAutoBroadcastAttr());
+
+    rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(eltwiseOp, newPowerOp.getOutput(), getIntArrayAttr(ctx, outputShape));
 }
 
 //
@@ -654,6 +694,7 @@ void ConvertBatchedLayerTo1NPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::AddOp>(isLegalEltwiseOp<IE::AddOp>);
     target.addDynamicallyLegalOp<IE::MultiplyOp>(isLegalEltwiseOp<IE::MultiplyOp>);
     target.addDynamicallyLegalOp<IE::SubtractOp>(isLegalEltwiseOp<IE::SubtractOp>);
+    target.addDynamicallyLegalOp<IE::PowerOp>(isLegalEltwiseOp<IE::PowerOp>);
     target.addDynamicallyLegalOp<IE::SigmoidOp>(isLegalImplicitOp);
     target.addDynamicallyLegalOp<IE::ConvertOp>(isLegalImplicitOp);
 
@@ -671,6 +712,7 @@ void ConvertBatchedLayerTo1NPass::safeRunOnFunc() {
     patterns.add<EltwiseLayerConverter<IE::AddOp>>(&ctx, _log);
     patterns.add<EltwiseLayerConverter<IE::MultiplyOp>>(&ctx, _log);
     patterns.add<EltwiseLayerConverter<IE::SubtractOp>>(&ctx, _log);
+    patterns.add<EltwiseLayerConverter<IE::PowerOp>>(&ctx, _log);
     patterns.add<ImplicitLayerConverter<IE::SigmoidOp>>(&ctx, _log);
     patterns.add<ImplicitLayerConverter<IE::ConvertOp>>(&ctx, _log);
 

@@ -73,7 +73,7 @@ func.func @OptimizeShapeCastCopies(%conv_input: !ConvInputTensor, %conv_weights:
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
     // CHECK-SAME{LITERAL}:     memory_shapes = [[1, 256, 23, 16], [1, 256, 24, 16], [1, 256, 23, 16], [1, 256, 23, 16], [1, 256, 23, 16], [1, 256, 22, 16]],
     // CHECK-SAME{LITERAL}:     memory_offsets = [[0, 0, 0, 0], [0, 0, 21, 0], [0, 0, 43, 0], [0, 0, 64, 0], [0, 0, 85, 0], [0, 0, 106, 0]]
-    // CHECK-SAME            -> !VPU.DistributedTensor<1x32x128x128xf16, #NHWC, @CMX_NN,
+    // CHECK-SAME:           -> !VPU.DistributedTensor<1x32x128x128xf16, #NHWC, @CMX_NN,
     // CHECK-SAME{LITERAL}:     compute_shapes = [[1, 32, 22, 128], [1, 32, 22, 128], [1, 32, 21, 128], [1, 32, 21, 128], [1, 32, 21, 128], [1, 32, 21, 128]],
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
     // CHECK-SAME{LITERAL}:     memory_shapes = [[1, 32, 23, 128], [1, 32, 24, 128], [1, 32, 23, 128], [1, 32, 23, 128], [1, 32, 23, 128], [1, 32, 22, 128]],
@@ -155,7 +155,7 @@ func.func @OptimizeShapeCastCopiesWithMultUsers(%conv_input: !ConvInputTensor, %
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
     // CHECK-SAME{LITERAL}:     memory_shapes = [[1, 256, 23, 16], [1, 256, 24, 16], [1, 256, 23, 16], [1, 256, 23, 16], [1, 256, 23, 16], [1, 256, 22, 16]],
     // CHECK-SAME{LITERAL}:     memory_offsets = [[0, 0, 0, 0], [0, 0, 21, 0], [0, 0, 43, 0], [0, 0, 64, 0], [0, 0, 85, 0], [0, 0, 106, 0]]
-    // CHECK-SAME            -> !VPU.DistributedTensor<1x32x128x128xf16, #NHWC, @CMX_NN,
+    // CHECK-SAME:           -> !VPU.DistributedTensor<1x32x128x128xf16, #NHWC, @CMX_NN,
     // CHECK-SAME{LITERAL}:     compute_shapes = [[1, 32, 22, 128], [1, 32, 22, 128], [1, 32, 21, 128], [1, 32, 21, 128], [1, 32, 21, 128], [1, 32, 21, 128]],
     // CHECK-SAME{LITERAL}:     compute_offsets = [[0, 0, 0, 0], [0, 0, 22, 0], [0, 0, 44, 0], [0, 0, 65, 0], [0, 0, 86, 0], [0, 0, 107, 0]],
     // CHECK-SAME{LITERAL}:     memory_shapes = [[1, 32, 23, 128], [1, 32, 24, 128], [1, 32, 23, 128], [1, 32, 23, 128], [1, 32, 23, 128], [1, 32, 22, 128]],

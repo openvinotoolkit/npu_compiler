@@ -9,75 +9,74 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
 // CHECK-LABEL: @RemoveCMXToCMXCopyPropagateStrideToCopy
-// CHECK-SAME:    [[INPUT1:%.*]]: memref<1x256x36x36xf16, #NHWC, @CMX_NN>
+// CHECK-SAME:    [[INPUT1:%.*]]: memref<1x256x18x18xf16, #NHWC, @CMX_NN>
 // CHECK-SAME:    [[INPUT2:%.*]]: memref<128x256x3x3xf16, #NHWC, @CMX_NN>
 // CHECK-SAME:    [[INPUT3:%.*]]: memref<128x1x1x4xsi32, @CMX_NN>
-func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>, %arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>, %arg2 : memref<128x1x1x4xsi32, @CMX_NN>) -> (memref<1x256x36x36xf16, #NHWC, @CMX_NN>, memref<1x128x36x36xf16, #NHWC, @CMX_NN>) {
-    %0 = memref.alloc() : memref<1x128x36x36xf16, #NHWC, @CMX_NN>
-    %1 = memref.alloc() : memref<1x128x36x36xf16, #NHWC, @CMX_NN>
+func.func @RemoveCMXToCMXCopyPropagateStrideToCopy(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>, %arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>, %arg2 : memref<128x1x1x4xsi32, @CMX_NN>) -> (memref<1x256x18x18xf16, #NHWC, @CMX_NN>, memref<1x128x18x18xf16, #NHWC, @CMX_NN>) {
+    %0 = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
+    %1 = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
     %2 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-        input(%arg0 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
-        parent_input(%arg0 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) parent_output(%0 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) outputs(%0 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x128x36x36xf16, #NHWC, @CMX_NN> variants : {
-            DPUTask {cluster_id = 0 : i64, outEnd = [35, 35, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
-            DPUTask {cluster_id = 1 : i64, outEnd = [35, 35, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
+        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
+        parent_input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output(%0 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%0 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN> variants : {
+            DPUTask {cluster_id = 0 : i64, outEnd = [17, 17, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
+            DPUTask {cluster_id = 1 : i64, outEnd = [17, 17, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
         } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
         }
 
     %3 = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-        input(%arg0 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
-        parent_input(%arg0 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) parent_output(%1 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) outputs(%1 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x128x36x36xf16, #NHWC, @CMX_NN> variants : {
-            DPUTask {cluster_id = 0 : i64, outEnd = [35, 35, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
-            DPUTask {cluster_id = 1 : i64, outEnd = [35, 35, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
+        input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights(%arg1 : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table(%arg2 : memref<128x1x1x4xsi32, @CMX_NN>)
+        parent_input(%arg0 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output(%1 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%1 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN> variants : {
+            DPUTask {cluster_id = 0 : i64, outEnd = [17, 17, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 0]}
+            DPUTask {cluster_id = 1 : i64, outEnd = [17, 17, 127], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, outStart = [0, 0, 64]}
         } PPE : {
         PPETask {ppe = #VPU.PPEStub<>}
         }
-    %4 = memref.alloc() : memref<1x256x36x36xf16, #NHWC, @CMX_NN>
+    %4 = memref.alloc() : memref<1x256x18x18xf16, #NHWC, @CMX_NN>
 
-    %5 = VPUIP.SubView %4 [0, 0, 0, 0] [1, 128, 36, 36] : memref<1x256x36x36xf16, #NHWC, @CMX_NN> to memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
-    %6 = VPUIP.Copy inputs(%2 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) outputs(%5 : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>) -> memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
+    %5 = VPUIP.SubView %4 [0, 0, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
+    %6 = VPUIP.Copy inputs(%2 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%5 : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
 
-    %7 = VPUIP.SubView %4 [0, 128, 0, 0] [1, 128, 36, 36] : memref<1x256x36x36xf16, #NHWC, @CMX_NN> to memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
-    %8 = VPUIP.Copy inputs(%3 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) outputs(%7 : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>) -> memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
+    %7 = VPUIP.SubView %4 [0, 128, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
+    %8 = VPUIP.Copy inputs(%3 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%7 : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
 
+    %9 = VPUIP.ConcatView inputs(%6, %8 : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>, memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
+            outputs(%4 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x256x18x18xf16, #NHWC, @CMX_NN>
+    %10 = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
+    %11 = VPUIP.Copy inputs(%2 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) outputs(%10 : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN>
+    return %9, %11 : memref<1x256x18x18xf16, #NHWC, @CMX_NN>, memref<1x128x18x18xf16, #NHWC, @CMX_NN>
 
-    %9 = VPUIP.ConcatView inputs(%6, %8 : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>, memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>)
-            outputs(%4 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x256x36x36xf16, #NHWC, @CMX_NN>
-    %10 = memref.alloc() : memref<1x128x36x36xf16, #NHWC, @CMX_NN>
-    %11 = VPUIP.Copy inputs(%2 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) outputs(%10 : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x128x36x36xf16, #NHWC, @CMX_NN>
-    return %9, %11 : memref<1x256x36x36xf16, #NHWC, @CMX_NN>, memref<1x128x36x36xf16, #NHWC, @CMX_NN>
-
-    // CHECK:       [[BUFF_0:%.*]] = memref.alloc() : memref<1x256x36x36xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[SBUVIEW_0:%.*]] = VPUIP.SubView [[BUFF_0]] [0, 0, 0, 0] [1, 128, 36, 36] : memref<1x256x36x36xf16, #NHWC, @CMX_NN> to memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
+    // CHECK:       [[BUFF_0:%.*]] = memref.alloc() : memref<1x256x18x18xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[SBUVIEW_0:%.*]] = VPUIP.SubView %alloc [0, 0, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
 
     // CHECK:       [[NCETASK_0:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
-    // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_0]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>)
-    // CHECK-SAME:      outputs([[SBUVIEW_0]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>) -> memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN> variants : {
-    // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [35, 35, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
-    // CHECK:           DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [35, 35, 127], outStart = [0, 0, 64], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
+    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_0]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
+    // CHECK-SAME:      outputs([[SBUVIEW_0]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN> variants : {
+    // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
+    // CHECK:           DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 127], outStart = [0, 0, 64], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
     // CHECK:           } PPE : {
     // CHECK:               PPETask {ppe = #VPU.PPEStub<>}
     // CHECK:           }
 
-    // CHECK:       [[SBUVIEW_1:%.*]] = VPUIP.SubView [[BUFF_0]] [0, 128, 0, 0] [1, 128, 36, 36] : memref<1x256x36x36xf16, #NHWC, @CMX_NN> to memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>
+    // CHECK:       [[SBUVIEW_1:%.*]] = VPUIP.SubView [[BUFF_0]] [0, 128, 0, 0] [1, 128, 18, 18] : memref<1x256x18x18xf16, #NHWC, @CMX_NN> to memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>
     // CHECK:       [[NCETASK_1:%.*]] = VPUIP.NCEClusterTask {kernel_padding = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, kernel_size = [3, 3], kernel_strides = [1, 1], minimumHardwareExecutionCost = 93417 : i64, task_type = #VPUIP.nce_task_type<CONV>}
-    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
-    // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_1]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>)
-    // CHECK-SAME:      outputs([[SBUVIEW_1]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>) -> memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN> variants : {
-    // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [35, 35, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
-    // CHECK:           DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [35, 35, 127], outStart = [0, 0, 64], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
+    // CHECK-SAME:      input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) weights([[INPUT2]] : memref<128x256x3x3xf16, #NHWC, @CMX_NN>) weight_table([[INPUT3]] : memref<128x1x1x4xsi32, @CMX_NN>)
+    // CHECK-SAME:      parent_input([[INPUT1]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) parent_output([[SBUVIEW_1]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
+    // CHECK-SAME:      outputs([[SBUVIEW_1]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) -> memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN> variants : {
+    // CHECK:           DPUTask {cluster_id = 0 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 63], outStart = [0, 0, 0], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
+    // CHECK:           DPUTask {cluster_id = 1 : i64, mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, outEnd = [17, 17, 127], outStart = [0, 0, 64], pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>}
     // CHECK:           } PPE : {
     // CHECK:               PPETask {ppe = #VPU.PPEStub<>}
     // CHECK:           }
 
-    // CHECK:       [[CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCETASK_0]], [[NCETASK_1]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>, memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>)
-    // CHECK-SAME:      outputs([[BUFF_0]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x256x36x36xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[CONCAT:%.*]] = VPUIP.ConcatView inputs([[NCETASK_0]], [[NCETASK_1]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>, memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>)
+    // CHECK-SAME:      outputs([[BUFF_0]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x256x18x18xf16, #NHWC, @CMX_NN>
 
-    // CHECK:       [[BUFF_1:%.*]] = memref.alloc() : memref<1x128x36x36xf16, #NHWC, @CMX_NN>
-    // CHECK:       [[COPY2:%.*]] = VPUIP.Copy inputs([[NCETASK_0]] : memref<1x128x36x36xf16, {order = #NHWC, strides = [331776, 1, 9216, 256]}, @CMX_NN>) outputs([[BUFF_1]] : memref<1x128x36x36xf16, #NHWC, @CMX_NN>) -> memref<1x128x36x36xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[BUFF_1:%.*]] = memref.alloc() : memref<1x128x18x18xf16, #NHWC, @CMX_NN>
+    // CHECK:       [[COPY2:%.*]] = VPUIP.Copy inputs([[NCETASK_0]] : memref<1x128x18x18xf16, {order = #NHWC, strides = [82944, 1, 4608, 256]}, @CMX_NN>) outputs([[BUFF_1]] : memref<1x128x18x18xf16, #NHWC, @CMX_NN>) -> memref<1x128x18x18xf16, #NHWC, @CMX_NN>
 
-    // CHECK:       return [[CONCAT]], [[COPY2]] : memref<1x256x36x36xf16, #NHWC, @CMX_NN>, memref<1x128x36x36xf16, #NHWC, @CMX_NN>
+    // CHECK:       return [[CONCAT]], [[COPY2]] : memref<1x256x18x18xf16, #NHWC, @CMX_NN>, memref<1x128x18x18xf16, #NHWC, @CMX_NN>
 }
 
 // -----

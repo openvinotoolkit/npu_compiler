@@ -51,8 +51,8 @@ public:
     // Below constructor is meant to be used only for unit testing purpose
     BarrierPagesSplitHandler(BarrierInfoTest& barrierInfoTest,
                              std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap, size_t pageSize,
-                             size_t _barrierFifoDepth = 1, const SmallVector<size_t>& shvTasksWithDpu = {},
-                             Logger log = Logger::global());
+                             size_t barrierFifoDepth = 1, size_t numClusters = 1,
+                             const SmallVector<size_t>& shvTasksWithDpu = {}, Logger log = Logger::global());
 
     // Reconfigure barrier FIFO depth. Meant to be used in case of LIT tests
     void reconfigureBarrierFifoDepth(size_t barrierFifoDepth);
@@ -140,7 +140,7 @@ public:
     SmallVector<DummyBarrierData> getDummyBarriersInsertionData();
 
     SmallVector<size_t> getLastTasksOnFifoPerPageWithNoUpdBar();
-    void addUpdateBarriersForLastTaskOnFifoInPage(SmallVector<size_t>& lastTaskTypePerPageWithNoUpdBar);
+    void addUpdateBarriersForLastTaskOnFifoInPage(SmallVector<size_t>& lastTaskPerTypePerPageThatNeedsUpdateBarrier);
 
     void initPrevPhysBarrierData(SmallVector<size_t>& barrierToPidVec);
     void initPrevPhysBarrierData(mlir::func::FuncOp func);
@@ -202,7 +202,7 @@ private:
     bool isDummyDmaNeeded(size_t pageInd, VPURT::TaskQueueType dmaQueueType,
                           std::optional<size_t> lastDmaTaskOnSameQueueInPageOpt);
 
-    BarrierInfo::TaskSet getDummyDmaWaitBars(size_t pageInd);
+    std::pair<vpux::BarrierInfo::TaskSet, vpux::BarrierInfo::TaskSet> getDummyDmaBars(size_t pageInd);
     size_t getDummyDmaInsertionPoint(BarrierInfo::TaskSet& dummyDmaProposedWaitBars,
                                      std::optional<size_t> lastDmaTaskOnSameQueueInPageOpt);
     BarrierInfo::TaskSet getDummyDmaUpdateBars(size_t pageInd, size_t insertionPoint,
@@ -210,7 +210,7 @@ private:
 
     SmallVector<mlir::DenseMap<VPURT::TaskQueueType, size_t>> getLastDmaOfTypePerPage();
 
-    void findShvTasksWithDpu();
+    void findShvTasksWithDpu(size_t numClusters);
 
     SmallVector<size_t> getBarrierPidPrevUsageVec(BarrierInfo::TaskSet& barriers);
 

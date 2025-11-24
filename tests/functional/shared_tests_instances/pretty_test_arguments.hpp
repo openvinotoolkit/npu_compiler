@@ -24,24 +24,43 @@ struct HasValueType : std::false_type {};
 template <typename T>
 struct HasValueType<T, std::void_t<typename T::value_type>> : std::true_type {};
 
-#define PRETTY_PARAM(name, type)                                                               \
-    class name {                                                                               \
-    public:                                                                                    \
-        using paramType = type;                                                                \
-        name(paramType arg = paramType()): val_(std::move(arg)) {                              \
-        }                                                                                      \
-        template <typename T = paramType, typename = std::enable_if_t<HasValueType<T>::value>> \
-        name(std::initializer_list<typename T::value_type> values): val_{values} {             \
-        }                                                                                      \
-        operator paramType() const {                                                           \
-            return val_;                                                                       \
-        }                                                                                      \
-                                                                                               \
-    private:                                                                                   \
-        paramType val_;                                                                        \
-    };                                                                                         \
-    static inline void PrintTo(const name& param, ::std::ostream* os) { /*NOLINT*/             \
-        *os << #name ": " << ::testing::PrintToString((name::paramType)(param));               \
+#define PRETTY_PARAM(name, type)                                                                                   \
+    class name { /*NOLINT move argument should be enclosed in ()*/                                                 \
+    public:                                                                                                        \
+        using paramType = type;                                                                                    \
+                                                                                                                   \
+        name() = default;                                                                                          \
+        name(const paramType& v): val_(v) {                                                                        \
+        }                                                                                                          \
+        name(paramType&& v): val_(std::move(v)) {                                                                  \
+        }                                                                                                          \
+                                                                                                                   \
+        /* generic: enable when paramType can be built directly from U */                                          \
+        template <typename U, std::enable_if_t<std::is_constructible_v<paramType, U&&>, int> = 0>                  \
+        name(U&& u): val_(std::forward<U>(u)) {                                                                    \
+        }                                                                                                          \
+                                                                                                                   \
+        /* container: initializer_list of exact value_type */                                                      \
+        template <typename T_ = paramType, std::enable_if_t<HasValueType<T_>::value, int> = 0>                     \
+        name(std::initializer_list<typename T_::value_type> init): val_(init) {                                    \
+        }                                                                                                          \
+                                                                                                                   \
+        /* container: initializer_list of *convertible* types */                                                   \
+        template <typename T_ = paramType, typename U,                                                             \
+                  std::enable_if_t<HasValueType<T_>::value && std::is_constructible_v<typename T_::value_type, U>, \
+                                   int> = 0>                                                                       \
+        name(std::initializer_list<U> init): val_(init.begin(), init.end()) {                                      \
+        }                                                                                                          \
+                                                                                                                   \
+        operator const paramType&() const {                                                                        \
+            return val_;                                                                                           \
+        }                                                                                                          \
+                                                                                                                   \
+    private:                                                                                                       \
+        paramType val_{};                                                                                          \
+    };                                                                                                             \
+    static inline void PrintTo(const name& param, ::std::ostream* os) { /*NOLINT use anonymous namespace*/         \
+        *os << #name ": " << ::testing::PrintToString((name::paramType)(param));                                   \
     }
 
 //
@@ -62,7 +81,7 @@ struct BoundedDim {
     }
 };
 
-inline BoundedDim operator"" _Dyn(unsigned long long value) {
+inline BoundedDim operator""_Dyn(unsigned long long value) {
     return BoundedDim{-1, vpux::checked_cast<int>(value)};
 }
 
@@ -94,9 +113,9 @@ ov::test::InputShape generateTestShape(const std::vector<BoundedDim>& dims);
 ov::test::InputShape generateTestShape(const ov::Shape& shape);
 
 // Examples of what the resulting InputShape would look like
-// generateTestShape(10, 20)     -> ov::test::InputShape(PartialShape{10, 20}, std::vector<ov::Shape>{{10, 20}})
-// generateTestShape(10, 20_Dyn) -> ov::test::InputShape(PartialShape{10, 1..20},
-//                                                       std::vector<ov::Shape>{{10, 1}, {10,5}, {10, 10}})
+// generateTestShape(5, 20)     -> ov::test::InputShape(PartialShape{5, 20}, std::vector<ov::Shape>{{5, 20}})
+// generateTestShape(5, 20_Dyn) -> ov::test::InputShape(PartialShape{5, 1..20},
+//                                                      std::vector<ov::Shape>{{5, 1}, {5, 10}, {5, 20}})
 template <typename... Dims>
 ov::test::InputShape generateTestShape(Dims... dims) {
     auto boundedDims = std::vector<BoundedDim>{BoundedDim(dims)...};

@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/shave.hpp"
@@ -1599,6 +1600,22 @@ bool BarrierInfo::verifyBarriersForTaskDescriptorFetch(const ExecutionGroupListM
     return true;
 }
 
+std::optional<size_t> vpux::BarrierInfo::getFirstTaskInGroupFromBlock(int grpIdx, size_t blockIdx,
+                                                                      const ExecutionGroupList& fifoExecGroups) {
+    int numberOfGroups = static_cast<int>(fifoExecGroups.size());
+    auto [blockStartInd, blockEndInd] =
+            getControlGraphBlockTaskRange(blockIdx, /* blockStartSyncPoint */ false, /* blockEndSyncPoint */ true);
+
+    std::optional<size_t> firstTaskInGroupInBlock = std::nullopt;
+    if (grpIdx < numberOfGroups) {
+        auto firstTaskInGroup = fifoExecGroups[grpIdx][0];
+        if (inRange(blockStartInd, blockEndInd, firstTaskInGroup)) {
+            firstTaskInGroupInBlock = firstTaskInGroup;
+        }
+    }
+    return firstTaskInGroupInBlock;
+}
+
 bool vpux::BarrierInfo::hasBarrierDependencyRequiredForDescriptorFetch(int grpIdx, size_t blockIdx,
                                                                        const ExecutionGroupList& fifoExecGroups,
                                                                        SmallVector<llvm::BitVector>& taskControlMap,
@@ -1835,8 +1852,7 @@ std::optional<size_t> vpux::BarrierInfo::getNextBlockSyncPoint(size_t taskInd) c
 }
 
 void vpux::BarrierInfo::splitBarriersWithExceedingVariantCount(size_t availableSlots, size_t maxSlotsSum,
-                                                               size_t maxAvailableSlots) {
-    bool maxSlotsSumLimitEnabled = (maxSlotsSum < maxAvailableSlots);
+                                                               bool maxSlotsSumLimitEnabled) {
     // split barriers if needed
     splitBarrierProducers(availableSlots, maxSlotsSum, maxSlotsSumLimitEnabled);
     // split barriers if needed
@@ -2978,7 +2994,7 @@ void vpux::BarrierInfo::initializeTaskQueueTypeMap(const mlir::DenseSet<vpux::VP
 
             auto numClusters = tileOp.getCount();
             auto numExecutorsPerTile = [&] {
-                return VPU::isFifoPerShaveEngineEnabled(_func)
+                return config::isFifoPerShaveEngineEnabled(_func)
                                ? static_cast<size_t>(tileOp.getSubExecutor(execKind).getCount())
                                : static_cast<size_t>(1);
             }();

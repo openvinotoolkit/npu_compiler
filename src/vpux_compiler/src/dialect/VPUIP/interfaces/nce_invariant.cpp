@@ -14,8 +14,8 @@
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
-#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/IR/Operation.h>
@@ -331,6 +331,36 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::SoftMaxOp orig
     return mlir::success();
 }
 
+mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(IE::SDPAExtendedOp origOp, Logger log) {
+    log.setName("NCEInvariant");
+    int64_t ALIGNMENT_REQUIREMENT_IN_ELEMENTS = 16;
+
+    auto loc = origOp->getLoc();
+    auto inputTypeQ = mlir::cast<vpux::NDTypeInterface>(origOp.getInputQ().getType());
+    auto inputTypeV = mlir::cast<vpux::NDTypeInterface>(origOp.getInputV().getType());
+
+    auto inputShapeQ = inputTypeQ.getShape().toValues();
+    auto inputShapeV = inputTypeV.getShape().toValues();
+
+    const auto dimE = inputShapeQ[Dim(inputTypeQ.getRank() - 1)];
+    // auto channelsInfo = mlir::cast<IE::AlignedChannelsOpInterface>(origOp.getOperation());
+    // auto inputChannelAlignment = channelsInfo.getInputChannelAlignment()
+
+    auto inputChannelAlignment = ALIGNMENT_REQUIREMENT_IN_ELEMENTS;
+
+    if (dimE % inputChannelAlignment != 0) {
+        log.trace("[{0}] SDPAExtended input channels '{1}' are not aligned", loc, dimE);
+        return mlir::failure();
+    }
+    const auto dimS = inputShapeV[Dim(inputTypeV.getRank() - 1)];
+    if (dimS % inputChannelAlignment != 0) {
+        log.trace("[{0}] SDPAExtended input channels '{1}' are not aligned", loc, dimS);
+        return mlir::failure();
+    }
+
+    return mlir::success();
+}
+
 mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyChannels(VPU::NCEInterpolateOp, Logger) {
     // VPU.NCE operations guarantees that invariants
     return mlir::success();
@@ -502,6 +532,21 @@ bool isOutputPipeliningEnabled(ConcreteOp origOp) {
 };
 
 template <class ConcreteOp>
+bool isOutputPipeliningMinFragmentationEnabled(ConcreteOp origOp) {
+    if (!origOp->hasAttr(outputPipeliningMinFragmentation)) {
+        return false;
+    }
+
+    auto outputPipeliningMinFragmentationAttr =
+            mlir::dyn_cast<mlir::BoolAttr>(origOp->getAttr(outputPipeliningMinFragmentation));
+    if (outputPipeliningMinFragmentationAttr == nullptr) {
+        return false;
+    }
+
+    return outputPipeliningMinFragmentationAttr.getValue();
+};
+
+template <class ConcreteOp>
 SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredOperandsForPipeliningConvBased(
         ConcreteOp origOp, const OutputTiling& tiling) {
     // The tiling strategy follows last-tile-not-biggest
@@ -511,10 +556,16 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
 
     const auto& curTileTypes = VPU::getTileDistributions(origOp, curTile);
     const auto& nextTileTypes = VPU::getTileDistributions(origOp, nextTile);
+    auto isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
 
     if (isOutputPipeliningEnabled(origOp)) {
         return {curTileTypes[0],  curTileTypes[1],  curTileTypes[2],
                 nextTileTypes[0], nextTileTypes[1], nextTileTypes[2]};
+    }
+
+    if (isOutputPipeliningMinFragmentationEnabled(origOp)) {
+        return {curTileTypes[0], curTileTypes[1], curTileTypes[2],
+                isWeightPrefetch ? nextTileTypes[1] : nextTileTypes[0], nextTileTypes[2]};
     }
 
     const auto groupTiling = curTile.axis.size() == DimsGroups5D::Act::numDims;
@@ -522,7 +573,6 @@ SmallVector<std::pair<NDTypeInterface, VPU::TensorDistributionMap>> getRequiredO
         return {curTileTypes[0], curTileTypes[1], curTileTypes[2], nextTileTypes[0], nextTileTypes[1]};
     }
 
-    auto isWeightPrefetch = curTile.axis[Dims4D::Act::C] > 1;
     if (isNestedTiling(tiling)) {
         auto unrollSpatialFirst = isSpatialFirstNestedTiling(origOp, curTile.axis);
         isWeightPrefetch = unrollSpatialFirst;
@@ -604,9 +654,10 @@ mlir::LogicalResult verifyPipeliningCMXConvBased(ConcreteOp origOp, const Output
 
     auto module = origOp->template getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
@@ -632,9 +683,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::Convolut
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSize(getRequiredOperandsForPipelining(origOp, tiling));
@@ -735,9 +787,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::MaxPoolO
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSize(getRequiredOperandsForPipelining(origOp, tiling));
@@ -833,9 +886,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEMaxPo
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
@@ -876,9 +930,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEAvera
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
     requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),
                                                    getRequiredChannelSizeForPipelining(origOp, tiling));
@@ -949,9 +1004,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::GroupCon
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
-
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSize(getRequiredOperandsForPipelining(origOp, tiling));
@@ -976,8 +1032,10 @@ mlir::LogicalResult vpux::VPUIP::NCEInvariant::verifyPipeliningCMX(VPU::NCEDepth
 
     auto module = origOp->getParentOfType<mlir::ModuleOp>();
     const auto cmxSize = getCMXSizeForTiling(module);
-    auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
-            std::ceil(static_cast<double>(cmxSize.count()) * FRAGMENTATION_AVOID_RATIO_PIPELINING)));
+    const auto cmxWithFragmentationRatio = Byte(static_cast<int64_t>(
+            std::ceil(static_cast<double>(cmxSize.count()) * (isOutputPipeliningMinFragmentationEnabled(origOp)
+                                                                      ? FRAGMENTATION_AVOID_RATIO_MIN_PIPELINING
+                                                                      : FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING))));
     Byte requiredCMX = Byte(0);
 
     requiredCMX = VPU::getRequiredCMXSizeForNCEOps(getRequiredOperandsForPipelining(origOp, tiling),

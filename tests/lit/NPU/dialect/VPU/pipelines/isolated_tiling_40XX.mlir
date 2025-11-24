@@ -674,6 +674,7 @@ func.func @Gather4DSplitWithBatchDims(%arg0: tensor<2x1x4004x320xf16>) -> tensor
 // -----
 
 // CHECK-LABEL: func.func @Yuv2RGBSplit
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x993x736x1xf16>
 func.func @Yuv2RGBSplit(%arg0: tensor<1x993x736x1xf16>) -> tensor<1x662x736x3xf16> {
   %0 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 662, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x662x736x1xf16>
   %1 = VPU.Slice %arg0 [0, 662, 0, 0] [1, 331, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x331x736x1xf16>
@@ -681,32 +682,32 @@ func.func @Yuv2RGBSplit(%arg0: tensor<1x993x736x1xf16>) -> tensor<1x662x736x3xf1
   %3 = VPU.YuvToRgb(%0, %2) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x662x736x1xf16>, tensor<1x331x368x2xf16> -> tensor<1x662x736x3xf16>
   return %3 : tensor<1x662x736x3xf16>
 
-    // CHECK:    %0 = VPU.Slice %arg0 [0, 662, 0, 0] [1, 331, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x331x736x1xf16>
-    // CHECK:    %1 = VPU.ShapeCast {shape = [1, 331, 368, 2]} inputs(%0 : tensor<1x331x736x1xf16>) -> tensor<1x331x368x2xf16>
+    // CHECK:    [[UV_INPUT:%.+]] = VPU.Slice [[INPUT]] [0, 662, 0, 0] [1, 331, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x331x736x1xf16>
+    // CHECK:    [[UV_CAST:%.+]] = VPU.ShapeCast {shape = [1, 331, 368, 2]} inputs([[UV_INPUT]] : tensor<1x331x736x1xf16>) -> tensor<1x331x368x2xf16>
 
     // Tile 0
-    // CHECK:    %2 = VPU.Slice %arg0 [0, 0, 0, 0] [1, 220, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x220x736x1xf16>
-    // CHECK:    %3 = VPU.Slice %1 [0, 0, 0, 0] [1, 110, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x110x368x2xf16>
-    // CHECK:    %4 = VPU.YuvToRgb(%2, %3) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x220x736x1xf16>, tensor<1x110x368x2xf16> -> tensor<1x220x736x3xf16>
+    // CHECK:    [[Y0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
+    // CHECK:    [[UV0:%.+]] = VPU.Slice [[UV_CAST]] [0, 0, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
+    // CHECK:    [[RGB0:%.+]] = VPU.YuvToRgb([[Y0]], [[UV0]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
 
     // Tile 1
-    // CHECK:    %5 = VPU.Slice %arg0 [0, 220, 0, 0] [1, 220, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x220x736x1xf16>
-    // CHECK:    %6 = VPU.Slice %1 [0, 110, 0, 0] [1, 110, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x110x368x2xf16>
-    // CHECK:    %7 = VPU.YuvToRgb(%5, %6) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x220x736x1xf16>, tensor<1x110x368x2xf16> -> tensor<1x220x736x3xf16>
+    // CHECK:    [[Y1:%.+]] = VPU.Slice [[INPUT]] [0, 166, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
+    // CHECK:    [[UV1:%.+]] = VPU.Slice [[UV_CAST]] [0, 83, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
+    // CHECK:    [[RGB1:%.+]] = VPU.YuvToRgb([[Y1]], [[UV1]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
 
     // Tile 2
-    // CHECK:    %8 = VPU.Slice %arg0 [0, 440, 0, 0] [1, 220, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x220x736x1xf16>
-    // CHECK:    %9 = VPU.Slice %1 [0, 220, 0, 0] [1, 110, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x110x368x2xf16>
-    // CHECK:    %10 = VPU.YuvToRgb(%8, %9) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x220x736x1xf16>, tensor<1x110x368x2xf16> -> tensor<1x220x736x3xf16>
+    // CHECK:    [[Y2:%.+]] = VPU.Slice [[INPUT]] [0, 332, 0, 0] [1, 166, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x166x736x1xf16>
+    // CHECK:    [[UV2:%.+]] = VPU.Slice [[UV_CAST]] [0, 166, 0, 0] [1, 83, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x83x368x2xf16>
+    // CHECK:    [[RGB2:%.+]] = VPU.YuvToRgb([[Y2]], [[UV2]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x166x736x1xf16>, tensor<1x83x368x2xf16> -> tensor<1x166x736x3xf16>
 
     // Tile 3
-    // CHECK:    %11 = VPU.Slice %arg0 [0, 660, 0, 0] [1, 2, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x2x736x1xf16>
-    // CHECK:    %12 = VPU.Slice %1 [0, 330, 0, 0] [1, 1, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x1x368x2xf16>
-    // CHECK:    %13 = VPU.YuvToRgb(%11, %12) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x2x736x1xf16>, tensor<1x1x368x2xf16> -> tensor<1x2x736x3xf16>
+    // CHECK:    [[Y3:%.+]] = VPU.Slice [[INPUT]] [0, 498, 0, 0] [1, 164, 736, 1] : tensor<1x993x736x1xf16> to tensor<1x164x736x1xf16>
+    // CHECK:    [[UV3:%.+]] = VPU.Slice [[UV_CAST]] [0, 249, 0, 0] [1, 82, 368, 2] : tensor<1x331x368x2xf16> to tensor<1x82x368x2xf16>
+    // CHECK:    [[RGB3:%.+]] = VPU.YuvToRgb([[Y3]], [[UV3]]) {inFmt = #IE.color_fmt<NV12>, operandSegmentSizes = array<i32: 1, 1, 0>, outFmt = #IE.color_fmt<RGB>} : tensor<1x164x736x1xf16>, tensor<1x82x368x2xf16> -> tensor<1x164x736x3xf16>
 
-    // CHECK:    %14 = VPU.Concat(%4, %7, %10, %13)
-    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 220, 0, 0], [0, 440, 0, 0], [0, 660, 0, 0]]} : tensor<1x220x736x3xf16>, tensor<1x220x736x3xf16>, tensor<1x220x736x3xf16>, tensor<1x2x736x3xf16> -> tensor<1x662x736x3xf16>
-    // CHECK:    return %14 : tensor<1x662x736x3xf16>
+    // CHECK:    [[CONCAT:%.+]] = VPU.Concat([[RGB0]], [[RGB1]], [[RGB2]], [[RGB3]])
+    // CHECK-SAME{LITERAL}: {static_offsets = [[0, 0, 0, 0], [0, 166, 0, 0], [0, 332, 0, 0], [0, 498, 0, 0]]} : tensor<1x166x736x3xf16>, tensor<1x166x736x3xf16>, tensor<1x166x736x3xf16>, tensor<1x164x736x3xf16> -> tensor<1x662x736x3xf16>
+    // CHECK:    return [[CONCAT]] : tensor<1x662x736x3xf16>
 }
 
 // -----

@@ -345,15 +345,12 @@ mlir::LogicalResult FuseQuantizeCastExpandIntoPermuteQuantizeQuantizeCastRewrite
 class FusePermuteQuantizeExpandPass final :
         public IE::impl::FusePermuteQuantizeExpandBase<FusePermuteQuantizeExpandPass> {
 public:
-    explicit FusePermuteQuantizeExpandPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit FusePermuteQuantizeExpandPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void FusePermuteQuantizeExpandPass::safeRunOnFunc() {

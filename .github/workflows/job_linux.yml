@@ -36,6 +36,11 @@ on:
         type: boolean
         required: false
         default: true
+      build-cid:
+        description: 'Whether to build NPU CiD component'
+        type: boolean
+        required: false
+        default: false
       build-cache:
         description: 'Whether to take previously built OpenVINO/NPU package.'
         type: boolean
@@ -103,11 +108,29 @@ jobs:
   BuildDriver:
     name: Driver / Build
     if: ${{ inputs.build-driver }}
-    uses: ./.github/workflows/job_build_driver_linux.yml
+    uses: ./.github/workflows/job_build_drv_linux.yml
     with:
       os: ${{ inputs.os }}
       build-runner: ${{ inputs.build-runner }}
       driver-cmake-options: ${{ inputs.driver-cmake-options }}
+      build-cache: ${{ inputs.build-cache }}
+      build-cache-key-suffix: ${{ inputs.build-cache-key-suffix }}
+
+  BuildCiD:
+    name: CiD / Build
+    if: ${{ inputs.build-cid }}
+    uses: ./.github/workflows/job_build_cid.yml
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      statuses: read
+      id-token: write
+      attestations: write
+    with:
+      os: ${{ inputs.os }}
+      build-runner: ${{ inputs.build-runner }}
+      openvino-cmake-options: ${{ inputs.openvino-cmake-options }}
       build-cache: ${{ inputs.build-cache }}
       build-cache-key-suffix: ${{ inputs.build-cache-key-suffix }}
 

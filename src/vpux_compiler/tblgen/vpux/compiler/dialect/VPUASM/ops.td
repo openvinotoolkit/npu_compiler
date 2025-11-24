@@ -765,8 +765,6 @@ def VPUASM_DeclareKernelEntryOp :
 
 }
 
-
-
 //
 // KernelParamsOp
 //
@@ -789,7 +787,7 @@ def VPUASM_KernelParamsOp :
         SymbolRefArrayAttr:$dynamicInputShapes,
         SymbolRefArrayAttr:$dynamicOutputShapes,
         StrAttr:$kernel_type,
-        KernelParamsProp:$kernel_params,
+        SmallVectorU8Prop:$kernel_params,
         UnitAttr:$is_output_broadcasted,
         UnitAttr:$isJitCompiled
     );
@@ -802,7 +800,7 @@ def VPUASM_KernelParamsOp :
             "mlir::ArrayAttr":$dynamicInputShapes,
             "mlir::ArrayAttr":$dynamicOutputShapes,
             "mlir::StringAttr":$kernel_type,
-            "vpux::VPUASM::KernelParamsProperty&&":$kernel_params,
+            "SmallVector<uint8_t>&&":$kernel_params,
             "mlir::UnitAttr":$is_output_broadcasted,
             "mlir::UnitAttr":$isJitCompiled
         )>
@@ -1447,6 +1445,37 @@ def PlatformInfoOp :
     let builders = [
         OpBuilder<(ins)>,
     ];
+}
+
+//
+// CompilerHashOp
+//
+
+def CompilerHashOp :
+        VPUASM_Op<"CompilerHash",
+            [
+                DeclareOpInterfaceMethods<ELF_BinaryOpInterface, ["serialize"]>,
+                DeclareOpInterfaceMethods<ELF_BinarySizeOpInterface, ["getBinarySize", "getAlignmentRequirements"]>,
+                DeclareOpInterfaceMethods<ELF_WrappableOpInterface>,
+                Symbol
+            ]
+        > {
+    let summary = "Represents a versioning mechanism for the latest compiler hash value";
+
+    let arguments = (ins
+        SymbolNameAttr:$sym_name,
+        StrAttr:$compiler_hash
+    );
+
+    let extraClassDeclaration = [{
+        std::vector<uint8_t> getSerializedCompilerHash();
+    }];
+
+    let assemblyFormat = [{
+        $sym_name
+        `compiler_hash` `(` $compiler_hash `)`
+        attr-dict
+    }];
 }
 
 #endif

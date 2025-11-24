@@ -150,9 +150,9 @@ std::array<int64_t, 4> ConvertExpandPass::getMaxExpandConstShapes(mlir::func::Fu
             const auto storageType = qType.getStorageType();
             if (storageType.isInteger(8)) {
                 maxINT8ShapeSize = std::max(checked_cast<int64_t>(diffShapeSize), maxINT8ShapeSize);
-            } else if (storageType.isFloat8E4M3FN()) {
+            } else if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
                 maxFP8E4M3FNShapeSize = std::max(checked_cast<int64_t>(diffShapeSize), maxFP8E4M3FNShapeSize);
-            } else if (storageType.isFloat8E5M2()) {
+            } else if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
                 maxFP8E5M2ShapeSize = std::max(checked_cast<int64_t>(diffShapeSize), maxFP8E5M2ShapeSize);
             } else {
                 log.trace("Unexpected Expand '{0}' with quantized input storage type '{1}'", origOp->getLoc(),
@@ -285,9 +285,9 @@ void ConvertExpandPass::safeRunOnFunc() {
             const auto storageType = qElemType.getStorageType();
             if (storageType.isInteger(8)) {
                 constOutput = constOps[1].getOutput();
-            } else if (storageType.isFloat8E4M3FN()) {
+            } else if (mlir::isa<mlir::Float8E4M3FNType>(storageType)) {
                 constOutput = constOps[2].getOutput();
-            } else if (storageType.isFloat8E5M2()) {
+            } else if (mlir::isa<mlir::Float8E5M2Type>(storageType)) {
                 constOutput = constOps[3].getOutput();
             }
         }

@@ -4,9 +4,9 @@
 #
 #    pip-compile --allow-unsafe --generate-hashes .github/requirements-dev.in
 #
-build==1.2.2.post1 \
-    --hash=sha256:1d61c0887fa860c01971625baae8bdd338e517b836a2f70dd1f7aa3a6b2fc5b5 \
-    --hash=sha256:b36993e92ca9375a219c99e606a122ff365a760a2d4bba0caa09bd5278b608b7
+build==1.3.0 \
+    --hash=sha256:698edd0ea270bde950f53aed21f3a0135672206f3911e0176261a31e0e07b397 \
+    --hash=sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4
     # via -r .github/requirements-dev.in
 colorama==0.4.6 \
     --hash=sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44 \
@@ -25,7 +25,7 @@ patchelf==0.17.2.2 ; sys_platform == "linux" and platform_machine == "x86_64" \
     --hash=sha256:47b558db8f7dccc6262e930631991ecdd053724c1d8daf3df5ce03813438da10 \
     --hash=sha256:b54e79ceb444ec6a536a5dc2e8fc9c771ec6a1fa7d5f4dbb3dc0e5b8e5ff82e1 \
     --hash=sha256:e334ebb1c5aa9fc740fd95ebe449271899fe1e45a3eb0941300b304f7e3d1299
-    # via -r .github/requirements-dev.in
+    # via -r requirements-dev.in
 pyproject-hooks==1.2.0 \
     --hash=sha256:1e859bd5c40fae9448642dd871adf459e5e2084186e8d2c2a79a824c970da1f8 \
     --hash=sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913

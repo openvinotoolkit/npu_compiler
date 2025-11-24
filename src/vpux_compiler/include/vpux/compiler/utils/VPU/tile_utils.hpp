@@ -7,7 +7,11 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/data_type.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/pooling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
@@ -198,6 +202,9 @@ struct TileShapeCompare {
 bool isDivisibleTile(mlir::Operation* op, ShapeRef tileAxis, Dim tileDim);
 
 bool hasRestrictedTilingDim(VPU::DistributedCastOpInterface distributedCastOp);
+
+SmallVector<vpux::NDTypeInterface> getAllOperandsSwInterface(VPU::SWOpInterface origOp, const TileInfo& firstOutputTile,
+                                                             Logger log);
 
 // TilingInfoOpInterface
 

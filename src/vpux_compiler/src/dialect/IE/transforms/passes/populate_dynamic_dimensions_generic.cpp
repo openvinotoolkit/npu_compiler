@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/reify_shape.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -57,7 +58,7 @@ void populateDynamicResult(mlir::Operation* op, const unsigned resultIdx) {
     }
 
     SmallVector<mlir::Value> dynamicResults{};
-    mlir::OpBuilder builder(op);
+    IE::DynamicDimOpBuilder builder(op);
     builder.setInsertionPointAfter(op);
 
     mlir::bufferization::populateDynamicDimSizes(builder, op->getLoc(), result, dynamicResults);

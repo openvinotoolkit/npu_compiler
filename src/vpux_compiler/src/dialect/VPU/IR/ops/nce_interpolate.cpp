@@ -3,22 +3,25 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <mlir/Support/LLVM.h>
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/image.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_interpolate_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include <openvino/op/convolution.hpp>
 #include <openvino/op/parameter.hpp>
@@ -198,11 +201,11 @@ bool isNCEInterpolateSupported(vpux::NDTypeInterface inputType, vpux::NDTypeInte
         return false;
     }
 
-    if (VPU::hasMaxKernelSize(op)) {
+    if (config::hasMaxKernelSize(op)) {
         // kernelSize must be in range [1:MAX_KERNEL_SIZE]
         const auto kernelSize = VPU::getNCEInterpolateKernelSize(scales, VPU::getNCEInterpolateModeAttr(attr.getMode()),
                                                                  attr.getCoordMode());
-        auto maxKernelSize = VPU::getMaxKernelSize(op);
+        auto maxKernelSize = config::getMaxKernelSize(op);
         for (auto kernel : kernelSize) {
             if (kernel > maxKernelSize || kernel <= 0) {
                 logCb(formatv("Only kernel size less than {0} are supported for nce interpolate. Got kernel Size {1}",
@@ -248,6 +251,15 @@ bool VPU::NCEInterpolateOp::isSupported(VPU::InterpolateOp op, vpux::LogCb logCb
 
     return isNCEInterpolateSupported(inputType, outputType, op.getAttr(), config::getArch(op), checkChannelAlignment,
                                      checkLayout, checkBatch, op, logCb);
+}
+
+mlir::LogicalResult vpux::VPU::NCEInterpolateOp::verifyKernel(IE::InterpolateOp origOp, Logger log) {
+    log.setName("NCEInvariant");
+    const auto logCb = [&](const formatv_object_base& msg) {
+        log.trace("{0}", msg.str());
+    };
+
+    return mlir::success(isSupported(origOp, logCb, true, true, true));
 }
 
 //
@@ -369,6 +381,8 @@ bool VPU::NCEInterpolateOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strate
                     getOutput().getType(), getOutputDistributionAttrFromOp(nceOp, getOutput().getType(), numClusters,
                                                                            strategy, siblingsAnalysis)),
             NCEInvariant::getWeightsTableSize(OC)};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     if (getWeights() != nullptr) {
         buffers.push_back(VPU::getTotalAllocSizeWithDistribution(
@@ -466,6 +480,8 @@ bool vpux::VPU::NCEInterpolateOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
     const auto OC = output.getShape()[Dims4D::Act::C];
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), filter.getTotalAllocSize(), output.getTotalAllocSize(),
                                  NCEInvariant::getWeightsTableSize(OC)};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();

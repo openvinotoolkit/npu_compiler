@@ -262,7 +262,7 @@ def RewriteExtractImagePatches :
         >;
 
 //
-// IE.Reduce[Max|Mean|Prod|Sum|Min|L1|L2|LogicalOr|LogicalAnd]Op -> VPU.Reduce[Max|Mean|Prod|Sum|Min|L1|L2|LogicalOr|LogicalAnd]Op
+// IE.Reduce[Max|Mean|Prod|Sum|Min|L1|L2|LogicalOr|LogicalAnd|MeanSquare]Op -> VPU.Reduce[Max|Mean|Prod|Sum|Min|L1|L2|LogicalOr|LogicalAnd|MeanSquare]Op
 //
 
 class createReduceOp<string type> :
@@ -323,6 +323,11 @@ def RewriteReduceL2 :
         Pat<
             (IE_ReduceL2Op $input, $axes, $axes_value, $keep_dims),
             (createReduceOp<"L2"> $input, $axes_value, $keep_dims)
+        >;
+def RewriteReduceMeanSquare :
+        Pat<
+            (IE_ReduceMeanSquareOp $input, $axes, $axes_value, $keep_dims),
+            (createReduceOp<"MeanSquare"> $input, $axes_value, $keep_dims)
         >;
 
 //
@@ -1710,7 +1715,7 @@ def createYuvToRgbOp :
                 $_loc, $0,
                 $1.size() == 1 ? $1[0] : nullptr,
                 $2.size() == 1 ? $2[0] : nullptr,
-                $3, $4)
+                $3, $4, nullptr)
         }]>;
 
 def RewriteYuvToRgb :
@@ -2244,13 +2249,13 @@ def createDeformableConvolutionOp :
             $_builder.create<vpux::VPU::DeformableConvolutionOp>(
                 $_loc, $0, $1, $2,
                 $3.size() == 1 ? $3[0] : nullptr,
-                $4, $5, $6, $7, $8, $9, $10)
+                $4, $5, $6, $7, $8, $9, $10, nullptr)
         }]>;
 
 def RewriteDeformableConvolution :
         Pat<
-            (IE_DeformableConvolutionOp $input, $offset, $kernel, $mask, $strides, $pads_begin, $pads_end, $dilations, $group, $deformable_group, $biliniar_interpolate_pad),
-            (createDeformableConvolutionOp $input, $offset, $kernel, $mask, $strides, $pads_begin, $pads_end, $dilations, $group, $deformable_group, $biliniar_interpolate_pad)
+            (IE_DeformableConvolutionOp $input, $offset, $kernel, $mask, $strides, $pads_begin, $pads_end, $dilations, $group, $deformable_group, $bilinear_interpolate_pad),
+            (createDeformableConvolutionOp $input, $offset, $kernel, $mask, $strides, $pads_begin, $pads_end, $dilations, $group, $deformable_group, $bilinear_interpolate_pad)
         >;
 
 //
@@ -2287,13 +2292,13 @@ def RewriteDynamicDequantizeOp :
 
 def createRoPEOp :
         NativeCodeCall<[{
-            $_builder.create<vpux::VPU::RoPEOp>($_loc, $0, $1, $2)
+            $_builder.create<vpux::VPU::RoPEOp>($_loc, $0, $1, $2, $3)
         }]>;
 
 def RewriteRoPE :
         Pat<
-            (IE_RoPEOp $input, $input_cos, $input_sin),
-            (createRoPEOp $input, $input_cos, $input_sin)
+            (IE_RoPEOp $input, $input_cos, $input_sin, $is_interleaved),
+            (createRoPEOp $input, $input_cos, $input_sin, $is_interleaved)
         >;
 
 //
@@ -2313,6 +2318,25 @@ def RewriteSDPA :
         Pat<
             (IE_SDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $causal),
             (createSDPAOp $inputQ, $inputK, $inputV, $inputMask, $inputScale)
+        >;
+
+//
+// IE.SDPAExtendedOp -> VPU.SDPAExtendedOp
+//
+
+def createSDPAExtendedOp :
+        NativeCodeCall<[{
+            $_builder.create<vpux::VPU::SDPAExtendedOp>($_loc, $0, $1, $2,
+            $3.size() == 1 ? $3[0] : nullptr,
+            $4.size() == 1 ? $4[0] : nullptr,
+            nullptr,
+            $5)
+        }]>;
+
+def RewriteSDPAExtended :
+        Pat<
+            (IE_SDPAExtendedOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $padSizeS),
+            (createSDPAExtendedOp $inputQ, $inputK, $inputV, $inputMask, $inputScale, $padSizeS)
         >;
 
 //

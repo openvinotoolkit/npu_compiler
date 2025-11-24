@@ -5,13 +5,14 @@
 
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/core/execution_group_analysis.hpp"
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/interfaces/barrier_simulator.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/options.hpp"
+#include "vpux/compiler/utils/wlm_legalization_utils.hpp"
 
 namespace vpux::VPURT {
 #define GEN_PASS_DECL_REDUCEEXCEEDINGACTIVECOUNTBARRIERS
@@ -285,13 +286,18 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     _log.trace("There are {0} physical barriers and {1} slots for each barrier", numBarriersToUse, maxAvailableSlots);
     _log.trace("Run-time limit for sum of producers and consumers per barrier: {0}", maxSlotsSum);
 
+    bool maxSlotsSumLimitEnabled = false;
+    if (maxSlotsSum < maxAvailableSlots) {
+        maxSlotsSumLimitEnabled = true;
+    }
+
     // divide slots equally between producers and consumers and split barriers if needed
     _availableSlots = VPUIP::getAvailableSlots(maxSlotsSum, maxAvailableSlots);
 
     VPUX_THROW_UNLESS(numBarriersToUse > 1, "Not possible to satisfy barrier requirement numBarriersToUse '{0}'",
                       numBarriersToUse);
 
-    auto wlmFlag = (VPU::getWorkloadManagementStatus(module) == VPU::WorkloadManagementStatus::ENABLED) &&
+    auto wlmFlag = (config::getWorkloadManagementStatus(module) == WorkloadManagementStatus::ENABLED) &&
                    !config::isArchVPUX3XXX(arch);
     _shareWaitAndUpdateBarriers = VPURT::isShareWaitAndUpdateBarriersNeeded(_workloadManagementMode);
 
@@ -316,7 +322,10 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         _log.trace("WLM flag turned off because number of barrier is above threshold {0} > {1}",
                    barrierInfo.getNumOfBarrierOps(), _virtualBarrierThresholdForWlm.value());
         wlmFlag = false;
-        VPU::setWorkloadManagementStatus(module, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(module, WorkloadManagementStatus::FAILED);
+        // If WLM cannot be enabled due to high number of barriers, legalize for non-WLM.
+        // This scenario can occur when earlier barrier legalization passes generate large number of new barriers.
+        legalizeScheduleForNonWlm(func, barrierInfo, _log);
     }
 
     if (wlmFlag) {
@@ -342,8 +351,12 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     auto barSimLog = _log.nest();
     barSimLog.setName("barrier-schedule-sim");
     if (mlir::succeeded(barrierSim.simulateBarriers(barSimLog, numBarriersToUse))) {
-        _log.trace("Barrier simulation passed with '{0}' barriers, no isses with exceeding barriers count",
+        _log.trace("Barrier simulation passed with '{0}' barriers, no issues with exceeding barriers count",
                    numBarriersToUse);
+
+        VPUX_THROW_UNLESS(verifyBarriersForTaskDescriptorFetch(barrierInfo, func, wlmFlag, _workloadManagementMode),
+                          "Encountered execution group without required barrier for task descriptor fetch.");
+
         barrierInfo.clearAttributes();
         return;
     }
@@ -364,7 +377,7 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         if (!mlir::succeeded(barrierSim.checkProducerAndConsumerCount(_log))) {
             _log.trace("Active barrier slot count is not valid, will split barriers");
             // split barriers that violate the slot count limits
-            barrierInfo.splitBarriersWithExceedingVariantCount(_availableSlots, maxSlotsSum, maxAvailableSlots);
+            barrierInfo.splitBarriersWithExceedingVariantCount(_availableSlots, maxSlotsSum, maxSlotsSumLimitEnabled);
             VPURT::orderExecutionTasksAndBarriers(func, barrierInfo, _log);
         }
 
@@ -378,11 +391,16 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
         // remove unused barriers before simulation of assigning physical barriers in order to avoid creating batches
         // that cannot be linearized (eg. containing only final barrier)
         removeUnusedBarriers(func, barrierInfo);
+        if (wlmFlag == false) {
+            // Legalize schedule for non-WLM in case some of the required legalization barriers were optimized out as
+            // they were seen as redundant to optimization logic
+            legalizeScheduleForNonWlm(func, barrierInfo, _log);
+        }
         // verify that unique final barrier exists and is in the right place in the IR
         verifyFinalBarrier(func, barrierInfo);
         barrierSim = VPURT::BarrierSimulator{func, wlmFlag, barrierInfo};
         if (mlir::succeeded(barrierSim.simulateBarriers(barSimLog, numBarriersToUse, true))) {
-            _log.trace("Barrier simulation passed with '{0}' barriers, no isses with exceeding barriers count",
+            _log.trace("Barrier simulation passed with '{0}' barriers, no issues with exceeding barriers count",
                        numBarriersToUse);
             VPUX_THROW_UNLESS(barrierSim.getBarrierBatchesToLegalize().empty(),
                               "Simulation passed, but '{0}' batches to legalize exist",
@@ -440,14 +458,7 @@ void ReduceExceedingActiveCountBarriersPass::safeRunOnFunc() {
     }
 
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
-    auto execGroupAnalysis = ExecutionGroupAnalysis(func);
-    auto validateEachTileSeparately = true;
-    if (_workloadManagementMode.has_value() && _workloadManagementMode.value() == WorkloadManagementMode::PWLM_V0_LCA) {
-        validateEachTileSeparately = false;
-    }
-    auto execGroups = validateEachTileSeparately ? execGroupAnalysis.getExecutionGroups()
-                                                 : execGroupAnalysis.getExecutionGroupsForTile(0);
-    VPUX_THROW_UNLESS(barrierInfo.verifyBarriersForTaskDescriptorFetch(execGroups, wlmFlag),
+    VPUX_THROW_UNLESS(verifyBarriersForTaskDescriptorFetch(barrierInfo, func, wlmFlag, _workloadManagementMode),
                       "Encountered execution group without required barrier for task descriptor fetch.");
 
     // remove attributes before removing barriers

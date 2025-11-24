@@ -7,9 +7,11 @@
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/transforms/factories/nce_workload_channels.hpp"
+#include "vpux/compiler/dialect/VPU/transforms/factories/workload_size_constraint.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/interfaces/dpu_tiler.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
@@ -26,10 +28,6 @@ vpux::VPU::WorkloadSplitter::WorkloadSplitter(mlir::func::FuncOp funcOp, ArrayRe
         : _funcOp(funcOp),
           _supportedChannelsForDW(supportedChannelsForDW.begin(), supportedChannelsForDW.end()),
           _log(log) {
-}
-
-bool vpux::VPU::WorkloadSplitter::isDepthwiseOp(mlir::Operation* op) {
-    return mlir::isa<VPU::NCEDepthConvolutionOp, VPU::NCEMaxPoolOp, VPU::NCEAveragePoolOp>(op);
 }
 
 void vpux::VPU::WorkloadSplitter::correctInvalidWorkload(const VPU::SparsityConstraint& sparsityConstraint) {
@@ -475,6 +473,16 @@ SmallVector<int64_t> vpux::VPU::WorkloadSplitter::getSupportedChannels(
         }
     }
 
+    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(*nceOps.begin());
+    VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", *nceOps.begin());
+
+    // Filter supported channels through errata conditions for small spatial compute DW ops
+    const auto arch = config::getArch(nceOp);
+    auto workloadSizeConstraint = VPU::getWorkloadSizeConstraint(arch);
+    if (workloadSizeConstraint.doesDWOperationNeedWorkloadSplit(nceOp)) {
+        supportedChannels = workloadSizeConstraint.getChannelsSupportedBySmallSpatialComputeDwOp(supportedChannels);
+    }
+
     // In case the autopadding feature is used, the output channels might not be aligned to be a multiple of 16
     // If this happens, the current output channel configuration can be considered a supported workload configuration
     for (auto op : nceOps) {
@@ -485,9 +493,6 @@ SmallVector<int64_t> vpux::VPU::WorkloadSplitter::getSupportedChannels(
             break;
         }
     }
-
-    auto nceOp = mlir::dyn_cast<VPU::NCEOpInterface>(*nceOps.begin());
-    VPUX_THROW_UNLESS(nceOp != nullptr, "Expected NCE op, got '{0}'", *nceOps.begin());
 
     const auto kernelSize = nceOp.getKernelSizeVal();
     const auto KX = kernelSize[Dims4D::Kernel::X.ind()];

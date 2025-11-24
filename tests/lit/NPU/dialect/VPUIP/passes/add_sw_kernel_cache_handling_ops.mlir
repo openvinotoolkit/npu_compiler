@@ -675,62 +675,62 @@ func.func @AddCacheFlushInvalidateSwOpForDDRInputCMXOutput(%arg0: memref<1x1x1x1
 
 // -----
 
-  VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
-  module @VPU.SW {
-    func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-  }
+VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
+module @VPU.SW {
+  func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
+  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
 
 // CHECK-LABEL: @AddCacheFlushCacheFlushInvalidate
-func.func @AddCacheFlushCacheFlushInvalidate(%arg0: memref<64x32x32x16xf16, @DDR>, %arg1: memref<64x32x32x16xf16, [@CMX_NN, 0]>, %arg2: memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> (memref<64x32x32x16xf16, [@CMX_NN, 0]>, memref<64x32x32x16xf16, [@CMX_NN, 0]>) {
-  %cst = const.Declare memref<64x32x32x16xf16> = dense<1.000000e+00> : tensor<64x32x32x16xf16>
-  %cst_0 = const.Declare memref<64x32x32x16xf16> = dense<2.000000e+00> : tensor<64x32x32x16xf16>
-  %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<64x32x32x16xf16, @DDR>
-  %1 = VPURT.DeclareBuffer <DDR> <2097152> -> memref<64x32x32x16xf16, @DDR>
+func.func @AddCacheFlushCacheFlushInvalidate(%arg0: memref<64x16x16x16xf16, @DDR>, %arg1: memref<64x16x16x16xf16, [@CMX_NN, 0]>, %arg2: memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> (memref<64x16x16x16xf16, [@CMX_NN, 0]>, memref<64x16x16x16xf16, [@CMX_NN, 0]>) {
+  %cst = const.Declare memref<64x16x16x16xf16> = dense<1.000000e+00> : tensor<64x16x16x16xf16>
+  %cst_0 = const.Declare memref<64x16x16x16xf16> = dense<2.000000e+00> : tensor<64x16x16x16xf16>
+  %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<64x16x16x16xf16, @DDR>
+  %1 = VPURT.DeclareBuffer <DDR> <1048576> -> memref<64x16x16x16xf16, @DDR>
 
-  %token, %bodyResults = async.execute -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
-    %sw_kernel_1 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %input_1: memref<64x32x32x16xf16>, %cst as %input_2: memref<64x32x32x16xf16>) outputs(%0 as %output: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-      VPUIP.SW.Kernel.run(%input_1, %input_2, %output) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
+  %token, %bodyResults = async.execute -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
+    %sw_kernel_1 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %input_1: memref<64x16x16x16xf16>, %cst as %input_2: memref<64x16x16x16xf16>) outputs(%0 as %output: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+      VPUIP.SW.Kernel.run(%input_1, %input_2, %output) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
     }
-    async.yield %sw_kernel_1 : memref<64x32x32x16xf16, @DDR>
+    async.yield %sw_kernel_1 : memref<64x16x16x16xf16, @DDR>
   }
 
-  %token_1, %bodyResults_2 = async.execute [%token] (%bodyResults as %input: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
-    %sw_kernel_2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%input as %input_1: memref<64x32x32x16xf16>, %cst_0 as %input_2: memref<64x32x32x16xf16>) outputs(%1 as %output: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-      VPUIP.SW.Kernel.run(%input_1, %input_2, %output) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
+  %token_1, %bodyResults_2 = async.execute [%token] (%bodyResults as %input: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+    %sw_kernel_2 = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%input as %input_1: memref<64x16x16x16xf16>, %cst_0 as %input_2: memref<64x16x16x16xf16>) outputs(%1 as %output: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+      VPUIP.SW.Kernel.run(%input_1, %input_2, %output) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
     }
-    async.yield %sw_kernel_2 : memref<64x32x32x16xf16, @DDR>
+    async.yield %sw_kernel_2 : memref<64x16x16x16xf16, @DDR>
   }
 
-  %token_4, %bodyResults_5 = async.execute [%token] (%bodyResults as %input: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    %nn_dma_1 = VPUIP.NNDMA {port = 0 : i64} inputs(%input : memref<64x32x32x16xf16, @DDR>) outputs(%arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    async.yield %arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+  %token_4, %bodyResults_5 = async.execute [%token] (%bodyResults as %input: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    %nn_dma_1 = VPUIP.NNDMA {port = 0 : i64} inputs(%input : memref<64x16x16x16xf16, @DDR>) outputs(%arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    async.yield %arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
   }
 
-  %token_3, %bodyResults_4 = async.execute [%token_1] (%bodyResults_2 as %input: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    %nn_dma_2 = VPUIP.NNDMA {port = 0 : i64} inputs(%input : memref<64x32x32x16xf16, @DDR>) outputs(%arg2 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    async.yield %arg2 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+  %token_3, %bodyResults_4 = async.execute [%token_1] (%bodyResults_2 as %input: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    %nn_dma_2 = VPUIP.NNDMA {port = 0 : i64} inputs(%input : memref<64x16x16x16xf16, @DDR>) outputs(%arg2 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    async.yield %arg2 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
   }
 
-  %2 = async.await %bodyResults_4 : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
-  %3 = async.await %bodyResults_5 : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
+  %2 = async.await %bodyResults_4 : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
+  %3 = async.await %bodyResults_5 : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
 
-  return %2, %3 : memref<64x32x32x16xf16, [@CMX_NN, 0]>, memref<64x32x32x16xf16, [@CMX_NN, 0]>
+  return %2, %3 : memref<64x16x16x16xf16, [@CMX_NN, 0]>, memref<64x16x16x16xf16, [@CMX_NN, 0]>
 
-    // CHECK:   [[CST_0:%.*]] = const.Declare memref<64x32x32x16xf16> = dense<1.000000e+00> : tensor<64x32x32x16xf16>
-    // CHECK:   [[CST_1:%.*]] = const.Declare memref<64x32x32x16xf16> = dense<2.000000e+00> : tensor<64x32x32x16xf16>
-    // CHECK:   [[BUFF_0:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<64x32x32x16xf16, @DDR>
-    // CHECK:   [[BUFF_1:%.*]] = VPURT.DeclareBuffer <DDR> <2097152> -> memref<64x32x32x16xf16, @DDR>
+    // CHECK:   [[CST_0:%.*]] = const.Declare memref<64x16x16x16xf16> = dense<1.000000e+00> : tensor<64x16x16x16xf16>
+    // CHECK:   [[CST_1:%.*]] = const.Declare memref<64x16x16x16xf16> = dense<2.000000e+00> : tensor<64x16x16x16xf16>
+    // CHECK:   [[BUFF_0:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<64x16x16x16xf16, @DDR>
+    // CHECK:   [[BUFF_1:%.*]] = VPURT.DeclareBuffer <DDR> <1048576> -> memref<64x16x16x16xf16, @DDR>
 
     // CHECK:   [[TOKEN_0:%.*]] = async.execute attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush_invalidate inputs() outputs() on tile 0{
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:     async.yield
 
-    // CHECK:    [[TOKEN_1:%.*]], [[RESULT_1:%.*]] = async.execute [[[TOKEN_0]]] -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
-    // CHECK:      [[SW_KERNEL_1:%.*]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as [[INPUT_1:%.*]]: memref<64x32x32x16xf16>, [[CST_0]] as [[INPUT_2:%.*]]: memref<64x32x32x16xf16>) outputs([[BUFF_0]] as [[OUTPUT:%.*]]: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-    // CHECK:        VPUIP.SW.Kernel.run([[INPUT_1]], [[INPUT_2]], [[OUTPUT]]) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
-    // CHECK:      async.yield [[SW_KERNEL_1]] : memref<64x32x32x16xf16, @DDR>
+    // CHECK:    [[TOKEN_1:%.*]], [[RESULT_1:%.*]] = async.execute [[[TOKEN_0]]] -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
+    // CHECK:      [[SW_KERNEL_1:%.*]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as [[INPUT_1:%.*]]: memref<64x16x16x16xf16>, [[CST_0]] as [[INPUT_2:%.*]]: memref<64x16x16x16xf16>) outputs([[BUFF_0]] as [[OUTPUT:%.*]]: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+    // CHECK:        VPUIP.SW.Kernel.run([[INPUT_1]], [[INPUT_2]], [[OUTPUT]]) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
+    // CHECK:      async.yield [[SW_KERNEL_1]] : memref<64x16x16x16xf16, @DDR>
 
     // CHECK:   [[TOKEN_2:%.*]] = async.execute [[[TOKEN_1]]] attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush inputs() outputs() on tile 0{
@@ -742,107 +742,107 @@ func.func @AddCacheFlushCacheFlushInvalidate(%arg0: memref<64x32x32x16xf16, @DDR
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:      async.yield
 
-    // CHECK:    [[TOKEN_4:%.*]], [[RESULT_4:%.*]] = async.execute [[[TOKEN_3]]] ([[RESULT_1]] as [[INPUT:%.*]]: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
-    // CHECK:      [[SW_KERNEL_2:%.*]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs([[INPUT]] as [[INPUT_1:%.*]]: memref<64x32x32x16xf16>, [[CST_1]] as [[INPUT_2:%.*]]: memref<64x32x32x16xf16>) outputs([[BUFF_1]] as [[OUTPUT:%.*]]: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-    // CHECK:        VPUIP.SW.Kernel.run([[INPUT_1]], [[INPUT_2]], [[OUTPUT]]) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
-    // CHECK:      async.yield [[SW_KERNEL_2]] : memref<64x32x32x16xf16, @DDR>
+    // CHECK:    [[TOKEN_4:%.*]], [[RESULT_4:%.*]] = async.execute [[[TOKEN_3]]] ([[RESULT_1]] as [[INPUT:%.*]]: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+    // CHECK:      [[SW_KERNEL_2:%.*]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs([[INPUT]] as [[INPUT_1:%.*]]: memref<64x16x16x16xf16>, [[CST_1]] as [[INPUT_2:%.*]]: memref<64x16x16x16xf16>) outputs([[BUFF_1]] as [[OUTPUT:%.*]]: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+    // CHECK:        VPUIP.SW.Kernel.run([[INPUT_1]], [[INPUT_2]], [[OUTPUT]]) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
+    // CHECK:      async.yield [[SW_KERNEL_2]] : memref<64x16x16x16xf16, @DDR>
 
     // CHECK:    [[TOKEN_5:%.*]] = async.execute [[[TOKEN_4]]] attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush inputs() outputs() on tile 0{
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:      async.yield
 
-    // CHECK:    [[TOKEN_6:%.*]], [[RESULT_6:%.*]] = async.execute [[[TOKEN_2]]] ([[RESULT_1]] as [[INPUT_DMA_1:%.*]]: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs([[INPUT_DMA_1]] : memref<64x32x32x16xf16, @DDR>) outputs(%arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    // CHECK:      async.yield %arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+    // CHECK:    [[TOKEN_6:%.*]], [[RESULT_6:%.*]] = async.execute [[[TOKEN_2]]] ([[RESULT_1]] as [[INPUT_DMA_1:%.*]]: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs([[INPUT_DMA_1]] : memref<64x16x16x16xf16, @DDR>) outputs(%arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    // CHECK:      async.yield %arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
 
-    // CHECK:    [[TOKEN_7:%.*]], [[RESULT_7:%.*]] = async.execute [[[TOKEN_5]]] ([[RESULT_4]] as [[INPUT_DMA_2:%.*]]: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs([[INPUT_DMA_2]] : memref<64x32x32x16xf16, @DDR>) outputs(%arg2 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    // CHECK:      async.yield %arg2 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+    // CHECK:    [[TOKEN_7:%.*]], [[RESULT_7:%.*]] = async.execute [[[TOKEN_5]]] ([[RESULT_4]] as [[INPUT_DMA_2:%.*]]: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs([[INPUT_DMA_2]] : memref<64x16x16x16xf16, @DDR>) outputs(%arg2 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    // CHECK:      async.yield %arg2 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
 
-    // CHECK:    [[AWAIT_2:%.*]] = async.await [[RESULT_7]] : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
-    // CHECK:    [[AWAIT_1:%.*]] = async.await [[RESULT_6]] : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
-    // CHECK:    return [[AWAIT_2]], [[AWAIT_1]] : memref<64x32x32x16xf16, [@CMX_NN, 0]>, memref<64x32x32x16xf16, [@CMX_NN, 0]>
+    // CHECK:    [[AWAIT_2:%.*]] = async.await [[RESULT_7]] : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
+    // CHECK:    [[AWAIT_1:%.*]] = async.await [[RESULT_6]] : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
+    // CHECK:    return [[AWAIT_2]], [[AWAIT_1]] : memref<64x16x16x16xf16, [@CMX_NN, 0]>, memref<64x16x16x16xf16, [@CMX_NN, 0]>
 }
 
 // -----
 
-  VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
-  module @VPU.SW {
-    func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
-    func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
-  }
-    net.NetworkInfo entryPoint : @AddCacheFlushInvalidate inputsInfo : {
-    DataInfo "Parameter_224" : tensor<64x32x32x16xf16>
-  } outputsInfo : {
-    DataInfo "Minimum_228" : tensor<64x32x32x16xf16>
-  }
+ VPURT.SW.Runtime entryPoint : @VPU.SW::@runtime stack_configuration : [4096, 4096, 4096, 4096]
+module @VPU.SW {
+  func.func private @builtin_Minimum(memref<*xf16>, memref<*xf16>, memref<*xf16>) attributes {VPU.kernel_code = "eltwise_min.cpp", VPU.kernel_entry = "eltwise_min", VPU.task_type = @COMPUTE}
+  func.func private @runtime() attributes {VPU.kernel_code = "nnActEntry"}
+}
+  net.NetworkInfo entryPoint : @AddCacheFlushInvalidate inputsInfo : {
+  DataInfo "Parameter_224" : tensor<64x16x16x16xf16>
+} outputsInfo : {
+  DataInfo "Minimum_228" : tensor<64x16x16x16xf16>
+}
 
 // CHECK-LABEL: @AddCacheFlushInvalidate
-func.func @AddCacheFlushInvalidate(%arg0: memref<64x32x32x16xf16, @DDR>, %arg1: memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]> {
-  %cst = const.Declare memref<64x32x32x16xf16> = dense<1.000000e+00> : tensor<64x32x32x16xf16>
-  %cst_0 = const.Declare memref<64x32x32x16xf16> = dense<2.000000e+00> : tensor<64x32x32x16xf16>
-  %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<64x32x32x16xf16, @DDR>
-  %1 = VPURT.DeclareBuffer <DDR> <2097152> -> memref<64x32x32x16xf16, @DDR>
+func.func @AddCacheFlushInvalidate(%arg0: memref<64x16x16x16xf16, @DDR>, %arg1: memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]> {
+  %cst = const.Declare memref<64x16x16x16xf16> = dense<1.000000e+00> : tensor<64x16x16x16xf16>
+  %cst_0 = const.Declare memref<64x16x16x16xf16> = dense<2.000000e+00> : tensor<64x16x16x16xf16>
+  %0 = VPURT.DeclareBuffer <DDR> <0> -> memref<64x16x16x16xf16, @DDR>
+  %1 = VPURT.DeclareBuffer <DDR> <1048576> -> memref<64x16x16x16xf16, @DDR>
 
-  %token, %bodyResults = async.execute -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
-    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %arg2: memref<64x32x32x16xf16>, %cst as %arg3: memref<64x32x32x16xf16>) outputs(%0 as %arg4: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-      VPUIP.SW.Kernel.run(%arg2, %arg3, %arg4) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
+  %token, %bodyResults = async.execute -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
+    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %arg2: memref<64x16x16x16xf16>, %cst as %arg3: memref<64x16x16x16xf16>) outputs(%0 as %arg4: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+      VPUIP.SW.Kernel.run(%arg2, %arg3, %arg4) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
     }
-    async.yield %0 : memref<64x32x32x16xf16, @DDR>
+    async.yield %0 : memref<64x16x16x16xf16, @DDR>
   }
 
-  %token_1, %bodyResults_2 = async.execute [%token] (%bodyResults as %arg2: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
-    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg2 as %arg3: memref<64x32x32x16xf16>, %cst_0 as %arg4: memref<64x32x32x16xf16>) outputs(%1 as %arg5: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-      VPUIP.SW.Kernel.run(%arg3, %arg4, %arg5) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
+  %token_1, %bodyResults_2 = async.execute [%token] (%bodyResults as %arg2: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+    %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg2 as %arg3: memref<64x16x16x16xf16>, %cst_0 as %arg4: memref<64x16x16x16xf16>) outputs(%1 as %arg5: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+      VPUIP.SW.Kernel.run(%arg3, %arg4, %arg5) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
     }
-    async.yield %1 : memref<64x32x32x16xf16, @DDR>
+    async.yield %1 : memref<64x16x16x16xf16, @DDR>
   }
 
-  %token_3, %bodyResults_4 = async.execute [%token_1] (%bodyResults_2 as %arg2: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    %3 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg2 : memref<64x32x32x16xf16, @DDR>) outputs(%arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    async.yield %arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+  %token_3, %bodyResults_4 = async.execute [%token_1] (%bodyResults_2 as %arg2: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    %3 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg2 : memref<64x16x16x16xf16, @DDR>) outputs(%arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    async.yield %arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
   }
 
-  %2 = async.await %bodyResults_4 : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
-  return %2 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+  %2 = async.await %bodyResults_4 : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
+  return %2 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
 
-    // CHECK:   [[CST_0:%.*]] = const.Declare memref<64x32x32x16xf16> = dense<1.000000e+00> : tensor<64x32x32x16xf16>
-    // CHECK:   [[CST_1:%.*]] = const.Declare memref<64x32x32x16xf16> = dense<2.000000e+00> : tensor<64x32x32x16xf16>
-    // CHECK:   [[BUFF_0:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<64x32x32x16xf16, @DDR>
-    // CHECK:   [[BUFF_1:%.*]] = VPURT.DeclareBuffer <DDR> <2097152> -> memref<64x32x32x16xf16, @DDR>
+    // CHECK:   [[CST_0:%.*]] = const.Declare memref<64x16x16x16xf16> = dense<1.000000e+00> : tensor<64x16x16x16xf16>
+    // CHECK:   [[CST_1:%.*]] = const.Declare memref<64x16x16x16xf16> = dense<2.000000e+00> : tensor<64x16x16x16xf16>
+    // CHECK:   [[BUFF_0:%.*]] = VPURT.DeclareBuffer <DDR> <0> -> memref<64x16x16x16xf16, @DDR>
+    // CHECK:   [[BUFF_1:%.*]] = VPURT.DeclareBuffer <DDR> <1048576> -> memref<64x16x16x16xf16, @DDR>
 
     // CHECK:   [[TOKEN_0:%.*]] = async.execute attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush_invalidate inputs() outputs() on tile 0{
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:     async.yield
 
-    // CHECK:    [[TOKEN_1:%.*]], [[RESULT_1:%.*]] = async.execute [[[TOKEN_0]]] -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
-    // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %arg2: memref<64x32x32x16xf16>, [[CST_0]] as %arg3: memref<64x32x32x16xf16>) outputs([[BUFF_0]] as %arg4: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-    // CHECK:        VPUIP.SW.Kernel.run(%arg2, %arg3, %arg4) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
-    // CHECK:      async.yield [[BUFF_0]] : memref<64x32x32x16xf16, @DDR>
+    // CHECK:    [[TOKEN_1:%.*]], [[RESULT_1:%.*]] = async.execute [[[TOKEN_0]]] -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 0 : i64} {
+    // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg0 as %arg2: memref<64x16x16x16xf16>, [[CST_0]] as %arg3: memref<64x16x16x16xf16>) outputs([[BUFF_0]] as %arg4: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+    // CHECK:        VPUIP.SW.Kernel.run(%arg2, %arg3, %arg4) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
+    // CHECK:      async.yield [[BUFF_0]] : memref<64x16x16x16xf16, @DDR>
 
     // CHECK:   [[TOKEN_2:%.*]] = async.execute [[[TOKEN_1]]] attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush_invalidate inputs() outputs() on tile 0{
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:      async.yield
 
-    // CHECK:    [[TOKEN_3:%.*]], [[RESULT_3:%.*]] = async.execute [[[TOKEN_2]]] ([[RESULT_1]] as %arg2: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
-    // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg2 as %arg3: memref<64x32x32x16xf16>, [[CST_1]] as %arg4: memref<64x32x32x16xf16>) outputs([[BUFF_1]] as %arg5: memref<64x32x32x16xf16>) on tile 0 -> memref<64x32x32x16xf16, @DDR>{
-    // CHECK:        VPUIP.SW.Kernel.run(%arg3, %arg4, %arg5) : memref<64x32x32x16xf16>, memref<64x32x32x16xf16>, memref<64x32x32x16xf16>
-    // CHECK:      async.yield %1 : memref<64x32x32x16xf16, @DDR>
+    // CHECK:    [[TOKEN_3:%.*]], [[RESULT_3:%.*]] = async.execute [[[TOKEN_2]]] ([[RESULT_1]] as %arg2: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, @DDR>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 1 : i64} {
+    // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_Minimum inputs(%arg2 as %arg3: memref<64x16x16x16xf16>, [[CST_1]] as %arg4: memref<64x16x16x16xf16>) outputs([[BUFF_1]] as %arg5: memref<64x16x16x16xf16>) on tile 0 -> memref<64x16x16x16xf16, @DDR>{
+    // CHECK:        VPUIP.SW.Kernel.run(%arg3, %arg4, %arg5) : memref<64x16x16x16xf16>, memref<64x16x16x16xf16>, memref<64x16x16x16xf16>
+    // CHECK:      async.yield %1 : memref<64x16x16x16xf16, @DDR>
 
     // CHECK:    [[TOKEN_4:%.*]] = async.execute [[[TOKEN_3]]] attributes {VPUIP.executor = @SHAVE_ACT} {
     // CHECK:      VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush inputs() outputs() on tile 0{
     // CHECK:        VPUIP.SW.Kernel.run
     // CHECK:      async.yield
 
-    // CHECK:    [[TOKEN_5:%.*]], [[RESULT_5:%.*]] = async.execute [[[TOKEN_4]]] ([[RESULT_3]] as %arg2: !async.value<memref<64x32x32x16xf16, @DDR>>) -> !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
-    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs(%arg2 : memref<64x32x32x16xf16, @DDR>) outputs(%arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>) -> memref<64x32x32x16xf16, [@CMX_NN, 0]>
-    // CHECK:      async.yield %arg1 : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+    // CHECK:    [[TOKEN_5:%.*]], [[RESULT_5:%.*]] = async.execute [[[TOKEN_4]]] ([[RESULT_3]] as %arg2: !async.value<memref<64x16x16x16xf16, @DDR>>) -> !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, "async-deps-index" = 2 : i64} {
+    // CHECK:      VPUIP.NNDMA {port = 0 : i64} inputs(%arg2 : memref<64x16x16x16xf16, @DDR>) outputs(%arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>) -> memref<64x16x16x16xf16, [@CMX_NN, 0]>
+    // CHECK:      async.yield %arg1 : memref<64x16x16x16xf16, [@CMX_NN, 0]>
 
-    // CHECK:    [[AWAIT:%.*]] = async.await [[RESULT_5]] : !async.value<memref<64x32x32x16xf16, [@CMX_NN, 0]>>
-    // CHECK:    return [[AWAIT]] : memref<64x32x32x16xf16, [@CMX_NN, 0]>
+    // CHECK:    [[AWAIT:%.*]] = async.await [[RESULT_5]] : !async.value<memref<64x16x16x16xf16, [@CMX_NN, 0]>>
+    // CHECK:    return [[AWAIT]] : memref<64x16x16x16xf16, [@CMX_NN, 0]>
 }
 
 // -----
@@ -1105,4 +1105,100 @@ func.func @AddCacheInvalidateSwOpForDDRTopKOp(%arg0: memref<1x5898240xf16, @DDR>
     // CHECK:   [[AWAIT_0:%.+]] = async.await [[BODYRESULTS_4]] : !async.value<memref<1x1xf16, @DDR>>
     // CHECK:   [[AWAIT_1:%.+]] = async.await [[BODYRESULTS_6]] : !async.value<memref<1x1xsi32, @DDR>>
     // CHECK:   return [[AWAIT_0]], [[AWAIT_1]] : memref<1x1xf16, @DDR>, memref<1x1xsi32, @DDR>
+}
+
+// -----
+
+VPURT.SW.Runtime
+    entryPoint: @VPU.SW::@runtime
+    stack_configuration: [4096, 4096, 4096, 4096, 4096, 4096, 4096, 4096]
+
+module @VPU.SW {
+func.func private @builtin_DeformableConvolution(memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16>, memref<*xf16, [@CMX_NN, 0]>, memref<*xf16, [@CMX_NN, 0]>, none, none, none, none, i64, i64, i64, none, none, none, none, none)
+    attributes {
+        VPU.kernel_code = "deformable_convolution.cpp",
+        VPU.kernel_entry = "deformable_convolution",
+        VPU.task_type = @COMPUTE
+    }
+
+func.func private @runtime()
+    attributes {
+        VPU.kernel_code = "nnActEntry"
+    }
+}
+
+// CHECK-LABEL: @AddCacheInvalidateSwOpForDDRDefConvOp
+func.func @AddCacheInvalidateSwOpForDDRDefConvOp(%arg0: memref<1x512x38x38xf16, @DDR>, %arg1: memref<1x18x19x19xf16, @DDR>, %arg2: memref<512x512x3x3xf16, @DDR>, %arg3: memref<1x9x19x19xf16, @DDR>, %arg4: memref<1x512x19x19xf16, @DDR>) -> memref<1x512x19x19xf16, @DDR> {
+    %0 = VPUIP.StaticAlloc<1478656> -> memref<512x512x3x3xf16, @DDR>
+    %1 = VPUIP.StaticAlloc<0> -> memref<1x512x38x38xf16, @DDR>
+    %2 = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x18x19x19xf16, [@CMX_NN, 0]>
+    %3 = VPURT.DeclareBuffer <CMX_NN> [0] <382720> -> memref<1x9x19x19xf16, [@CMX_NN, 0]>
+    %4 = VPURT.DeclareBuffer <CMX_NN> [0] <13056> -> memref<1x512x19x19xf16, [@CMX_NN, 0]>
+    %token, %bodyResults = async.execute -> !async.value<memref<1x512x38x38xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 0 : i64, cycleBegin = 0 : i64, cycleCost = 57486 : i64, cycleEnd = 57486 : i64} {
+        %6 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg0 : memref<1x512x38x38xf16, @DDR>) outputs(%1 : memref<1x512x38x38xf16, @DDR>) -> memref<1x512x38x38xf16, @DDR>
+        async.yield %6 : memref<1x512x38x38xf16, @DDR>
+    }
+     %token_0, %bodyResults_1 = async.execute -> !async.value<memref<512x512x3x3xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [1], "async-deps-index" = 1 : i64, cycleBegin = 0 : i64, cycleCost = 179883 : i64, cycleEnd = 179883 : i64} {
+        %6 = VPUIP.NNDMA {port = 1 : i64} inputs(%arg2 : memref<512x512x3x3xf16, @DDR>) outputs(%0 : memref<512x512x3x3xf16, @DDR>) -> memref<512x512x3x3xf16, @DDR>
+        async.yield %6 : memref<512x512x3x3xf16, @DDR>
+    }
+    %token_2, %bodyResults_3 = async.execute -> !async.value<memref<1x18x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64, cycleBegin = 57486 : i64, cycleCost = 2334 : i64, cycleEnd = 59820 : i64} {
+        %6 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg1 : memref<1x18x19x19xf16, @DDR>) outputs(%2 : memref<1x18x19x19xf16, [@CMX_NN, 0]>) -> memref<1x18x19x19xf16, [@CMX_NN, 0]>
+        async.yield %6 : memref<1x18x19x19xf16, [@CMX_NN, 0]>
+    }
+    %token_4, %bodyResults_5 = async.execute -> !async.value<memref<1x9x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 3 : i64, cycleBegin = 59820 : i64, cycleCost = 1980 : i64, cycleEnd = 61800 : i64} {
+        %6 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg3 : memref<1x9x19x19xf16, @DDR>) outputs(%3 : memref<1x9x19x19xf16, [@CMX_NN, 0]>) -> memref<1x9x19x19xf16, [@CMX_NN, 0]>
+        async.yield %6 : memref<1x9x19x19xf16, [@CMX_NN, 0]>
+    }
+    %token_6, %bodyResults_7 = async.execute [%token, %token_0, %token_2, %token_4] (%bodyResults_3 as %arg5: !async.value<memref<1x18x19x19xf16, [@CMX_NN, 0]>>, %bodyResults_5 as %arg6: !async.value<memref<1x9x19x19xf16, [@CMX_NN, 0]>>, %bodyResults as %arg7: !async.value<memref<1x512x38x38xf16, @DDR>>, %bodyResults_1 as %arg8: !async.value<memref<512x512x3x3xf16, @DDR>>) -> !async.value<memref<1x512x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 4 : i64, cycleBegin = 179883 : i64, cycleCost = 1 : i64, cycleEnd = 179884 : i64} {
+        %results = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DeformableConvolution inputs(%arg7 as %arg9: memref<1x512x38x38xf16>, %arg5 as %arg10: memref<1x18x19x19xf16, [@CMX_NN, 0]>, %arg8 as %arg11: memref<512x512x3x3xf16>, %arg6 as %arg12: memref<1x9x19x19xf16, [@CMX_NN, 0]>) outputs(%4 as %arg13: memref<1x512x19x19xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x512x19x19xf16, [@CMX_NN, 0]>{
+        VPUIP.SW.Kernel.run {attrs = [[2, 2], [1, 1], [1, 1], [1, 1], 1, 1, 1, [0, 0, 0, 0]]}(%arg9, %arg10, %arg11, %arg12, %arg13) : memref<1x512x38x38xf16>, memref<1x18x19x19xf16, [@CMX_NN, 0]>, memref<512x512x3x3xf16>, memref<1x9x19x19xf16, [@CMX_NN, 0]>, memref<1x512x19x19xf16, [@CMX_NN, 0]>
+        }
+        async.yield %results : memref<1x512x19x19xf16, [@CMX_NN, 0]>
+    }
+    %token_8, %bodyResults_9 = async.execute [%token_6] (%bodyResults_7 as %arg5: !async.value<memref<1x512x19x19xf16, [@CMX_NN, 0]>>) -> !async.value<memref<1x512x19x19xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 5 : i64, cycleBegin = 179884 : i64, cycleCost = 21767 : i64, cycleEnd = 201651 : i64} {
+        %6 = VPUIP.NNDMA {port = 0 : i64} inputs(%arg5 : memref<1x512x19x19xf16, [@CMX_NN, 0]>) outputs(%arg4 : memref<1x512x19x19xf16, @DDR>) -> memref<1x512x19x19xf16, @DDR>
+        async.yield %6 : memref<1x512x19x19xf16, @DDR>
+    }
+    %5 = async.await %bodyResults_9 : !async.value<memref<1x512x19x19xf16, @DDR>>
+    return %5 : memref<1x512x19x19xf16, @DDR>
+
+    // CHECK:   [[KERNEL_DDR:%.+]] = VPUIP.StaticAlloc<1478656> -> memref<512x512x3x3xf16, @DDR>
+    // CHECK:   [[INPUT_DDR:%.+]] = VPUIP.StaticAlloc<0> -> memref<1x512x38x38xf16, @DDR>
+    // CHECK:   [[OFFSET:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <0> -> memref<1x18x19x19xf16, [@CMX_NN, 0]>
+    // CHECK:   [[MASK:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <382720> -> memref<1x9x19x19xf16, [@CMX_NN, 0]>
+    // CHECK:   [[OUTPUT:%.+]] = VPURT.DeclareBuffer <CMX_NN> [0] <13056> -> memref<1x512x19x19xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[TOKEN:%.+]], [[BODYRESULTS:%.+]] = async.execute -> !async.value<memref<1x512x38x38xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 0 : i64, cycleBegin = 0 : i64, cycleCost = 57486 : i64, cycleEnd = 57486 : i64} {
+    // CHECK:   [[DMA_0:%.+]] = VPUIP.NNDMA {port = 0 : i64} inputs(%arg0 : memref<1x512x38x38xf16, @DDR>) outputs([[INPUT_DDR]] : memref<1x512x38x38xf16, @DDR>) -> memref<1x512x38x38xf16, @DDR>
+    // CHECK:     async.yield [[DMA_0]] : memref<1x512x38x38xf16, @DDR>
+
+    // CHECK:   [[TOKEN_1:%.+]], [[BODYRESULTS_1:%.+]] = async.execute -> !async.value<memref<512x512x3x3xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [1], "async-deps-index" = 1 : i64, cycleBegin = 0 : i64, cycleCost = 179883 : i64, cycleEnd = 179883 : i64} {
+    // CHECK:   [[DMA_1:%.+]] = VPUIP.NNDMA {port = 1 : i64} inputs(%arg2 : memref<512x512x3x3xf16, @DDR>) outputs([[KERNEL_DDR]] : memref<512x512x3x3xf16, @DDR>) -> memref<512x512x3x3xf16, @DDR>
+    // CHECK:     async.yield [[DMA_1]] : memref<512x512x3x3xf16, @DDR>
+
+    // CHECK:   [[TOKEN_2:%.+]], [[BODYRESULTS_3:%.+]] = async.execute -> !async.value<memref<1x18x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 2 : i64, cycleBegin = 57486 : i64, cycleCost = 2334 : i64, cycleEnd = 59820 : i64} {
+    // CHECK:   [[DMA_2:%.+]] = VPUIP.NNDMA {port = 0 : i64} inputs(%arg1 : memref<1x18x19x19xf16, @DDR>) outputs([[OFFSET]] : memref<1x18x19x19xf16, [@CMX_NN, 0]>) -> memref<1x18x19x19xf16, [@CMX_NN, 0]>
+    // CHECK:     async.yield [[DMA_2]] : memref<1x18x19x19xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[TOKEN_4:%.+]], [[BODYRESULTS_5:%.+]] = async.execute -> !async.value<memref<1x9x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 3 : i64, cycleBegin = 59820 : i64, cycleCost = 1980 : i64, cycleEnd = 61800 : i64} {
+    // CHECK:   [[DMA_3:%.+]] = VPUIP.NNDMA {port = 0 : i64} inputs(%arg3 : memref<1x9x19x19xf16, @DDR>) outputs([[MASK]] : memref<1x9x19x19xf16, [@CMX_NN, 0]>) -> memref<1x9x19x19xf16, [@CMX_NN, 0]>
+    // CHECK:     async.yield [[DMA_3]] : memref<1x9x19x19xf16, [@CMX_NN, 0]>
+
+    // CHECK:   [[TOKEN_6:%.+]] = async.execute [[[TOKEN]], [[TOKEN_1]], [[TOKEN_2]], [[TOKEN_4]]] attributes {VPUIP.executor = @SHAVE_ACT} {
+    // CHECK:    VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 0, 0, 0>} @VPU.SW::@cache_flush_invalidate inputs() outputs() on tile 0{
+    // CHECK:      VPUIP.SW.Kernel.run
+    // CHECK:      async.yield
+
+    // CHECK:   [[TOKEN_7:%.+]], [[BODYRESULTS_8:%.+]] = async.execute [[[TOKEN_6]]] ([[BODYRESULTS_3]] as %arg5: !async.value<memref<1x18x19x19xf16, [@CMX_NN, 0]>>, [[BODYRESULTS_5]] as %arg6: !async.value<memref<1x9x19x19xf16, [@CMX_NN, 0]>>, [[BODYRESULTS]] as %arg7: !async.value<memref<1x512x38x38xf16, @DDR>>, [[BODYRESULTS_1]] as %arg8: !async.value<memref<512x512x3x3xf16, @DDR>>) -> !async.value<memref<1x512x19x19xf16, [@CMX_NN, 0]>> attributes {VPUIP.executor = @SHAVE_ACT, "async-deps-index" = 4 : i64, cycleBegin = 179883 : i64, cycleCost = 1 : i64, cycleEnd = 179884 : i64} {
+    // CHECK:   [[SW_KERNEL:%.*]] = VPUIP.SW.Kernel {resultSegmentSizes = array<i32: 1, 0, 0>} @VPU.SW::@builtin_DeformableConvolution inputs(%arg7 as %arg9: memref<1x512x38x38xf16>, %arg5 as %arg10: memref<1x18x19x19xf16, [@CMX_NN, 0]>, %arg8 as %arg11: memref<512x512x3x3xf16>, %arg6 as %arg12: memref<1x9x19x19xf16, [@CMX_NN, 0]>) outputs([[OUTPUT]] as %arg13: memref<1x512x19x19xf16, [@CMX_NN, 0]>) on tile 0 -> memref<1x512x19x19xf16, [@CMX_NN, 0]>{
+    // CHECK:      VPUIP.SW.Kernel.run
+    // CHECK:      async.yield
+
+    // CHECK:   [[TOKEN_9:%.+]], [[BODYRESULTS_10:%.+]] = async.execute [[[TOKEN_7]]] ([[BODYRESULTS_8]] as %arg5: !async.value<memref<1x512x19x19xf16, [@CMX_NN, 0]>>) -> !async.value<memref<1x512x19x19xf16, @DDR>> attributes {VPUIP.executor = @DMA_NN, VPUIP.executorIdx = [0], "async-deps-index" = 5 : i64, cycleBegin = 179884 : i64, cycleCost = 21767 : i64, cycleEnd = 201651 : i64} {
+    // CHECK:   [[DMA_4:%.+]] = VPUIP.NNDMA {port = 0 : i64} inputs(%arg5 : memref<1x512x19x19xf16, [@CMX_NN, 0]>) outputs(%arg4 : memref<1x512x19x19xf16, @DDR>) -> memref<1x512x19x19xf16, @DDR>
+    // CHECK:     async.yield [[DMA_4]] : memref<1x512x19x19xf16, @DDR>
+
+    // CHECK:   [[AWAIT_0:%.+]] = async.await [[BODYRESULTS_10]] : !async.value<memref<1x512x19x19xf16, @DDR>>
+    // CHECK:   return [[AWAIT_0]] : memref<1x512x19x19xf16, @DDR>
 }

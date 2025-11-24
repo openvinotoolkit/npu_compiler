@@ -4,7 +4,10 @@
 //
 
 #include "vpux/compiler/dialect/VPUIP/interfaces/dma_descriptor_generator.hpp"
+#include "vpux/compiler/core/layers.hpp"
+#include "vpux/compiler/dialect/IE/IR/attributes.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/dma_transaction_utils.hpp"
 
 using namespace vpux;
 

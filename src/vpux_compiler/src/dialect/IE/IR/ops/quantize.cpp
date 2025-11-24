@@ -7,10 +7,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_type.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
-#include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/PatternMatch.h>
@@ -28,11 +28,14 @@ mlir::LogicalResult vpux::IE::QuantizeOp::inferReturnTypeComponents(
         return mlir::failure();
     }
 
-    const auto inType = mlir::cast<mlir::RankedTensorType>(quantize.getInput().getType());
+    const auto inputType = mlir::cast<vpux::NDTypeInterface>(quantize.getInput().getType());
+    auto inShapeInfo = ShapeInfo::fromNDType(inputType);
     const auto dstElemType = quantize.getDstElemType();
-    const auto outDesc = getTensorAttr(inType);
+    const auto outDesc =
+            vpux::getTensorAttr(ctx, inputType.getDimsOrder(), /*memSpace=*/nullptr, BoundsRef(inShapeInfo.bounds));
 
-    inferredReturnShapes.emplace_back(inType.getShape(), dstElemType, outDesc);
+    inferredReturnShapes.emplace_back(inShapeInfo.shape, dstElemType, outDesc);
+
     return mlir::success();
 }
 
@@ -85,7 +88,7 @@ mlir::LogicalResult FuseFQsWithSimilarScales::matchAndRewrite(IE::QuantizeOp ori
                                                               mlir::PatternRewriter& rewriter) const {
     // Check if adaptive stripping is enabled
     auto moduleOp = getModuleOp(origOp);
-    auto setAdaptiveStrippingEnabled = VPU::hasEnableAdaptiveStripping(moduleOp);
+    auto setAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
 
     if (!setAdaptiveStrippingEnabled) {
         return mlir::failure();

@@ -18,7 +18,7 @@
 #NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
 module @dumpsubgraph attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
+    config.Option @config.UseDedicatedFifoPerShaveEngine : false
   }
   config.Resources 2 of @NCE at 1.300000e+03 MHz {
     // CHECK:       config.Resources {activity_factor = {{[0-9]+.[0-9]+}} : f64} 2 of @NCE at 1.300000e+03 MHz {

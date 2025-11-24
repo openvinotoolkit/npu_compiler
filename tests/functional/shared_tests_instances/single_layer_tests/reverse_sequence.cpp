@@ -68,18 +68,36 @@ using namespace ov::test;
 namespace {
 
 const std::vector<ov::element::Type> netPrecisions = {ov::element::f16, ov::element::u8};
-const std::vector<int64_t> batchAxisIndices = {0L};
-const std::vector<int64_t> seqAxisIndices = {1L};
+const std::vector<int64_t> batchAxisIndices = {0};
+const std::vector<int64_t> batchAxisInner = {2};
+const std::vector<int64_t> seqAxisIndices = {1};
+const std::vector<int64_t> seqAxisIndices4D = {1, 2, 3};
 const std::vector<std::vector<size_t>> inputShapes = {{3, 10}, {3, 10, 12}, {3, 10, 11, 20}};
 const std::vector<std::vector<size_t>> reversSeqLengthsVecShapes = {{3}};
+const std::vector<std::vector<size_t>> reversSeqLengthsVecShapesInner = {{11}};
 
-INSTANTIATE_TEST_SUITE_P(smoke_ReverseSequence, ReverseSequenceLayerTestCommon,
-                         ::testing::Combine(::testing::ValuesIn(batchAxisIndices), ::testing::ValuesIn(seqAxisIndices),
-                                            ::testing::ValuesIn(inputShapes),
-                                            ::testing::ValuesIn(reversSeqLengthsVecShapes),
-                                            ::testing::Values(InputLayerType::PARAMETER),
-                                            ::testing::ValuesIn(netPrecisions),
-                                            ::testing::Values(test_utils::TARGET_DEVICE)),
+const auto configSmokeParams = ::testing::Combine(
+        ::testing::ValuesIn(batchAxisIndices), ::testing::ValuesIn(seqAxisIndices), ::testing::ValuesIn(inputShapes),
+        ::testing::ValuesIn(reversSeqLengthsVecShapes), ::testing::Values(InputLayerType::PARAMETER),
+        ::testing::ValuesIn(netPrecisions), ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto configParams4D = ::testing::Combine(
+        ::testing::ValuesIn(batchAxisIndices), ::testing::ValuesIn(seqAxisIndices4D), ::testing::Values(inputShapes[2]),
+        ::testing::ValuesIn(reversSeqLengthsVecShapes), ::testing::Values(InputLayerType::PARAMETER),
+        ::testing::Values(netPrecisions[0]), ::testing::Values(test_utils::TARGET_DEVICE));
+
+const auto configParamsInnerBatch = ::testing::Combine(
+        ::testing::ValuesIn(batchAxisInner), ::testing::ValuesIn(seqAxisIndices), ::testing::Values(inputShapes[2]),
+        ::testing::ValuesIn(reversSeqLengthsVecShapesInner), ::testing::Values(InputLayerType::PARAMETER),
+        ::testing::Values(netPrecisions[0]), ::testing::Values(test_utils::TARGET_DEVICE));
+
+INSTANTIATE_TEST_SUITE_P(smoke_precommit_ReverseSequence, ReverseSequenceLayerTestCommon, configSmokeParams,
+                         ReverseSequenceLayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_ReverseSequence_4D, ReverseSequenceLayerTestCommon, configParams4D,
+                         ReverseSequenceLayerTestCommon::getTestCaseName);
+
+INSTANTIATE_TEST_SUITE_P(smoke_ReverseSequence_InnerBatch, ReverseSequenceLayerTestCommon, configParamsInnerBatch,
                          ReverseSequenceLayerTestCommon::getTestCaseName);
 
 }  // namespace

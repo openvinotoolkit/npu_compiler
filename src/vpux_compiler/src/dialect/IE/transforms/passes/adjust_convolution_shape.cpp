@@ -373,7 +373,8 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
         filterConst.push_back(temp);
         leftPading += filterShape[Dims4D::Filter::IC] * strides[Dims4D::Strides::X];
     }
-    auto newFilterConcatOp = rewriter.create<IE::ConcatOp>(convOp.getLoc(), filterConst, Dims4D::Filter::OC);
+    auto newFilterConcatOp =
+            rewriter.create<IE::ConcatOp>(appendLoc(convOp.getLoc(), "_filter"), filterConst, Dims4D::Filter::OC);
     auto newFilterType = mlir::dyn_cast<vpux::NDTypeInterface>(filter.getType()).changeShape(newFilterShape);
     auto newFilter = rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), newFilterType, newFilterConcatOp.getOutput(),
                                                       getIntArrayAttr(ctx, newFilterShape.raw()));
@@ -404,7 +405,9 @@ mlir::LogicalResult AdjustConvShape::matchAndRewrite(IE::ConvolutionOp convOp, m
         valueRange.push_back(convOp.getInput());
         valueRange.push_back(
                 vpux::IE::createPaddingConstForConcat(constShape, convOp->getLoc(), inNDInterface, 0.0f, rewriter));
-        maybePaddedInput = rewriter.create<IE::ConcatOp>(convOp.getLoc(), valueRange, Dims4D::Act::W.ind()).getOutput();
+        maybePaddedInput =
+                rewriter.create<IE::ConcatOp>(appendLoc(convOp.getLoc(), "_pad"), valueRange, Dims4D::Act::W.ind())
+                        .getOutput();
     }
     auto inputShapeCastOp =
             rewriter.create<IE::ShapeCastOp>(convOp.getLoc(), dstType, maybePaddedInput, targetShapeAttr);

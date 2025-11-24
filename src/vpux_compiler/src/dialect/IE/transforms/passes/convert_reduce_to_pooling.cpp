@@ -12,10 +12,10 @@
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/handle_kernels_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -449,7 +449,7 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
 
         /*To do: remove this check and implement E#129361*/
         if (mlir::isa<IE::ReduceMeanOp, IE::ReduceSumOp>(op)) {
-            if (VPU::isReduceOpSupportedOnNCE(op) && VPU::isNCEReduceSupported(op, logCb)) {
+            if (config::isReduceOpSupportedOnNCE(op) && VPU::isNCEReduceSupported(op, logCb)) {
                 return true;
             }
         }
@@ -485,7 +485,7 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
         const auto outputElementType = mlir::cast<vpux::NDTypeInterface>(op->getResult(0).getType()).getElementType();
         const auto isDataTypeDpuCompatible = inputElementType.isF16() && outputElementType.isF16();
 
-        const auto maxKernelSize = VPU::getMaxKernelSize(op);
+        const auto maxKernelSize = config::getMaxKernelSize(op);
         // Check that handleLargeKernels supports this op
         const auto isKernelSizeDpuCompatible =
                 (axes.size() == 2) ? (vpux::IE::isPoolingKernelSizeValid(inputShape[axes[0]], maxKernelSize) &&
@@ -507,7 +507,7 @@ void ConvertReduceToPoolingPass::safeRunOnFunc() {
             return true;
         }
 
-        const auto maxKernelSize = VPU::getMaxKernelSize(op);
+        const auto maxKernelSize = config::getMaxKernelSize(op);
 
         if ((getShape(op->getResult(0)).totalSize() == 1) &&
             (getShape(op->getOperand(0)).totalSize() > std::pow(maxKernelSize, 2))) {

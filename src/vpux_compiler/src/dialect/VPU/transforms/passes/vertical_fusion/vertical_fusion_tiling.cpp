@@ -82,13 +82,8 @@ void VfTilingPass::safeRunOnFunc() {
 
     mlir::ConversionTarget target(ctx);
     target.addIllegalOp<VPU::VerticalFusionOp>();
-    target.addLegalDialect<Core::CoreDialect>();
     target.addLegalDialect<Const::ConstDialect>();
     target.addLegalDialect<VPU::VPUDialect>();
-    target.addLegalDialect<mlir::linalg::LinalgDialect>();
-    target.addLegalDialect<mlir::math::MathDialect>();
-
-    target.addLegalOp<mlir::func::FuncOp, mlir::func::ReturnOp, mlir::func::CallOp>();
 
     mlir::RewritePatternSet patterns(&ctx);
 
@@ -100,7 +95,7 @@ void VfTilingPass::safeRunOnFunc() {
                                                                 _log);
     }
 
-    if (mlir::failed(mlir::applyFullConversion(func, target, std::move(patterns)))) {
+    if (mlir::failed(mlir::applyPartialConversion(func, target, std::move(patterns)))) {
         signalPassFailure();
     }
 }

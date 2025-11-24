@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v1/vertical_fusion_config.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vf_axis_increment.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 namespace vpux::VPU::VF::v1 {
 bool isCmxOperation(mlir::Operation* operation, const bool checkTilingType) {

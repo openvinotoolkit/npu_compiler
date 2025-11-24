@@ -1278,7 +1278,7 @@ func.func @DynamicQuantizeAssignedClustering(%arg0: tensor<1x1x1x1xf32>, %arg1: 
 
     // CHECK:       [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = VPU.DynamicQuantize([[INPUT0]], [[INPUT1]], [[INPUT2]]) {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>
-    // CHECK       return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x1x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    // CHECK:      return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x1x1xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 }
 
 // -----
@@ -1291,7 +1291,7 @@ func.func @DynamicQuantizeAssignedSplitOverWidth(%arg0: tensor<1x1x1x8192xf32>, 
 
     // CHECK:       [[OUTPUT:%.+]], [[SCALE:%.+]], [[ZP:%.+]] = VPU.DynamicQuantize([[INPUT0]], [[INPUT1]], [[INPUT2]]) {
     // CHECK-SAME:      multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>
-    // CHECK       return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x1x8192xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
+    // CHECK:      return [[OUTPUT]], [[SCALE]], [[ZP]] : tensor<1x1x1x8192xui8>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xui8>
 }
 
 // -----
@@ -1396,11 +1396,11 @@ func.func @ContinuousSWOpsSplitOverKernel(%arg0: tensor<1x1x1x1xf16>, %arg1: ten
 
     return %430 :  tensor<1x32x1024x1024xf16>
 
-    // CHEKC: [[MULTIPLY1:%.+]] = VPU.Multiply([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
-    // CHEKC: [[MULTIPLY2:%.+]] = VPU.Multiply([[INPUT2]], [[MULTIPLY1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1024x1024xf16>
-    // CHEKC: [[ADD:%.+]] = VPU.Add([[MULTIPLY2]], [[INPUT3]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16>, tensor<1x1x1024x1024xf16> -> tensor<1x32x1024x1024xf16>
-    // CHEKC: [[SOFTMAX:%.+]] = VPU.SoftMax([ADD]) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16> -> tensor<1x32x1024x1024xf16>
-    // CHEKC: return [[SOFTMAX]]
+    // CHECK: [[MULTIPLY1:%.+]] = VPU.Multiply([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<Clustering>} : tensor<1x1x1x1xf16>, tensor<1x1x1x1xf16> -> tensor<1x1x1x1xf16>
+    // CHECK: [[MULTIPLY2:%.+]] = VPU.Multiply([[INPUT2]], [[MULTIPLY1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16>, tensor<1x1x1x1xf16> -> tensor<1x32x1024x1024xf16>
+    // CHECK: [[ADD:%.+]] = VPU.Add([[MULTIPLY2]], [[INPUT3]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16>, tensor<1x1x1024x1024xf16> -> tensor<1x32x1024x1024xf16>
+    // CHECK: [[SOFTMAX:%.+]] = VPU.SoftMax([[ADD]]) {axisInd = 3 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>} : tensor<1x32x1024x1024xf16> -> tensor<1x32x1024x1024xf16>
+    // CHECK: return [[SOFTMAX]]
 }
 
 // -----
@@ -1646,4 +1646,64 @@ func.func @MaximumAssignedSplitOverWidth(%arg0: tensor<1x1x1x8901xf16>, %arg1: t
 
     // CHECK:       [[MAXIMUM:%.+]] = VPU.Maximum([[INPUT_0]], [[INPUT_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>} : tensor<1x1x1x8901xf16>, tensor<1x1x1x8901xf16> -> tensor<1x1x1x8901xf16>
     // CHECK:       return [[MAXIMUM]] : tensor<1x1x1x8901xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @DeformableConvolutionAssignedSplitOverKernel
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x128x19x19xf16>
+// CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x18x19x19xf16>
+// CHECK-SAME:    [[INPUT_2:%.+]]: tensor<128x128x3x3xf16>
+// CHECK-SAME:    [[INPUT_3:%.+]]: tensor<1x9x19x19xf16>
+func.func @DeformableConvolutionAssignedSplitOverKernel(%arg0: tensor<1x128x19x19xf16>, %arg1: tensor<1x18x19x19xf16>, %arg2: tensor<128x128x3x3xf16>, %arg3: tensor<1x9x19x19xf16>) -> tensor<1x128x19x19xf16> {
+  %0 = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+  return %0 : tensor<1x128x19x19xf16>
+
+    // CHECK:       [[DEFORMABLE_CONVOLUTION:%.+]] = VPU.DeformableConvolution([[INPUT_0]], [[INPUT_1]], [[INPUT_2]], [[INPUT_3]]) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x128x19x19xf16>, tensor<1x18x19x19xf16>, tensor<128x128x3x3xf16>, tensor<1x9x19x19xf16> -> tensor<1x128x19x19xf16>
+    // CHECK:       return [[DEFORMABLE_CONVOLUTION]] : tensor<1x128x19x19xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @DeformableConvolutionAssignedSplitOverHeight
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x1x512x128xf16>
+// CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x18x512x128xf16>
+// CHECK-SAME:    [[INPUT_2:%.+]]: tensor<1x1x3x3xf16>
+// CHECK-SAME:    [[INPUT_3:%.+]]: tensor<1x9x512x128xf16>
+func.func @DeformableConvolutionAssignedSplitOverHeight(%arg0: tensor<1x1x512x128xf16>, %arg1: tensor<1x18x512x128xf16>, %arg2: tensor<1x1x3x3xf16>, %arg3: tensor<1x9x512x128xf16>) -> tensor<1x1x512x128xf16> {
+  %0 = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x512x128xf16>, tensor<1x18x512x128xf16>, tensor<1x1x3x3xf16>, tensor<1x9x512x128xf16> -> tensor<1x1x512x128xf16>
+  return %0 : tensor<1x1x512x128xf16>
+
+    // CHECK:       [[DEFORMABLE_CONVOLUTION:%.+]] = VPU.DeformableConvolution([[INPUT_0]], [[INPUT_1]], [[INPUT_2]], [[INPUT_3]]) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverHeight>, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x512x128xf16>, tensor<1x18x512x128xf16>, tensor<1x1x3x3xf16>, tensor<1x9x512x128xf16> -> tensor<1x1x512x128xf16>
+    // CHECK:       return [[DEFORMABLE_CONVOLUTION]] : tensor<1x1x512x128xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @DeformableConvolutionAssignedSplitOverBatch
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<2x1x1x1xf16>
+// CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x18x1x1xf16>
+// CHECK-SAME:    [[INPUT_2:%.+]]: tensor<1x1x3x3xf16>
+// CHECK-SAME:    [[INPUT_3:%.+]]: tensor<1x9x1x1xf16>
+func.func @DeformableConvolutionAssignedSplitOverBatch(%arg0: tensor<2x1x1x1xf16>, %arg1: tensor<1x18x1x1xf16>, %arg2: tensor<1x1x3x3xf16>, %arg3: tensor<1x9x1x1xf16>) -> tensor<2x1x1x1xf16> {
+  %0 = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<2x1x1x1xf16>, tensor<1x18x1x1xf16>, tensor<1x1x3x3xf16>, tensor<1x9x1x1xf16> -> tensor<2x1x1x1xf16>
+  return %0 : tensor<2x1x1x1xf16>
+
+    // CHECK:       [[DEFORMABLE_CONVOLUTION:%.+]] = VPU.DeformableConvolution([[INPUT_0]], [[INPUT_1]], [[INPUT_2]], [[INPUT_3]]) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverBatch>, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<2x1x1x1xf16>, tensor<1x18x1x1xf16>, tensor<1x1x3x3xf16>, tensor<1x9x1x1xf16> -> tensor<2x1x1x1xf16>
+    // CHECK:       return [[DEFORMABLE_CONVOLUTION]] : tensor<2x1x1x1xf16>
+}
+
+// -----
+
+// CHECK-LABEL:   @DeformableConvolutionAssignedSplitOverWidth
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x1x1x512xf16>
+// CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x18x1x512xf16>
+// CHECK-SAME:    [[INPUT_2:%.+]]: tensor<1x1x3x3xf16>
+// CHECK-SAME:    [[INPUT_3:%.+]]: tensor<1x9x1x512xf16>
+func.func @DeformableConvolutionAssignedSplitOverWidth(%arg0: tensor<1x1x1x512xf16>, %arg1: tensor<1x18x1x512xf16>, %arg2: tensor<1x1x3x3xf16>, %arg3: tensor<1x9x1x512xf16>) -> tensor<1x1x1x512xf16> {
+  %0 = VPU.DeformableConvolution(%arg0, %arg1, %arg2, %arg3) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x1x512xf16>, tensor<1x18x1x512xf16>, tensor<1x1x3x3xf16>, tensor<1x9x1x512xf16> -> tensor<1x1x1x512xf16>
+  return %0 : tensor<1x1x1x512xf16>
+
+    // CHECK:       [[DEFORMABLE_CONVOLUTION:%.+]] = VPU.DeformableConvolution([[INPUT_0]], [[INPUT_1]], [[INPUT_2]], [[INPUT_3]]) {bilinear_interpolate_pad, deformable_group = 1 : i64, dilations = [1, 1], group = 1 : i64, multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverWidth>, pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} : tensor<1x1x1x512xf16>, tensor<1x18x1x512xf16>, tensor<1x1x3x3xf16>, tensor<1x9x1x512xf16> -> tensor<1x1x1x512xf16>
+    // CHECK:       return [[DEFORMABLE_CONVOLUTION]] : tensor<1x1x1x512xf16>
 }

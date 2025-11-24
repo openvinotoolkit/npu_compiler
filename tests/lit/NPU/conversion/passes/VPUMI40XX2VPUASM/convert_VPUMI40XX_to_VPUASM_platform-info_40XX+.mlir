@@ -28,7 +28,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
   func.func private @main() {
     %2 = VPUMI40XX.PlatformInfo -> <0:0:0>
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

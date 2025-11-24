@@ -8,11 +8,11 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
     ${SRC_FILES}
     DIALECT_LIB
     LINK_LIBS PRIVATE
+        MLIRSCFTransformOps
         npu_compiler_utils
         npu_llvm_utils
         npu_ov_utils
         npu_profiling_utils
-        flatbuffers
         npu_elf
         npu_compiler_dialect_config
         npu_compiler_dialect_vpu
@@ -20,6 +20,4 @@ add_npu_library(npu_compiler_dialect_vpu_transforms
         npu_compiler_dialect_vpu_utils
         npu_compiler_npu37xx
         npu_compiler_npu40xx
-        inferenceStatic
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)

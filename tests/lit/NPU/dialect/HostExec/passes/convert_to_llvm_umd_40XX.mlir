@@ -9,27 +9,27 @@
 module @StaticEltwiseNHWC attributes {config.arch = #config.arch_kind<NPU40XX>, config.revisionID = #config.revision_id<REVISION_NONE>, config.compilationMode = #config.compilation_mode<HostCompile>} {
   //CHECK: llvm.mlir.global internal constant @main1_kernel
   config.PipelineOptions @Options {
-    config.Option @VPU.EnableExtraStaticShapeOps : true
-    config.Option @VPU.EnableAdaptiveStripping : false
-    config.Option @VPU.EnableSEPtrsOperations : false
-    config.Option @VPU.EnableExperimentalSEPtrsOperations : false
-    config.Option @VPU.EnableVPUNNPreSplit : false
-    config.Option @VPU.FP16CompressedConv : false
-    config.Option @VPU.EnableDCIM : true
-    config.Option @VPU.ReduceSupported : false
-    config.Option @VPU.AutoPaddingODU : false
-    config.Option @VPU.AutoPaddingIDU : false
-    config.Option @VPU.SprLUTEnabled : false
-    config.Option @VPU.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
-    config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-    config.Option @VPU.BarrierMaxVariantSum : 64 : ui64
-    config.Option @VPU.BarrierMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxVariantCount : 128 : ui64
-    config.Option @VPU.MetadataMaxInvariantCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 64 : ui64
-    config.Option @VPU.MetadataMaxKernelRangeCount : 64 : ui64
-    config.Option @VPU.MetadataMaxMediaCount : 4 : ui64
-    config.Option @VPU.MaxKernelSize : 11 : si64
+    config.Option @config.EnableExtraStaticShapeOps : true
+    config.Option @config.EnableAdaptiveStripping : false
+    config.Option @config.EnableSEPtrsOperations : false
+    config.Option @config.EnableExperimentalSEPtrsOperations : false
+    config.Option @config.EnableVPUNNPreSplit : false
+    config.Option @config.FP16CompressedConv : false
+    config.Option @config.EnableDCIM : true
+    config.Option @config.ReduceSupported : false
+    config.Option @config.AutoPaddingODU : false
+    config.Option @config.AutoPaddingIDU : false
+    config.Option @config.SprLUTEnabled : false
+    config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
+    config.Option @config.UseDedicatedFifoPerShaveEngine : false
+    config.Option @config.BarrierMaxVariantSum : 64 : ui64
+    config.Option @config.BarrierMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxVariantCount : 128 : ui64
+    config.Option @config.MetadataMaxInvariantCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelInvocationCount : 64 : ui64
+    config.Option @config.MetadataMaxKernelRangeCount : 64 : ui64
+    config.Option @config.MetadataMaxMediaCount : 4 : ui64
+    config.Option @config.MaxKernelSize : 11 : si64
   }
   config.Resources 6 of @NCE at 1.850000e+03 MHz {
     config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
@@ -96,15 +96,15 @@ module @Add attributes {config.compilationMode = #config.compilation_mode<HostCo
   }
   HostExec.Binary @Module0 {
     HostExec.BinaryData @serialized_main_func0 <object = "\7FELF\02\01\00\00">
-    func.func private @main_func0(memref<1x16x720x1000xf16, @DDR>, memref<1x16x720x1000xf16, @DDR>, memref<1x720x1000x16xf16, @DDR>, memref<1x720x1000x16xf16, @DDR>) -> (memref<1x720x1000x16xf16, @DDR>, memref<1x720x1000x16xf16, @DDR>)
+    func.func private @main_func0(memref<1x16x720x1000xf16>, memref<1x16x720x1000xf16>, memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>) -> (memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>)
   }
   HostExec.Binary @Module1 {
     HostExec.BinaryData @serialized_main_func1 <object = "\7FELF\02\01\00\00">
-    func.func private @main_func1(memref<1x720x1000x16xf16, @DDR>, memref<1x16x720x1000xf16, @DDR>) -> memref<1x16x720x1000xf16, @DDR>
+    func.func private @main_func1(memref<1x720x1000x16xf16>, memref<1x16x720x1000xf16>) -> memref<1x16x720x1000xf16>
   }
   HostExec.Binary @Module2 {
     HostExec.BinaryData @serialized_main_func2 <object = "\7FELF\02\01\00\00">
-    func.func private @main_func2(memref<1x80x1000x16xf16, @DDR>, memref<1x80x1000x16xf16, @DDR>, memref<1x80x1000x16xf16, @DDR>) -> memref<1x80x1000x16xf16, @DDR>
+    func.func private @main_func2(memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>) -> memref<1x80x1000x16xf16>
   }
   func.func @main(%arg0: memref<1x16x720x1000xf16>, %arg1: memref<1x16x720x1000xf16>, %arg2: memref<1x16x720x1000xf16>) -> memref<1x16x720x1000xf16> {
     %0 = llvm.mlir.constant(80 : index) : i64
@@ -116,7 +116,7 @@ module @Add attributes {config.compilationMode = #config.compilation_mode<HostCo
     %alloc = memref.alloc() : memref<1x720x1000x16xf16>
     %alloc_0 = memref.alloc() : memref<1x720x1000x16xf16>
     %token, %bodyResults:2 = async.execute -> (!async.value<memref<1x720x1000x16xf16>>, !async.value<memref<1x720x1000x16xf16>>) {
-      %12:2 = Core.NestedCall @Module0::@main_func0(%arg0, %arg1, %alloc, %alloc_0) : (memref<1x16x720x1000xf16>, memref<1x16x720x1000xf16>, memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>) -> (memref<1x720x1000x16xf16, @DDR>, memref<1x720x1000x16xf16, @DDR>)
+      %12:2 = Core.NestedCall @Module0::@main_func0(%arg0, %arg1, %alloc, %alloc_0) : (memref<1x16x720x1000xf16>, memref<1x16x720x1000xf16>, memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>) -> (memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>)
       async.yield %alloc, %alloc_0 : memref<1x720x1000x16xf16>, memref<1x720x1000x16xf16>
     }
     %6 = async.await %bodyResults#0 : !async.value<memref<1x720x1000x16xf16>>
@@ -133,7 +133,7 @@ module @Add attributes {config.compilationMode = #config.compilation_mode<HostCo
       %subview_6 = memref.subview %alloc_1[0, %arg3, 0, 0] [1, 80, 1000, 16] [1, 1, 1, 1] : memref<1x720x1000x16xf16> to memref<1x80x1000x16xf16, strided<[11520000, 16000, 16, 1], offset: ?>>
       %14 = builtin.unrealized_conversion_cast %subview_6 : memref<1x80x1000x16xf16, strided<[11520000, 16000, 16, 1], offset: ?>> to memref<1x80x1000x16xf16>
       %token_7, %bodyResults_8 = async.execute -> !async.value<memref<1x80x1000x16xf16>> {
-        %17 = Core.NestedCall @Module2::@main_func2(%12, %13, %14) : (memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>) -> memref<1x80x1000x16xf16, @DDR>
+        %17 = Core.NestedCall @Module2::@main_func2(%12, %13, %14) : (memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>, memref<1x80x1000x16xf16>) -> memref<1x80x1000x16xf16>
         async.yield %14 : memref<1x80x1000x16xf16>
       }
       %15 = async.add_to_group %token_7, %10 : !async.token
@@ -142,7 +142,7 @@ module @Add attributes {config.compilationMode = #config.compilation_mode<HostCo
     async.await_all %10
     %alloc_2 = memref.alloc() : memref<1x16x720x1000xf16>
     %token_3, %bodyResults_4 = async.execute -> !async.value<memref<1x16x720x1000xf16>> {
-      %12 = Core.NestedCall @Module1::@main_func1(%alloc_1, %alloc_2) : (memref<1x720x1000x16xf16>, memref<1x16x720x1000xf16>) -> memref<1x16x720x1000xf16, @DDR>
+      %12 = Core.NestedCall @Module1::@main_func1(%alloc_1, %alloc_2) : (memref<1x720x1000x16xf16>, memref<1x16x720x1000xf16>) -> memref<1x16x720x1000xf16>
       async.yield %alloc_2 : memref<1x16x720x1000xf16>
     }
     %11 = async.await %bodyResults_4 : !async.value<memref<1x16x720x1000xf16>>

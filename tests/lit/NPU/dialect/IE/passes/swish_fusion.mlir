@@ -72,4 +72,3 @@ func.func @NoSwishFusion(%arg0: tensor<2x1x2x3x2x121xf16>, %arg1: tensor<2x2x2x3
   // CHECK:   return [[MULTIPLY]] : tensor<1x2x12x121xf16>
 
 }
-

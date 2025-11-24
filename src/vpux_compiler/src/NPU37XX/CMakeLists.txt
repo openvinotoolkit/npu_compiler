@@ -3,6 +3,17 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+npu_embed_bin_file(
+    TARGET cost_model_data_2_7
+    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_2_7_159.vpunn"
+    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_2_7.hpp.inc"
+    VARIABLE_NAME "COST_MODEL_2_7")
+npu_embed_bin_file(
+    TARGET cost_model_data_2_7_fast
+    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_2_7_159.fast.vpunn"
+    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_2_7_fast.hpp.inc"
+    VARIABLE_NAME "COST_MODEL_2_7_FAST")
+
 file(GLOB_RECURSE SRC_FILES *.cpp)
 add_npu_library(npu_compiler_npu37xx
     ${SRC_FILES}
@@ -31,29 +42,12 @@ add_npu_library(npu_compiler_npu37xx
         npu_llvm_utils
         npu_ov_utils
         npu_profiling_utils
-        flatbuffers
         npu_elf
+        npu_costmodel
+    DEPENDS
+        cost_model_data_2_7
+        cost_model_data_2_7_fast
     SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS}
         $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     INCLUDES
         $<TARGET_PROPERTY:openvino::npu_al,INTERFACE_INCLUDE_DIRECTORIES>)
-
-#
-# Embed VPUNN models for NPU37XX
-#
-
-find_package(Git REQUIRED)
-
-execute_process(
-    COMMAND ${GIT_EXECUTABLE} lfs pull
-    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel")
-
-vpux_embed_bin_file(
-    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_2_7_159.vpunn"
-    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_2_7.hpp.inc"
-    VARIABLE_NAME "COST_MODEL_2_7")
-vpux_embed_bin_file(
-    SOURCE_FILE "${PROJECT_SOURCE_DIR}/thirdparty/vpucostmodel/models/vpu_2_7_159.fast.vpunn"
-    HEADER_FILE "${PROJECT_BINARY_DIR}/${gen_base_dst_include_dir}/dialect/VPU/generated/cost_model_data_2_7_fast.hpp.inc"
-    VARIABLE_NAME "COST_MODEL_2_7_FAST")

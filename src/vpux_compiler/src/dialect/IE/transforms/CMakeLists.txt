@@ -8,12 +8,12 @@ add_npu_library(npu_compiler_dialect_ie_transforms
     ${SRC_FILES}
     DIALECT_LIB
     LINK_LIBS PRIVATE
+        npu_compiler_dynamic_rewriter
         npu_compiler_utils
         npu_llvm_utils
         npu_ov_utils
-        flatbuffers
         npu_elf
-        inferenceStatic
+        npu_costmodel
         npu_compiler_dialect_ie
         npu_compiler_dialect_ie_utils
     INCLUDES

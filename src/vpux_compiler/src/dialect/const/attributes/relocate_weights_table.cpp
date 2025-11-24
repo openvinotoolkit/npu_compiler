@@ -223,14 +223,15 @@ bool vpux::Const::RelocateWeightsTableAttr::inferOutputSplat(bool inputIsSplat, 
 Const::Content vpux::Const::RelocateWeightsTableAttr::transform(vpux::Const::Content& input) const {
     constexpr auto numElemPerOC = static_cast<size_t>(VPU::NCEInvariant::WEIGHT_TABLE_NUM_ELEMENTS_PER_OC);
     auto inputSplat = input.isSplat();
-    auto output = inputSplat ? Const::Content::allocTempBuffer(inferOutputType(input.getType()),
-                                                               input.getType().getElementType(), false)
-                             : Const::Content::copyUnownedBuffer(std::move(input));
-    // in case input was splat code above allocated new temporary buffer which now has to be filled with
-    // splat value.
-    if (inputSplat) {
-        input.copyTo(output.getTempBuf<char>());
-    }
+    auto output = [&]() {
+        if (inputSplat) {
+            auto tmp = Const::Content::allocTempBuffer(inferOutputType(input.getType()),
+                                                       input.getType().getElementType(), /*isSplat=*/false);
+            input.copyTo(tmp.getRawTempBuf());
+            return tmp;
+        }
+        return Const::Content::copyUnownedBuffer(std::move(input));
+    }();
     auto values = output.getTempBuf<int32_t>();
 
     const auto weightsPtr = parseIntArrayAttr<int32_t>(getWeightsPtr());

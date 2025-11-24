@@ -20,6 +20,8 @@ namespace arch40xx {
 struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::arch40xx::DefaultHWOptionsDeviceBase {
     BoolOption enableConvertFFTToConv{*this, "convert-fft-to-conv", llvm::cl::desc("Enable convert-fft-to-conv pass"),
                                       llvm::cl::init(true)};
+    BoolOption enableConvertToSdpaExtended{*this, "convert-to-sdpa-extended",
+                                           llvm::cl::desc("Enable conversion to SDPA extended"), llvm::cl::init(false)};
     BoolOption enableDecomposeGRUSequence{*this, "decompose-gru-sequence",
                                           llvm::cl::desc("Enable decompose-gru-sequence pass"), llvm::cl::init(true)};
     BoolOption enableFusePermuteQuantize{*this, "fuse-permute-quantize",
@@ -38,12 +40,6 @@ struct DefaultHWOptions : public IE::DefaultHWOptionsDialectBase, virtual vpux::
     BoolOption enableReduceNumTilesForSmallModelsPass{*this, "reduce-num-tiles-for-small-models",
                                                       llvm::cl::desc("Enable reduce-num-tiles-for-small-models pass"),
                                                       llvm::cl::init(false)};
-
-    Int64Option runtimeDequantizationLimit{
-            *this, "runtime-dequantization-limit",
-            llvm::cl::desc("Lower limit on weight size for runtime dequantization"
-                           "Weights smaller than the limit will be statically dequantized"),
-            llvm::cl::init(524'288)};  // 512kb
 
     BoolOption enableMatmulMixedPrecisionDecomposition{
             *this, "enable-matmul-mixed-precision-decomposition",

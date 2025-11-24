@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 

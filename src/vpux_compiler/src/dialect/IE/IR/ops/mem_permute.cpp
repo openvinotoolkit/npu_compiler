@@ -89,67 +89,80 @@ public:
 mlir::LogicalResult FuseMemPermuteThroughConcat::matchAndRewrite(IE::MemPermuteOp memPermuteOp,
                                                                  mlir::PatternRewriter& rewriter) const {
     auto concatOp = memPermuteOp.getInput().getDefiningOp<IE::ConcatOp>();
-    if (concatOp == nullptr) {
+    if (concatOp == nullptr || !concatOp->hasOneUse()) {
         return mlir::failure();
     }
 
-    if (!concatOp->hasOneUse()) {
-        return mlir::failure();
-    }
+    auto collectMemPermuteInputs = [&](IE::ConcatOp concat) -> std::optional<SmallVector<IE::MemPermuteOp>> {
+        SmallVector<IE::MemPermuteOp> memPermutes;
+        memPermutes.reserve(concat.getInputs().size());
 
-    SmallVector<IE::MemPermuteOp> topMemPermutes;
-    for (const auto& input : concatOp.getInputs()) {
-        auto topMemPermute = input.getDefiningOp<IE::MemPermuteOp>();
-        if (topMemPermute == nullptr) {
-            return mlir::failure();
+        for (const auto input : concat.getInputs()) {
+            auto memPermute = input.getDefiningOp<IE::MemPermuteOp>();
+            if (memPermute == nullptr) {
+                return std::nullopt;
+            }
+            memPermutes.push_back(memPermute);
         }
-        topMemPermutes.push_back(topMemPermute);
+        return memPermutes;
+    };
+
+    auto maybeMemPermutes = collectMemPermuteInputs(concatOp);
+    if (!maybeMemPermutes.has_value()) {
+        return mlir::failure();
     }
 
-    IE::MemPermuteOp refMemPermute = topMemPermutes.front();
+    auto inputMemPermutes = maybeMemPermutes.value();
+    auto referenceMemPermute = inputMemPermutes.front();
+
+    auto validateMemPermuteConsistency = [&](const SmallVector<IE::MemPermuteOp>& memPermutes) -> bool {
+        const auto refInputOrder = DimsOrder::fromValue(referenceMemPermute.getInput());
+        const auto refDstOrder = referenceMemPermute.getDstOrder();
+        const auto refMemPerm = referenceMemPermute.getMemPerm();
+
+        return llvm::all_of(memPermutes, [&](IE::MemPermuteOp memPermute) {
+            return DimsOrder::fromValue(memPermute.getInput()) == refInputOrder &&
+                   memPermute.getDstOrder() == refDstOrder && memPermute.getMemPerm() == refMemPerm;
+        });
+    };
+
+    if (!validateMemPermuteConsistency(inputMemPermutes)) {
+        return mlir::failure();
+    }
+
     SmallVector<mlir::Value> newConcatInputs;
-    for (auto& topMemPermute : topMemPermutes) {
-        if (refMemPermute.getDstOrder() != topMemPermute.getDstOrder()) {
-            return mlir::failure();
-        }
-        if (refMemPermute.getMemPerm() != topMemPermute.getMemPerm()) {
-            return mlir::failure();
-        }
-        newConcatInputs.push_back(topMemPermute.getInput());
-    }
+    newConcatInputs.reserve(inputMemPermutes.size());
+    llvm::transform(inputMemPermutes, std::back_inserter(newConcatInputs), [](IE::MemPermuteOp memPermute) {
+        return memPermute.getInput();
+    });
 
-    const auto inputShape = getShape(refMemPermute.getOutput());
-    const auto inOrder = DimsOrder::fromValue(refMemPermute.getOutput());
-    const auto inMemShape = inOrder.toMemoryOrder(inputShape);
-    const auto outputShape = getShape(concatOp.getOutput());
-    const auto outOrder = DimsOrder::fromValue(concatOp.getOutput());
-    const auto outMemShape = outOrder.toMemoryOrder(outputShape);
-    const auto perm = refMemPermute.getMemPerm();
+    const auto inMemShape = mlir::cast<vpux::NDTypeInterface>(referenceMemPermute.getOutput().getType()).getMemShape();
+    const auto outMemShape = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType()).getMemShape();
 
-    const auto permuteInOrder = DimsOrder::fromValue(refMemPermute.getInput());
+    const auto refPerm = referenceMemPermute.getMemPerm();
+    const auto permuteInputOrder = DimsOrder::fromValue(referenceMemPermute.getInput());
 
-    int32_t newAxis = -1;
-
+    // Find the axis for concatenation after permutation
+    int32_t newConcatAxis = -1;
     for (size_t idx = 0; idx < inMemShape.size(); ++idx) {
         if (inMemShape.raw()[idx] == outMemShape.raw()[idx]) {
             continue;
         }
-        if (newAxis != -1) {
-            // 2 axis concat
+
+        if (newConcatAxis != -1) {
             return mlir::failure();
         }
-        newAxis = perm.getDimPosition(static_cast<uint32_t>(idx));
-        newAxis = permuteInOrder.dimAt(static_cast<size_t>(newAxis)).ind();
+
+        newConcatAxis = refPerm.getDimPosition(static_cast<uint32_t>(idx));
+        newConcatAxis = permuteInputOrder.dimAt(static_cast<size_t>(newConcatAxis)).ind();
     }
 
-    auto newConcat = rewriter.replaceOpWithNewOp<IE::ConcatOp>(concatOp, newConcatInputs, newAxis);
+    auto newConcat = rewriter.replaceOpWithNewOp<IE::ConcatOp>(concatOp, newConcatInputs, newConcatAxis);
 
-    auto prevMemPerm = refMemPermute.getMemPerm();
-    auto memPerm = memPermuteOp.getMemPerm();
-    auto newMemPerm = memPerm.compose(prevMemPerm);
-
+    const auto composedMemPerm = memPermuteOp.getMemPerm().compose(referenceMemPermute.getMemPerm());
     rewriter.replaceOpWithNewOp<IE::MemPermuteOp>(memPermuteOp, memPermuteOp.getType(), newConcat,
-                                                  memPermuteOp.getDstOrderAttr(), mlir::AffineMapAttr::get(newMemPerm));
+                                                  memPermuteOp.getDstOrderAttr(),
+                                                  mlir::AffineMapAttr::get(composedMemPerm));
 
     return mlir::success();
 }

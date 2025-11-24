@@ -180,10 +180,10 @@ def VPU_NCEMatMulOp :
         VPU_LayerOp<
             "NCE.MatMul",
             [
+                AttrSizedOperandSegments,
                 NoRegionArguments,
                 NoTerminator,
                 SingleBlock,
-                SameVariadicOperandSize,
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface, ["isOperationSplitOverHeightCompatible",
                                                                      "isOperationSplitOverWidthCompatible",
@@ -251,7 +251,12 @@ def VPU_NCEMatMulOp :
         AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$input,
         AnyTypeOf<[5DTensorOf<[F16, BF16, quant_QuantizedType]>, VPU_SparseTensor, VPU_DistributedTensor]>:$weights,
 
-        AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>:$weightsTable,
+        Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weightsTable,
+        Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_data_ptr,
+        Optional<AnyTypeOf<[5DTensorOf<[SI32]>, VPU_DistributedTensor]>>:$weight_table_sp_ptr,
+        Optional<AnyTypeOf<[5DTensorOf<[F32, F8E5M2, F8E4M3FN]>, VPU_DistributedTensor]>>:$weight_table_scale,
+        Optional<AnyTypeOf<[5DTensorOf<[F32]>, VPU_DistributedTensor]>>:$weight_table_bias,
+        Optional<AnyTypeOf<[5DTensorOf<[I8, I4]>, VPU_DistributedTensor]>>:$weight_zero_points,
 
         ConfinedAttr<I64ArrayAttr, [ArrayCount<2>]>:$strides,
         VPU_PaddingAttr:$pad,
@@ -274,11 +279,16 @@ def VPU_NCEMatMulOp :
     let assemblyFormat = [{
         `(`
             $input `,`
-            $weights `,`
-            $weightsTable
+            $weights
+            (`,` $weightsTable^ `` custom<OptionalTypes>(type($weightsTable)))?
+            (`,` $weight_table_data_ptr^ `` custom<OptionalTypes>(type($weight_table_data_ptr)))?
+            (`,` $weight_table_sp_ptr^ `` custom<OptionalTypes>(type($weight_table_sp_ptr)))?
+            (`,` $weight_table_scale^ `` custom<OptionalTypes>(type($weight_table_scale)))?
+            (`,` $weight_table_bias^ `` custom<OptionalTypes>(type($weight_table_bias)))?
+            (`,` $weight_zero_points^ `` custom<OptionalTypes>(type($weight_zero_points)))?
         `)`
         attr-dict
-        custom<OptionalTypes>(type($input), type($weights), type($weightsTable)) ``
+        custom<OptionalTypes>(type($input), type($weights)) ``
         `->` type(results)
         custom<OptionalRegion>($workloads)
     }];
@@ -882,6 +892,8 @@ def VPU_NCEInterpolateOp :
                                 bool checkLayout = false, bool checkChannelAlignment = false, bool checkBatch = false);
         static bool isSupported(vpux::VPU::InterpolateOp origOp, vpux::LogCb logCb,
                                 bool checkLayout = false, bool checkChannelAlignment = false, bool checkBatch = false);
+                                
+        static mlir::LogicalResult verifyKernel(IE::InterpolateOp origOp, Logger log = Logger::global());
 
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output, Byte reservedMem);
         bool fitIntoCMX(vpux::NDTypeInterface input, vpux::NDTypeInterface filter, vpux::NDTypeInterface output);

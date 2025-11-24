@@ -5,6 +5,10 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
+#include "vpux/compiler/utils/asm.hpp"
+
 #include <mlir/IR/BuiltinTypes.h>
 #include <mlir/Interfaces/InferTypeOpInterface.h>
 
@@ -13,8 +17,18 @@ class InterpolateOp;
 }
 
 namespace vpux::IE {
+class AvgPoolOp;
+class AddOp;
+class ConvolutionOp;
+class GroupConvolutionOp;
 class InterpolateOp;
-}
+class MatMulOp;
+class MaxPoolOp;
+class MultiplyOp;
+class PermuteQuantizeOp;
+class SubtractOp;
+class TransposedConvolutionOp;
+}  // namespace vpux::IE
 
 //
 // Generated

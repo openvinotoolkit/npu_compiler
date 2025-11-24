@@ -182,3 +182,35 @@ module @MoveGroupConvPostFuseReorderWithMVNDequantized {
   }
 
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL: @FuseAffineReshapeReorderWithMVN
+module @FuseAffineReshapeReorderWithMVN {
+
+// CHECK-LABEL: @main
+// CHECK-SAME: [[INPUT0:%.+]]: tensor<1x320x64x64xf16, {order = #NHWC}>, [[INPUT1:%.+]]: tensor<1x320x1x1xf16, {order = #NHWC}>
+  func.func @main(%arg0: tensor<1x320x64x64xf16, {order = #NHWC}>, %arg1: tensor<1x320x1x1xf16, {order = #NHWC}>)
+                  -> tensor<1x320x64x64xf16, {order = #NHWC}> {
+    %0 = IE.Reorder(%arg0) {dstOrder = #NCHW} : tensor<1x320x64x64xf16, {order = #NHWC}> -> tensor<1x320x64x64xf16>
+    %1 = IE.Reorder(%arg1) {dstOrder = #NCHW} : tensor<1x320x1x1xf16, {order = #NHWC}> -> tensor<1x320x1x1xf16>
+    %2 = IE.Add(%0, %1) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x320x64x64xf16>, tensor<1x320x1x1xf16> -> tensor<1x320x64x64xf16>
+    %3 = IE.AffineReshape(%2) {dim_mapping = [[0], [1, 2], [3], [3]], shape_value = [1, 32, 10, 4096]} : tensor<1x320x64x64xf16> -> tensor<1x32x10x4096xf16>
+    %4 = IE.Reorder(%3) {dstOrder = #NHWC} : tensor<1x32x10x4096xf16> -> tensor<1x32x10x4096xf16, {order = #NHWC}>
+    %5 = IE.MVN(%4) {across_channels = false, eps = 9.9999997473787516E-6 : f64, high_precision_normalize = true, normalize_variance = true} : tensor<1x32x10x4096xf16, {order = #NHWC}> -> tensor<1x32x10x4096xf16, {order = #NHWC}>
+    %6 = IE.Reorder(%5) {dstOrder = #NCHW} : tensor<1x32x10x4096xf16, {order = #NHWC}> -> tensor<1x32x10x4096xf16>
+    %7 = IE.AffineReshape(%6) {dim_mapping = [[0], [1], [1], [2, 3]], shape_value = [1, 320, 64, 64]} : tensor<1x32x10x4096xf16> -> tensor<1x320x64x64xf16>
+    %8 = IE.Reorder(%7) {dstOrder = #NHWC} : tensor<1x320x64x64xf16> -> tensor<1x320x64x64xf16, {order = #NHWC}>
+
+    return %8 : tensor<1x320x64x64xf16, {order = #NHWC}>
+
+    // CHECK: [[ADD:%.+]] = IE.Add([[INPUT0]], [[INPUT1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x320x64x64xf16, {order = #NHWC}>, tensor<1x320x1x1xf16, {order = #NHWC}> -> tensor<1x320x64x64xf16, {order = #NHWC}>
+    // CHECK: [[MVN:%.+]] = IE.MVN([[ADD]]) {across_channels = false, eps = 9.9999997473787516E-6 : f64, high_precision_normalize = true, internal_reshape = [1, 32, 10, 4096], normalize_variance = true} : tensor<1x320x64x64xf16, {order = #NHWC}> -> tensor<1x320x64x64xf16, {order = #NHWC}>
+
+    // CHECK: return [[MVN]] : tensor<1x320x64x64xf16, {order = #NHWC}>
+  }
+
+}

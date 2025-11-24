@@ -132,25 +132,25 @@ config.Resources 6 of @NCE at 1.700000e+03 MHz {
     config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
 }
 // CHECK-LABEL: func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation
-// CHECK-SAME:      [[DATA:%.+]]: memref<8000x32xf16>
-// CHECK-SAME:      [[INDICES:%.+]]: memref<64000x1xi64, [@CMX_NN, 0]>
-func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation(%data : memref<8000x32xf16>, %indices : memref<64000x1xi64, [@CMX_NN, 0]>)
-                              -> memref<16000x32xf16, [@CMX_NN, 0]>
+// CHECK-SAME:      [[DATA:%.+]]: memref<4000x32xf16>
+// CHECK-SAME:      [[INDICES:%.+]]: memref<32000x1xi64, [@CMX_NN, 0]>
+func.func @NotEraseCMX2CMXCopyAfterSubviewDueToCMXSizeLimitation(%data : memref<4000x32xf16>, %indices : memref<32000x1xi64, [@CMX_NN, 0]>)
+                              -> memref<8000x32xf16, [@CMX_NN, 0]>
 {
-  %subview_indices = VPUIP.SubView %indices [0, 0] [16000, 1] : memref<64000x1xi64, [@CMX_NN, 0]> to memref<16000x1xi64, [@CMX_NN, 0]>
-  %alloc_subview_indices = memref.alloc() : memref<16000x1xi64, [@CMX_NN, 0]>
-  %subview_indices_in = VPUIP.Copy inputs(%subview_indices : memref<16000x1xi64, [@CMX_NN, 0]>) outputs(%alloc_subview_indices : memref<16000x1xi64, [@CMX_NN, 0]>) -> memref<16000x1xi64, [@CMX_NN, 0]>
-  %alloc_gather = memref.alloc() : memref<16000x32xf16, [@CMX_NN, 0]>
-  %gather_out = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64} inputs(%data : memref<8000x32xf16>) indices(%subview_indices_in : memref<16000x1xi64, [@CMX_NN, 0]>) outputs(%alloc_gather : memref<16000x32xf16, [@CMX_NN, 0]>) -> memref<16000x32xf16, [@CMX_NN, 0]>
-  return %gather_out : memref<16000x32xf16, [@CMX_NN, 0]>
+  %subview_indices = VPUIP.SubView %indices [0, 0] [8000, 1] : memref<32000x1xi64, [@CMX_NN, 0]> to memref<8000x1xi64, [@CMX_NN, 0]>
+  %alloc_subview_indices = memref.alloc() : memref<8000x1xi64, [@CMX_NN, 0]>
+  %subview_indices_in = VPUIP.Copy inputs(%subview_indices : memref<8000x1xi64, [@CMX_NN, 0]>)
+  outputs(%alloc_subview_indices : memref<8000x1xi64, [@CMX_NN, 0]>) -> memref<8000x1xi64, [@CMX_NN, 0]>
+  %alloc_gather = memref.alloc() : memref<8000x32xf16, [@CMX_NN, 0]>
+  %gather_out = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64} inputs(%data : memref<4000x32xf16>) indices(%subview_indices_in : memref<8000x1xi64, [@CMX_NN, 0]>) outputs(%alloc_gather : memref<8000x32xf16, [@CMX_NN, 0]>) -> memref<8000x32xf16, [@CMX_NN, 0]>
+  return %gather_out : memref<8000x32xf16, [@CMX_NN, 0]>
 
-  // CHECK:   [[SUBVIEW:%.+]] = VPUIP.SubView [[INDICES]] [0, 0] [16000, 1]
-  // CHECK:   [[INDICES_IN:%.+]] = VPUIP.ViewOp [[SUBVIEW]] : memref<16000x1xi64, [@CMX_NN, 0]> to memref<16000x1xi64, [@CMX_NN, 0]>
+  // CHECK:   [[SUBVIEW:%.+]] = VPUIP.SubView [[INDICES]] [0, 0] [8000, 1]
   // CHECK-NOT:   memref.alloc()
   // CHECK-NOT:   VPUIP.Copy
-  // CHECK:   [[ALLOC_GATHER:%.+]] = memref.alloc() : memref<16000x32xf16, [@CMX_NN, 0]>
-  // CHECK:   [[GATHER_OUT:%.+]] = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64} inputs([[DATA]] : memref<8000x32xf16>) indices([[INDICES_IN]] : memref<16000x1xi64, [@CMX_NN, 0]>) outputs([[ALLOC_GATHER]] : memref<16000x32xf16, [@CMX_NN, 0]>) -> memref<16000x32xf16, [@CMX_NN, 0]>
-  // CHECK:   return [[GATHER_OUT]] : memref<16000x32xf16, [@CMX_NN, 0]>
+  // CHECK:   [[ALLOC_GATHER:%.+]] = memref.alloc() : memref<8000x32xf16, [@CMX_NN, 0]>
+  // CHECK:   [[GATHER_OUT:%.+]] = VPUIP.GatherDMA {channelType = 0 : i64, elementSize = 0 : i64, padding = 0 : i64, port = 0 : i64} inputs([[DATA]] : memref<4000x32xf16>) indices([[SUBVIEW]] : memref<8000x1xi64, [@CMX_NN, 0]>) outputs([[ALLOC_GATHER]] : memref<8000x32xf16, [@CMX_NN, 0]>) -> memref<8000x32xf16, [@CMX_NN, 0]>
+  // CHECK:   return [[GATHER_OUT]] : memref<8000x32xf16, [@CMX_NN, 0]>
 }
 
 // -----

@@ -298,6 +298,18 @@ mlir::LogicalResult ConvertNegStrideStridedSlice2Reverse::matchAndRewrite(IE::St
         }
     }
 
+    int64_t firstNonOneAxis = -1;
+    for (size_t i = 0; i < inDataShape.size(); ++i) {
+        if (inDataShape[i] > 1) {
+            firstNonOneAxis = i;
+            break;
+        }
+    }
+
+    if (seqAxis == firstNonOneAxis) {
+        return mlir::failure();
+    }
+
     const auto seqLenStorageType =
             mlir::RankedTensorType::get({static_cast<int64_t>(seqLen.size())}, getSInt64Type(rewriter.getContext()));
     const auto seqLenData = Const::createConst(rewriter, slice.getLoc(), seqLenStorageType, ArrayRef(seqLen),

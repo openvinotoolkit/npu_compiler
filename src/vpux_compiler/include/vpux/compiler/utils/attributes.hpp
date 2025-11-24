@@ -15,6 +15,14 @@
 
 namespace vpux {
 
+/// These constants provide a centralized location for attribute names.
+namespace OperationAttrName {
+
+constexpr StringLiteral POST_OP = "post_op";
+constexpr StringLiteral CLAMP = "clamp";
+
+}  // namespace OperationAttrName
+
 //
 // get<Scalar>Attr
 //
@@ -30,7 +38,7 @@ mlir::IntegerAttr getIntAttr(mlir::Builder& b, T val) {
 
 template <typename T>
 mlir::FloatAttr getFPAttr(mlir::MLIRContext* ctx, T val) {
-    return mlir::FloatAttr::get(mlir::FloatType::getF64(ctx), checked_cast<double>(val));
+    return mlir::FloatAttr::get(mlir::Float64Type::get(ctx), checked_cast<double>(val));
 }
 template <typename T>
 mlir::FloatAttr getFPAttr(mlir::Builder& b, T val) {

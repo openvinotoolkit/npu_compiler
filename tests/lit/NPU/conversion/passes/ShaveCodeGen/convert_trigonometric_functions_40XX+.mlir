@@ -25,7 +25,8 @@ module @SingleAtanF16Layer {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Atan
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[RES:%.+]] = math.atan [[IN]] fastmath<afn> : f16
     // CHECK-NEXT:      linalg.yield [[RES]] : f16
@@ -54,7 +55,8 @@ module @SingleTanF16Layer {
     return %0 : tensor<1x1x1x1000xf16>
 
     // CHECK-NOT:     IE.Tan
-    // CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG0:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG0]] : tensor<1x1x1x1000xf16>) {
+    // CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+    // CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
     // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
     // CHECK-NEXT:      [[EXTS:%.+]] = arith.extf [[IN]] : f16 to f32
     // CHECK-NEXT:      [[SIN:%.+]] = math.sin [[EXTS]] : f32

@@ -59,8 +59,8 @@ SmallVector<mlir::Value> sliceInputs(mlir::PatternRewriter& rewriter, mlir::Oper
             Shape sizes = shape.raw();
             sizes[Dim(0)] = 1;
             const auto sizesAttr = getIntArrayAttr(rewriter.getContext(), sizes);
-
-            const auto subViewOp = rewriter.createOrFold<IE::SliceOp>(origOp->getLoc(), input, offsetsAttr, sizesAttr);
+            auto newLoc = appendLoc(input.getLoc(), llvm::formatv("_slice_{0}_{1}", offsets, sizes));
+            const auto subViewOp = rewriter.createOrFold<IE::SliceOp>(newLoc, input, offsetsAttr, sizesAttr);
             slices.push_back(subViewOp);
         } else {
             const auto similarSliceIdx = std::distance(prevOperands.begin(), similarInput);
@@ -70,8 +70,8 @@ SmallVector<mlir::Value> sliceInputs(mlir::PatternRewriter& rewriter, mlir::Oper
     return slices;
 }
 
-mlir::Value appendOperationsToSlices(mlir::PatternRewriter& rewriter, mlir::Operation* origOp,
-                                     mlir::ValueRange slices) {
+mlir::Value appendOperationsToSlices(mlir::PatternRewriter& rewriter, mlir::Operation* origOp, mlir::ValueRange slices,
+                                     int64_t sliceIdx) {
     const auto origOperands = origOp->getOperands();
 
     mlir::IRMapping mapper;
@@ -79,6 +79,7 @@ mlir::Value appendOperationsToSlices(mlir::PatternRewriter& rewriter, mlir::Oper
 
     auto* newOp = rewriter.clone(*origOp, mapper);
     inferReturnTypes(newOp, InferShapedTypeMode::SHAPE);
+    extendOpLoc(newOp, llvm::formatv("_slice_{0}", sliceIdx));
 
     return newOp->getResult(0);
 }
@@ -108,11 +109,12 @@ mlir::LogicalResult genericBatchUnroll(mlir::Operation* origOp, size_t numInputs
         VPUX_THROW_UNLESS(slices.size() == numInputs, "Slices range must contain {0} values, but {1} provided",
                           numInputs, slices.size());
 
-        const auto output = appendOperationsToSlices(rewriter, origOp, slices);
+        const auto output = appendOperationsToSlices(rewriter, origOp, slices, sliceIdx);
         slicesToConcat.push_back(output);
     }
 
-    rewriter.replaceOpWithNewOp<IE::ConcatOp>(origOp, slicesToConcat, Dim(0).ind());
+    auto concatOp = rewriter.replaceOpWithNewOp<IE::ConcatOp>(origOp, slicesToConcat, Dim(0).ind());
+    extendOpLoc(concatOp, "_output_concat");
     return mlir::success();
 }
 
@@ -183,13 +185,23 @@ public:
 
 private:
     void safeRunOnFunc() final;
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
 
     bool _skipUnrollBatch;
 };
 
-//
-// safeRunOnFunc
-//
+mlir::LogicalResult UnrollBatchPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    // LIT test overrides the private member value
+    if (skipUnrollBatch.hasValue()) {
+        _skipUnrollBatch = skipUnrollBatch.getValue();
+    }
+
+    return mlir::success();
+}
 
 void UnrollBatchPass::safeRunOnFunc() {
     auto& ctx = getContext();

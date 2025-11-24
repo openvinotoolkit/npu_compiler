@@ -15,10 +15,10 @@
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 12
-    config.Option @VPU.MetadataMaxInvariantCount : 6
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 12
+    config.Option @config.MetadataMaxInvariantCount : 6
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
 // CHECK-LABEL: @insertBarrierBetweenEvery3rdSetOfDPUtasks
 func.func @insertBarrierBetweenEvery3rdSetOfDPUtasks(%arg0: memref<1x3x224x224xf16, @DDR>, %arg1: memref<1x64x112x112xf16, @DDR>) -> memref<1x64x112x112xf16, @DDR> {
@@ -282,10 +282,10 @@ func.func @insertBarrierBetweenEvery3rdSetOfDPUtasks(%arg0: memref<1x3x224x224xf
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 12
-    config.Option @VPU.MetadataMaxInvariantCount : 6
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 12
+    config.Option @config.MetadataMaxInvariantCount : 6
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
 
 // CHECK-LABEL: @barBetweenEvery3rdSetOfDPUtasksWithNoBarDeps
@@ -558,10 +558,10 @@ func.func @barBetweenEvery3rdSetOfDPUtasksWithNoBarDeps(%arg0: memref<1x3x224x22
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 2
-    config.Option @VPU.MetadataMaxInvariantCount : 2
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 2
+    config.Option @config.MetadataMaxInvariantCount : 2
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
 
 // CHECK-LABEL: @insertBarrierBetweenConsecutiveDPUtasksWithSharedBarriers
@@ -680,10 +680,10 @@ func.func @insertBarrierBetweenConsecutiveDPUtasksWithSharedBarriers(%arg0: memr
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
 config.PipelineOptions @Options {
-  config.Option @VPU.MetadataMaxVariantCount : 2
-  config.Option @VPU.MetadataMaxInvariantCount : 2
-  config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-  config.Option @VPU.MetadataMaxKernelRangeCount : 4
+  config.Option @config.MetadataMaxVariantCount : 2
+  config.Option @config.MetadataMaxInvariantCount : 2
+  config.Option @config.MetadataMaxKernelInvocationCount : 4
+  config.Option @config.MetadataMaxKernelRangeCount : 4
 }
 
 // CHECK-LABEL: @insertBarrierBetweenConsecutiveDPUtasks
@@ -803,10 +803,10 @@ func.func @insertBarrierBetweenConsecutiveDPUtasks(%arg0: memref<1x3x64x64xf16, 
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
 config.PipelineOptions @Options {
-  config.Option @VPU.MetadataMaxVariantCount : 2
-  config.Option @VPU.MetadataMaxInvariantCount : 2
-  config.Option @VPU.MetadataMaxKernelInvocationCount : 2
-  config.Option @VPU.MetadataMaxKernelRangeCount : 2
+  config.Option @config.MetadataMaxVariantCount : 2
+  config.Option @config.MetadataMaxInvariantCount : 2
+  config.Option @config.MetadataMaxKernelInvocationCount : 2
+  config.Option @config.MetadataMaxKernelRangeCount : 2
 }
 
 module @VPU.SW {
@@ -917,10 +917,10 @@ func.func @insertBarrierBetweenConsecutiveSWtasks(%arg0: memref<1x3x64x64xf16, @
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
 config.PipelineOptions @Options {
-  config.Option @VPU.MetadataMaxVariantCount : 2
-  config.Option @VPU.MetadataMaxInvariantCount : 2
-  config.Option @VPU.MetadataMaxKernelInvocationCount : 2
-  config.Option @VPU.MetadataMaxKernelRangeCount : 2
+  config.Option @config.MetadataMaxVariantCount : 2
+  config.Option @config.MetadataMaxInvariantCount : 2
+  config.Option @config.MetadataMaxKernelInvocationCount : 2
+  config.Option @config.MetadataMaxKernelRangeCount : 2
 }
 
 module @VPU.SW {
@@ -1028,10 +1028,10 @@ func.func @insertBarrierBetweenConsecutiveSWtasks2(%arg0: memref<1x3x64x64xf16, 
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
 config.PipelineOptions @Options {
-  config.Option @VPU.MetadataMaxVariantCount : 2
-  config.Option @VPU.MetadataMaxInvariantCount : 2
-  config.Option @VPU.MetadataMaxKernelInvocationCount : 2
-  config.Option @VPU.MetadataMaxKernelRangeCount : 2
+  config.Option @config.MetadataMaxVariantCount : 2
+  config.Option @config.MetadataMaxInvariantCount : 2
+  config.Option @config.MetadataMaxKernelInvocationCount : 2
+  config.Option @config.MetadataMaxKernelRangeCount : 2
 }
 
 module @VPU.SW {
@@ -1163,10 +1163,10 @@ func.func @noInsertBarrierBetweenConsecutiveSWtasksIfPathExists(%arg0: memref<1x
 
 module attributes {config.compilationMode = #config.compilation_mode<DefaultHW>} {
   config.PipelineOptions @Options {
-    config.Option @VPU.MetadataMaxVariantCount : 18
-    config.Option @VPU.MetadataMaxInvariantCount : 12
-    config.Option @VPU.MetadataMaxKernelInvocationCount : 4
-    config.Option @VPU.MetadataMaxKernelRangeCount : 4
+    config.Option @config.MetadataMaxVariantCount : 18
+    config.Option @config.MetadataMaxInvariantCount : 12
+    config.Option @config.MetadataMaxKernelInvocationCount : 4
+    config.Option @config.MetadataMaxKernelRangeCount : 4
   }
 
 // CHECK-LABEL: @insertBarrierAtEndOfVariantLimit
@@ -1363,16 +1363,16 @@ func.func @insertBarrierAtEndOfVariantLimit(%arg0: memref<1x3x224x224xf16, @DDR>
 
     return %arg1 : memref<1x64x112x112xf16, @DDR>
 
-    // execution groups: [DPU1, DPU2, DPU3][DPU4, DPU5, DPU6][DPU7]
-    //              [DPU8, DPU9, DPU10][DPU11, DPU12, DPU13][DPU14]
+    // execution groups: [DPU1, DPU2, DPU3, DPU4, DPU5, DPU6][DPU7]
+    //              [DPU8, DPU9, DPU10, DPU11, DPU12, DPU13][DPU14]
     //                   DMA
     //                    |
     //                    b0
     //       /\          /    \          /\        \         \
     //   DPU1..DPU3(0)  /      |     DPU8..DPU10(1) |         |
-    //       \/   |    /       |         \/    |    |         |
-    //       |   b2   /        |         |     b3   |         | (ensure shared barrier between every 3 consecutive tasks on same FIFO)
-    //       |    |  /\        |         |     |   /\         |
+    //       \/        /       |         \/         |         |
+    //       |        /        |         |          |         | 
+    //       |       /\        |         |         /\         | 
     //       |   DPU4..DPU6(0) |         |    DPU11..DPU13(1) |
     //       |       \/        |         |         \/         | no barrier between DPU6 and DPU7 and between DPU13 and DPU14,
     //       |       |         |         |         |          | because grand child group does not exist
@@ -1385,8 +1385,6 @@ func.func @insertBarrierAtEndOfVariantLimit(%arg0: memref<1x3x224x224xf16, @DDR>
 
     // CHECK: [[BAR0:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK: [[BAR1:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR2:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
-    // CHECK: [[BAR3:%.*]] = VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
     // CHECK-NOT:            VPURT.DeclareVirtualBarrier -> !VPURT.Barrier
 
     // DMA
@@ -1396,48 +1394,49 @@ func.func @insertBarrierAtEndOfVariantLimit(%arg0: memref<1x3x224x224xf16, @DDR>
     // DPU1
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU8
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU2
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU9
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU3
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]], [[BAR2]] : !VPURT.Barrier, !VPURT.Barrier)
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU10
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]], [[BAR3]] : !VPURT.Barrier, !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU4
-    // CHECK:       VPURT.Task waits([[BAR0]], [[BAR2]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU11
-    // CHECK:       VPURT.Task waits([[BAR0]], [[BAR3]] : !VPURT.Barrier, !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU5
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU12
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU6
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
-    // DPU13
-    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
-    // CHECK:         DPUTask {cluster_id = 1
 
     // DPU7
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 0
+
+    // DPU8
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
+    // DPU9
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
+    // DPU10
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
+    // DPU11
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
+    // DPU12
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
+    // DPU13
+    // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
+    // CHECK:         DPUTask {cluster_id = 1
     // DPU14
     // CHECK:       VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier)
     // CHECK:         DPUTask {cluster_id = 1

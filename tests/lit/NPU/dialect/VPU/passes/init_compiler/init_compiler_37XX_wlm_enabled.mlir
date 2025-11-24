@@ -12,4 +12,4 @@ module @mainModule {
 
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
-// CHECK: config.Option @VPU.WorkloadManagementStatus : "DISABLED"
+// CHECK: config.Option @config.WorkloadManagementStatus : "DISABLED"

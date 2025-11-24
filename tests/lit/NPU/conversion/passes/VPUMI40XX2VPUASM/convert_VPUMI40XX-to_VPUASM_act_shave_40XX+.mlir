@@ -40,8 +40,6 @@ func.func private @act_shave() {
 
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
 
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
-
   VPUMI40XX.OpRanges
 }
 }
@@ -130,8 +128,6 @@ func.func private @act_shave() {
   %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:0:0>)) actKernelInvocations((%i0) : (!VPURegMapped.Index<0:0:0>)) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[1, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[2, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
 
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
 
   VPUMI40XX.OpRanges
 }
@@ -248,8 +244,6 @@ func.func private @act_shave() {
   %mi = VPUMI40XX.MappedInference actKernelRanges((%r0, %r1), (%r2) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:1:0>)) actKernelInvocations((%i0, %i4), (%i5) : (!VPURegMapped.Index<0:0:0>, !VPURegMapped.Index<0:1:0>), (!VPURegMapped.Index<1:1:0>)) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[1, 1], [0, 1], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[4, 1], [0, 1], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
 
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
 
   VPUMI40XX.OpRanges
 }
@@ -401,8 +395,6 @@ func.func private @act_shave_only_list_index_1() {
   %mi = VPUMI40XX.MappedInference actKernelRanges((%r0) : (!VPURegMapped.Index<0:1:0>)) actKernelInvocations((%i0) : (!VPURegMapped.Index<0:1:0>)) dmaCount([[0, 0], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) invariantCount([0, 0, 0, 0, 0, 0]) variantCount([0, 0, 0, 0, 0, 0]) actKernelRangesCount([[0, 1], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) actKernelInvocationsCount([[0, 1], [0, 0], [0, 0], [0, 0], [0, 0], [0, 0]]) mediaCount(0) barrierCount(0) mappedInferenceVersion(%miV : !VPURegMapped.Index<0:0:0>) -> !VPURegMapped.Index<0:0:0>
 
   ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-
-  ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
 
   VPUMI40XX.OpRanges
 }

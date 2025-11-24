@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --ensure-nce-ops-size-requirements --canonicalize --mlir-elide-elementsattrs-if-larger 64 %s | FileCheck %s
+// RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --ensure-nce-ops-size-requirements --canonicalize --mlir-print-elementsattrs-with-hex-if-larger=-1 %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
@@ -120,7 +120,7 @@ func.func @SplitQuantNCEConvOverIH(%arg0: tensor<1x32x8704x16x!qElemType, {order
 // CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x9728x4x1xf16, {order = #NHWC}>
 func.func @SplitNCEConvOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, {order = #NHWC}>) -> tensor<1x512x4x1xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<512x9728x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>
-  %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<10> : tensor<512x1x1x4xsi32>
+  %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<1097072640> : tensor<512x1x1x4xsi32>
   %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
     ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
@@ -130,30 +130,37 @@ func.func @SplitNCEConvOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, {order = #NHWC
 
   return %0 : tensor<1x512x4x1xf16, {order = #NHWC}>
 
-  // CHECK-DAG:      [[FILTER0:%.+]] = const.Declare tensor<512x4864x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 4864, 0, 0], [512, 4864, 1, 1]>]
-  // CHECK-DAG:      [[FILTER1:%.+]] = const.Declare tensor<512x4864x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [512, 4864, 1, 1]>]
+  // CHECK-DAG:      [[FILTER0:%.+]] = const.Declare tensor<512x4864x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>,
+  // CHECK-DAG-SAME:          [#const.SubView<[0, 4864, 0, 0], [512, 4864, 1, 1]>]
+  // CHECK-DAG:      [[FILTER1:%.+]] = const.Declare tensor<512x4864x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>,
+  // CHECK-DAG-SAME:          [#const.SubView<[0, 0, 0, 0], [512, 4864, 1, 1]>]
 
   // CHECK-DAG:      [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[9728, 608, 1065353216, 0]]], [[[19456, 1216, 1065353216, 0]]]
   // CHECK-DAG:      [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 1097072640]]], [[[9728, 608, 1065353216, 1097072640]]], [[[19456, 1216, 1065353216, 1097072640]]]
 
-  // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4864, 4, 1] : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
+  // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4864, 4, 1]
+  // CHECK-SAME:     : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE1:%.+]]) {
   // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
   // CHECK-SAME:   rawFilterShape = [512, 4864, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 4864, 0, 0] [1, 4864, 4, 1] : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1:%.+]], [[FILTER1:%.+]], [[WEIGHTS_TABLE0:%.+]]) {
   // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
   // CHECK-SAME:   rawFilterShape = [512, 4864, 1, 1], strides = [1, 1]
-  // CHECK-SAME: }
   // CHECK-SAME: -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.425000e+01], fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      return [[ADD_OUT1:%.+]] : tensor<1x512x4x1xf16, {order = #NHWC}>
@@ -171,43 +178,54 @@ func.func @SplitNCEConvOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, {order = #NHWC
 // CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x9728x4x1xf16, {order = #NHWC}>
 func.func @SplitNCEConvWithDequantizeOverIC2Convs(%arg0: tensor<1x9728x4x1xf16, {order = #NHWC}>) -> tensor<1x512x4x1xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<512x9728x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType>]
-  %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<10> : tensor<512x1x1x4xsi32>
+  %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<1097072640> : tensor<512x1x1x4xsi32>
   %dequantize = VPU.Dequantize(%weights) {dstElemType = f16} :  tensor<512x9728x1x1x!qElemType, {order = #NHWC}> -> tensor<512x9728x1x1xf16, {order = #NHWC}>
   %0 = VPU.NCE.Convolution(%arg0, %dequantize, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1037483647 : i64, clamp_high = 1037483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 3.000000e-01 : f64>,
     rawFilterShape = [512, 9728, 1, 1],
     strides = [1, 1]
   } : tensor<1x9728x4x1xf16, {order = #NHWC}>, tensor<512x9728x1x1xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   return %0 : tensor<1x512x4x1xf16, {order = #NHWC}>
 
-  // CHECK-DAG:      [[FILTER0:%.+]] = const.Declare tensor<512x4864x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 4864, 0, 0], [512, 4864, 1, 1]>
-  // CHECK-DAG:      [[FILTER1:%.+]] = const.Declare tensor<512x4864x1x1x!qElemType, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [512, 4864, 1, 1]>
+  // CHECK-DAG:      [[FILTER0:%.+]] = const.Declare tensor<512x4864x1x1x!qElemType, {order = #NHWC}>
+  // CHECK-DAG-SAME:   dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 4864, 0, 0], [512, 4864, 1, 1]>
+  // CHECK-DAG:      [[FILTER1:%.+]] = const.Declare tensor<512x4864x1x1x!qElemType, {order = #NHWC}>
+  // CHECK-DAG-SAME:   dense<1.000000e+00> : tensor<512x9728x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [512, 4864, 1, 1]>
 
   // CHECK-DAG:      [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[9728, 608, 1065353216, 0]]], [[[19456, 1216, 1065353216, 0]]]
   // CHECK-DAG:      [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 1097072640]]], [[[9728, 608, 1065353216, 1097072640]]]
 
-  // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4864, 4, 1] : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
-  // CHECK:      [[DEQUANT0:%.+]] = VPU.Dequantize([[FILTER1]]) {dstElemType = f16} : tensor<512x4864x1x1x!qElemType, {order = #NHWC}> -> tensor<512x4864x1x1xf16, {order = #NHWC}>
+  // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 4864, 4, 1]
+  // CHECK-SAME:     : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
+  // CHECK:      [[DEQUANT0:%.+]] = VPU.Dequantize([[FILTER1]]) {dstElemType = f16}
+  // CHECK-SAME:     : tensor<512x4864x1x1x!qElemType, {order = #NHWC}> -> tensor<512x4864x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0]], [[DEQUANT0]], [[WEIGHTS_TABLE1]]) {
   // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
   // CHECK-SAME:   rawFilterShape = [512, 4864, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
-  // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 4864, 0, 0] [1, 4864, 4, 1] : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
-  // CHECK:      [[DEQUANT1:%.+]] = VPU.Dequantize([[FILTER0]]) {dstElemType = f16} : tensor<512x4864x1x1x!qElemType, {order = #NHWC}> -> tensor<512x4864x1x1xf16, {order = #NHWC}>
+  // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 4864, 0, 0] [1, 4864, 4, 1]
+  // CHECK-SAME:     : tensor<1x9728x4x1xf16, {order = #NHWC}> to tensor<1x4864x4x1xf16, {order = #NHWC}>
+  // CHECK:      [[DEQUANT1:%.+]] = VPU.Dequantize([[FILTER0]]) {dstElemType = f16}
+  // CHECK-SAME:     : tensor<512x4864x1x1x!qElemType, {order = #NHWC}> -> tensor<512x4864x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1]], [[DEQUANT1]], [[WEIGHTS_TABLE0]]) {
   // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
   // CHECK-SAME:   rawFilterShape = [512, 4864, 1, 1], strides = [1, 1]
   // CHECK-SAME: }
   // CHECK-SAME: -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1037483647 : i64, clamp_high = 1037483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.425000e+01], fp_prelu_alpha = 3.000000e-01 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      return [[ADD_OUT1]] : tensor<1x512x4x1xf16, {order = #NHWC}>
@@ -331,7 +349,8 @@ func.func @SplitNCEConvOverIC3Convs(%arg0: tensor<1x16640x4x1xf16, {order = #NHW
   %weights_table = const.Declare tensor<512x1x1x4xsi32> = dense<10> : tensor<512x1x1x4xsi32>
   %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
     rawFilterShape = [512, 16640, 1, 1],
     strides = [1, 1]
   } : tensor<1x16640x4x1xf16, {order = #NHWC}>, tensor<512x16640x1x1xf16, {order = #NHWC}>, tensor<512x1x1x4xsi32> -> tensor<1x512x4x1xf16, {order = #NHWC}>
@@ -342,8 +361,11 @@ func.func @SplitNCEConvOverIC3Convs(%arg0: tensor<1x16640x4x1xf16, {order = #NHW
   // CHECK-DAG:  [[FILTER1:%.+]] = const.Declare tensor<512x5552x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x16640x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 5552, 0, 0], [512, 5552, 1, 1]>]
   // CHECK-DAG:  [[FILTER2:%.+]] = const.Declare tensor<512x5552x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x16640x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [512, 5552, 1, 1]>]
   // CHECK-DAG:  [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 1]]], [[[11072, 704, 1065353216, 1]]], [[[22144, 1408, 1065353216, 1]]]
   // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[11104, 704, 1065353216, 0]]], [[[22208, 1408, 1065353216, 0]]]
   // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[11104, 704, 1065353216, 0]]], [[[22208, 1408, 1065353216, 0]]]
 
   // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 5552, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5552x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE0:%.+]]) {
@@ -366,7 +388,7 @@ func.func @SplitNCEConvOverIC3Convs(%arg0: tensor<1x16640x4x1xf16, {order = #NHW
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0:%.+]], [[CONV_OUT2:%.+]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      return [[ADD_OUT1:%.+]] : tensor<1x512x4x1xf16, {order = #NHWC}>
@@ -396,31 +418,47 @@ func.func @SplitNCEConvOverIC3ConvsWithOutNCHW(%arg0: tensor<1x16640x4x1xf16, {o
   // CHECK-DAG:  [[FILTER1:%.+]] = const.Declare tensor<512x5552x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x16640x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 5552, 0, 0], [512, 5552, 1, 1]>]
   // CHECK-DAG:  [[FILTER2:%.+]] = const.Declare tensor<512x5552x1x1xf16, {order = #NHWC}> = dense<1.000000e+00> : tensor<512x16640x1x1xf16, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [512, 5552, 1, 1]>]
   // CHECK-DAG:  [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 1]]], [[[11072, 704, 1065353216, 1]]], [[[22144, 1408, 1065353216, 1]]]
   // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
-  // CHECK-DAG:  [[WEIGHTS_TABLE2:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[11104, 704, 1065353216, 0]]], [[[22208, 1408, 1065353216, 0]]]
+  // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<512x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[11104, 704, 1065353216, 0]]], [[[22208, 1408, 1065353216, 0]]]
 
   // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 5552, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5552x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER2:%.+]], [[WEIGHTS_TABLE2:%.+]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 5552, 0, 0] [1, 5552, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5552x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1:%.+]], [[FILTER1:%.+]], [[WEIGHTS_TABLE1:%.+]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 11104, 0, 0] [1, 5536, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5536x4x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT2:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE2:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE0:%.+]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5536, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [512, 5536, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x512x4x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                      fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0:%.+]], [[CONV_OUT2:%.+]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x512x4x1xf16, {order = #NCHW}>
 
   // CHECK:      return [[ADD_OUT1:%.+]] : tensor<1x512x4x1xf16, {order = #NCHW}>
@@ -438,7 +476,7 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   %weights_table = const.Declare tensor<9216x1x1x4xsi32> = dense<10> : tensor<9216x1x1x4xsi32>
   %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 2.000000e-01 : f64>,
     rawFilterShape = [9216, 16640, 1, 1],
     strides = [1, 1]
   } : tensor<1x16640x4x1xf16, {order = #NHWC}>, tensor<9216x16640x1x1xf16, {order = #NHWC}>, tensor<9216x1x1x4xsi32> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
@@ -460,29 +498,47 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
 
   // CHECK:       [[INPUT_SLICE0:%.+]] = VPU.Slice %arg0 [0, 0, 0, 0] [1, 5552, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5552x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER5:%.+]], [[WEIGHTS_TABLE5:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER4:%.+]], [[WEIGHTS_TABLE4:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
 
   // CHECK:       [[CONCAT_OUT0:%.+]] = VPU.Concat([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE1:%.+]] = VPU.Slice %arg0 [0, 5552, 0, 0] [1, 5552, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5552x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT2:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1:%.+]], [[FILTER3:%.+]], [[WEIGHTS_TABLE3:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT3:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1:%.+]], [[FILTER2:%.+]], [[WEIGHTS_TABLE2:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [4608, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[CONCAT_OUT1:%.+]] = VPU.Concat([[CONV_OUT2:%.+]], [[CONV_OUT3:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE2:%.+]] = VPU.Slice %arg0 [0, 11104, 0, 0] [1, 5536, 4, 1] : tensor<1x16640x4x1xf16, {order = #NHWC}> to tensor<1x5536x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT4:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE2:%.+]], [[FILTER1:%.+]], [[WEIGHTS_TABLE1:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5536, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [4608, 5536, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONV_OUT5:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE2:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE0:%.+]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4608, 5536, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    rawFilterShape = [4608, 5536, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[CONCAT_OUT2:%.+]] = VPU.Concat([[CONV_OUT4:%.+]], [[CONV_OUT5:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
 
@@ -490,14 +546,16 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE4:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE3:%.+]], [[INPUT_SLICE4:%.+]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[INPUT_SLICE5:%.+]] = VPU.Slice [[CONCAT_OUT0:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE6:%.+]] = VPU.Slice [[CONCAT_OUT1:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE5:%.+]], [[INPUT_SLICE6:%.+]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[CONCAT_OUT3:%.+]] = VPU.Concat([[ADD_OUT0:%.+]], [[ADD_OUT1:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
@@ -506,14 +564,14 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
   // CHECK:       [[INPUT_SLICE8:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 0, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT2:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE7:%.+]], [[INPUT_SLICE8:%.+]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 2.000000e-01 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[INPUT_SLICE9:%.+]] = VPU.Slice [[CONCAT_OUT3:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[INPUT_SLICE10:%.+]] = VPU.Slice [[CONCAT_OUT2:%.+]] [0, 4608, 0, 0] [1, 4608, 4, 1] : tensor<1x9216x4x1xf16, {order = #NHWC}> to tensor<1x4608x4x1xf16, {order = #NHWC}>
   // CHECK:       [[ADD_OUT3:%.+]] = VPU.NCE.Eltwise([[INPUT_SLICE9:%.+]], [[INPUT_SLICE10:%.+]]) {
   // CHECK-SAME:    op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.4012984643248171E-44], fp_prelu_alpha = 2.000000e-01 : f64>
   // CHECK-SAME:  } -> tensor<1x4608x4x1xf16, {order = #NHWC}>
 
   // CHECK:       [[CONCAT_OUT4:%.+]] = VPU.Concat([[ADD_OUT2:%.+]], [[ADD_OUT3:%.+]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 4608, 0, 0]]} : tensor<1x4608x4x1xf16, {order = #NHWC}>, tensor<1x4608x4x1xf16, {order = #NHWC}> -> tensor<1x9216x4x1xf16, {order = #NHWC}>
@@ -532,10 +590,18 @@ func.func @SplitNCEConvOverICandOC(%arg0: tensor<1x16640x4x1xf16, {order = #NHWC
 // CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x16640x1x1xf16, {order = #NHWC}>
 func.func @SplitNCEConvOverIC3ConvsMixedPrecision(%arg0: tensor<1x16640x1x1xf16, {order = #NHWC}>) -> tensor<1x16x1x1xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<16x16640x1x1x!qElemType, {order = #NHWC}> = dense<64.0> : tensor<16x16640x1x1xf32, {order = #NHWC}>, [#const.CastElemType<f16>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
-  %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
+  // scale value = 1038470039 = 0x3de5cb97 = 0.11220472419963165 = 14.25f (static_scale) * 0.007874015733307484 (weights_scale)
+  %weights_table = const.Declare tensor<16x1x1x4xsi32> =
+      dense<[[[[0, 0, 1038470039, 1]]], [[[16640, 2080, 1038470039, 2]]], [[[33280, 4160, 1038470039, 3]]],
+            [[[49920, 6240, 1038470039, 4]]], [[[66560, 8320, 1038470039, 5]]], [[[83200, 10400, 1038470039, 6]]],
+            [[[99840, 12480, 1038470039, 7]]], [[[116480, 14560, 1038470039, 8]]], [[[133120, 16640, 1038470039, 9]]],
+            [[[149760, 18720, 1038470039, 10]]], [[[166400, 20800, 1038470039, 11]]], [[[183040, 22880, 1038470039, 12]]],
+            [[[199680, 24960, 1038470039, 13]]], [[[216320, 27040, 1038470039, 14]]], [[[232960, 29120, 1038470039, 15]]],
+            [[[249600, 31200, 1038470039, 16]]]]> : tensor<16x1x1x4xsi32>
   %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
+                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0007874015733307484 : f64>,
     rawFilterShape = [16, 16640, 1, 1],
     strides = [1, 1]
   } : tensor<1x16640x1x1xf16, {order = #NHWC}>, tensor<16x16640x1x1x!qElemType, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x1x1xf16, {order = #NHWC}>
@@ -546,35 +612,69 @@ func.func @SplitNCEConvOverIC3ConvsMixedPrecision(%arg0: tensor<1x16640x1x1xf16,
   // CHECK-DAG:  [[FILTER1:%.+]] = const.Declare tensor<16x5552x1x1x!qElemType, {order = #NHWC}> = dense<6.400000e+01> : tensor<16x16640x1x1xf32, {order = #NHWC}>, [#const.SubView<[0, 5552, 0, 0], [16, 5552, 1, 1]>, #const.CastElemType<f16>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
   // CHECK-DAG:  [[FILTER2:%.+]] = const.Declare tensor<16x5552x1x1x!qElemType, {order = #NHWC}> = dense<6.400000e+01> : tensor<16x16640x1x1xf32, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [16, 5552, 1, 1]>, #const.CastElemType<f16>, #const.CastElemType<si8>, #const.CastElemType<!qElemType>]
 
+  // Scale in weights table is now equal to weights scale 0.0007874015733307484 (= 0x3c010204 = 1006699012)
   // CHECK-DAG:  [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<16x1x1x4xsi32>
-  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 10, 0]]], [[[5536, 704, 10, 0]]], [[[11072, 1408, 10, 0]]], [[[16608, 2112, 10, 0]]], [[[22144, 2816, 10, 0]]], [[[27680, 3520, 10, 0]]], [[[33216, 4224, 10, 0]]], [[[38752, 4928, 10, 0]]], [[[44288, 5632, 10, 0]]], [[[49824, 6336, 10, 0]]], [[[55360, 7040, 10, 0]]], [[[60896, 7744, 10, 0]]], [[[66432, 8448, 10, 0]]], [[[71968, 9152, 10, 0]]], [[[77504, 9856, 10, 0]]], [[[83040, 10560, 10, 0]]]]> : tensor<16x1x1x4xsi32>
+  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 1006699012, 0]]], [[[5536, 704, 1006699012, 0]]], [[[11072, 1408, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[16608, 2112, 1006699012, 0]]], [[[22144, 2816, 1006699012, 0]]], [[[27680, 3520, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[33216, 4224, 1006699012, 0]]], [[[38752, 4928, 1006699012, 0]]], [[[44288, 5632, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[49824, 6336, 1006699012, 0]]], [[[55360, 7040, 1006699012, 0]]], [[[60896, 7744, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[66432, 8448, 1006699012, 0]]], [[[71968, 9152, 1006699012, 0]]], [[[77504, 9856, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[83040, 10560, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>
+
   // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<16x1x1x4xsi32>
-  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 10, 0]]], [[[5552, 704, 10, 0]]], [[[11104, 1408, 10, 0]]], [[[16656, 2112, 10, 0]]], [[[22208, 2816, 10, 0]]], [[[27760, 3520, 10, 0]]], [[[33312, 4224, 10, 0]]], [[[38864, 4928, 10, 0]]], [[[44416, 5632, 10, 0]]], [[[49968, 6336, 10, 0]]], [[[55520, 7040, 10, 0]]], [[[61072, 7744, 10, 0]]], [[[66624, 8448, 10, 0]]], [[[72176, 9152, 10, 0]]], [[[77728, 9856, 10, 0]]], [[[83280, 10560, 10, 0]]]]> : tensor<16x1x1x4xsi32>
+  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 1006699012, 0]]], [[[5552, 704, 1006699012, 0]]], [[[11104, 1408, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[16656, 2112, 1006699012, 0]]], [[[22208, 2816, 1006699012, 0]]], [[[27760, 3520, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[33312, 4224, 1006699012, 0]]], [[[38864, 4928, 1006699012, 0]]], [[[44416, 5632, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[49968, 6336, 1006699012, 0]]], [[[55520, 7040, 1006699012, 0]]], [[[61072, 7744, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[66624, 8448, 1006699012, 0]]], [[[72176, 9152, 1006699012, 0]]], [[[77728, 9856, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[83280, 10560, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>
+
   // CHECK-DAG:  [[WEIGHTS_TABLE2:%.+]] = const.Declare tensor<16x1x1x4xsi32>
-  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 10, 10]]], [[[5552, 704, 10, 10]]], [[[11104, 1408, 10, 10]]], [[[16656, 2112, 10, 10]]], [[[22208, 2816, 10, 10]]], [[[27760, 3520, 10, 10]]], [[[33312, 4224, 10, 10]]], [[[38864, 4928, 10, 10]]], [[[44416, 5632, 10, 10]]], [[[49968, 6336, 10, 10]]], [[[55520, 7040, 10, 10]]], [[[61072, 7744, 10, 10]]], [[[66624, 8448, 10, 10]]], [[[72176, 9152, 10, 10]]], [[[77728, 9856, 10, 10]]], [[[83280, 10560, 10, 10]]]]> : tensor<16x1x1x4xsi32>
+  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 1006699012, 1]]], [[[5552, 704, 1006699012, 2]]], [[[11104, 1408, 1006699012, 3]]],
+  // CHECK-SAME{LITERAL}:             [[[16656, 2112, 1006699012, 4]]], [[[22208, 2816, 1006699012, 5]]], [[[27760, 3520, 1006699012, 6]]],
+  // CHECK-SAME{LITERAL}:             [[[33312, 4224, 1006699012, 7]]], [[[38864, 4928, 1006699012, 8]]], [[[44416, 5632, 1006699012, 9]]],
+  // CHECK-SAME{LITERAL}:             [[[49968, 6336, 1006699012, 10]]], [[[55520, 7040, 1006699012, 11]]], [[[61072, 7744, 1006699012, 12]]],
+  // CHECK-SAME{LITERAL}:             [[[66624, 8448, 1006699012, 13]]], [[[72176, 9152, 1006699012, 14]]], [[[77728, 9856, 1006699012, 15]]],
+  // CHECK-SAME{LITERAL}:             [[[83280, 10560, 1006699012, 16]]]]> : tensor<16x1x1x4xsi32>
 
   // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 5552, 1, 1] : tensor<1x16640x1x1xf16, {order = #NHWC}> to tensor<1x5552x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]]  = VPU.NCE.Convolution([[INPUT_SLICE0]], [[FILTER2]], [[WEIGHTS_TABLE2]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   rawFilterShape = [16, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 5552, 0, 0] [1, 5552, 1, 1] : tensor<1x16640x1x1xf16, {order = #NHWC}> to tensor<1x5552x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1]], [[FILTER1]], [[WEIGHTS_TABLE1]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5552, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   rawFilterShape = [16, 5552, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 11104, 0, 0] [1, 5536, 1, 1] : tensor<1x16640x1x1xf16, {order = #NHWC}> to tensor<1x5536x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT2:%.+]]  = VPU.NCE.Convolution([[INPUT_SLICE2]], [[FILTER0]], [[WEIGHTS_TABLE0]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5536, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   rawFilterShape = [16, 5536, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0]], [[CONV_OUT2]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [14.249999855283427],
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e-01 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:       return [[ADD_OUT1]] : tensor<1x16x1x1xf16, {order = #NHWC}>
@@ -591,10 +691,18 @@ func.func @SplitNCEConvOverIC3ConvsMixedPrecision(%arg0: tensor<1x16640x1x1xf16,
 // CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x16416x1x1xf16, {order = #NHWC}>
 func.func @SplitNCEConvOverIC3ConvsMixedPrecisionI4(%arg0: tensor<1x16416x1x1xf16, {order = #NHWC}>) -> tensor<1x16x1x1xf16, {order = #NHWC}> {
   %weights = const.Declare tensor<16x16416x1x1x!qElemType, {order = #NHWC}> = dense<64.0> : tensor<16x16416x1x1xf32, {order = #NHWC}>, [#const.CastElemType<f16>, #const.CastElemType<si4>, #const.CastElemType<!qElemType>]
-  %weights_table = const.Declare tensor<16x1x1x4xsi32> = dense<10> : tensor<16x1x1x4xsi32>
+  // scale value = 1038470039 = 0x3de5cb97 = 0.11220472419963165 = 14.25f (static_scale) * 0.007874015733307484 (weights_scale)
+  %weights_table = const.Declare tensor<16x1x1x4xsi32> =
+      dense<[[[[0, 0, 1038470039, 1]]], [[[16640, 2080, 1038470039, 2]]], [[[33280, 4160, 1038470039, 3]]],
+            [[[49920, 6240, 1038470039, 4]]], [[[66560, 8320, 1038470039, 5]]], [[[83200, 10400, 1038470039, 6]]],
+            [[[99840, 12480, 1038470039, 7]]], [[[116480, 14560, 1038470039, 8]]], [[[133120, 16640, 1038470039, 9]]],
+            [[[149760, 18720, 1038470039, 10]]], [[[166400, 20800, 1038470039, 11]]], [[[183040, 22880, 1038470039, 12]]],
+            [[[199680, 24960, 1038470039, 13]]], [[[216320, 27040, 1038470039, 14]]], [[[232960, 29120, 1038470039, 15]]],
+            [[[249600, 31200, 1038470039, 16]]]]> : tensor<16x1x1x4xsi32>
   %0 = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
     pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
-    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>,
+    ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
+                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0007874015733307484 : f64>,
     rawFilterShape = [16, 16416, 1, 1],
     strides = [1, 1]
   } : tensor<1x16416x1x1xf16, {order = #NHWC}>, tensor<16x16416x1x1x!qElemType, {order = #NHWC}>, tensor<16x1x1x4xsi32> -> tensor<1x16x1x1xf16, {order = #NHWC}>
@@ -605,34 +713,111 @@ func.func @SplitNCEConvOverIC3ConvsMixedPrecisionI4(%arg0: tensor<1x16416x1x1xf1
   // CHECK-DAG:  [[FILTER1:%.+]] = const.Declare tensor<16x5472x1x1x!qElemType, {order = #NHWC}> = dense<6.400000e+01> : tensor<16x16416x1x1xf32, {order = #NHWC}>, [#const.SubView<[0, 5472, 0, 0], [16, 5472, 1, 1]>, #const.CastElemType<f16>, #const.CastElemType<si4>, #const.CastElemType<!qElemType>]
   // CHECK-DAG:  [[FILTER2:%.+]] = const.Declare tensor<16x5472x1x1x!qElemType, {order = #NHWC}> = dense<6.400000e+01> : tensor<16x16416x1x1xf32, {order = #NHWC}>, [#const.SubView<[0, 0, 0, 0], [16, 5472, 1, 1]>, #const.CastElemType<f16>, #const.CastElemType<si4>, #const.CastElemType<!qElemType>]
 
+  // Scale in weights table is now equal to weights scale 0.0007874015733307484 (= 0x3c010204 = 1006699012)
   // CHECK-DAG:  [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<16x1x1x4xsi32>
-  // CHECK-SAME{LITERAL}:  dense<[[[[0, 0, 10, 0]]], [[[2736, 352, 10, 0]]], [[[5472, 704, 10, 0]]], [[[8208, 1056, 10, 0]]], [[[10944, 1408, 10, 0]]], [[[13680, 1760, 10, 0]]], [[[16416, 2112, 10, 0]]], [[[19152, 2464, 10, 0]]], [[[21888, 2816, 10, 0]]], [[[24624, 3168, 10, 0]]], [[[27360, 3520, 10, 0]]], [[[30096, 3872, 10, 0]]], [[[32832, 4224, 10, 0]]], [[[35568, 4576, 10, 0]]], [[[38304, 4928, 10, 0]]], [[[41040, 5280, 10, 0]]]]> : tensor<16x1x1x4xsi32>
+  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 1006699012, 0]]], [[[2736, 352, 1006699012, 0]]], [[[5472, 704, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[8208, 1056, 1006699012, 0]]], [[[10944, 1408, 1006699012, 0]]], [[[13680, 1760, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[16416, 2112, 1006699012, 0]]], [[[19152, 2464, 1006699012, 0]]], [[[21888, 2816, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[24624, 3168, 1006699012, 0]]], [[[27360, 3520, 1006699012, 0]]], [[[30096, 3872, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[32832, 4224, 1006699012, 0]]], [[[35568, 4576, 1006699012, 0]]], [[[38304, 4928, 1006699012, 0]]],
+  // CHECK-SAME{LITERAL}:             [[[41040, 5280, 1006699012, 0]]]]> : tensor<16x1x1x4xsi32>
+
   // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<16x1x1x4xsi32>
-  // CHECK-SAME{LITERAL}:  dense<[[[[0, 0, 10, 10]]], [[[2736, 352, 10, 10]]], [[[5472, 704, 10, 10]]], [[[8208, 1056, 10, 10]]], [[[10944, 1408, 10, 10]]], [[[13680, 1760, 10, 10]]], [[[16416, 2112, 10, 10]]], [[[19152, 2464, 10, 10]]], [[[21888, 2816, 10, 10]]], [[[24624, 3168, 10, 10]]], [[[27360, 3520, 10, 10]]], [[[30096, 3872, 10, 10]]], [[[32832, 4224, 10, 10]]], [[[35568, 4576, 10, 10]]], [[[38304, 4928, 10, 10]]], [[[41040, 5280, 10, 10]]]]> : tensor<16x1x1x4xsi32>
+  // CHECK-SAME{LITERAL}:       dense<[[[[0, 0, 1006699012, 1]]], [[[2736, 352, 1006699012, 2]]], [[[5472, 704, 1006699012, 3]]],
+  // CHECK-SAME{LITERAL}:             [[[8208, 1056, 1006699012, 4]]], [[[10944, 1408, 1006699012, 5]]], [[[13680, 1760, 1006699012, 6]]],
+  // CHECK-SAME{LITERAL}:             [[[16416, 2112, 1006699012, 7]]], [[[19152, 2464, 1006699012, 8]]], [[[21888, 2816, 1006699012, 9]]],
+  // CHECK-SAME{LITERAL}:             [[[24624, 3168, 1006699012, 10]]], [[[27360, 3520, 1006699012, 11]]], [[[30096, 3872, 1006699012, 12]]],
+  // CHECK-SAME{LITERAL}:             [[[32832, 4224, 1006699012, 13]]], [[[35568, 4576, 1006699012, 14]]], [[[38304, 4928, 1006699012, 15]]],
+  // CHECK-SAME{LITERAL}:             [[[41040, 5280, 1006699012, 16]]]]> : tensor<16x1x1x4xsi32>
 
   // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 5472, 1, 1] : tensor<1x16416x1x1xf16, {order = #NHWC}> to tensor<1x5472x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0]], [[FILTER2]], [[WEIGHTS_TABLE1]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:   rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 5472, 0, 0] [1, 5472, 1, 1] : tensor<1x16416x1x1xf16, {order = #NHWC}> to tensor<1x5472x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1]], [[FILTER1]], [[WEIGHTS_TABLE0]]) {
-  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
   // CHECK-SAME:    -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[INPUT_SLICE2:%.+]] = VPU.Slice [[INPUT]] [0, 10944, 0, 0] [1, 5472, 1, 1] : tensor<1x16416x1x1xf16, {order = #NHWC}> to tensor<1x5472x1x1xf16, {order = #NHWC}>
   // CHECK:      [[CONV_OUT2:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE2]], [[FILTER0]], [[WEIGHTS_TABLE0]]) {
-  // CHECK-SAME:   pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>, rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
+  // CHECK-SAME:    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+  // CHECK-SAME:    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>,
+  // CHECK-SAME:    rawFilterShape = [16, 5472, 1, 1], strides = [1, 1]}
   // CHECK-SAME:   -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      [[ADD_OUT0:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0]], [[CONV_OUT1]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 0.0078740157186985015 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     fp_prelu_alpha = 1.000000e+00 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}>
   // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[ADD_OUT0]], [[CONV_OUT2]]) {
   // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
-  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <LPRELU>, clamp_low = -1020231680 : i64, clamp_high = 1128988672 : i64,
+  // CHECK-SAME:                     lrelu_mult = 1 : i64, lrelu_shift = 0 : i64,
+  // CHECK-SAME:                     quant_scale = [14.249999855283427], fp_prelu_alpha = 1.000000e-01 : f64>
   // CHECK-SAME: } -> tensor<1x16x1x1xf16, {order = #NHWC}>
 
   // CHECK:      return [[ADD_OUT1]] : tensor<1x16x1x1xf16, {order = #NHWC}>
+}
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+
+// CHECK-LABEL:   @SplitNCEConvWithPerTensorQuantScale
+// CHECK-SAME:    [[INPUT:%arg[0-9]]]: tensor<1x16384x1x1xf16, {order = #NHWC}>
+func.func @SplitNCEConvWithPerTensorQuantScale(%arg0: tensor<1x16384x1x1xf16, {order = #NHWC}>) -> tensor<1x4096x1x1xf16, {order = #NHWC}> {
+  %weights = const.Declare tensor<4096x16384x1x1xf16, {order = #NHWC}> = dense<64.0> : tensor<4096x16384x1x1xf16, {order = #NHWC}>
+  // scale value = 1048403968 = 0x3e7d6000 = 0.2474365234375
+  %weights_table = const.Declare tensor<4096x1x1x4xsi32> = dense<1048403968> : tensor<4096x1x1x4xsi32>
+
+  %conv = VPU.NCE.Convolution(%arg0, %weights, %weights_table) {
+    mpe_engine = #VPU.MPEEngine37XX<mode = <SCL>>,
+    pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>,
+    ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64,
+                      lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [0.2474365234375],
+                      fp_prelu_alpha = 1.000000e+00 : f64>, rawFilterShape = [4096, 16384, 1, 1], strides = [1, 1]
+    } : tensor<1x16384x1x1xf16, {order = #NHWC}>, tensor<4096x16384x1x1xf16, {order = #NHWC}>, tensor<4096x1x1x4xsi32>
+    -> tensor<1x4096x1x1xf16, {order = #NHWC}>
+
+  return %conv : tensor<1x4096x1x1xf16, {order = #NHWC}>
+
+  // CHECK-DAG:  [[FILTER0:%.+]] = const.Declare tensor<4096x8192x1x1xf16, {order = #NHWC}>
+  // CHECK-DAG:  [[FILTER1:%.+]] = const.Declare tensor<4096x8192x1x1xf16, {order = #NHWC}>
+
+  // CHECK-DAG:  [[WEIGHTS_TABLE0:%.+]] = const.Declare tensor<4096x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 1065353216]]], [[[11072, 704, 1065353216, 1065353216]]], [[[22144, 1408, 1065353216, 1065353216]]]
+  // CHECK-DAG:  [[WEIGHTS_TABLE1:%.+]] = const.Declare tensor<4096x1x1x4xsi32>
+  // CHECK-DAG-SAME{LITERAL}: dense<[[[[0, 0, 1065353216, 0]]], [[[11104, 704, 1065353216, 0]]], [[[22208, 1408, 1065353216, 0]]]
+
+  // CHECK:      [[INPUT_SLICE0:%.+]] = VPU.Slice [[INPUT]] [0, 0, 0, 0] [1, 8192, 1, 1] : tensor<1x16384x1x1xf16, {order = #NHWC}> to tensor<1x8192x1x1xf16, {order = #NHWC}>
+  // CHECK:      [[CONV_OUT0:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE0:%.+]], [[FILTER0:%.+]], [[WEIGHTS_TABLE0:%.+]]) {
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   -> tensor<1x4096x1x1xf16, {order = #NHWC}>
+
+  // CHECK:      [[INPUT_SLICE1:%.+]] = VPU.Slice [[INPUT]] [0, 8192, 0, 0] [1, 8192, 1, 1] : tensor<1x16384x1x1xf16, {order = #NHWC}> to tensor<1x8192x1x1xf16, {order = #NHWC}>
+  // CHECK:      [[CONV_OUT1:%.+]] = VPU.NCE.Convolution([[INPUT_SLICE1:%.+]], [[FILTER1:%.+]], [[WEIGHTS_TABLE1:%.+]]) {
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [1.000000e+00], fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME:   -> tensor<1x4096x1x1xf16, {order = #NHWC}>
+
+  // CHECK:      [[ADD_OUT1:%.+]] = VPU.NCE.Eltwise([[CONV_OUT0:%.+]], [[CONV_OUT1:%.+]]) {
+  // CHECK-SAME:   op_type = #VPU.eltwise_type<ADD>,
+  // CHECK-SAME:   ppe = #VPU.PPEInt<mode = <NOOP>, clamp_low = -2147483648 : i64, clamp_high = 2147483647 : i64, lrelu_mult = 1 : i64, lrelu_shift = 0 : i64, quant_scale = [0.2474365234375], fp_prelu_alpha = 1.000000e+00 : f64>
+  // CHECK-SAME: } -> tensor<1x4096x1x1xf16, {order = #NHWC}>
+
+  // CHECK:      return [[ADD_OUT1:%.+]] : tensor<1x4096x1x1xf16, {order = #NHWC}>
 }

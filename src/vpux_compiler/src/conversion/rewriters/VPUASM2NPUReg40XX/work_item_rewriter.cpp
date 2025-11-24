@@ -4,10 +4,10 @@
 //
 
 #include "vpux/compiler/conversion/rewriters/VPUASM2NPUReg40XX/work_item_rewriter.hpp"
-#include "vpux/compiler/utils/shave.hpp"
 
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/ops.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 using namespace NPUReg40XX;
 using namespace NPUReg40XX::Descriptors;
@@ -46,7 +46,7 @@ mlir::LogicalResult WorkItemRewriter::matchAndRewrite(VPUASM::WorkItemOp origOp,
         // value 0 for Fields::wi_sub_unit is reserved for indicating to the RT that no dedicated Shave FIFO algorithm
         // was used (it is also useful for backward compatibility reasons - old blobs). Therefore in case dedicated
         // Shave FIFOs were assigned, increment the list index (and RT will decrement it on its side).
-        if (VPU::isFifoPerShaveEngineEnabled(origOp)) {
+        if (config::isFifoPerShaveEngineEnabled(origOp)) {
             listIndex++;
         }
         break;

@@ -705,7 +705,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
     %15 = VPU.NCE.DepthConvolution(%14, %filterCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     %16 = VPU.Copy(%15) : tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> -> tensor<1x144x16x32xf16, {order = #NHWC}>
 
-    %17 = VPU.Slice %12 [0, 144, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x144x16x32xf16, {order = #NHWC}>
+    %17 = VPU.Slice %12 [0, 0, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {order = #NHWC}> to tensor<1x144x16x32xf16, {order = #NHWC}>
     // Concat slice result copy-in for NCE user
     %18 = VPU.Copy(%17) {out_mem_space = [@CMX_NN, 0]} : tensor<1x144x16x32xf16, {order = #NHWC}> -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
     %19 = VPU.NCE.DepthConvolution(%18, %filterCons) {pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>, ppe = #VPU.PPEStub<>, post_op = #IE.Clamp<min = 0.000000e+00 : f64, max = 6.000000e+00 : f64>, rawFilterShape = [144, 1, 3, 3], strides = [1, 1]} -> tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
@@ -771,7 +771,7 @@ func.func @main(%input: tensor<1x144x32x32xf16, {order = #NHWC}>,
 
     // user of second part of concat master buffer
     // CHECK:       [[VAL13:%.+]] = VPU.Slice [[VAL9]]
-    // CHECK-SAME:      [0, 144, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> to tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
+    // CHECK-SAME:      [0, 0, 0, 0] [1, 144, 16, 32] : tensor<1x144x32x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}> to tensor<1x144x16x32xf16, {mem_space = [@CMX_NN, 0], order = #NHWC}>
 
     // no Concat buffer slice copy-in to NNCMX
     // CHECK-NOT:   VPU.Copy
@@ -1212,7 +1212,7 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
     %7 = VPU.Copy(%6) : !DistributedTileOutput -> tensor<1x16x32x32xf16, {order = #NHWC}>
 
     // Concat input tile 3
-    %8 = VPU.Slice %input [0, 96, 0, 0] [1, 16, 32, 32] : tensor<1x48x32x32xf16, {order = #NHWC}> to tensor<1x16x32x32xf16, {order = #NHWC}>
+    %8 = VPU.Slice %input [0, 32, 0, 0] [1, 16, 32, 32] : tensor<1x48x32x32xf16, {order = #NHWC}> to tensor<1x16x32x32xf16, {order = #NHWC}>
 
     %9 = VPU.Copy(%8) {out_mem_space = @CMX_NN} : tensor<1x16x32x32xf16, {order = #NHWC}> -> !DistributedTile
 
@@ -1267,7 +1267,7 @@ func.func @main(%input: tensor<1x48x32x32xf16, {order = #NHWC}>,
 // CHECK-SAME:          -> !VPU.DistributedTensor<1x16x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED|SEGMENTED", num_tiles = [1, 4, 1, 1], num_clusters = 4 : i64}>
 
 // Tile 2
-// CHECK:       [[SLICE2:%.+]] = VPU.Slice %arg0 [0, 96, 0, 0] [1, 16, 32, 32]
+// CHECK:       [[SLICE2:%.+]] = VPU.Slice %arg0 [0, 32, 0, 0] [1, 16, 32, 32]
 
 // CHECK:       [[COPY2:%.+]]  = VPU.Copy([[SLICE2]])
 // CHECK-SAME:      -> !VPU.DistributedTensor<1x16x32x32xf16, #NHWC, @CMX_NN, {mode = "DUPLICATED", num_clusters = 4 : i64}>
@@ -2087,7 +2087,7 @@ func.func @NoCMXConcatWhenTilingOnCAndSOC(%input: tensor<1x32x64x32xf16, {order 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 // CHECK-LABEL: func.func @DoNotConcatCMXForDimsHigherThanThreshold
 func.func @DoNotConcatCMXForDimsHigherThanThreshold(%arg0: tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, %arg1: tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>)
-           -> tensor<2x9120x1x1xf16, {order = #NHWC}> {
+           -> tensor<1x1024x1x1xf16, {order = #NHWC}> {
     %filter0 = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> =
         dense<1.0> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %0 = VPU.NCE.Convolution(%arg0, %filter0) {pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, ppe = #VPU.PPEStub<>, rawFilterShape = [1024, 9120, 1, 1], strides = [1, 1]}
@@ -2099,9 +2099,9 @@ func.func @DoNotConcatCMXForDimsHigherThanThreshold(%arg0: tensor<1x9120x1x1xf16
             : tensor<1x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>, tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     %3= VPU.Copy(%2) : tensor<1x1024x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> -> tensor<1x1024x1x1xf16, {order = #NHWC}>
     %4 = VPU.Concat(%1, %3) {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x1024x1x1xf16, {order = #NHWC}>, tensor<1x1024x1x1xf16, {order = #NHWC}> -> tensor<2x1024x1x1xf16, {order = #NHWC}>
-    %5 = VPU.Slice %4 [0, 0, 0, 0] [2, 9120, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<2x9120x1x1xf16, {order = #NHWC}>
+    %5 = VPU.Slice %4 [0, 0, 0, 0] [1, 1024, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<1x1024x1x1xf16, {order = #NHWC}>
 
-    return %5 : tensor<2x9120x1x1xf16, {order = #NHWC}>
+    return %5 : tensor<1x1024x1x1xf16, {order = #NHWC}>
     // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.099610e+00> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
     // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}> = dense<1.000000e+00> : tensor<1024x9120x1x1xf16, {mem_space = @CMX_NN, order = #NHWC}>
 
@@ -2114,7 +2114,7 @@ func.func @DoNotConcatCMXForDimsHigherThanThreshold(%arg0: tensor<1x9120x1x1xf16
     // CHECK:     [[CONCAT:%.+]] = VPU.Concat([[COPY0]], [[COPY1]])
     // CHECK-SAME{LITERAL}:         {static_offsets = [[0, 0, 0, 0], [1, 0, 0, 0]]} : tensor<1x1024x1x1xf16, {order = #NHWC}>, tensor<1x1024x1x1xf16, {order = #NHWC}> -> tensor<2x1024x1x1xf16, {order = #NHWC}>
 
-    // CHECK:     [[SLICE:%.+]] = VPU.Slice [[CONCAT]] [0, 0, 0, 0] [2, 9120, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<2x9120x1x1xf16, {order = #NHWC}>
+    // CHECK:     [[SLICE:%.+]] = VPU.Slice [[CONCAT]] [0, 0, 0, 0] [1, 1024, 1, 1] : tensor<2x1024x1x1xf16, {order = #NHWC}> to tensor<1x1024x1x1xf16, {order = #NHWC}>
 
-    // CHECK:     return [[SLICE]] : tensor<2x9120x1x1xf16, {order = #NHWC}>
+    // CHECK:     return [[SLICE]] : tensor<1x1024x1x1xf16, {order = #NHWC}>
 }

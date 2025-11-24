@@ -39,5 +39,6 @@ Shape getNewShapeAfterStrideFolding(ShapeRef origShape, int64_t SX);
 mlir::Value createDynamicReshape(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
                                  BoundedShape outputShape);
 
+bool allowsChannelsReshape(mlir::Operation* origOp);
 }  // namespace IE
 }  // namespace vpux

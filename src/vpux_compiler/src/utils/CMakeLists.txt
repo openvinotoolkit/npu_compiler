@@ -21,7 +21,6 @@ add_npu_library(${TARGET_NAME}
         npu_profiling_utils
         MLIRIR
         npu_compiler_dialect_vpu
-        flatbuffers
         npu_elf
         npu_compiler_dialect_vpuip
         npu_compiler_dialect_vpurt
@@ -59,6 +58,3 @@ target_include_directories(${TARGET_NAME}
     PRIVATE
       	${CMAKE_CURRENT_BINARY_DIR}
 	${CMAKE_CURRENT_BINARY_DIR}/build-modules/vpux/src/vpux_compiler/src/utils)
-
-
-

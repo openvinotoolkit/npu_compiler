@@ -21,6 +21,7 @@ class ExecutionGroupAnalysis {
 public:
     ExecutionGroupAnalysis();
     explicit ExecutionGroupAnalysis(mlir::func::FuncOp netFunc);
+    explicit ExecutionGroupAnalysis(mlir::func::FuncOp netFunc, bool ignoreVariantLimit, bool ignoreInvariantLimit);
     virtual ~ExecutionGroupAnalysis() = default;
 
     ExecutionGroupListMap getActShvExecutionGroups() const {

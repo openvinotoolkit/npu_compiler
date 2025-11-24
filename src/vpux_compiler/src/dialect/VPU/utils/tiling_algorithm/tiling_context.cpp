@@ -10,6 +10,10 @@
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_general_algorithm.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_scf_algorithm.hpp"
 
+#include "vpux/compiler/dialect/VPU/IR/types.hpp"
+
+#include <mlir/Interfaces/InferTypeOpInterface.h>
+
 using namespace vpux;
 using namespace VPU;
 

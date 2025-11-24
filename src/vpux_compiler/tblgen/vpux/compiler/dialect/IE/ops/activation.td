@@ -18,6 +18,7 @@ def IE_EluOp :
         IE_LayerOp<
             "Elu",
             [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp
             ]
         > {
@@ -38,6 +39,7 @@ def IE_GeluOp :
         IE_LayerOp<
             "Gelu",
             [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp
             ]
         > {
@@ -180,6 +182,7 @@ def IE_PReluOp :
         IE_LayerOp<
             "PRelu",
             [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp
             ]
         > {
@@ -223,6 +226,7 @@ def IE_SeluOp :
         IE_LayerOp<
             "Selu",
             [
+                DeclareOpInterfaceMethods<IE_ShaveCodeGenSupportedOpInterface>,
                 IE_EltwiseOp,
                 AttrSizedOperandSegments
             ]

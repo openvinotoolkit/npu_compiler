@@ -52,5 +52,3 @@ Windows: build with CMake Options (Recommended for the first Driver Compiler bui
 
 Windows: build with CMake Presets:
 * [how to build Driver Compiler with CMake Presets on Windows](./build/build_with_cmake_presets_windows.md)
-
-

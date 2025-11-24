@@ -7,6 +7,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Dialect/MemRef/Transforms/Passes.h>
 #include <mlir/Pass/PassManager.h>
 #include <mlir/Transforms/Passes.h>
 
@@ -67,11 +68,11 @@ std::optional<double> getWeightsSparsityThreshold(const DoubleOption& weightsSpa
 void vpux::VPU::buildInitCompilerPipeline(mlir::OpPassManager& pm, const VPU::InitCompilerOptions& options,
                                           Logger log) {
     log.info("InitCompilerOptions:\n arch = {0}\n DPU groups = {1}\n DMA ports = {2}\n"
-             " compilation mode = {3}\n WLM rollback = {4}\n PPE version = {5}\n adaptive stripping = {6}\n agressive "
-             "QDQ = {7}",
+             " compilation mode = {3}\n WLM rollback = {4}\n PPE version = {5}\n adaptive stripping = {6}\n aggressive "
+             "QDQ = {7}\n weights dynamic dequantization {8}\n",
              options.arch, options.numberOfDPUGroups, options.numberOfDMAPorts, options.compilationMode,
              options.wlmRollback, options.ppeVersion, options.enableAdaptiveStripping,
-             options.enableQDQOptimizationAggressive);
+             options.enableQDQOptimizationAggressive, options.enableWeightsDynamicDequantization);
 
     pm.addPass(VPU::createInitResourcesPass(options, log));
     pm.addPass(VPU::createSetupPipelineOptionsPass(options, log));
@@ -150,8 +151,13 @@ void VPU::registerVPUPipelines() {
 void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOptions& options, Logger log) {
     const auto grc = getDefaultGreedyRewriteConfig();
 
+    pm.addPass(VPU::createFlashSDPATilingStrategyEstimationPass(log));
+
     pm.addPass(VPU::createTilingStrategyAssignmentPass(options.enablePrefetchTiling, options.enableVPUNNCostForTiling,
                                                        options.enableShaveDDRAccessOptimization, log));
+    if (options.enablePrintStatistics) {
+        pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "tiling-strategy-assignment"));
+    }
     pm.addPass(VPU::createConvolutionSplitOverInputChannelPass(log));
 
     // We call this as part of VF Pipeline, no need to call it here in such case
@@ -160,18 +166,24 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
                                                       options.readStrategyFromJson, readStrategyFileLocation,
                                                       options.dumpStrategyToLog, false, log));
     }
-    pm.addPass(VPU::createEfficientIROrderPass(log));
+    pm.addPass(VPU::createEfficientIROrderPass(options.enableReorderConcatBranches, log));
     if (options.enableVerticalFusion) {
         if (!options.enableSCFTiling) {
             VPU::buildVFPipeline(pm, options, log);
         } else {
             pm.addPass(VPU::createSCFVerticalFusionPass(log));
+            // cleaning up after SCFVerticalFusionPass
+            pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
+            pm.addPass(mlir::createCSEPass());
             pm.addPass(mlir::createCanonicalizerPass(grc));
         }
     }
 
     if (!options.enableSCFTiling && options.enableOutputPipelining) {
         pm.addPass(VPU::createOutputPipelineTilingPass(options.enablePrefetchTiling, log));
+        if (options.enablePrintStatistics) {
+            pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "output-pipeline-tiling"));
+        }
         // manual strategy debug configuration
         pm.addPass(VPU::createManualStrategyUtilsPass(
                 options.writeStrategyToJson, writeStrategyFileLocation, options.readStrategyFromJson,
@@ -180,8 +192,15 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
     }
 
     pm.addPass(VPU::createApplyTilingPass(options.enableSCFTiling, log));
+    if (options.enableSCFTiling) {
+        // cleaning up after ApplyTilingPass
+        pm.addPass(mlir::memref::createResolveShapedTypeResultDimsPass());
+        pm.addPass(mlir::createCSEPass());
+    }
     pm.addPass(mlir::createCanonicalizerPass(grc));
     pm.addPass(VPU::createCorrectStorageElementTableSeSizeForSEPDWConvPass(log));
+
+    pm.addPass(VPU::createUnrollFlashSDPAPass(log));
 }
 
 //
@@ -189,9 +208,11 @@ void vpux::VPU::buildTilingPipeline(mlir::OpPassManager& pm, const VPU::TilingOp
 //
 
 void vpux::VPU::buildScfComputeOpsOutliningPipeline(mlir::OpPassManager& pm, Logger log) {
+    pm.addPass(VPU::createSCFFuseLastViewLikeOpPass(log));
     pm.addPass(VPU::createConvertVPUOpsToUpstreamOpsPass(log));
     pm.addPass(VPU::createRestorePadAttrAfterSCFTilingPass(log));
     pm.addPass(VPU::createScfComputeOpsOutliningPass(log));
+    pm.addPass(VPU::createAdjustBlockSizeForScfTilingPass(log));
     pm.addPass(VPU::createConvertDynamicToStaticKernelsPass(log));
 }
 
@@ -204,13 +225,16 @@ void vpux::VPU::buildVFPipeline(mlir::OpPassManager& pm, const VPU::TilingOption
     pm.addPass(VPU::createMoveViewOpsToVerticalFusionPass(options.workloadManagementMode, log));
     pm.addPass(VPU::createMergeVfSubgraphsPass(options.enableVerticalFusionPipelining, options.enablePrefetchTiling,
                                                options.workloadManagementMode, log));
-    pm.addPass(VPU::createEfficientIROrderPass(log));
+    if (options.enablePrintStatistics) {
+        pm.addPass(VPU::createPrintNNCacheStatisticsPass(log, "merge-vertical-fusion-subgraphs"));
+    }
+    pm.addPass(VPU::createEfficientIROrderPass(options.enableReorderConcatBranches, log));
     pm.addPass(VPU::createUnrollUnusedVerticalFusionRegionPass(log));
     pm.addPass(VPU::createManualStrategyUtilsPass(options.writeStrategyToJson, writeStrategyFileLocation,
                                                   options.readStrategyFromJson, readStrategyFileLocation,
                                                   options.dumpStrategyToLog, false, log));
     // TODO: E#140041 enable profiling with function outlining
-    if (options.enableVerticalFusionOutlining && (!options.enableProfiling || options.enableProfilingWithOutlining)) {
+    if (options.enableVerticalFusionOutlining && canOutlineFromProfilingPerspective(options)) {
         pm.addPass(VPU::createVerticalFusionOutliningPass(options, log));
         const auto grc = getDefaultGreedyRewriteConfig();
         pm.addPass(mlir::createCanonicalizerPass(grc));
@@ -224,7 +248,7 @@ void vpux::VPU::buildSMPipeline(mlir::OpPassManager& pm, const vpux::MCAndTiling
     const auto grc = getDefaultGreedyRewriteConfig();
 
     pm.addPass(VPU::createStrategyManagerImplPass(options.enablePrefetching, log));
-    pm.addPass(VPU::createEfficientIROrderPass(log));
+    pm.addPass(VPU::createEfficientIROrderPass(options.enableReorderConcatBranches, log));
     if (options.enableVerticalFusion) {
         VPU::buildVFPipeline(pm, VPU::TilingOptions(options), log);
     }

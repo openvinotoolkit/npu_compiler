@@ -26,7 +26,9 @@ mlir::LogicalResult MoveViewOpsRewriter::matchAndRewrite(VPU::VerticalFusionOp v
     for (auto vfOperand : vfOp->getOperands() | indexed) {
         auto parentOp = vfOperand.value().getDefiningOp<VPU::TilingViewLikeOpInterface>();
 
-        if (parentOp == nullptr || !VPU::isPureViewOp(parentOp) || VPU::onlySupportPartialTilingDims(parentOp)) {
+        // E-163016 remove is VFSupported flag when scf and current algorithm is aligned
+        if (parentOp == nullptr || !VPU::isPureViewOp(parentOp) || VPU::onlySupportPartialTilingDims(parentOp) ||
+            !parentOp.isVFSupported()) {
             continue;
         }
 

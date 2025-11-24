@@ -911,6 +911,30 @@ func.func @AdjustFQSandwichNF_OF_NF_Reshape(%arg0 : tensor<1x128x32x64xf32>, %ar
     // CHECK-NEXT: [[MUL8:%.+]] = IE.Multiply([[FQ7]], [[CST]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x128x32x64xf32>, tensor<1xf32> -> tensor<1x128x32x64xf32>
 }
 
+// -----
+
+// Asymmetric FQ is skipped and handled by HandleU16FakeQuantize using ScaleShift Op
+// CHECK-LABEL: @SkipAsymmetricFakeQuantizeOp
+// CHECK-SAME:     [[INPUT_0:%.+]]: tensor<1x128x32x64xf32>
+func.func @SkipAsymmetricFakeQuantizeOp(%arg0 : tensor<1x128x32x64xf32>) -> tensor<1x128x32x64xf32> {
+
+    %fq2_in_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq2_in_hi = const.Declare tensor<1x1x1x1xf32> = dense <1.0> : tensor<1x1x1x1xf32> isSplat
+    %fq2_out_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32> isSplat
+    %fq2_out_hi = const.Declare tensor<1x1x1x1xf32> = dense <6.5535e+04> : tensor<1x1x1x1xf32> isSplat
+
+    %1 = IE.FakeQuantize(%arg0, %fq2_in_low, %fq2_in_hi, %fq2_out_low, %fq2_out_hi) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x128x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x128x32x64xf32>
+    return %1 : tensor<1x128x32x64xf32>
+
+    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
+    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<6.553500e+04> : tensor<1x1x1x1xf32>
+
+    // CHECK-NOT: IE.Multiply
+    // CHECK-DAG: [[FQ:%.+]] = IE.FakeQuantize([[INPUT_0]], [[CST]], [[CST_0]], [[CST]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x128x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x128x32x64xf32>
+    // CHECK-NOT: IE.Multiply
+}
+
 // Test to check that FakeQuantize with NaN parameters is handled gracefully
 // CHECK-LABEL: @AdjustFakeQuantizeWithNaNParams
 func.func @AdjustFakeQuantizeWithNaNParams() -> tensor<1xf32> {
@@ -952,28 +976,4 @@ func.func @AdjustFakeQuantizeWithNaNParamsNonSplat() -> tensor<2xf32> {
     // CHECK: [[FQ:%.+]] = IE.FakeQuantize([[CST_INPUT]], [[CST_NON_SPLAT]], [[CST_NON_SPLAT]], [[CST_NON_SPLAT]], [[CST_NON_SPLAT]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
     // CHECK-NEXT: [[MUL:%.+]] = IE.Multiply([[FQ]], [[CST_MUL]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<2xf32>, tensor<2xf32> -> tensor<2xf32>
     // CHECK-NEXT: return [[MUL]] : tensor<2xf32>
-}
-
-// -----
-
-// Asymmetric FQ is skipped and handled by HandleU16FakeQuantize using ScaleShift Op
-// CHECK-LABEL: @SkipAsymmetricFakeQuantizeOp
-// CHECK-SAME:     [[INPUT_0:%.+]]: tensor<1x128x32x64xf32>
-func.func @SkipAsymmetricFakeQuantizeOp(%arg0 : tensor<1x128x32x64xf32>) -> tensor<1x128x32x64xf32> {
-
-    %fq2_in_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32> isSplat
-    %fq2_in_hi = const.Declare tensor<1x1x1x1xf32> = dense <1.0> : tensor<1x1x1x1xf32> isSplat
-    %fq2_out_low = const.Declare tensor<1x1x1x1xf32> = dense <0.000000e+00> : tensor<1x1x1x1xf32> isSplat
-    %fq2_out_hi = const.Declare tensor<1x1x1x1xf32> = dense <6.5535e+04> : tensor<1x1x1x1xf32> isSplat
-
-    %1 = IE.FakeQuantize(%arg0, %fq2_in_low, %fq2_in_hi, %fq2_out_low, %fq2_out_hi) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x128x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x128x32x64xf32>
-    return %1 : tensor<1x128x32x64xf32>
-
-    // CHECK-DAG: [[CST:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<0.000000e+00> : tensor<1x1x1x1xf32>
-    // CHECK-DAG: [[CST_0:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<1.000000e+00> : tensor<1x1x1x1xf32>
-    // CHECK-DAG: [[CST_1:%.+]] = const.Declare tensor<1x1x1x1xf32> = dense<6.553500e+04> : tensor<1x1x1x1xf32>
-
-    // CHECK-NOT: IE.Multiply
-    // CHECK-DAG: [[FQ:%.+]] = IE.FakeQuantize([[INPUT_0]], [[CST]], [[CST_0]], [[CST]], [[CST_1]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>, levels = 65536 : i64} : tensor<1x128x32x64xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32>, tensor<1x1x1x1xf32> -> tensor<1x128x32x64xf32>
-    // CHECK-NOT: IE.Multiply
 }

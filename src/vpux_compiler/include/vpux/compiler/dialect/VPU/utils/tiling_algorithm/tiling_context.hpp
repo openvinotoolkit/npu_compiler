@@ -5,7 +5,6 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/tiling_alg_interface.hpp"
 
 namespace vpux {

@@ -6,6 +6,7 @@
 #pragma once
 
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 namespace vpux::VPU {
 /* @brief

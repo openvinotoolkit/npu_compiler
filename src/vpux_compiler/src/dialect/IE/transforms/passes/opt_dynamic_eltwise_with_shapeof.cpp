@@ -123,7 +123,7 @@ mlir::LogicalResult OptDynamicEltwiseWithShapeOf::matchAndRewrite(IE::ShapeOfOp 
     if (findOperandMatchingOutput(definingOp) != -1) {
         int matchingIndex = findOperandMatchingOutput(definingOp);
         auto operand = definingOp->getOperand(matchingIndex);
-        auto newResult = rewriter.create<IE::ShapeOfOp>(shapeOfOp->getLoc(), operand, outElemType);
+        auto newResult = rewriter.create<IE::ShapeOfOp>(takeOpLoc(shapeOfOp, "new_result"), operand, outElemType);
         rewriter.replaceOp(shapeOfOp, newResult);
         return mlir::success();
     } else {
@@ -154,7 +154,8 @@ mlir::LogicalResult OptDynamicEltwiseWithShapeOf::matchAndRewrite(IE::ShapeOfOp 
         auto reshapeResult = rewriter.create<IE::DynamicReshapeOp>(reshapeLoc, inputOperand, shapeTensor,
                                                                    getIntArrayAttr(getContext(), outShape),
                                                                    getIntArrayAttr(getContext(), outBounds));
-        auto newResult = rewriter.create<IE::ShapeOfOp>(shapeOfOp->getLoc(), reshapeResult, outElemType);
+        auto newResult =
+                rewriter.create<IE::ShapeOfOp>(takeOpLoc(shapeOfOp, "dyn_reshape_result"), reshapeResult, outElemType);
 
         rewriter.replaceOp(shapeOfOp, newResult);
         return mlir::success();

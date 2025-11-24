@@ -241,8 +241,8 @@ protected:
         _options->add<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
         _options->add<intel_npu::EXECUTION_MODE_HINT>();
         _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION>();
         _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
+        _options->add<intel_npu::QDQ_OPTIMIZATION>();
 
         _compiler = std::make_shared<CompilerImpl>();
     }
@@ -397,8 +397,8 @@ protected:
         _options->add<intel_npu::DYNAMIC_SHAPE_TO_STATIC>();
         _options->add<intel_npu::EXECUTION_MODE_HINT>();
         _options->add<intel_npu::COMPILER_DYNAMIC_QUANTIZATION>();
-        _options->add<intel_npu::QDQ_OPTIMIZATION>();
         _options->add<intel_npu::QDQ_OPTIMIZATION_AGGRESSIVE>();
+        _options->add<intel_npu::QDQ_OPTIMIZATION>();
 
         _compiler = std::make_shared<CompilerImpl>();
     }

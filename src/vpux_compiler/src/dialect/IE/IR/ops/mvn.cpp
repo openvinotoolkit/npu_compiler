@@ -6,6 +6,7 @@
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -32,8 +33,14 @@ mlir::LogicalResult vpux::IE::MVNOp::inferReturnTypeComponents(
         return errorAt(loc, "First input tensor should have 4 or 5 dimensions");
     }
 
-    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace());
-    inferredReturnShapes.emplace_back(inType.getShape(), inType.getElementType(), outDesc);
+    auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inType, [&](const auto& inShape) {
+        auto outShape = copyShape(inShape);
+        return splitShapeAndRepresentation(outShape);
+    });
+
+    SmallVector<int64_t> outShape(outStaticShape.begin(), outStaticShape.end());
+    const auto outDesc = vpux::getTensorAttr(ctx, inType.getDimsOrder(), inType.getMemSpace(), outBounds, outDimMask);
+    inferredReturnShapes.emplace_back(outShape, inType.getElementType(), outDesc);
 
     return mlir::success();
 }

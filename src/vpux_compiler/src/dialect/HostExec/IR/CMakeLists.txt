@@ -16,4 +16,3 @@ add_npu_library(${TARGET_NAME}
         npu_ov_utils
         npu_elf
         openvino::npu_al)
-

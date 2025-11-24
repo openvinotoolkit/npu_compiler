@@ -15,6 +15,7 @@
 #include "vpux/compiler/dialect/IE/IR/ops/normalization.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/recurrent.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/reduce.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/broadcast_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/concat_utils.hpp"
@@ -24,6 +25,7 @@
 #include "vpux/compiler/dialect/IE/utils/roll_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_reduce_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/dialect.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
@@ -621,12 +623,16 @@ std::optional<std::pair<SmallVector<int64_t>, SmallVector<int64_t>>> getAdjusted
 
 class ConvertShapeTo4DPass final : public IE::impl::ConvertShapeTo4DBase<ConvertShapeTo4DPass> {
 public:
-    explicit ConvertShapeTo4DPass(Logger log) {
+    explicit ConvertShapeTo4DPass(bool forceConvertGatherTo4D, Logger log)
+            : _forceConvertGatherTo4D(forceConvertGatherTo4D) {
         Base::initLogger(log, Base::getArgumentName());
     }
 
+    mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
+
 private:
     void safeRunOnFunc() final;
+    bool _forceConvertGatherTo4D;
 };
 
 //
@@ -1117,6 +1123,89 @@ mlir::LogicalResult Mvn6Converter::matchAndRewrite(IE::MVN6Op origOp, OpAdaptor,
 }
 
 //
+// ReverseSequenceOpConverter
+//
+
+class ReverseSequenceOpConverter final : public mlir::OpConversionPattern<IE::ReverseSequenceOp> {
+public:
+    ReverseSequenceOpConverter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpConversionPattern<IE::ReverseSequenceOp>(typeConverter, ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::ReverseSequenceOp origOp, OpAdaptor newArgs,
+                                        mlir::ConversionPatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult ReverseSequenceOpConverter::matchAndRewrite(IE::ReverseSequenceOp origOp, OpAdaptor,
+                                                                mlir::ConversionPatternRewriter& rewriter) const {
+    const auto inType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
+    const auto seqLensType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(1).getType());
+
+    auto seqAxis = origOp.getSeqAxis();
+    auto batchAxis = origOp.getBatchAxis();
+
+    // input-data
+    auto newInShape = to_small_vector(inType.getShape());
+    auto inRank = newInShape.size();
+    if (inRank <= TARGET_TENSOR_DIM) {
+        const int64_t padDims = TARGET_TENSOR_DIM - inRank;
+        newInShape.insert(newInShape.begin(), padDims, 1);
+        batchAxis += padDims;
+        seqAxis += padDims;
+    } else if (inRank == 5) {
+        SmallVector<int64_t> axes5D(inRank);
+        std::iota(axes5D.begin(), axes5D.end(), 0);
+        auto checkSame = [&](auto curDim, auto nxtDim) {
+            auto curNonAxis = (curDim != batchAxis) && (curDim != seqAxis);
+            auto nxtNonAxis = (nxtDim != batchAxis) && (nxtDim != seqAxis);
+            return (curNonAxis && nxtNonAxis);
+        };
+        const auto mergeIt = std::adjacent_find(axes5D.begin(), axes5D.end(), checkSame);
+        VPUX_THROW_WHEN(mergeIt == axes5D.end(),
+                        "ReverseSequence 5D->4D failed : cannot find 2 adjacent dims which are not batch/seq axes");
+        const auto mergeDim = checked_cast<int64_t>(std::distance(axes5D.begin(), mergeIt));
+        if (seqAxis > mergeDim) {
+            seqAxis = seqAxis - 1;
+        }
+        if (batchAxis > mergeDim) {
+            batchAxis = batchAxis - 1;
+        }
+        newInShape[mergeDim] *= newInShape[mergeDim + 1];
+        newInShape.erase(newInShape.begin() + mergeDim + 1);
+    } else {
+        VPUX_THROW("Unimplemented {0}D->4D ReverseSequence convert", inRank);
+    }
+
+    // sequence-lengths
+    auto newSeqLensShape = SmallVector(TARGET_TENSOR_DIM, 1);
+    newSeqLensShape[batchAxis] = seqLensType.getShape().totalSize();
+
+    const auto newInShapeAttr = getIntArrayAttr(origOp->getContext(), newInShape);
+    const auto newSeqLenShapeAttr = getIntArrayAttr(origOp->getContext(), newSeqLensShape);
+    const auto newBatchAxisAttr = getIntAttr(origOp->getContext(), batchAxis);
+    const auto newSeqAxisAttr = getIntAttr(origOp->getContext(), seqAxis);
+    const auto outShapeAttr = getIntArrayAttr(origOp->getContext(), getShape(origOp.getOutput()));
+
+    const auto in1Reshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getData(),
+                                                                 nullptr, false, newInShapeAttr);
+    const auto in2Reshape = rewriter.createOrFold<IE::ReshapeOp>(
+            takeOpLoc(origOp, "reshape_seq_lens"), origOp.getSeqLength(), nullptr, false, newSeqLenShapeAttr);
+
+    auto newRevSeqOp = rewriter.create<IE::ReverseSequenceOp>(origOp->getLoc(), in1Reshape, in2Reshape, newSeqAxisAttr,
+                                                              newBatchAxisAttr);
+
+    auto outReshape =
+            rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newRevSeqOp.getOutput(), nullptr, false, outShapeAttr);
+    extendOpLoc(outReshape, "reshape_out");
+
+    return mlir::success();
+}
+
+//
 // RMSOpConverter
 //
 
@@ -1181,7 +1270,7 @@ auto fillWithOnes(vpux::NDTypeInterface inType, int64_t targetRank) {
     return newInShape;
 }
 
-int getMaxInRank(IE::SDPAOp origOp) {
+int getMaxInRank(mlir::Operation* origOp) {
     int maxRank = 0;
     for (size_t i = 0; i < origOp->getNumOperands(); i++) {
         if (origOp->getOperand(i)) {
@@ -1257,6 +1346,78 @@ mlir::LogicalResult SDPAOpConverter::matchAndRewrite(IE::SDPAOp origOp, OpAdapto
                                                  scaleReshape, origOp.getCausalAttr());
     auto outReshape =
             rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newSDPAOp.getOutput(), nullptr, false, outShapeAttr);
+
+    extendOpLoc(outReshape, "reshape_out");
+
+    return mlir::success();
+}
+
+//
+// SDPAExtendConverter
+//
+
+class SDPAExtendedOpConverter final : public mlir::OpConversionPattern<IE::SDPAExtendedOp> {
+public:
+    SDPAExtendedOpConverter(mlir::TypeConverter& typeConverter, mlir::MLIRContext* ctx, Logger log)
+            : mlir::OpConversionPattern<IE::SDPAExtendedOp>(typeConverter, ctx), _log(log) {
+    }
+
+public:
+    mlir::LogicalResult matchAndRewrite(IE::SDPAExtendedOp origOp, OpAdaptor newArgs,
+                                        mlir::ConversionPatternRewriter& rewriter) const final;
+
+private:
+    Logger _log;
+};
+
+mlir::LogicalResult SDPAExtendedOpConverter::matchAndRewrite(IE::SDPAExtendedOp origOp, OpAdaptor,
+                                                             mlir::ConversionPatternRewriter& rewriter) const {
+    int maxInRank = getMaxInRank(origOp);
+    if (maxInRank > 4) {
+        VPUX_THROW("Unimplemented {0}D->4D convert", maxInRank);
+    }
+    const auto inQType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
+    const auto inKType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(1).getType());
+    const auto inVType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(2).getType());
+
+    auto newInQShape = fillWithOnes(inQType, TARGET_TENSOR_DIM);
+    auto newInKShape = fillWithOnes(inKType, TARGET_TENSOR_DIM);
+    auto newInVShape = fillWithOnes(inVType, TARGET_TENSOR_DIM);
+
+    const auto newInQShapeAttr = getIntArrayAttr(origOp->getContext(), newInQShape);
+    const auto newInKShapeAttr = getIntArrayAttr(origOp->getContext(), newInKShape);
+    const auto newInVShapeAttr = getIntArrayAttr(origOp->getContext(), newInVShape);
+
+    const auto outShapeAttr = getIntArrayAttr(origOp->getContext(), getShape(origOp.getOutput()));
+
+    const auto inQReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_inQ"), origOp.getInputQ(),
+                                                                 nullptr, false, newInQShapeAttr);
+    const auto inKReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_inK"), origOp.getInputK(),
+                                                                 nullptr, false, newInKShapeAttr);
+    const auto inVReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_inV"), origOp.getInputV(),
+                                                                 nullptr, false, newInVShapeAttr);
+    mlir::Value maskReshape = nullptr;
+    if (origOp.getInputMask()) {
+        const auto inMType = mlir::cast<vpux::NDTypeInterface>(origOp.getInputMask().getType());
+        const auto newInMShape = fillWithOnes(inMType, TARGET_TENSOR_DIM);
+        const auto newInMShapeAttr = getIntArrayAttr(origOp->getContext(), newInMShape);
+        maskReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_inM"), origOp.getInputMask(),
+                                                           nullptr, false, newInMShapeAttr);
+    }
+
+    mlir::Value scaleReshape = nullptr;
+    if (origOp.getInputScale()) {
+        const auto inSType = mlir::cast<vpux::NDTypeInterface>(origOp.getInputScale().getType());
+        const auto newInSShape = fillWithOnes(inSType, TARGET_TENSOR_DIM);
+        const auto newInSShapeAttr = getIntArrayAttr(origOp->getContext(), newInSShape);
+        scaleReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_inS"), origOp.getInputScale(),
+                                                            nullptr, false, newInSShapeAttr);
+    }
+
+    auto newSDPAExtendedOp = rewriter.create<IE::SDPAExtendedOp>(origOp->getLoc(), inQReshape, inKReshape, inVReshape,
+                                                                 maskReshape, scaleReshape, origOp.getPadSizeSAttr());
+    auto outReshape = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(origOp, newSDPAExtendedOp.getOutput(), nullptr, false,
+                                                                 outShapeAttr);
 
     extendOpLoc(outReshape, "reshape_out");
 
@@ -1351,7 +1512,7 @@ mlir::LogicalResult ReduceConverter<ReduceOp>::matchAndRewrite(ReduceOp origOp, 
     const auto logCb = [&](const formatv_object_base& msg) {
         _log.trace("{0}", msg.str());
     };
-    const auto canBeRunOnNCE = VPU::isReduceOpSupportedOnNCE(origOp) && VPU::isNCEReduceSupported(origOp, logCb);
+    const auto canBeRunOnNCE = config::isReduceOpSupportedOnNCE(origOp) && VPU::isNCEReduceSupported(origOp, logCb);
 
     const auto inType = mlir::cast<vpux::NDTypeInterface>(origOp->getOperand(0).getType());
     auto newShape = to_small_vector(inType.getShape());
@@ -2203,7 +2364,7 @@ mlir::LogicalResult TransposeConverter::matchAndRewrite(IE::TransposeOp origOp, 
     auto inputReshape = rewriter.createOrFold<IE::ReshapeOp>(takeOpLoc(origOp, "reshape_in"), origOp.getInput(),
                                                              /*shape=*/nullptr, false, reducedShapeAttr);
 
-    auto newTransposeOp = rewriter.create<IE::TransposeOp>(origOp->getLoc(), inputReshape, nullptr,
+    auto newTransposeOp = rewriter.create<IE::TransposeOp>(takeOpLoc(origOp, "transpose_in"), inputReshape, nullptr,
                                                            mlir::AffineMapAttr::get(reducedPermutation));
 
     // Reshape to original output shape
@@ -3368,6 +3529,20 @@ auto buildReshapeMaterializer(StringRef locSuffix) {
     return reshapeFunc;
 }
 
+mlir::LogicalResult ConvertShapeTo4DPass::initialize(mlir::MLIRContext* ctx) {
+    if (mlir::failed(Base::initialize(ctx))) {
+        return mlir::failure();
+    }
+
+    // When this parameter has a value, it probably comes from LIT test.
+    // Override the default
+    if (forceConvertGatherTo4D.hasValue()) {
+        _forceConvertGatherTo4D = forceConvertGatherTo4D.getValue();
+    }
+
+    return mlir::success();
+}
+
 void ConvertShapeTo4DPass::safeRunOnFunc() {
     auto& ctx = getContext();
     auto func = getOperation();
@@ -3473,6 +3648,22 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
         return isLegalSDPA;
     };
 
+    const auto isLegalSDPAExtendedOp = [&](IE::SDPAExtendedOp op) {
+        const auto inQRank = mlir::cast<vpux::NDTypeInterface>(op.getInputQ().getType()).getRank();
+        const auto inKRank = mlir::cast<vpux::NDTypeInterface>(op.getInputK().getType()).getRank();
+        const auto inVRank = mlir::cast<vpux::NDTypeInterface>(op.getInputV().getType()).getRank();
+        bool isLegalSDPA = inQRank == TARGET_TENSOR_DIM && inKRank == TARGET_TENSOR_DIM && inVRank == TARGET_TENSOR_DIM;
+        if (op.getInputMask()) {
+            const auto inMRank = mlir::cast<vpux::NDTypeInterface>(op.getInputMask().getType()).getRank();
+            isLegalSDPA = isLegalSDPA && inMRank == TARGET_TENSOR_DIM;
+        }
+        if (op.getInputScale()) {
+            const auto inSRank = mlir::cast<vpux::NDTypeInterface>(op.getInputScale().getType()).getRank();
+            isLegalSDPA = isLegalSDPA && inSRank == TARGET_TENSOR_DIM;
+        }
+        return isLegalSDPA;
+    };
+
     const auto isLegalEltwiseOp = [&](mlir::Operation* op) {
         if (op->getNumOperands() < 2) {
             return true;
@@ -3528,7 +3719,11 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
         const auto areDimsBeforeAxisOne = std::all_of(inShape.begin(), inShape.begin() + axis, [](int dim) {
             return dim == 1;
         });
-        if (areDimsBeforeAxisOne) {
+        // E#180631: This pass is supposed to convert every op to 4D shape, however, this is not the case for Gather.
+        //           In WS, GatherOp has to be 4D for the IR to be legal while DefaultHW can manage without because
+        //           these ops get folded in the context of constants, after being turned into transformations.
+        //           The proper solution is to make it universally 4D and fix any performance regressions.
+        if (areDimsBeforeAxisOne && !_forceConvertGatherTo4D) {
             return true;
         }
 
@@ -3672,6 +3867,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::DynamicQuantizeOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::SignOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::SoftPlusOp>(isLegalOp);
+    target.addDynamicallyLegalOp<IE::FlashSDPAOp>(isLegalOp);
 
     target.addDynamicallyLegalOp<IE::DivideOp>(isLegalEltwiseOp);
     target.addDynamicallyLegalOp<IE::MinimumOp>(isLegalEltwiseOp);
@@ -3740,8 +3936,10 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     target.addDynamicallyLegalOp<IE::GatherElementsOp>(isLegalGatherElementsOp);
     target.addDynamicallyLegalOp<IE::ErfOp>(isLegalOp);
     target.addDynamicallyLegalOp<IE::DynamicDequantizeOp>(isLegalOp);
+    target.addDynamicallyLegalOp<IE::ReverseSequenceOp>(allOperandsAre4D);
     target.addDynamicallyLegalOp<IE::RMSOp>(allOperandsAre4D);
     target.addDynamicallyLegalOp<IE::SDPAOp>(isLegalSDPAOp);
+    target.addDynamicallyLegalOp<IE::SDPAExtendedOp>(isLegalSDPAExtendedOp);
     target.addDynamicallyLegalOp<IE::RandomUniformOp>(is4DLegalOp);
     target.addDynamicallyLegalOp<IE::GRUGatesOp>(is4DLegalOp);
     target.addDynamicallyLegalOp<IE::SplitOp>(isLegalSplitOp);
@@ -3817,6 +4015,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     patterns.add<GenericConverter<IE::QuantizeCastOp>>(typeConverter, &ctx, _log);
     patterns.add<GenericConverter<IE::QuantizeOp>>(typeConverter, &ctx, _log);
     patterns.add<GenericConverter<IE::DequantizeOp>>(typeConverter, &ctx, _log);
+    patterns.add<GenericConverter<IE::FlashSDPAOp>>(typeConverter, &ctx, _log);
 
     patterns.add<GatherConverter>(typeConverter, &ctx, _log);
     patterns.add<GatherNDConverter>(typeConverter, &ctx, _log);
@@ -3834,6 +4033,7 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
     patterns.add<ReduceConverter<IE::ReduceMinOp>>(typeConverter, &ctx, _log);
     patterns.add<ReduceConverter<IE::ReduceProdOp>>(typeConverter, &ctx, _log);
     patterns.add<ReduceConverter<IE::ReduceSumOp>>(typeConverter, &ctx, _log);
+    patterns.add<ReverseSequenceOpConverter>(typeConverter, &ctx, _log);
     patterns.add<StridedSliceConverter>(typeConverter, &ctx, _log);
     patterns.add<ConcatConverter>(typeConverter, &ctx, _log);
     patterns.add<TransposeConverter>(typeConverter, &ctx, _log);
@@ -3867,5 +4067,9 @@ void ConvertShapeTo4DPass::safeRunOnFunc() {
 //
 
 std::unique_ptr<mlir::Pass> vpux::IE::createConvertShapeTo4DPass(Logger log) {
-    return std::make_unique<ConvertShapeTo4DPass>(log);
+    return std::make_unique<ConvertShapeTo4DPass>(false, log);
+}
+
+std::unique_ptr<mlir::Pass> vpux::IE::createConvertShapeTo4DPass(bool forceConvertGatherTo4D, Logger log) {
+    return std::make_unique<ConvertShapeTo4DPass>(forceConvertGatherTo4D, log);
 }

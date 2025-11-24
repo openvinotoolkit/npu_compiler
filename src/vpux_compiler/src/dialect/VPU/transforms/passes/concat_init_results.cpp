@@ -71,7 +71,7 @@ mlir::RankedTensorType stripEncoding(mlir::RankedTensorType origin) {
 
 class ConcatInitResults final : public VPU::impl::ConcatInitResultsBase<ConcatInitResults> {
 public:
-    enum class Mode { Unspecified, GenerateMain, GenerateInit, GenerateAll };
+    enum class Mode { Unspecified, GenerateMain, GenerateInit };
 
     explicit ConcatInitResults(const Logger& log) {
         Base::initLogger(log, Base::getArgumentName());
@@ -102,22 +102,12 @@ private:
     void updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mlir::func::FuncOp mainFunc, size_t newInputsOffset,
                                   const DerivedWeightsSeparationInfo& info);
 
-    void updateWrapperMain(mlir::func::FuncOp wrapperFunc, const DerivedWeightsSeparationInfo& info);
-
-    const VPU::WeightsSeparationInfo& getSlicingInfo() {
-        const auto& info = getCachedAnalysis<VPU::WeightsSeparationInfo>();
-        VPUX_THROW_UNLESS(info.has_value(), "VPU::WeightsSeparationInfo analysis must be cached");
-        return info->get();
-    }
-
     const char* stringifyEnum(Mode mode) {
         switch (mode) {
         case Mode::GenerateMain:
             return "gen-main";
         case Mode::GenerateInit:
             return "gen-init";
-        case Mode::GenerateAll:
-            return "gen-all";
         default:
             return "UNKNOWN";
         }
@@ -185,15 +175,6 @@ size_t ConcatInitResults::updateTopLevelMain(mlir::func::FuncOp mainFunc, const 
     const auto& slicedSplits = info.slicedSplits;
     for (size_t i = 0; i < slicedSplits.size(); ++i) {
         auto indices = matchInitPartOutputsToMainInputs(allNewMainInputs, slicedSplits[i], oldBlockArgsBegin);
-        if (_mode == Mode::GenerateAll) {
-            // E#173135: when in "generate all", --introduce-init-function
-            // doesn't perform any "smart" slicing (and constant sorting) and
-            // instead just uses original slices directly. as a result, main has
-            // to acknowledge this as well. practically, this is only because
-            // init pipelining exists.
-            llvm::sort(indices);
-        }
-
         _log.debug("Running obfuscateInputs():");
         VPU::obfuscateInputs(_log.nest(), appendLoc(mainFunc.getLoc(), "obfuscated_inputs{0}", i), mainFunc, indices,
                              [](mlir::OpBuilder& builder, mlir::Location loc, mlir::Value input,
@@ -238,60 +219,6 @@ void ConcatInitResults::updateNetworkInfoForMain(net::NetworkInfoOp netInfo, mli
 
         _log.nest().debug("Added \"DataInfo\" {0} : {1}", inputName, inputType);
     }
-}
-
-void ConcatInitResults::updateWrapperMain(mlir::func::FuncOp wrapperFunc, const DerivedWeightsSeparationInfo& info) {
-    // entry-point is a wrapper function: when dealing with init() call,
-    // update it as init; otherwise, update as main.
-    struct {
-        mlir::func::CallOp initCall = nullptr;
-        mlir::func::FuncOp initFunc = nullptr;
-        mlir::func::CallOp mainCall = nullptr;
-        mlir::func::FuncOp mainFunc = nullptr;
-    } curr;  // current call-site information inside wrapper_main
-    wrapperFunc.walk([&](mlir::func::CallOp callOp) {
-        auto funcOp = getCalledFunction(callOp);
-        if (funcOp.getSymName().starts_with("init")) {  // definitely init
-            assert(curr.initCall == nullptr && "More than 1 init calls found!");
-            curr.initCall = callOp;
-            curr.initFunc = funcOp;
-        } else {
-            assert(curr.mainCall == nullptr && "More than 1 main calls found!");
-            curr.mainCall = callOp;
-            curr.mainFunc = funcOp;
-        }
-    });
-    if (bool emptyInitCase = (curr.initCall == nullptr); emptyInitCase) {
-        // nothing to do because there's no init and thus main doesn't need to
-        // be updated.
-        return;
-    }
-
-    updateInit(curr.initFunc);
-    std::ignore = updateTopLevelMain(curr.mainFunc, info);
-
-    // once functions are updated, fix the call-sites
-    OpBuilderLogger builderLog(_log.nest());
-    mlir::OpBuilder builder(wrapperFunc, &builderLog);
-
-    // new init call
-    builder.setInsertionPoint(curr.initCall);
-    auto newInitCall = builder.create<mlir::func::CallOp>(curr.initCall.getLoc(), getCalledFunction(curr.initCall),
-                                                          curr.initCall.getOperands());
-
-    // new main call
-    builder.setInsertionPoint(curr.mainCall);
-    auto newMainCallOperands = to_small_vector(curr.mainCall->getOperands() | filtered([&](mlir::Value x) {
-                                                   return x.getDefiningOp() != curr.initCall;
-                                               }));
-    newMainCallOperands.push_back(newInitCall.getResult(0));  // Note: guaranteed single result
-    auto newMainCall = builder.create<mlir::func::CallOp>(curr.mainCall.getLoc(), getCalledFunction(curr.mainCall),
-                                                          newMainCallOperands);
-
-    // replace
-    curr.mainCall.replaceAllUsesWith(newMainCall.getResults());
-    curr.mainCall.erase();
-    curr.initCall.erase();
 }
 
 void ConcatInitResults::safeRunOnModule() {
@@ -368,10 +295,6 @@ void ConcatInitResults::safeRunOnModule() {
         updateNetworkInfoForMain(netInfo, entryPointFunc, offset, info);
         break;
     }
-    case Mode::GenerateAll: {
-        updateWrapperMain(entryPointFunc, info);
-        break;
-    }
     default:
         VPUX_THROW("Invalid mode encountered");
     }
@@ -385,8 +308,6 @@ mlir::LogicalResult ConcatInitResults::initialize(mlir::MLIRContext*) {
             _mode = Mode::GenerateMain;
         } else if (modeString == "gen-init") {
             _mode = Mode::GenerateInit;
-        } else if (modeString == "gen-all") {
-            _mode = Mode::GenerateAll;
         } else {
             return mlir::failure();
         }
@@ -413,13 +334,6 @@ mlir::LogicalResult ConcatInitResults::deferredInitialize(mlir::ModuleOp moduleO
             return mlir::failure();
         }
         break;
-    }
-    case Mode::GenerateAll: {
-        if (limitSpecified) {
-            moduleOp->emitError(formatv("{0} is not supported in monolithic mode", memoryLimit.getArgStr()));
-            return mlir::failure();
-        }
-        [[fallthrough]];
     }
     case Mode::GenerateMain: {
         if (initPartSpecified) {

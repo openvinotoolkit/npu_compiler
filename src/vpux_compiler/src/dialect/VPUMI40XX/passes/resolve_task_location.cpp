@@ -10,8 +10,8 @@
 #include "vpux/compiler/dialect/VPUMI40XX/passes.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
-#include "vpux/compiler/utils/shave.hpp"
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_RESOLVETASKLOCATION
@@ -200,7 +200,8 @@ void ResolveTaskLocationPass::createTaskLocationBuffers(VPURegMapped::TaskBuffer
 
 void ResolveTaskLocationPass::safeRunOnFunc() {
     auto funcOp = getOperation();
-    VPUX_THROW_WHEN(VPU::isFifoPerShaveEngineEnabled(funcOp), "Dedicated Shave FIFOs for non-Wlm are not supported.");
+    VPUX_THROW_WHEN(config::isFifoPerShaveEngineEnabled(funcOp),
+                    "Dedicated Shave FIFOs for non-Wlm are not supported.");
     const auto arch = config::getArch(funcOp);
 
     MetadataBuffersContainer metadataBuffers;

@@ -19,9 +19,11 @@ namespace NCESparsity {
 using IntOrFloatType = std::variant<int32_t, float, vpux::type::float8_e5m2, vpux::type::float8_e4m3>;
 using PPEConverterCb = IntOrFloatType (*)(uint8_t, int16_t, double, mlir::Type);
 using BiasConverterCb = IntOrFloatType (*)(double, mlir::Type);
+using ScaleRetrieveCb = double (*)(IntOrFloatType, mlir::Type);
 
 PPEConverterCb getPPEConverterCb(config::ArchKind arch, bool isFloatType = false);
 BiasConverterCb getBiasConverterCb(config::ArchKind arch, bool isFloatType = false);
+ScaleRetrieveCb getScaleRetrieveCb(config::ArchKind arch, bool isNewWeightTableFormat = false);
 
 }  // namespace NCESparsity
 }  // namespace VPU

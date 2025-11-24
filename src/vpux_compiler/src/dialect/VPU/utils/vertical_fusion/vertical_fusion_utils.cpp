@@ -191,7 +191,7 @@ int64_t vpux::VPU::getTilingLimit(Dim axis, ArrayRef<mlir::Operation*> operation
         // Get the next parent ops in this VF region
         for (auto input : curOp->getOperands()) {
             auto parentOp = input.getDefiningOp();
-            if (parentOp != nullptr && llvm::find(operations, parentOp) != operations.end()) {
+            if (parentOp != nullptr && llvm::is_contained(operations, parentOp)) {
                 if (auto tilingViewLikeOp = mlir::dyn_cast<VPU::TilingViewLikeOpInterface>(curOp)) {
                     curAxis = tilingViewLikeOp.backInferTilingDim(curAxis);
                     hasChannelAxis = hasChannelAxis || curAxis == Dims4D::Act::C;

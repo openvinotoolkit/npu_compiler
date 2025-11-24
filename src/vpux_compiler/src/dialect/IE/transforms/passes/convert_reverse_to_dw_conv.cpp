@@ -8,8 +8,8 @@
 #include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/shape_manipulation.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
-#include "vpux/compiler/dialect/VPU/utils/max_kernel_size_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/utils/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -145,7 +145,7 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
     // Large kernels is not supported due to introduce a large number of GroupConv with large kernels and strides
     const auto kernelY = isTwoAxes ? inputShape[Dim(axisReverse1.getInt())] : 1;
     const auto kernelX = isTwoAxes ? inputShape[Dim(axisReverse2.getInt())] : inputShape[Dim(axisReverse1.getInt())];
-    const auto maxKernelSize = VPU::getMaxKernelSize(origOp);
+    const auto maxKernelSize = config::getMaxKernelSize(origOp);
     if (kernelY > maxKernelSize || kernelX > maxKernelSize || kernelY > VPU::NCEInvariant::MAX_STRIDE ||
         kernelX > VPU::NCEInvariant::MAX_STRIDE) {
         return matchFailed(rewriter, origOp, "Large kernel is not performant");
@@ -258,13 +258,16 @@ mlir::LogicalResult ReverseOpConverter::matchAndRewrite(IE::ReverseOp origOp, ml
         const auto curOrder = DimsOrder::fromPermutation(ArrayRef(curPerm));
         auto permOut = getPermutationFromOrders(curOrder, DimsOrder::NCHW, ctx);
         auto orderAttr = mlir::AffineMapAttr::get(permOut);
-        rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, outShapeCast, /*order=*/nullptr, orderAttr);
+        auto newOp = rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, outShapeCast, /*order=*/nullptr, orderAttr);
+        extendOpLoc(newOp, "as_transpose");
 
         return mlir::success();
     }
 
     // Create ShapeCast for output
-    rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(origOp, transposeOp, getIntArrayAttr(ctx, curInputShape.raw()));
+    auto newOp = rewriter.replaceOpWithNewOp<IE::ShapeCastOp>(origOp, transposeOp,
+                                                              getIntArrayAttr(ctx, curInputShape.raw()));
+    extendOpLoc(newOp, "as_shapecast");
 
     return mlir::success();
 }

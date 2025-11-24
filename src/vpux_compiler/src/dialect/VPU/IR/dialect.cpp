@@ -38,6 +38,25 @@ struct VPUInlinerInterface : public mlir::DialectInlinerInterface {
 }  // namespace
 
 //
+// materializeConstant
+//
+
+mlir::Operation* vpux::VPU::VPUDialect::materializeConstant(mlir::OpBuilder& builder, mlir::Attribute value,
+                                                            mlir::Type type, mlir::Location loc) {
+    if (!mlir::isa<Const::ContentAttr>(value)) {
+        (void)errorAt(loc, "Can't materialize VPU Constant from Attribute '{0}'", value);
+        return nullptr;
+    }
+
+    if (!mlir::isa<mlir::RankedTensorType>(type)) {
+        (void)errorAt(loc, "Can't materialize VPU Constant for Type '{0}'", type);
+        return nullptr;
+    }
+
+    return builder.create<Const::DeclareOp>(loc, type, mlir::cast<Const::ContentAttr>(value));
+}
+
+//
 // initialize
 //
 

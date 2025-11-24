@@ -86,13 +86,16 @@ mlir::LogicalResult MoveThroughLayer<ConcreteOp>::matchAndRewrite(ConcreteOp ori
         return mlir::failure();
     }
 
+    auto newAttrs = getNewAttrs(origOp, maybeAffineReshape);
+    if (newAttrs.empty()) {
+        return mlir::failure();
+    }
+    _log.trace("New attributes: '{0}'", newAttrs);
+
     mlir::IRMapping mapper;
     const SmallVector<mlir::Value> inputsToMap = {maybeAffineReshape.getInput()};
     mapper.map(origOp->getOperands(), ArrayRef(inputsToMap));
     auto* newLayerOp = rewriter.clone(*origOp.getOperation(), mapper);
-
-    auto newAttrs = getNewAttrs(origOp, maybeAffineReshape);
-    _log.trace("New attributes: '{0}'", newAttrs);
 
     updateAttrs(newLayerOp, newAttrs);
 
@@ -165,6 +168,15 @@ SmallVector<mlir::Attribute> MoveThroughTranspose::getNewAttrs(IE::TransposeOp o
                 newPerm[inDimIdx] = invertedDimMapping[order[outDim]];
             }
         }
+    }
+
+    // Validate permutation
+    SmallVector<bool> used(affineInShape.size(), false);
+    for (size_t i = 0; i < newPerm.size(); i++) {
+        if (newPerm[i] >= affineInShape.size() || used[newPerm[i]]) {
+            return {};
+        }
+        used[newPerm[i]] = true;
     }
 
     const auto orderAttr = mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(newPerm, origOp->getContext()));
@@ -1345,22 +1357,17 @@ mlir::LogicalResult MoveThroughConvert::matchAndRewrite(IE::ConvertOp convertOp,
                                                         mlir::PatternRewriter& rewriter) const {
     _log.trace("[{0}] Got '{1}' at '{2}'", this->getDebugName(), convertOp->getName(), convertOp->getLoc());
 
-    auto inputType = mlir::dyn_cast<vpux::NDTypeInterface>(convertOp.getType());
-    if (!inputType) {
-        return matchFailed(_log, rewriter, convertOp, "Input type is not NDTypeInterface");
-    }
-
-    auto shape = inputType.getShape();
-    if (shape.size() != 4) {
+    auto inputType = mlir::cast<vpux::NDTypeInterface>(convertOp.getType());
+    if (inputType.getRank() != 4) {
         return matchFailed(_log, rewriter, convertOp, "ConvertOp is not 4D");
     }
 
-    auto affineReshapeOp = convertOp->getOperand(0).getDefiningOp<IE::AffineReshapeOp>();
+    auto affineReshapeOp = convertOp.getInput().getDefiningOp<IE::AffineReshapeOp>();
     if (affineReshapeOp == nullptr || !affineReshapeOp->hasOneUse()) {
         return matchFailed(_log, rewriter, convertOp, "AffineReshapeOp not found or has multiple uses");
     }
     // TO-DO remove subgraph constrain - Track E#161180
-    auto eltwiseOp = affineReshapeOp->getOperand(0).getDefiningOp<IE::AddOp>();
+    auto eltwiseOp = affineReshapeOp.getInput().getDefiningOp<IE::AddOp>();
     if (eltwiseOp == nullptr) {
         return matchFailed(_log, rewriter, convertOp, "Required Subgraph not found");
     }
@@ -1369,26 +1376,9 @@ mlir::LogicalResult MoveThroughConvert::matchAndRewrite(IE::ConvertOp convertOp,
         return matchFailed(_log, rewriter, convertOp, "Propagating Affine Reshape through Convert not beneficial");
     }
 
-    mlir::IRMapping convertMapper;
-    convertMapper.map(convertOp->getOperand(0), affineReshapeOp.getInput());
-    auto newConvertOp = rewriter.clone(*convertOp, convertMapper);
-
-    if (newConvertOp == nullptr) {
-        return matchFailed(_log, rewriter, convertOp, "Failed to clone convertOp");
-    }
-
-    vpux::inferReturnTypes(newConvertOp, vpux::InferShapedTypeMode::SHAPE);
-
-    // Retrieve the dims order from the original input operation
-    auto originalDimsOrder = mlir::cast<NDTypeInterface>(affineReshapeOp.getInput().getType()).getDimsOrder();
-    auto newOutType =
-            mlir::cast<NDTypeInterface>(newConvertOp->getResult(0).getType()).changeDimsOrder(originalDimsOrder);
-
-    if (!newOutType) {
-        return matchFailed(_log, rewriter, convertOp, "Failed to change dimension order for newOutType");
-    }
-
-    rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(convertOp, newConvertOp->getResult(0),
+    auto newConvertOp =
+            rewriter.create<IE::ConvertOp>(convertOp.getLoc(), affineReshapeOp.getInput(), convertOp.getDstElemType());
+    rewriter.replaceOpWithNewOp<IE::AffineReshapeOp>(convertOp, newConvertOp.getOutput(),
                                                      affineReshapeOp.getDimMappingAttr(),
                                                      affineReshapeOp.getShapeValueAttr());
     return mlir::success();

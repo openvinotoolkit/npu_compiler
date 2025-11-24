@@ -45,8 +45,7 @@ size_t vpux::ELFNPU37XX::getOffsetOfOpInSection(mlir::Value op, mlir::Value sect
         return declareBufferOp.getByteOffset();
     }
 
-    auto& sectionCacheEntry = cache.FindAndConstruct(section);
-    auto& sectionCache = sectionCacheEntry.second;
+    auto& sectionCache = cache[section];
     if (sectionCache.empty()) {
         size_t totalOffset = 0;
         auto elfSection = mlir::cast<vpux::ELFNPU37XX::ElfSectionInterface>(section.getDefiningOp());

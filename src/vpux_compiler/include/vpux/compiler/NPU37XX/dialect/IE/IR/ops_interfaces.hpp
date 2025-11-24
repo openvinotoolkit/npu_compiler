@@ -8,5 +8,6 @@
 namespace vpux::IE::arch37xx {
 
 void registerElemTypeInfoOpInterfaces(mlir::DialectRegistry& registry);
+void registerExecutorOpInterfaces(mlir::DialectRegistry& registry);
 
 }  // namespace vpux::IE::arch37xx

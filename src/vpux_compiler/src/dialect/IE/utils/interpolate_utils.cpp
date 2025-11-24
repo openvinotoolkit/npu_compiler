@@ -6,6 +6,9 @@
 #include "vpux/compiler/dialect/IE/utils/interpolate_utils.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
+#include "vpux/compiler/dialect/config/IR/attributes.hpp"
+#include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/error.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -383,6 +386,11 @@ MapCoordFuncT getMapCoordMethod(InterpolateCoordMode coordMode) {
     } else {
         VPUX_THROW("Unsupported coodintate transformation mode: {0}.", coordMode);
     }
+}
+
+bool isFusingConvertIntoBilinearInterpolateOnDpuBeneficial([[maybe_unused]] IE::InterpolateOp op,
+                                                           [[maybe_unused]] mlir::Type convertOutType) {
+    return false;
 }
 
 }  // namespace IE

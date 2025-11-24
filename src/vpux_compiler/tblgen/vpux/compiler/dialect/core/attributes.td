@@ -66,4 +66,11 @@ class InlinerDispatchAttr<Dialect dialect, string name> : AttrDef<dialect, name,
     }];
 }
 
+def SmallVectorU8Prop: Property<"SmallVector<uint8_t>">{
+    let hashProperty = "hash_value($_storage)";
+    let storageType = "SmallVector<uint8_t>";
+    let writeToMlirBytecode = writeMlirBytecodeWithConvertToAttribute;
+    let readFromMlirBytecode = readMlirBytecodeUsingConvertFromAttribute;
+}
+
 #endif

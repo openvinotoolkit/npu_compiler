@@ -9,6 +9,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
 
 namespace vpux::VPUMI40XX {
@@ -37,7 +38,8 @@ bool isBarrierProgrammingDMA(VPUMI40XX::NNDMAOp dmaOp) {
         return false;
     }
 
-    return declBuff.getByteOffset() == VPUMI40XX::FIFO_BARRIERS_NCE_FILL_BARRIER_FIFO_ADR;
+    auto barrierFIFOAddr = config::getConstraint(dmaOp, config::BARRIER_FIFO_ADDR);
+    return declBuff.getByteOffset() == static_cast<int64_t>(barrierFIFOAddr);
 }
 
 bool isSHVEnqueueDMA(VPUMI40XX::NNDMAOp dmaOp) {
@@ -45,8 +47,9 @@ bool isSHVEnqueueDMA(VPUMI40XX::NNDMAOp dmaOp) {
     if (!declBuff) {
         return false;
     }
-    const auto offset = declBuff.getByteOffset() - VPUMI40XX::NNCMX_SHV_CMX_CTRL_BASE;
-    return llvm::is_contained(VPUMI40XX::SHV_FIFO_OFFSETS, offset);
+
+    auto shvFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(dmaOp, config::SHV_FIFO_ADDRS);
+    return llvm::is_contained(shvFIFOAddrs, declBuff.getByteOffset());
 }
 
 bool isDPUEnqueueDMA(VPUMI40XX::NNDMAOp dmaOp) {
@@ -54,8 +57,9 @@ bool isDPUEnqueueDMA(VPUMI40XX::NNDMAOp dmaOp) {
     if (!declBuff) {
         return false;
     }
-    const auto offset = declBuff.getByteOffset() - VPUMI40XX::NNCMX_DPU_CMX_CTRL_BASE;
-    return llvm::is_contained(VPUMI40XX::DPU_FIFO_OFFSETS, offset);
+
+    auto dpuFIFOAddrs = config::getConstraint<llvm::SmallVector<uint32_t>>(dmaOp, config::DPU_FIFO_ADDRS);
+    return llvm::is_contained(dpuFIFOAddrs, declBuff.getByteOffset());
 }
 
 void DumpStatisticsOfWlmOpsPass::safeRunOnFunc() {

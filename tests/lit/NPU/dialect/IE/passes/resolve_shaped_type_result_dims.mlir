@@ -102,7 +102,7 @@ func.func @ReifySoftmaxShape(%IN: !BoundedType) -> (!BoundedType, index) {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 !BoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
 // CHECK-LABEL: @ReifyMaxPoolShape
-func.func @ReifyMaxPoolShape(%IN: !BoundedType) -> (tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 64]> : tensor<4xsi64>, order = #NCHW}>, index) {
+func.func @ReifyMaxPoolShape(%IN: !BoundedType) -> (tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 62]> : tensor<4xsi64>, order = #NCHW}>, index) {
     // CHECK: [[IN:%.+]]: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
     %C3 = arith.constant 3 : index
     // CHECK-DAG: [[C2:%.+]] = arith.constant -2 : index
@@ -110,14 +110,14 @@ func.func @ReifyMaxPoolShape(%IN: !BoundedType) -> (tensor<1x16x30x?xf16, {bound
 
     %MAXPOOL = IE.MaxPool(%IN) {
             kernel_size = [3, 3], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [1, 1]
-    } : !BoundedType -> tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 64]> : tensor<4xsi64>, order = #NCHW}>
+    } : !BoundedType -> tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 62]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK: [[MAXPOOL:%.+]] = IE.MaxPool([[IN]])
 
-    %DIM = tensor.dim %MAXPOOL, %C3 : tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %DIM = tensor.dim %MAXPOOL, %C3 : tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 62]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK: [[DIM:%.+]] = tensor.dim [[IN]], [[C3]]
     // CHECK: [[OUTPUTSHAPE:%.+]] = arith.addi [[DIM]], [[C2]] : index
 
-    return %MAXPOOL, %DIM : tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 64]> : tensor<4xsi64>, order = #NCHW}>, index
+    return %MAXPOOL, %DIM : tensor<1x16x30x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 30, 62]> : tensor<4xsi64>, order = #NCHW}>, index
     // CHECK: return [[MAXPOOL]], [[OUTPUTSHAPE]]
 }
 
@@ -125,7 +125,7 @@ func.func @ReifyMaxPoolShape(%IN: !BoundedType) -> (tensor<1x16x30x?xf16, {bound
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 !InBoundedType = tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 32]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyMaxPoolShape
 func.func @ReifyMaxPoolShape(%IN: !InBoundedType) -> (!OutBoundedType, index) {
@@ -151,7 +151,7 @@ func.func @ReifyMaxPoolShape(%IN: !InBoundedType) -> (!OutBoundedType, index) {
 
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 !InBoundedType = tensor<1x16x?x32xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 32]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x16x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 16]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x16x?x16xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 16]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ReifyMaxPoolShape
 func.func @ReifyMaxPoolShape(%IN: !InBoundedType) -> (!OutBoundedType, index) {
@@ -202,7 +202,7 @@ func.func @ReifyConvShape(%IN: tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64E
 
 // CHECK-LABEL: @ReifyMaxPoolConvReLUMaxPoolConvShape
 func.func @ReifyMaxPoolConvReLUMaxPoolConvShape(%IN: tensor<1x16x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>)
-    -> (tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>, index) {
+    -> (tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 16]> : tensor<4xsi64>, order = #NCHW}>, index) {
     // CHECK: [[IN:%.+]]: tensor<1x16x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>
     %C3 = arith.constant 3 : index
     // CHECK-DAG: [[C2:%.+]] = arith.constant 2 : index
@@ -218,25 +218,25 @@ func.func @ReifyMaxPoolConvReLUMaxPoolConvShape(%IN: tensor<1x16x64x?xf16, {boun
     %MAXPOOL1 = IE.MaxPool(%IN) {
             kernel_size = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]
     } : tensor<1x16x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 64, 64]> : tensor<4xsi64>, order = #NCHW}>
-      -> tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 32]> : tensor<4xsi64>, order = #NCHW}>
 
     %CONV1 = IE.Convolution(%MAXPOOL1, %CST1) {dilations = [1, 1], pads_begin = [1, 1], pads_end = [1, 1], strides = [1, 1]} :
-                tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 64]> : tensor<4xsi64>, order = #NCHW}>,
-                tensor<32x16x3x3xf16, {order = #NCHW}> -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+                tensor<1x16x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 32, 32]> : tensor<4xsi64>, order = #NCHW}>,
+                tensor<32x16x3x3xf16, {order = #NCHW}> -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 32]> : tensor<4xsi64>, order = #NCHW}>
 
-    %RELU = IE.ReLU(%CONV1) : tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
-                           -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %RELU = IE.ReLU(%CONV1) : tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 32]> : tensor<4xsi64>, order = #NCHW}>
+                           -> tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 32]> : tensor<4xsi64>, order = #NCHW}>
 
     %MAXPOOL2 = IE.MaxPool(%RELU) {
             kernel_size = [2, 2], pads_begin = [0, 0], pads_end = [0, 0], rounding_type = #IE.rounding_type<FLOOR>, strides = [2, 2]
-    } : tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 64]> : tensor<4xsi64>, order = #NCHW}>
-      -> tensor<1x32x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
+    } : tensor<1x32x32x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 32, 32]> : tensor<4xsi64>, order = #NCHW}>
+      -> tensor<1x32x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 16]> : tensor<4xsi64>, order = #NCHW}>
 
     %CONV2 = IE.Convolution(%MAXPOOL2, %CST2) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} :
-                tensor<1x32x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>, tensor<16x32x1x1xf16, {order = #NCHW}>
-                -> tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
+                tensor<1x32x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 16]> : tensor<4xsi64>, order = #NCHW}>, tensor<16x32x1x1xf16, {order = #NCHW}>
+                -> tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 16]> : tensor<4xsi64>, order = #NCHW}>
 
-    %DIM = tensor.dim %CONV2, %C3 : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>
+    %DIM = tensor.dim %CONV2, %C3 : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 16]> : tensor<4xsi64>, order = #NCHW}>
     // CHECK: [[MAXPOOL1:%.+]] = IE.MaxPool([[IN]])
     // CHECK: [[CONV1:%.+]] = IE.Convolution([[MAXPOOL1]], [[CST1]])
     // CHECK: [[RELU:%.+]] = IE.ReLU([[CONV1]])
@@ -247,7 +247,7 @@ func.func @ReifyMaxPoolConvReLUMaxPoolConvShape(%IN: tensor<1x16x64x?xf16, {boun
     // CHECK: [[PADDED:%.+]] = arith.divsi [[DIM]], [[C2]] : index
     // CHECK: [[SHAPE:%.+]] = arith.divsi [[PADDED]], [[C2]] : index
 
-    return %CONV2, %DIM : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 32, 16, 64]> : tensor<4xsi64>, order = #NCHW}>, index
+    return %CONV2, %DIM : tensor<1x16x16x?xf16, {bounds = #const.OpaqueI64Elements<[1, 16, 16, 16]> : tensor<4xsi64>, order = #NCHW}>, index
     // CHECK: return [[CONV2]], [[SHAPE]]
 }
 
@@ -700,7 +700,7 @@ func.func @Transpose4dFourthDim(%IN: !InBoundedType) -> (!OutBoundedType, index)
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !InBoundedType = tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x2x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x2x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ConcatOverChannelsDynamicHeight
 func.func @ConcatOverChannelsDynamicHeight(
@@ -729,7 +729,7 @@ func.func @ConcatOverChannelsDynamicHeight(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !InBoundedType = tensor<1x1x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x3x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x3x?x128xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ConcatOverChannelsDynamicHeightThreeInputs
 func.func @ConcatOverChannelsDynamicHeightThreeInputs(
@@ -759,7 +759,7 @@ func.func @ConcatOverChannelsDynamicHeightThreeInputs(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !InBoundedType = tensor<1x1x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x2x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x2x64x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ConcatOverChannelsDynamicWidth
 func.func @ConcatOverChannelsDynamicWidth(
@@ -788,7 +788,7 @@ func.func @ConcatOverChannelsDynamicWidth(
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !InBoundedType = tensor<1x1x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
-!OutBoundedType = tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 1, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
+!OutBoundedType = tensor<1x2x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 2, 64, 128]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK-LABEL: @ConcatOverChannelsDynamicHW
 func.func @ConcatOverChannelsDynamicHW(
@@ -851,25 +851,26 @@ func.func @ConcatWithOffsets(
 
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 
-!InOutBoundedType = tensor<?x128xf16, {bounds = [4096, 128], order = #NC}>
+!InBoundedType = tensor<?x128xf16, {bounds = #const.OpaqueI64Elements<[4096, 128]> : tensor<2xsi64>, order = #NC}>
+!OutType = tensor<?x128xf16, {bounds = #const.OpaqueI64Elements<[4096, 128]> : tensor<2xsi64>, order = #NC}>
 
 // CHECK-LABEL: @FullyConnected_0
 func.func @FullyConnected_0(
-    %IN0: !InOutBoundedType
-) -> (!InOutBoundedType, index) {
-    // CHECK: [[IN0:%.+]]: tensor<?x128xf16, {bounds = [4096, 128], order = #NC}>
+    %IN0: !InBoundedType
+) -> (!OutType, index) {
+    // CHECK: [[IN0:%.+]]: tensor<?x128xf16, {bounds = #const.OpaqueI64Elements<[4096, 128]> : tensor<2xsi64>, order = #NC}>
 
     %IDX_0 = arith.constant 0 : index
     // CHECK:   [[IDX_0:%.+]] = arith.constant 0 : index
 
     %cst = const.Declare tensor<128x128xf16> = dense<1.0> : tensor<128x128xf16> isSplat
-    %FC = IE.FullyConnected(%IN0, %cst) : !InOutBoundedType, tensor<128x128xf16> -> !InOutBoundedType
+    %FC = IE.FullyConnected(%IN0, %cst) : !InBoundedType, tensor<128x128xf16> -> !OutType
     // CHECK:   [[FC:%.+]] = IE.FullyConnected([[IN0]]
 
-    %DIM_0 = tensor.dim %FC, %IDX_0 : !InOutBoundedType
+    %DIM_0 = tensor.dim %FC, %IDX_0 : !OutType
     // CHECK:   [[DIM_0:%.+]] = tensor.dim [[IN0]], [[IDX_0]]
 
-    return %FC, %DIM_0 : !InOutBoundedType, index
+    return %FC, %DIM_0 : !OutType, index
     // CHECK:   return [[FC]], [[DIM_0]]
 }
 
@@ -878,27 +879,27 @@ func.func @FullyConnected_0(
 #NC = affine_map<(d0, d1) -> (d0, d1)>
 
 !InType = tensor<4096x128xf16, {order = #NC}>
-!WeightsBoundedType = tensor<?x128xf16, {bounds = [128, 128], order = #NC}>
-!OutBoundedType = tensor<4096x?xf16, {bounds = [4096, 128], order = #NC}>
+!WeightsBoundedType = tensor<?x128xf16, {bounds = #const.OpaqueI64Elements<[128, 128]> : tensor<2xsi64>, order = #NC}>
+!OutType = tensor<4096x?xf16, {bounds = #const.OpaqueI64Elements<[4096, 128]> : tensor<2xsi64>, order = #NC}>
 
 // CHECK-LABEL: @FullyConnected_1
 func.func @FullyConnected_1(
     %IN0: !InType,
     %WEIGHTS: !WeightsBoundedType
-) -> (!OutBoundedType, index) {
+) -> (!OutType, index) {
     // CHECK: [[IN0:%.+]]: tensor<4096x128xf16, {order = #NC}>
-    // CHECK: [[IWEIGHTS0:%.+]]: tensor<?x128xf16, {bounds = [128, 128], order = #NC}>
+    // CHECK: [[IWEIGHTS0:%.+]]: tensor<?x128xf16, {bounds = #const.OpaqueI64Elements<[128, 128]> : tensor<2xsi64>, order = #NC}>
 
     %IDX_1 = arith.constant 1 : index
     // CHECK:   [[IDX_0:%.+]] = arith.constant 0 : index
 
-    %FC = IE.FullyConnected(%IN0, %WEIGHTS) : !InType, !WeightsBoundedType -> !OutBoundedType
+    %FC = IE.FullyConnected(%IN0, %WEIGHTS) : !InType, !WeightsBoundedType -> !OutType
     // CHECK:   [[FC:%.+]] = IE.FullyConnected([[IN0]], [[IWEIGHTS0]])
 
-    %DIM_1 = tensor.dim %FC, %IDX_1 : !OutBoundedType
+    %DIM_1 = tensor.dim %FC, %IDX_1 : !OutType
     // CHECK:   [[DIM_1:%.+]] = tensor.dim [[IWEIGHTS0]], [[IDX_0]]
 
-    return %FC, %DIM_1 : !OutBoundedType, index
+    return %FC, %DIM_1 : !OutType, index
     // CHECK:   return [[FC]], [[DIM_1]]
 }
 

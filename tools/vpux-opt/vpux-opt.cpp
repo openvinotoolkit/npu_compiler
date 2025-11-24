@@ -3,12 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/NPU40XX/dialect/ELF/passes.hpp"
 #include "vpux/compiler/NPU40XX/dialect/NPUReg40XX/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPU/transforms/passes.hpp"
-#include "vpux/compiler/NPU40XX/dialect/VPUIP/transforms/passes.hpp"
 #include "vpux/compiler/ShaveCodeGen/passes.hpp"
 #include "vpux/compiler/conversion.hpp"
+#include "vpux/compiler/dialect/ELF/transforms/passes.hpp"
 #include "vpux/compiler/dialect/ELFNPU37XX/passes.hpp"
 #include "vpux/compiler/dialect/HostExec/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
@@ -24,6 +22,8 @@
 #include "vpux/compiler/dialect/VPURegMapped/passes.hpp"
 #include "vpux/compiler/dialect/const/passes.hpp"
 #include "vpux/compiler/dialect/core/transforms/passes.hpp"
+#include "vpux/compiler/dynamic_rewriter/passes.hpp"
+#include "vpux/compiler/dynamic_rewriter/rewriters_register.hpp"
 #include "vpux/compiler/init.hpp"
 #include "vpux/compiler/interfaces_registry.hpp"
 #include "vpux/compiler/passes_register.hpp"
@@ -61,7 +61,9 @@ int main(int argc, char* argv[]) {
             auto interfacesRegistry = vpux::createInterfacesRegistry(archKind);
             interfacesRegistry->registerInterfaces(registry);
         };
-
+        // Rewriter Registration
+        vpux::createRewriterRegistry();
+        // Pass Registration
         vpux::Core::registerPasses();
         vpux::Const::registerPasses();
         vpux::IE::registerPasses();
@@ -84,6 +86,7 @@ int main(int argc, char* argv[]) {
         vpux::ShaveCodeGen::registerPasses();
         vpux::registerConversionPasses();
         vpux::registerConversionPipelines();
+        vpux::registerDynamicRewriterExecutorPass();
 
         mlir::registerTransformsPasses();
         mlir::func::registerFuncPasses();

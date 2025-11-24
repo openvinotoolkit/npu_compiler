@@ -774,14 +774,17 @@ void ConvertBilinearToStridedConcatAndConvPass::safeRunOnFunc() {
             return true;
         }
 
+        // Use ExecutorOpInterface to determine if SHAVE is preferred
+        if (auto iface = mlir::dyn_cast<IE::ExecutorOpInterface>(op.getOperation())) {
+            auto execs = iface.getPreferredExecutors();
+            if (!execs.empty() && execs[0] == VPU::ExecutorKind::SHAVE_ACT) {
+                return true;
+            }
+        }
+
         const auto inputElemType = inputType.getElementType();
         if (mlir::isa<mlir::quant::QuantizedType>(inputElemType)) {
             // Support of quantized case will be open after E#104698 fix AC issue.
-            return true;
-        }
-
-        // Only support 4D Input shape.
-        if (inputShape.size() != 4) {
             return true;
         }
 

@@ -445,8 +445,8 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
                                 const mlir::Value inputValue) -> mlir::FailureOr<mlir::Operation*> {
         if (auto memPermute = mlir::dyn_cast<IE::MemPermuteOp>(op)) {
             return rewriter
-                    .template create<IE::MemPermuteOp>(eltwiseOp->getLoc(), inputValue, memPermute.getDstOrderAttr(),
-                                                       memPermute.getMemPermAttr())
+                    .template create<IE::MemPermuteOp>(appendLoc(eltwiseOp->getLoc(), "_mempermute"), inputValue,
+                                                       memPermute.getDstOrderAttr(), memPermute.getMemPermAttr())
                     .getOperation();
         } else if (auto permuteQuantize = mlir::dyn_cast<IE::PermuteQuantizeOp>(op)) {
             auto dstElemType = permuteQuantize.getDstElemType();
@@ -454,16 +454,17 @@ mlir::LogicalResult PermuteEltwiseRewriter<EltwiseOp>::matchAndRewrite(EltwiseOp
                 // if no extra shape cast needed and output permuteQuantize is actually a pure memPermute,
                 // create memPermute here so later it can be fused into ODU of the eltwise
                 return rewriter
-                        .template create<IE::MemPermuteOp>(eltwiseOp->getLoc(), inputValue,
+                        .template create<IE::MemPermuteOp>(appendLoc(eltwiseOp->getLoc(), "_mempermute"), inputValue,
                                                            permuteQuantize.getDstOrderAttr(),
                                                            permuteQuantize.getMemPermAttr())
                         .getOperation();
             } else {
                 return rewriter
                         .template create<IE::PermuteQuantizeOp>(
-                                eltwiseOp->getLoc(), inputValue, permuteQuantize.getDstOrderAttr(),
-                                permuteQuantize.getMemPermAttr(), permuteQuantize.getDstElemTypeAttr(),
-                                permuteQuantize.getPadsBeginAttr(), permuteQuantize.getPadsEndAttr())
+                                appendLoc(eltwiseOp->getLoc(), "_permutequantize"), inputValue,
+                                permuteQuantize.getDstOrderAttr(), permuteQuantize.getMemPermAttr(),
+                                permuteQuantize.getDstElemTypeAttr(), permuteQuantize.getPadsBeginAttr(),
+                                permuteQuantize.getPadsEndAttr())
                         .getOperation();
             }
         } else {

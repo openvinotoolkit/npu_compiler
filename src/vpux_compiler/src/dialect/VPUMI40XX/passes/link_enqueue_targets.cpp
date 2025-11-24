@@ -9,8 +9,8 @@
 #include "vpux/compiler/dialect/VPUMI40XX/wlm_utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/passes.hpp"
-#include "vpux/compiler/utils/shave.hpp"
 
 namespace vpux::VPUMI40XX {
 #define GEN_PASS_DECL_LINKENQUEUETARGETS
@@ -31,6 +31,7 @@ public:
 
 private:
     void safeRunOnFunc() final;
+
     void processEnqueueOps(mlir::func::FuncOp netFunc);
 
     WorkloadManagementMode _workloadManagementMode;
@@ -40,7 +41,7 @@ private:
 // if the tasks support linking, enable task linking and update the op to enqueue only the head
 // of the linked task chain
 void LinkEnqueueTargetsPass::processEnqueueOps(mlir::func::FuncOp netFunc) {
-    bool fifoPerShaveEngineEnabled = VPU::isFifoPerShaveEngineEnabled(netFunc);
+    bool fifoPerShaveEngineEnabled = config::isFifoPerShaveEngineEnabled(netFunc);
 
     for (auto enqueue : netFunc.getOps<VPURegMapped::EnqueueOp>()) {
         if (enqueue.getStart() == enqueue.getEnd()) {

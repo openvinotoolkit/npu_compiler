@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/dialect/const/utils/transformations.hpp"
 #include "vpux/compiler/core/attributes/dims_order.hpp"
+#include "vpux/compiler/core/types/quantile_float/types.hpp"
 #include "vpux/compiler/dialect/const/attributes/content.hpp"
 #include "vpux/compiler/dialect/const/utils/affine_reshape.hpp"
 #include "vpux/compiler/dialect/const/utils/constant_folding_cache.hpp"
@@ -490,15 +491,19 @@ mlir::LogicalResult prepareDequantizeSwap(optimization::TransformAttrPos dequant
     return mlir::success();
 }
 
-Const::CastElemTypeAttr tryFusingConsecutiveCasts(Const::CastElemTypeAttr currTransformation) {
-    const bool castToQuantizedType = mlir::isa<mlir::quant::QuantizedType>(currTransformation.getElemType());
+Const::CastElemTypeAttr tryFusingConsecutiveCasts(Const::CastElemTypeAttr currTransformation,
+                                                  Const::CastElemTypeAttr prevTransformation) {
+    const bool castToQuantizedType =
+            mlir::isa<mlir::quant::QuantizedType, vpux::type::QuantileFloatType>(currTransformation.getElemType());
+    const bool castToQuantizedTypePrev =
+            mlir::isa<mlir::quant::QuantizedType, vpux::type::QuantileFloatType>(prevTransformation.getElemType());
     // E#151161: fusing cast-to-quantized-type is complicated: it requires (at
     // least) expressed type modification which doesn't always agree with
     // further transformations (e.g. one could have fused casts, followed by
     // dequantize which "restores" the previous type that is now changed to
     // something else). ultimately, this can cause invalid IR. as a workaround,
     // just ignore this problem altogether by not fusing cast-to-quantized-type.
-    return castToQuantizedType ? nullptr : currTransformation;
+    return castToQuantizedType || castToQuantizedTypePrev ? nullptr : currTransformation;
 }
 
 std::pair<optimization::TransformAttrPos, bool> swapTransformations(optimization::TransformAttrPos prevIt,
@@ -605,7 +610,7 @@ std::pair<optimization::TransformAttrPos, bool> fuseConsecutiveTransformations(
         newTransformation = MemPermuteAttr::get(lastOrder, newMemPermAttr);
     } else if (auto currT = mlir::dyn_cast<Const::CastElemTypeAttr>(currTransformation);
                mlir::isa<Const::CastElemTypeAttr>(prevTransformation) && currT != nullptr) {
-        newTransformation = tryFusingConsecutiveCasts(currT);
+        newTransformation = tryFusingConsecutiveCasts(currT, mlir::cast<Const::CastElemTypeAttr>(prevTransformation));
     }
 
     if (newTransformation != nullptr) {
@@ -1026,7 +1031,12 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
         int64_t previousDimsStride = 1;
         int64_t numOfElems = 1;
         int64_t coveredOffset = 0;
-        int64_t dimensionToSlice = shape.size() - 1;
+        int64_t dimensionToSlice = static_cast<int64_t>(shape.size()) - 1;
+
+        // Ensure dimensionToSlice is valid before using as index
+        VPUX_THROW_UNLESS(dimensionToSlice >= 0 && dimensionToSlice < static_cast<int64_t>(shape.size()),
+                          "Invalid dimensionToSlice value: {0}", dimensionToSlice);
+
         for (; dimensionToSlice >= 0; dimensionToSlice--) {
             numOfElems *= (originalShape[dimensionToSlice]);
             if (numOfElems >= flatNumOfElems + flatOffset) {
@@ -1034,6 +1044,11 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
             }
             previousDimsStride = numOfElems;
         }
+
+        // Check again after loop in case dimensionToSlice became negative
+        VPUX_THROW_UNLESS(dimensionToSlice >= 0 && dimensionToSlice < static_cast<int64_t>(shape.size()),
+                          "Invalid dimensionToSlice value after loop: {0}", dimensionToSlice);
+
         offset[dimensionToSlice] =
                 static_cast<int64_t>(std::floor(static_cast<double>(flatOffset) / previousDimsStride));
         coveredOffset = offset[dimensionToSlice] * previousDimsStride;
@@ -1085,11 +1100,16 @@ mlir::FailureOr<Const::FuseWeightsAttr> moveSubViewIntoFuse(Const::FuseWeightsAt
         // of a constant
         int flatNumOfElems = constant.getType().getTotalAllocSize().count() * bitsInByte / constantElemTypeSize;
         if (!((flatNumOfElems == flatSubViewShape) && (flatSubViewOffset - flatOffsetCorrection == 0))) {
-            SmallVector<int64_t> flatShape({1, 1, 1, flatNumOfElems});
+            const auto constantRank = constant.getType().getRank();
+            Shape flatSubViewOffsetUnsqueezed(constantRank, 0);
+            flatSubViewOffsetUnsqueezed.back() = flatSubViewOffset - flatOffsetCorrection;
+            Shape flatSubViewShapeUnsqueezed(constantRank, 1);
+            flatSubViewShapeUnsqueezed.back() = flatSubViewShape;
+            Shape flatShapeUnsqueezed(constantRank, 1);
+            flatShapeUnsqueezed.back() = flatNumOfElems;
             constant = constant.transform()
-                               .reshape(ShapeRef(flatShape))
-                               .subview(ShapeRef{0, 0, 0, flatSubViewOffset - flatOffsetCorrection},
-                                        ShapeRef{1, 1, 1, flatSubViewShape})
+                               .reshape(flatShapeUnsqueezed)
+                               .subview(flatSubViewOffsetUnsqueezed, flatSubViewShapeUnsqueezed)
                                .get();
         }
         constantStartInFusedBuffer = constantEnd;

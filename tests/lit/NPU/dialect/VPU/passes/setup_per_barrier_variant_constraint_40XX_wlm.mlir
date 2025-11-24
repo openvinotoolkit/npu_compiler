@@ -15,12 +15,12 @@ module @mainModule attributes { config.arch = #config.arch_kind<NPU40XX> } {
 
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
-// CHECK-DAG: config.Option @VPU.UseDedicatedFifoPerShaveEngine : true
+// CHECK-DAG: config.Option @config.UseDedicatedFifoPerShaveEngine : true
 // Currently, still non-WLM barrier configuration settings are present even for WLM enabled mode. To be updated to WLM values in E#155846
-// CHECK-DAG: config.Option @VPU.BarrierMaxVariantSum : 64
-// CHECK-DAG: config.Option @VPU.BarrierMaxVariantCount : 128
-// CHECK-DAG: config.Option @VPU.MetadataMaxVariantCount : 128
-// CHECK-DAG: config.Option @VPU.MetadataMaxInvariantCount : 64
-// CHECK-DAG: config.Option @VPU.MetadataMaxKernelInvocationCount : 32
-// CHECK-DAG: config.Option @VPU.MetadataMaxKernelRangeCount : 32
-// CHECK-DAG: config.Option @VPU.WorkloadManagementStatus : "ENABLED"
+// CHECK-DAG: config.Option @config.BarrierMaxVariantSum : 64
+// CHECK-DAG: config.Option @config.BarrierMaxVariantCount : 128
+// CHECK-DAG: config.Option @config.MetadataMaxVariantCount : 128
+// CHECK-DAG: config.Option @config.MetadataMaxInvariantCount : 64
+// CHECK-DAG: config.Option @config.MetadataMaxKernelInvocationCount : 32
+// CHECK-DAG: config.Option @config.MetadataMaxKernelRangeCount : 32
+// CHECK-DAG: config.Option @config.WorkloadManagementStatus : "ENABLED"

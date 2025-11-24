@@ -31,6 +31,8 @@ protected:
     void addOutputSpill(VFConfig& config, mlir::Operation* operation, VFPipelineContainer& pipelinedStructure,
                         int64_t index, const std::unique_ptr<VPU::LayerVPUNNCost>& costFunction,
                         const VPUNNCostParameters& costParameters) const;
+
+    bool isSharedWeightsSupported(VFConfig& config) const override;
 };
 
 }  // namespace vpux::VPU::VF::v2

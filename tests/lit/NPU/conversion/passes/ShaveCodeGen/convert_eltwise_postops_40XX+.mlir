@@ -23,7 +23,8 @@ module @ReLU {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 // CHECK-NOT:     IE.ReLU
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZERO:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[CMP:%.+]] = arith.cmpf ole, [[IN]], [[ZERO]] fastmath<nnan,nsz> : f16
@@ -52,7 +53,8 @@ module @LeakyReLU {
     } -> tensor<1x1x1x1000xf16>
     return %0 : tensor<1x1x1x1000xf16>
 // CHECK-NOT:     IE.LeakyRelu
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[ZERO:%.+]] = arith.constant 0.000000e+00 : f16
 // CHECK-NEXT:      [[CMP:%.+]] = arith.cmpf ole, [[IN]], [[ZERO]] fastmath<nnan,nsz> : f16
@@ -86,7 +88,8 @@ module @ClampU16 {
     return %0 : tensor<1x1x1x1000xui16>
 // CHECK-NOT:     IE.Clamp
 // CHECK:         [[ARG_BC:%.+]] = tensor.bitcast [[ARG:%.+]] : tensor<1x1x1x1000xui16> to tensor<1x1x1x1000xi16>
-// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[ARG_BC]] : tensor<1x1x1x1000xi16>) {
+// CHECK-NEXT:    [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[EMPTY]] : tensor<1x1x1x1000xi16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: i16, {{%.+}}: i16):
 // CHECK-NEXT:      [[LOW:%.+]] = arith.constant 1 : i16
 // CHECK-NEXT:      [[HIGH:%.+]] = arith.constant 6 : i16
@@ -120,7 +123,8 @@ module @ClampU16NonRepresentable {
     return %0 : tensor<1x1x1x1000xui16>
 // CHECK-NOT:     IE.Clamp
 // CHECK:         [[ARG_BC:%.+]] = tensor.bitcast [[ARG:%.+]] : tensor<1x1x1x1000xui16> to tensor<1x1x1x1000xi16>
-// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[ARG_BC]] : tensor<1x1x1x1000xi16>) {
+// CHECK-NEXT:    [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[EMPTY]] : tensor<1x1x1x1000xi16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: i16, {{%.+}}: i16):
 // CHECK-NEXT:      [[LOW:%.+]] = arith.constant 0 : i16
 // CHECK-NEXT:      [[HIGH:%.+]] = arith.constant -1 : i16
@@ -154,7 +158,8 @@ module @ClampS16 {
     return %0 : tensor<1x1x1x1000xsi16>
 // CHECK-NOT:     IE.Clamp
 // CHECK:         [[ARG_BC:%.+]] = tensor.bitcast [[ARG:%.+]] : tensor<1x1x1x1000xsi16> to tensor<1x1x1x1000xi16>
-// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[ARG_BC]] : tensor<1x1x1x1000xi16>) {
+// CHECK-NEXT:    [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[EMPTY]] : tensor<1x1x1x1000xi16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: i16, {{%.+}}: i16):
 // CHECK-NEXT:      [[LOW:%.+]] = arith.constant 1 : i16
 // CHECK-NEXT:      [[HIGH:%.+]] = arith.constant 6 : i16
@@ -189,7 +194,8 @@ module @ClampS16NonRepresentable {
 
 // CHECK-NOT:     IE.Clamp
 // CHECK:         [[ARG_BC:%.+]] = tensor.bitcast [[ARG:%.+]] : tensor<1x1x1x1000xsi16> to tensor<1x1x1x1000xi16>
-// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[ARG_BC]] : tensor<1x1x1x1000xi16>) {
+// CHECK-NEXT:    [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xi16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG_BC]] : tensor<1x1x1x1000xi16>) outs([[EMPTY]] : tensor<1x1x1x1000xi16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: i16, {{%.+}}: i16):
 // CHECK-NEXT:      [[LOW:%.+]] = arith.constant -32768 : i16
 // CHECK-NEXT:      [[HIGH:%.+]] = arith.constant 32767 : i16
@@ -223,7 +229,8 @@ module @ClampF16 {
     return %0 : tensor<1x1x1x1000xf16>
 
 // CHECK-NOT:     IE.Clamp
-// CHECK:         [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins([[ARG:%.+]] : tensor<1x1x1x1000xf16>) outs([[ARG]] : tensor<1x1x1x1000xf16>) {
+// CHECK:         [[EMPTY:%.+]] = tensor.empty() : tensor<1x1x1x1000xf16>
+// CHECK-NEXT:    [[LINALG_OP:%.+]] = linalg.generic {indexing_maps = [[[NCHW]], [[NCHW]]], iterator_types = ["parallel", "parallel", "parallel", "parallel"]} ins({{%.+}} : tensor<1x1x1x1000xf16>) outs([[EMPTY]] : tensor<1x1x1x1000xf16>) {
 // CHECK-NEXT:    ^bb0([[IN:%.+]]: f16, {{%.+}}: f16):
 // CHECK-NEXT:      [[LOW:%.+]] = arith.constant 5.000000e-01 : f16
 // CHECK-NEXT:      [[HIGH:%.+]] = arith.constant 6.500000e+00 : f16

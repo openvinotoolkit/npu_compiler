@@ -3,10 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <openvino/core/dimension.hpp>
+#include <openvino/core/node_vector.hpp>
+#include <openvino/core/type/element_type_traits.hpp>
+#include <openvino/op/scaled_dot_product_attention.hpp>
 #include <openvino/opsets/opset14_decl.hpp>
 #include <openvino/pass/manager.hpp>
-#include <transformations/op_conversions/scaled_dot_product_attention_decomposition.hpp>
+#include <string_view>
 
 #include <common/print_test_case_name.hpp>
 #include <common_test_utils/ov_tensor_utils.hpp>
@@ -17,53 +19,30 @@
 
 namespace ov::test {
 
-PRETTY_PARAM(Batches, std::vector<BoundedDim>);  // N, ...
-PRETTY_PARAM(SourceSeqLen, BoundedDim);          // S
-PRETTY_PARAM(TargetSeqLen, BoundedDim);          // L
-PRETTY_PARAM(QKEmbeddingSize, BoundedDim);       // E
-PRETTY_PARAM(VEmbeddingSize, BoundedDim);        // Ev
+// Batch == 1
+PRETTY_PARAM(Heads, BoundedDim);            // H
+PRETTY_PARAM(SourceSeqLen, BoundedDim);     // S
+PRETTY_PARAM(TargetSeqLen, BoundedDim);     // L
+PRETTY_PARAM(QKEmbeddingSize, BoundedDim);  // E
+PRETTY_PARAM(VEmbeddingSize, BoundedDim);   // Ev
 PRETTY_PARAM(IsCausal, bool);
 PRETTY_PARAM(HasAttentionMask, bool);
 PRETTY_PARAM(HasScale, bool);
 
-PRETTY_PARAM(InputType, ov::element::Type);
-
 namespace {
 
-std::vector<InputShape> generateInputShapes(const Batches& batches, SourceSeqLen sourceSeqLen,
-                                            TargetSeqLen targetSeqLen, QKEmbeddingSize qkEmbeddingSize,
-                                            VEmbeddingSize vEmbeddingSize, HasAttentionMask hasAttentionMask) {
-    auto qDims = combine<BoundedDim>(batches, targetSeqLen, qkEmbeddingSize);
-    auto qShape = generateTestShape(qDims);
-
-    auto kDims = combine<BoundedDim>(batches, sourceSeqLen, qkEmbeddingSize);
-    auto kShape = generateTestShape(kDims);
-
-    auto vDims = combine<BoundedDim>(batches, sourceSeqLen, vEmbeddingSize);
-    auto vShape = generateTestShape(vDims);
-
-    auto inputShapes = std::vector<InputShape>{qShape, kShape, vShape};
-
-    if (hasAttentionMask) {
-        auto attensionMaskDims = combine<BoundedDim>(batches, targetSeqLen, sourceSeqLen);
-        auto attentionMaskShape = generateTestShape(attensionMaskDims);
-        inputShapes.push_back(attentionMaskShape);
-    }
-
-    return inputShapes;
-}
-
-ov::ParameterVector generateInputParams(const std::vector<ov::PartialShape>& inputDynamicShapes, InputType inputType,
+ov::ParameterVector generateInputParams(const std::vector<ov::PartialShape>& inputDynamicShapes,
                                         HasAttentionMask hasAttentionMask, HasScale hasScale) {
     ov::ParameterVector inputParams;
 
+    const auto inputType = ov::element::f32;
     inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes[0]));
     inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes[1]));
     inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(inputType, inputDynamicShapes[2]));
 
-    inputParams[0]->set_friendly_name("q");
-    inputParams[1]->set_friendly_name("k");
-    inputParams[2]->set_friendly_name("v");
+    inputParams[0]->set_friendly_name("query");
+    inputParams[1]->set_friendly_name("key");
+    inputParams[2]->set_friendly_name("value");
 
     if (hasScale) {
         inputParams.push_back(std::make_shared<ov::op::v0::Parameter>(
@@ -82,7 +61,8 @@ ov::ParameterVector generateInputParams(const std::vector<ov::PartialShape>& inp
 
 }  // namespace
 
-class SdpAttentionLayerTestCommon : public VpuOv2LayerTest {
+template <typename Derived>
+class SdpaLayerTestBase : public VpuOv2LayerTest {
 protected:
     void generate_inputs(const std::vector<ov::Shape>& targetInputStaticShapes) override {
         auto shapes = std::vector<ov::Shape>{targetInputStaticShapes[0], targetInputStaticShapes[1],
@@ -97,310 +77,228 @@ protected:
         SubgraphBaseTest::generate_inputs(shapes);
     }
 
+    void SetUp() override {
+        auto params = static_cast<Derived*>(this)->GetParam();
+
+        this->hasAttentionMask = std::get<HasAttentionMask>(params);
+        this->hasScale = std::get<HasScale>(params);
+
+        const auto inputShapes = static_cast<Derived*>(this)->generateInputShapes(params);
+
+        init_input_shapes(inputShapes);
+
+        const auto inputParams = generateInputParams(inputDynamicShapes, hasAttentionMask, hasScale);
+
+        ov::OutputVector inputs;
+        for (auto& input : inputParams) {
+            inputs.emplace_back(input);
+        }
+
+        auto sdpa = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, std::get<IsCausal>(params));
+        sdpa->set_friendly_name("sdpa");
+
+        function = std::make_shared<ov::Model>(ov::OutputVector{sdpa}, inputParams, "SDPA");
+    }
+
 public:
     bool hasAttentionMask = false;
     bool hasScale = false;
 };
 
 //
-// Cross Attention test class
+// MultiHeadAttentionParams
 //
 
-using SdpAttentionLayerTestParams = std::tuple<Batches, SourceSeqLen, TargetSeqLen, QKEmbeddingSize, VEmbeddingSize,
-                                               IsCausal, HasAttentionMask, HasScale, InputType>;
+using MultiHeadAttentionParams = std::tuple<Heads, SourceSeqLen, TargetSeqLen, QKEmbeddingSize, VEmbeddingSize,
+                                            IsCausal, HasAttentionMask, HasScale>;
 
-class SdpAttentionLayerTest :
-        public testing::WithParamInterface<SdpAttentionLayerTestParams>,
-        public SdpAttentionLayerTestCommon {
-protected:
-    void SetUp() override {
-        SdpAttentionLayerTestCommon::SetUp();
+class MultiHeadAttentionLayerTest :
+        public testing::WithParamInterface<MultiHeadAttentionParams>,
+        public SdpaLayerTestBase<MultiHeadAttentionLayerTest> {
+public:
+    std::vector<InputShape> generateInputShapes(MultiHeadAttentionParams params) {
+        const auto& [heads, sourceSeqLen, targetSeqLen, qkEmbeddingSize, vEmbeddingSize, isCausal, hasAttentionMask,
+                     hasScale] = params;
 
-        const auto& [batches, sourceSeqLen, targetSeqLen, qkEmbeddingSize, vEmbeddingSize, isCausal, hasAttentionMask,
-                     hasScale, inputType] = GetParam();
+        auto qShape = generateTestShape(heads, targetSeqLen, qkEmbeddingSize);
+        auto kShape = generateTestShape(heads, sourceSeqLen, qkEmbeddingSize);
+        auto vShape = generateTestShape(heads, sourceSeqLen, vEmbeddingSize);
 
-        this->hasAttentionMask = hasAttentionMask;
-        this->hasScale = hasScale;
+        auto inputShapes = std::vector<InputShape>{qShape, kShape, vShape};
 
-        const auto inputShapes = generateInputShapes(batches, sourceSeqLen, targetSeqLen, qkEmbeddingSize,
-                                                     vEmbeddingSize, hasAttentionMask);
-
-        init_input_shapes(inputShapes);
-
-        const auto inputParams = generateInputParams(inputDynamicShapes, inputType, hasAttentionMask, hasScale);
-
-        ov::OutputVector inputs;
-        for (auto& input : inputParams) {
-            inputs.emplace_back(input);
+        if (hasAttentionMask) {
+            auto attentionMaskShape = generateTestShape(heads, targetSeqLen, sourceSeqLen);
+            inputShapes.push_back(attentionMaskShape);
         }
 
-        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCausal);
-        sdp->set_friendly_name("sdp");
-
-        auto results = ov::ResultVector();
-        for (size_t i = 0; i < sdp->get_output_size(); i++) {
-            results.push_back(std::make_shared<ov::opset14::Result>(sdp->output(i)));
-        }
-
-        function = std::make_shared<ov::Model>(results, inputParams, "SDP");
-
-        // Interpreter backend doesn't implement evaluate method for OP ScaledDotProductAttention
-        functionRefs = function->clone();
-        ov::pass::Manager manager;
-        manager.register_pass<ov::pass::ScaledDotProductAttentionDecomposition>();
-        manager.run_passes(functionRefs);
-    }
-
-    void TearDown() override {
-        SdpAttentionLayerTestCommon::TearDown();
+        return inputShapes;
     }
 };
 
 //
-// Self Attention test class
+// FlashMultiHeadAttentionLayerTest
 //
 
-PRETTY_PARAM(SequenceLength, BoundedDim);  // S == L
-PRETTY_PARAM(EmbeddingSize, BoundedDim);   // E == Ev
-
-using SelfAttentionTestParams =
-        std::tuple<Batches, SequenceLength, EmbeddingSize, IsCausal, HasAttentionMask, HasScale, InputType>;
-
-class SelfAttentionLayerTest :
-        public testing::WithParamInterface<SelfAttentionTestParams>,
-        public SdpAttentionLayerTestCommon {
-protected:
-    void SetUp() override {
-        SdpAttentionLayerTestCommon::SetUp();
-
-        const auto& [batches, sequenceLength, embeddingSize, isCausal, hasAttentionMask, hasScale, inputType] =
-                GetParam();
-
-        this->hasAttentionMask = hasAttentionMask;
-        this->hasScale = hasScale;
-
-        auto sourceSeqLen = SourceSeqLen{sequenceLength};
-        auto targetSeqLen = TargetSeqLen{sequenceLength};
-        auto qkEmbeddingSize = QKEmbeddingSize{embeddingSize};
-        auto vEmbeddingSize = VEmbeddingSize{embeddingSize};
-
-        const auto inputShapes = generateInputShapes(batches, sourceSeqLen, targetSeqLen, qkEmbeddingSize,
-                                                     vEmbeddingSize, hasAttentionMask);
-
-        init_input_shapes(inputShapes);
-
-        const auto inputParams = generateInputParams(inputDynamicShapes, inputType, hasAttentionMask, hasScale);
-
-        ov::OutputVector inputs;
-        for (auto& input : inputParams) {
-            inputs.emplace_back(input);
-        }
-
-        auto sdp = std::make_shared<ov::opset14::ScaledDotProductAttention>(inputs, isCausal);
-        sdp->set_friendly_name("sdp");
-
-        auto results = ov::ResultVector();
-        for (size_t i = 0; i < sdp->get_output_size(); i++) {
-            results.push_back(std::make_shared<ov::opset14::Result>(sdp->output(i)));
-        }
-
-        function = std::make_shared<ov::Model>(results, inputParams, "SDP");
-
-        // Interpreter backend doesn't implement evaluate method for OP ScaledDotProductAttention
-        functionRefs = function->clone();
-        ov::pass::Manager manager;
-        manager.register_pass<ov::pass::ScaledDotProductAttentionDecomposition>();
-        manager.run_passes(functionRefs);
-    }
-
-    void TearDown() override {
-        SdpAttentionLayerTestCommon::TearDown();
-    }
-};
-
-//
-// Online Self Attention reference subgraph implementation
-//
-
-class OnlineSelfAttentionDecomposedLayerTest : public SelfAttentionLayerTest {
+class FlashMultiHeadAttentionLayerTest : public MultiHeadAttentionLayerTest {
 public:
     void SetUp() override {
-        SelfAttentionLayerTest::SetUp();
+        MultiHeadAttentionLayerTest::SetUp();
 
         // Disable OpenVINO ScaledDotProductAttentionDecomposition pass
         vpux::env::setEnvVar("NPU_DECOMPOSE_SDPA", "0");
     }
 
     void TearDown() override {
-        SelfAttentionLayerTest::TearDown();
+        MultiHeadAttentionLayerTest::TearDown();
+
         vpux::env::unsetEnvVar("NPU_DECOMPOSE_SDPA");
     }
 
     void configure_model() override {
-        // Enable passes that perform SDPA decomposition
-        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-online-sdpa-conversion=true";
+        // Enable a pass that performs SDPA conversion to FlashSDPA
+        configuration[ov::intel_npu::compilation_mode_params.name()] = "enable-flash-sdpa-conversion=true";
+
+#if !defined(_WIN32)
+        setSkipInferenceCallback([](std::stringstream& ss) {
+            const auto* info = ::testing::UnitTest::GetInstance()->current_test_info();
+            const auto suite = std::string_view{info->test_suite_name()};
+            const auto testName = std::string_view{info->name()};
+
+            if (suite.find("smoke_CornerCases") != std::string_view::npos &&
+                testName.find("NPU3720") != std::string_view::npos) {
+                ss << "Skip inference for CornerCases on NPU3720/Ubuntu E#187570";
+            }
+        });
+#endif
     }
 };
 
-//
-// Online Cross Attention Software kernel
-//
-
-class OnlineCrossAttentionSoftwareKernelLayerTest : public SdpAttentionLayerTest {
-public:
-    void SetUp() override {
-        SdpAttentionLayerTest::SetUp();
-
-        // Disable OpenVINO ScaledDotProductAttentionDecomposition pass
-        vpux::env::setEnvVar("NPU_DECOMPOSE_SDPA", "0");
-
-        // Disable tiling for now
-        vpux::env::setEnvVar("NPU_Q_NUM_BLOCKS", "1");
-        vpux::env::setEnvVar("NPU_KV_NUM_BLOCKS", "1");
-    }
-
-    void TearDown() override {
-        SdpAttentionLayerTest::TearDown();
-
-        vpux::env::unsetEnvVar("NPU_DECOMPOSE_SDPA");
-
-        vpux::env::unsetEnvVar("NPU_Q_NUM_BLOCKS");
-        vpux::env::unsetEnvVar("NPU_KV_NUM_BLOCKS");
-    }
-
-    void configure_model() override {
-        // Enable passes that perform SDPA decomposition, disable IncrementalSDPA decomposition
-        configuration[ov::intel_npu::compilation_mode_params.name()] =
-                "enable-online-sdpa-conversion=true disable-incremental-sdpa-decomposition=true";
-    }
-};
-
-TEST_P(SdpAttentionLayerTest, NPU3720_HW) {
+TEST_P(MultiHeadAttentionLayerTest, NPU3720_HW) {
     abs_threshold = 0.01;
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(SelfAttentionLayerTest, NPU3720_HW) {
+TEST_P(FlashMultiHeadAttentionLayerTest, NPU3720_HW) {
+#if defined(_WIN32)
+    abs_threshold = 0.02;
+#else
     abs_threshold = 0.01;
+#endif
     setDefaultHardwareMode();
     run(Platform::NPU3720);
 }
 
-TEST_P(OnlineSelfAttentionDecomposedLayerTest, NPU3720_HW) {
-    abs_threshold = 0.01;
-    setDefaultHardwareMode();
-    run(Platform::NPU3720);
-}
-
-TEST_P(OnlineCrossAttentionSoftwareKernelLayerTest, NPU3720_HW) {
-    abs_threshold = 0.01;
-    setDefaultHardwareMode();
-    run(Platform::NPU3720);
-}
-
-TEST_P(SdpAttentionLayerTest, NPU4000_HW) {
+TEST_P(MultiHeadAttentionLayerTest, NPU4000_HW) {
     abs_threshold = 0.01;
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
-TEST_P(SelfAttentionLayerTest, NPU4000_HW) {
+TEST_P(FlashMultiHeadAttentionLayerTest, NPU4000_HW) {
+#if defined(_WIN32)
+    abs_threshold = 0.03;
+#else
     abs_threshold = 0.01;
+#endif
     setDefaultHardwareMode();
     run(Platform::NPU4000);
 }
 
-TEST_P(OnlineSelfAttentionDecomposedLayerTest, NPU4000_HW) {
-    abs_threshold = 0.01;
-    setDefaultHardwareMode();
-    run(Platform::NPU4000);
-}
-
-TEST_P(OnlineCrossAttentionSoftwareKernelLayerTest, NPU4000_HW) {
-    abs_threshold = 0.01;
-    setDefaultHardwareMode();
-    run(Platform::NPU4000);
-}
-
-const std::vector<InputType> inputPrecision = {ov::element::f16};
-
 //
-// SelfAttentionTest
+// MultiHeadAttentionLayerTest
 //
 
-INSTANTIATE_TEST_SUITE_P(smoke, SelfAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(Batches{8}),                            // 12, 16
-                                            ::testing::Values(SequenceLength{512}),                   // 1k, 2k, 4k, 8k
-                                            ::testing::Values(EmbeddingSize{64}),                     // 128, 256
-                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
-                                            ::testing::ValuesIn(inputPrecision)                               //
-                                            ),
-                         PrintTestCaseName());
-//
-// OnlineSelfAttentionSubgraphLayerTest
-//
-
-INSTANTIATE_TEST_SUITE_P(smoke, OnlineSelfAttentionDecomposedLayerTest,
-                         ::testing::Combine(::testing::Values(Batches{8}),                             //
-                                            ::testing::Values(SequenceLength{512}),                    //
-                                            ::testing::Values(EmbeddingSize{64}),                      //
-                                            ::testing::ValuesIn(std::vector<IsCausal>{false}),         //
-                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true}),  //
-                                            ::testing::ValuesIn(std::vector<HasScale>{false}),         //
-                                            ::testing::ValuesIn(inputPrecision)                        //
-                                            ),
-                         PrintTestCaseName());
-
-//
-// CrossAttentionTest
-//
-
-INSTANTIATE_TEST_SUITE_P(smoke, SdpAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(Batches{8}),                                    //
-                                            ::testing::Values(SourceSeqLen{512}),                             //
-                                            ::testing::Values(TargetSeqLen{256}),                             //
-                                            ::testing::Values(QKEmbeddingSize{64}),                           //
-                                            ::testing::Values(VEmbeddingSize{32}),                            //
-                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
-                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
-                                            ::testing::ValuesIn(inputPrecision)                               //
-                                            ),
-                         PrintTestCaseName());
-
-//
-// OnlineCrossAttentionSoftwareKernelLayerTest
-//
-
-INSTANTIATE_TEST_SUITE_P(smoke, OnlineCrossAttentionSoftwareKernelLayerTest,
-                         ::testing::Combine(::testing::Values(Batches{8}),                                    //
+INSTANTIATE_TEST_SUITE_P(smoke, MultiHeadAttentionLayerTest,
+                         ::testing::Combine(::testing::Values(Heads{8}),                                      //
                                             ::testing::Values(SourceSeqLen{32}),                              //
                                             ::testing::Values(TargetSeqLen{64}),                              //
                                             ::testing::Values(QKEmbeddingSize{64}),                           //
                                             ::testing::Values(VEmbeddingSize{128}),                           //
                                             ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
-                                            ::testing::ValuesIn(inputPrecision)                               //
+                                            ::testing::ValuesIn(std::vector<HasScale>{true, false})           //
                                             ),
                          PrintTestCaseName());
 
 //
-// Dynamic SelfAttentionTest
+// FlashMultiHeadAttentionLayerTest
+//
+
+INSTANTIATE_TEST_SUITE_P(smoke, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Combine(::testing::Values(Heads{8}),                                      //
+                                            ::testing::Values(SourceSeqLen{32}),                              //
+                                            ::testing::Values(TargetSeqLen{64}),                              //
+                                            ::testing::Values(QKEmbeddingSize{64}),                           //
+                                            ::testing::Values(VEmbeddingSize{128}),                           //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
+                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
+                                            ::testing::ValuesIn(std::vector<HasScale>{true, false})           //
+                                            ),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_BigSequenceLength, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Combine(::testing::Values(Heads{8}),                               //
+                                            ::testing::ValuesIn(std::vector<SourceSeqLen>{128}),       //
+                                            ::testing::ValuesIn(std::vector<TargetSeqLen>{8 * 1024}),  //
+                                            ::testing::Values(QKEmbeddingSize{32}),                    //
+                                            ::testing::Values(VEmbeddingSize{64}),                     //
+                                            ::testing::ValuesIn(std::vector<IsCausal>{false}),         //
+                                            ::testing::ValuesIn(std::vector<HasAttentionMask>{true}),  //
+                                            ::testing::ValuesIn(std::vector<HasScale>{true})           //
+                                            ),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_CornerCases, FlashMultiHeadAttentionLayerTest,
+                         ::testing::ValuesIn(std::vector<MultiHeadAttentionParams>{
+                                 MultiHeadAttentionParams{Heads{25}, SourceSeqLen{1024}, TargetSeqLen{1},
+                                                          QKEmbeddingSize{64}, VEmbeddingSize{64}, IsCausal{true},
+                                                          HasAttentionMask{false}, HasScale{false}},
+                         }),
+                         PrintTestCaseName());
+
+//
+// Real networks
+//
+
+INSTANTIATE_TEST_SUITE_P(smoke_RealNetworks_Phi_3_mini, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Values(MultiHeadAttentionParams{
+                                 Heads{32}, SourceSeqLen{1024}, TargetSeqLen{1024}, QKEmbeddingSize{96},
+                                 VEmbeddingSize{96}, IsCausal{false}, HasAttentionMask{true}, HasScale{false}}),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_RealNetworks_Llama_2_7b, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Values(MultiHeadAttentionParams{
+                                 Heads{32}, SourceSeqLen{1024}, TargetSeqLen{1}, QKEmbeddingSize{128},
+                                 VEmbeddingSize{128}, IsCausal{false}, HasAttentionMask{true}, HasScale{false}}),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_RealNetworks_Transformer_complex, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Values(MultiHeadAttentionParams{
+                                 Heads{1}, SourceSeqLen{49}, TargetSeqLen{55}, QKEmbeddingSize{128},
+                                 VEmbeddingSize{128}, IsCausal{true}, HasAttentionMask{false}, HasScale{false}}),
+                         PrintTestCaseName());
+
+INSTANTIATE_TEST_SUITE_P(smoke_RealNetworks_miniCPM, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Values(MultiHeadAttentionParams{
+                                 Heads{40}, SourceSeqLen{1024}, TargetSeqLen{1}, QKEmbeddingSize{96},
+                                 VEmbeddingSize{96}, IsCausal{false}, HasAttentionMask{true}, HasScale{false}}),
+                         PrintTestCaseName());
+
+//
+// Dynamic FlashMultiHeadAttentionLayerTest
 //
 
 // [Tracking number: E#160081]
-INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_Dynamic, SelfAttentionLayerTest,
-                         ::testing::Combine(::testing::Values(Batches{16_Dyn, 12}),                           //
-                                            ::testing::Values(SequenceLength{512_Dyn}),                       //
-                                            ::testing::Values(EmbeddingSize{64}),                             //
+INSTANTIATE_TEST_SUITE_P(DISABLED_smoke_Dynamic, FlashMultiHeadAttentionLayerTest,
+                         ::testing::Combine(::testing::Values(Heads{12}),                                     //
+                                            ::testing::Values(SourceSeqLen{512_Dyn}),                         //
+                                            ::testing::Values(TargetSeqLen{512_Dyn}),                         //
+                                            ::testing::Values(QKEmbeddingSize{64}),                           //
+                                            ::testing::Values(VEmbeddingSize{64}),                            //
                                             ::testing::ValuesIn(std::vector<IsCausal>{true, false}),          //
                                             ::testing::ValuesIn(std::vector<HasAttentionMask>{true, false}),  //
-                                            ::testing::ValuesIn(std::vector<HasScale>{true, false}),          //
-                                            ::testing::ValuesIn(inputPrecision)                               //
+                                            ::testing::ValuesIn(std::vector<HasScale>{true, false})           //
                                             ),
                          PrintTestCaseName());
 

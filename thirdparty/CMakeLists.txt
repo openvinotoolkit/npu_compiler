@@ -8,10 +8,10 @@
 #
 
 foreach(flag IN ITEMS "-Werror" "-fvisibility=hidden" "-fvisibility-inlines-hidden")
-    string(REPLACE ${flag} "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
-    string(REPLACE ${flag} "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
-    string(REPLACE ${flag} "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
-    string(REPLACE ${flag} "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
+    string(REGEX REPLACE "${flag}=?[A-Za-z0-9-]*" "" CMAKE_C_FLAGS "${CMAKE_C_FLAGS}")
+    string(REGEX REPLACE "${flag}=?[A-Za-z0-9-]*" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    string(REGEX REPLACE "${flag}=?[A-Za-z0-9-]*" "" CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}")
+    string(REGEX REPLACE "${flag}=?[A-Za-z0-9-]*" "" CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE}")
 endforeach()
 
 
@@ -45,33 +45,7 @@ endif()
 # flatbuffers
 #
 
-if(TARGET flatbuffers OR TARGET flatc)
-    # we are building NPU plugin via -DOPENVINO_EXTRA_MODULES
-    # and flatbuffers is already built as part of OpenVINO in case of
-    # building in a single tree
-    message(WARNING "Flatbuffers target present. Possible version mismatch.")
-else()
-    set(FLATBUFFERS_BUILD_TESTS OFF)
-    set(FLATBUFFERS_INSTALL OFF)
-    set(FLATBUFFERS_BUILD_FLATC ON)
-
-    add_subdirectory(flatbuffers EXCLUDE_FROM_ALL)
-
-    # FIXME: this flag is forced while building in a single tree with OV
-    # but code cannot be compiled with the flag
-    if(NOT MSVC)
-        target_compile_options(flatbuffers PRIVATE -Wno-suggest-override)
-        target_compile_options(flatc PRIVATE -Wno-suggest-override)
-        if ((CMAKE_CXX_COMPILER_ID STREQUAL "Clang") AND (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 13))
-            target_compile_options(flatbuffers PRIVATE -Wno-unused-but-set-variable)
-            target_compile_options(flatc PRIVATE -Wno-unused-but-set-variable)
-        endif()
-    endif()
-endif()
-set(flatc_TARGET flatc)
-set(flatc_COMMAND $<TARGET_FILE:flatc>)
-set(flatc_TARGET "${flatc_TARGET}" PARENT_SCOPE)
-set(flatc_COMMAND "${flatc_COMMAND}" PARENT_SCOPE)
+include(flatbuffers.cmake)
 
 #
 # npu_elf

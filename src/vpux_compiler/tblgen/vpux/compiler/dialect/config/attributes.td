@@ -41,8 +41,8 @@ def Config_CompilationMode  :
                 I64EnumAttrCase<"ReferenceSW",  0>,
                 I64EnumAttrCase<"DefaultHW",    1>,
                 I64EnumAttrCase<"HostCompile",  2>,
-                I64EnumAttrCase<"WSMonolithic", 3>,
-                I64EnumAttrCase<"WSInit",       4>
+                I64EnumAttrCase<"WSInit",       3>,
+                I64EnumAttrCase<"WSMain",       4>,
             ]
         > {
 }

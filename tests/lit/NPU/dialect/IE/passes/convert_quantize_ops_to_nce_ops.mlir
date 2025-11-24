@@ -221,14 +221,14 @@ func.func @DynamicShapeToAvgPool(%arg0 : !dynType) -> !dynType {
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
 !qElemType = !quant.uniform<u8:f16:1, {0.956:128, 0.785:128, 0.567:128}>
-!dynType = tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
-!dynQuantType = tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
+!dynType = tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
+!dynQuantType = tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
 
 // CHECK:  !qElemType = !quant.uniform<u8:f16:1, {0.95599999999999996:128,7.850000e-01:128,5.670000e-01:128}>
 // CHECK:  !qElemType1 = !quant.uniform<u8:f16, 1.000000e+00>
 
 // CHECK-LABEL:  func.func @DynamicShapeToDwConv
-// CHECK-SAME:    ([[INPUT:%.+]]: tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>)
+// CHECK-SAME:    ([[INPUT:%.+]]: tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>)
 func.func @DynamicShapeToDwConv(%arg0 : !dynType) -> !dynType {
     %0 = IE.Quantize(%arg0) {dstElemType = !qElemType} : !dynType -> !dynQuantType
     %1 = IE.Dequantize(%0) {dstElemType = f16} : !dynQuantType -> !dynType
@@ -236,13 +236,13 @@ func.func @DynamicShapeToDwConv(%arg0 : !dynType) -> !dynType {
 
     // CHECK:       [[Q_FILTER:%.+]] = const.Declare tensor<3x1x1x1xf16> = dense<1.000000e+00> : tensor<3x1x1x1xf16>
     // CHECK:       [[Q_DWCONV:%.+]] = IE.GroupConvolution([[INPUT]], [[Q_FILTER]]) {dilations = [1, 1], groups = 3 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} :
-    // CHECK-SAME:    tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<3x1x1x1xf16> -> tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:    tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<3x1x1x1xf16> -> tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
 
     // CHECK:       [[D_FILTER:%.+]] = const.Declare tensor<3x1x1x1x!qElemType1> = dense<1.000000e+00> : tensor<3x1x1x1xf16>, [#const.CastElemType<!qElemType1>]
     // CHECK:       [[D_DWCONV:%.+]] = IE.GroupConvolution([[Q_DWCONV]], [[D_FILTER]]) {dilations = [1, 1], groups = 3 : i64, pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} :
-    // CHECK-SAME:    tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<3x1x1x1x!qElemType1> -> tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK-SAME:    tensor<4x3x?x2x!qElemType, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>, tensor<3x1x1x1x!qElemType1> -> tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
 
-    // CHECK:  return [[D_DWCONV]] : tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
+    // CHECK:  return [[D_DWCONV]] : tensor<4x3x?x2xf16, {bounds = #const.OpaqueI64Elements<[4, 3, 500, 2]> : tensor<4xsi64>, order = #NCHW}>
 }
 
 // -----

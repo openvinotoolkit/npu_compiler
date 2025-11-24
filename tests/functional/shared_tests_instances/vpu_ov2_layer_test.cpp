@@ -354,6 +354,10 @@ void VpuOv2LayerTest::setDefaultHardwareMode() {
     configuration[ov::intel_npu::compilation_mode.name()] = "DefaultHW";
 }
 
+void VpuOv2LayerTest::setHostCompileMode() {
+    configuration[ov::intel_npu::compilation_mode.name()] = "HostCompile";
+}
+
 void VpuOv2LayerTest::setMLIRCompilerType() {
     configuration[ov::intel_npu::compiler_type.name()] = "MLIR";
 }

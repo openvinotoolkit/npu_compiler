@@ -10,8 +10,7 @@
 #include "vpux/compiler/dialect/IE/transforms/passes.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/quantization.hpp"
-#include "vpux/compiler/dialect/VPU/utils/adaptive_stripping_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/qdq_optimization_aggressive_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/utils/quantization.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
@@ -282,8 +281,8 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
     // Create the input/output low/high constants and level attribute that will be used to align the FQ ranges
     const auto elemType = mlir::cast<vpux::NDTypeInterface>(fqOpsToAlign[0].getInput().getType()).getElementType();
     const auto fqArgType = mlir::RankedTensorType::get({1, 1, 1, 1}, elemType);
-    auto commonInputLow = IE::createFQConst(ctx, origOp->getLoc(), min, fqArgType, rewriter);
-    auto commonInputHigh = IE::createFQConst(ctx, origOp->getLoc(), max, fqArgType, rewriter);
+    auto commonInputLow = IE::createFQConst(ctx, appendLoc(origOp->getLoc(), "_input_low"), min, fqArgType, rewriter);
+    auto commonInputHigh = IE::createFQConst(ctx, appendLoc(origOp->getLoc(), "_input_high"), max, fqArgType, rewriter);
     auto commonLevels = getIntAttr(rewriter, maxLevels);
     log.trace("Created common constants for input/output low/high constants and level attribute.");
 
@@ -312,8 +311,9 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             // Replace the old FQ operation with the FQ with new ranges + Clamp operation that preserves the original
             // range interval
             auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(
-                    origOp->getLoc(), fqOpsToAlign[i].getInput(), commonInputLow, commonInputHigh, commonInputLow,
-                    commonInputHigh, commonLevels, nullptr, fqOpsToAlign[i].getAutoBroadcastAttr());
+                    appendLoc(origOp->getLoc(), llvm::formatv("_fq_{0}", i)), fqOpsToAlign[i].getInput(),
+                    commonInputLow, commonInputHigh, commonInputLow, commonInputHigh, commonLevels, nullptr,
+                    fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0}", newFQOp->getLoc());
 
             // Replace old FQ with new Clamp that preserve the old FQ's quantization ranges
@@ -324,16 +324,17 @@ void alignFQRanges(IE::ConcatOp origOp, MutableArrayRef<IE::FakeQuantizeOp> fqOp
             // if the in out range is different, insert a new range FQ then clamp back to old range.
             rewriter.setInsertionPointAfter(fqOpsToAlign[i]);
             auto newFQOp = rewriter.create<IE::FakeQuantizeOp>(
-                    origOp->getLoc(), fqOpsToAlign[i].getOutput(), commonInputLow, commonInputHigh, commonInputLow,
-                    commonInputHigh, commonLevels, nullptr, fqOpsToAlign[i].getAutoBroadcastAttr());
+                    appendLoc(origOp->getLoc(), llvm::formatv("_fq_{0}", i)), fqOpsToAlign[i].getOutput(),
+                    commonInputLow, commonInputHigh, commonInputLow, commonInputHigh, commonLevels, nullptr,
+                    fqOpsToAlign[i].getAutoBroadcastAttr());
             log.trace("Created new FQ op at {0} for different in out range case", newFQOp->getLoc());
 
             mlir::Value output;
             if (fqHasMaxRanges(fqOpsToAlign[i])) {
                 output = newFQOp.getOutput();
             } else {
-                auto clampOp = rewriter.create<IE::ClampOp>(origOp->getLoc(), newFQOp.getOutput(), inputLowAttr,
-                                                            inputHighAttr);
+                auto clampOp = rewriter.create<IE::ClampOp>(appendLoc(origOp->getLoc(), "_clamp"), newFQOp.getOutput(),
+                                                            inputLowAttr, inputHighAttr);
                 log.trace("Created new Clamp op at {0} for different in out range case", clampOp->getLoc());
                 output = clampOp.getOutput();
             }
@@ -493,7 +494,7 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     }
 
     auto moduleOp = getModuleOp(fqOp);
-    auto setAdaptiveStrippingEnabled = VPU::hasEnableAdaptiveStripping(moduleOp);
+    auto setAdaptiveStrippingEnabled = config::hasEnableAdaptiveStripping(moduleOp);
 
     if (setAdaptiveStrippingEnabled) {
         // If values are similar, and within range, return failure to avoid adding Clamp
@@ -512,7 +513,8 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
     if (fqOutputLowVal > parentFqOutputLowVal || fqOutputHighVal < parentFqOutputHighVal) {
         const auto inputLowAttr = getFPAttr(ctx, fqOutputLowVal);
         const auto inputHighAttr = getFPAttr(ctx, fqOutputHighVal);
-        auto clampOp = rewriter.create<IE::ClampOp>(fqOp->getLoc(), newFQOp.getOutput(), inputLowAttr, inputHighAttr);
+        auto clampOp = rewriter.create<IE::ClampOp>(appendLoc(fqOp->getLoc(), "_clamp"), newFQOp.getOutput(),
+                                                    inputLowAttr, inputHighAttr);
         rewriter.replaceOp(fqOp, clampOp.getOutput());
     } else {
         rewriter.replaceOp(fqOp, newFQOp.getOutput());
@@ -523,8 +525,8 @@ mlir::LogicalResult AlignSliceRewriter::matchAndRewrite(IE::FakeQuantizeOp fqOp,
 
 class AlignScalesPass final : public IE::impl::AlignScalesBase<AlignScalesPass> {
 public:
-    explicit AlignScalesPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled), _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit AlignScalesPass(const bool seOpsEnabled, Logger log): _seOpsEnabled(seOpsEnabled) {
+        Base::initLogger(log, Base::getArgumentName());
     }
     mlir::LogicalResult initialize(mlir::MLIRContext* ctx) final;
 
@@ -533,9 +535,6 @@ private:
 
 public:
     bool _seOpsEnabled;
-
-private:
-    Logger _log;
 };
 
 mlir::LogicalResult AlignScalesPass::initialize(mlir::MLIRContext* ctx) {

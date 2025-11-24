@@ -18,6 +18,7 @@
 #include "vpux/compiler/utils/logging.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 
+#include <mlir/Interfaces/CallInterfaces.h>
 #include <mlir/Pass/PassManager.h>
 
 namespace vpux::VPUIP {
@@ -367,7 +368,7 @@ void AsyncRegionsOutliner::addBuffersForNetResults(mlir::ModuleOp moduleOp) {
     net::NetworkInfoOp::getFromModule(moduleOp, netInfo, mainFuncOp);
 
     auto logger = getLogger().nest();
-    SmallVector<mlir::func::CallOp> outlinedCallOps;
+    SmallVector<mlir::CallOpInterface> outlinedCallOps;
     mainFuncOp.walk([&](mlir::func::CallOp callOp) {
         if (callOp.getCallee().contains("async_region")) {
             outlinedCallOps.push_back(callOp);

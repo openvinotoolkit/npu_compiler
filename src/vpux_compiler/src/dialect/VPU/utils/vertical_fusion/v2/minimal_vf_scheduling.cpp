@@ -19,6 +19,10 @@ VFScenario MinimalRequirementsVFScheduling::getType() const {
     return VFScenario::MINIMAL;
 }
 
+bool MinimalRequirementsVFScheduling::isSharedWeightsSupported(VFConfig&) const {
+    return false;
+}
+
 void MinimalRequirementsVFScheduling::correctInputPrefetchingCost(
         StrategyCost& prefetchCost, mlir::Operation* operation, VFConfig& config,
         const DenseMap<mlir::Operation*, StrategyCost>& isolatedOperCost, const size_t index) const {

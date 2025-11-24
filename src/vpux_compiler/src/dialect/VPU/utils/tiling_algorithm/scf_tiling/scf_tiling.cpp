@@ -3,18 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#if defined(__GNUC__) && !defined(__clang__)
-#  pragma GCC diagnostic push
-#  pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
-#endif
-
 #include "vpux/compiler/dialect/VPU/utils/tiling_algorithm/scf_tiling/scf_tiling.hpp"
 
 #include "vpux/compiler/dialect/VPU/utils/reorder_ir_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/scf/scf_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
+#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/v2/vertical_fusion_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_algorithm.hpp"
-#include "vpux/compiler/dialect/VPU/utils/vertical_fusion/vertical_fusion_utils.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 #include "vpux/utils/core/numeric.hpp"
 
@@ -27,16 +22,34 @@
 
 using namespace vpux;
 
+/*
+  Get tile size for static shape operations based on strategy
+  If size of operations > 1 it means that tile size is computed for VF
+  where specifics of every operation should be taken into consideration
+  The list of operation doesn't guarantee the order of operations so that lastOperation might be specify separately
+  For each tile dimension the maximum size from tiles from fillDividedTiles is taken
+*/
 SmallVector<mlir::OpFoldResult> vpux::VPU::staticTileSizeComputation(mlir::OpBuilder& builder,
-                                                                     mlir::Operation* operation, ShapeRef strategy,
+                                                                     ArrayRef<mlir::Operation*> operations,
+                                                                     mlir::Operation* lastOperation, ShapeRef strategy,
                                                                      ShapeRef outputShape) {
-    const auto tiles = fillDividedTiles(operation, strategy, outputShape);
+    if (operations.empty()) {
+        return {};
+    }
+
+    if (lastOperation == nullptr) {
+        lastOperation = operations.back();
+    } else if (!llvm::is_contained(operations, lastOperation)) {
+        return {};
+    }
+
+    const auto tiles = fillDividedTiles(operations, strategy, outputShape);
 
     if (mlir::failed(tiles)) {
         return {};
     }
 
-    auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
+    auto tilingDims = getSCFTilingOrderedDims(lastOperation, strategy);
     std::unordered_map<Dim, int64_t> sizes;
 
     for (auto& tile : tiles.value()) {
@@ -57,30 +70,51 @@ SmallVector<mlir::OpFoldResult> vpux::VPU::staticTileSizeComputation(mlir::OpBui
     return tileSizes;
 }
 
+/*
+  Get tile size for dynamic shape operations based on strategy
+  If size of operations > 1 it means that tile size is computed for VF
+  where specifics of every operation should be taken into consideration
+  If type of last operation is BoundedTensorType then bounds are used for static tile size computation
+  The list of operation doesn't guarantee the order of operations so that lastOperation might be specify separately
+  If not, tileSize is computed based on formula (shape value) / divisor + alignment - 1) / alignment
+  where divisor is taken from strategy and alignment is taken from operation attribute if exists or set to 1
+*/
 SmallVector<mlir::OpFoldResult> vpux::VPU::dynamicTileSizeComputation(mlir::OpBuilder& builder,
-                                                                      mlir::Operation* operation, ShapeRef strategy) {
-    auto outputType = mlir::cast<mlir::ShapedType>(operation->getResult(0).getType());
+                                                                      ArrayRef<mlir::Operation*> operations,
+                                                                      mlir::Operation* lastOperation,
+                                                                      ShapeRef strategy) {
+    if (operations.empty()) {
+        return {};
+    }
+
+    if (lastOperation == nullptr) {
+        lastOperation = operations.back();
+    } else if (!llvm::is_contained(operations, lastOperation)) {
+        return {};
+    }
+
+    auto outputType = mlir::cast<mlir::ShapedType>(lastOperation->getResult(0).getType());
 
     if (auto boundedType = mlir::dyn_cast<Core::BoundedTensorType>(outputType)) {
         auto bounds = to_small_vector(boundedType.getBounds());
-        return staticTileSizeComputation(builder, operation, strategy, ShapeRef(bounds));
+        return staticTileSizeComputation(builder, operations, lastOperation, strategy, ShapeRef(bounds));
     }
 
     auto outputShape = outputType.getShape();
 
     SmallVector<mlir::OpFoldResult> tileSizes;
 
-    auto tilingDims = getSCFTilingOrderedDims(operation, strategy);
+    auto tilingDims = getSCFTilingOrderedDims(lastOperation, strategy);
     tileSizes.reserve(tilingDims.size());
 
     for (auto tileDim : tilingDims) {
         VPUX_THROW_WHEN(!outputType.isDynamicDim(tileDim.ind()), "Tiled axis {0} must be dynamic", tileDim);
 
-        auto loc = operation->getLoc();
+        auto loc = lastOperation->getLoc();
 
-        auto shapeValue = getDimValue(builder, operation, tileDim.ind());
+        auto shapeValue = getDimValue(builder, lastOperation, tileDim.ind());
 
-        auto optAlignment = vpux::getAlignment(operation, strategy, ShapeRef(outputShape));
+        auto optAlignment = vpux::getAlignment(lastOperation, strategy, ShapeRef(outputShape));
         const auto divisor = strategy[tileDim];
         const auto alignment = optAlignment.has_value() ? optAlignment.value()[tileDim.ind()] : 1;
 
@@ -108,10 +142,10 @@ mlir::LogicalResult vpux::VPU::applySCFTiling(mlir::Operation* operation, mlir::
 
     const auto tileSizeComputationFnc = [&](mlir::OpBuilder&, mlir::Operation*) {
         if (getShape(operation->getResult(0)).isDynamic()) {
-            return dynamicTileSizeComputation(builder, operation, strategy);
+            return dynamicTileSizeComputation(builder, {operation}, nullptr, strategy);
         }
 
-        return staticTileSizeComputation(builder, operation, strategy, getShape(operation->getResult(0)));
+        return staticTileSizeComputation(builder, {operation}, nullptr, strategy, getShape(operation->getResult(0)));
     };
 
     tilingOptions.setTileSizeComputationFunction(tileSizeComputationFnc);
@@ -185,7 +219,6 @@ mlir::FailureOr<mlir::scf::SCFTileAndFuseResult> tileConsumerAndFuseProducers(
 
     // 1. First tile the consumer.
     mlir::SetVector<mlir::Operation*> fusedProducers, tiledAndFusedOps;
-    llvm::SmallDenseMap<mlir::Value, size_t> origProducerToLoopResultNum;
 
     auto tilingResult = tileUsingSCF(rewriter, consumer, options.tilingOptions);
 
@@ -320,7 +353,7 @@ VPU::VF::v2::VFSplit getVFSplit(vpux::NDTypeInterface outputType, mlir::Operatio
                 break;
             }
 
-            vfSplit[dim] = vpux::VPU::getTilingLimit(dim, config.getVFOperations().getArrayRef(), true);
+            vfSplit[dim] = getTilingLimit(dim, config, true);
             --countDynDims;
         }
 
@@ -413,14 +446,15 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
         return *minTilesSet.rbegin();
     };
     const auto getMaxTiles = [&](auto dim, const VPU::VF::v2::VFSplit& split) -> int64_t {
-        if (mlir::ShapedType::isDynamic(outputType.getShape()[dim])) {
-            return mlir::ShapedType::kDynamic;
-        }
-        auto maxTiles = getTilingLimit(dim, config.getVFOperations().getArrayRef());
+        auto maxTiles = getTilingLimit(dim, config);
         if (split.size() > 1) {
             // 2D tiling
             auto otherDimSum = VPU::VF::v2::getVFTilesLen(split);
             maxTiles = divUp(maxTiles, otherDimSum);
+
+            if (outputType.getShape().isDynamic()) {
+                maxTiles = std::max(maxTiles, MINIMUM_LENGTH_TILING);
+            }
         }
         return maxTiles;
     };
@@ -443,11 +477,12 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
                                              mlir::Operation* operation) -> SmallVector<mlir::OpFoldResult> {
         auto strategy = Shape(parseIntArrayAttr<int64_t>(bestVFCase.getTiling()));
 
-        if (mlir::cast<vpux::NDTypeInterface>(lastOp->getResult(0).getType()).getShape().isStatic()) {
-            return staticTileSizeComputation(builder, operation, strategy, getShape(operation->getResult(0)));
+        if (outputType.getShape().isStatic()) {
+            return staticTileSizeComputation(builder, allOpsToFuse.getArrayRef(), operation, strategy,
+                                             getShape(operation->getResult(0)));
         }
 
-        return dynamicTileSizeComputation(builder, operation, strategy);
+        return dynamicTileSizeComputation(builder, allOpsToFuse.getArrayRef(), operation, strategy);
     };
 
     tilingOptions.setTileSizeComputationFunction(vfTileSizeComputationFn);
@@ -494,26 +529,6 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
     // created in SCF functions.
     for (auto result : operation->getResults()) {
         tiledResults->replacements[result].setType(result.getType());
-
-        // in case the shape is dynamic, reifyResultShapes functions may add tensor.dim operations
-        // to the parent of the function. in case the parent is fused to the loop
-        // and original operation is supposed to be removed from the IR, such users should be reassigned
-        // to the inputs of VF
-        if (mlir::cast<vpux::NDTypeInterface>(result.getType()).getShape().isDynamic()) {
-            for (auto operand : operation->getOperands()) {
-                auto* parentOp = operand.getDefiningOp();
-                if (tiledResults->fusedProducers.contains(parentOp) && !parentOp->hasOneUse()) {
-                    for (auto& use : llvm::make_early_inc_range(parentOp->getUses())) {
-                        if (use.getOwner() == operation) {
-                            continue;
-                        }
-                        if (auto dimTensor = mlir::dyn_cast<mlir::tensor::DimOp>(use.getOwner())) {
-                            dimTensor.setOperand(use.getOperandNumber(), config.getInputs().front()->getOperand(0));
-                        }
-                    }
-                }
-            }
-        }
     }
 
     // E-162999 rewrite to update order attribute for output types more elegantly
@@ -560,7 +575,3 @@ mlir::FailureOr<SmallVector<mlir::Operation*>> vpux::VPU::applySCFVerticalFusion
 
     return to_small_vector(tiledResults->fusedProducers);
 }
-
-#if defined(__GNUC__) && !defined(__clang__)
-#  pragma GCC diagnostic pop
-#endif

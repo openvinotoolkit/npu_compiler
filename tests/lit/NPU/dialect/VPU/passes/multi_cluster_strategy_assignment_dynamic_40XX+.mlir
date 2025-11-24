@@ -212,3 +212,33 @@ func.func @SEPConvSameStrategy(%arg0: !inputBoundedType, %arg1: !inputStaticType
 
   return %2, %4 : !outputBoundedType, !outputStaticType
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+!inputDynamicType = tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+!inputStaticType = tensor<1x12x1600x2560xf16, {order = #NHWC}>
+
+!outputDynamicType = tensor<1x3x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 3, 3200, 5120]> : tensor<4xsi64>, order = #NHWC}>
+!outputStaticType = tensor<1x3x3200x5120xf16, {order = #NHWC}>
+
+// CHECK-LABEL: @D2SOpSameStrategy
+func.func @D2SOpSameStrategy(%arg0: !inputStaticType, %arg1: !inputDynamicType) -> (!outputStaticType, !outputDynamicType) {
+    // CHECK-SAME:  [[ARG0:%.+]]: tensor<1x12x1600x2560xf16, {order = #NHWC}>
+    // CHECK-SAME:  [[ARG1:%.+]]: tensor<1x12x?x?xf16, {bounds = #const.OpaqueI64Elements<[1, 12, 1600, 2560]> : tensor<4xsi64>, order = #NHWC}>
+
+    %0 = VPU.DepthToSpace(%arg0) {block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>}
+        : !inputStaticType -> !outputStaticType
+
+    // CHECK:       [[D2S_STATIC:%.+]] = VPU.DepthToSpace([[ARG0]])
+    // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<[[CLUSTER_STRATEGY:[^>]+]]>
+
+    %1 = VPU.DepthToSpace(%arg1) {block_size = 2 : i64, mode = #IE.depth_to_space_mode<DEPTH_FIRST>}
+        : !inputDynamicType -> !outputDynamicType
+
+    // CHECK:      [[D2S_DYN:%.+]] = VPU.DepthToSpace([[ARG1]])
+    // CHECK-SAME:  multiClusterStrategy = #VPU.multi_cluster_strategy<[[CLUSTER_STRATEGY]]>
+
+    return %0, %1 : !outputStaticType, !outputDynamicType
+    // CHECK:       return [[D2S_STATIC]], [[D2S_DYN]]
+}

@@ -5,6 +5,7 @@
 
 #include "vpux/compiler/core/barrier_info.hpp"
 #include "vpux/compiler/core/cost_model_utils.hpp"
+#include "vpux/compiler/dialect/VPUIP/IR/types.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
 #include "vpux/compiler/dialect/VPURT/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"

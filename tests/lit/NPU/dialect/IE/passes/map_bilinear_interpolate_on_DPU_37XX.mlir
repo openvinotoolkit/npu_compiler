@@ -261,3 +261,29 @@ func.func @DoNotMapBilinearAlignCornersInterpolateOnDPUBecauseSmallChannel(%arg0
 
     // CHECK:   IE.Interpolate([[INPUT]])
 }
+
+// -----
+
+// CHECK-LABEL: @MapBilinear3ChannelInterpolateOnDPU37XX
+func.func @MapBilinear3ChannelInterpolateOnDPU37XX(%arg0: tensor<1x3x512x512xf16>) -> tensor<1x3x1024x1024xf16> {
+    %0 = IE.Interpolate(%arg0) {
+        attr = #IE.Interpolate<mode = <LINEAR_ONNX>, shape_calc_mode = <SIZES>, coord_mode = <HALF_PIXEL>, nearest_mode = <FLOOR>,
+        antialias = false,
+        pads_begin = [0, 0, 0, 0], pads_end = [0, 0, 0, 0],
+        cube_coeff = -7.500000e-01 : f64>,
+        axes_attr = [0, 1, 2, 3],
+        operandSegmentSizes = array<i32: 1, 0, 0, 0>,
+        scales_attr = [1.0000000000000000, 1.0000000000000000, 2.0000000000000000, 2.0000000000000000],
+        sizes_attr = [1, 3, 1024, 1024]
+    } : tensor<1x3x512x512xf16> -> tensor<1x3x1024x1024xf16>
+
+    return %0 : tensor<1x3x1024x1024xf16>
+
+    // CHECK-NOT:   IE.Interpolate
+    // CHECK:       IE.Expand
+    // CHECK:       IE.Slice
+    // CHECK:       IE.AvgPool
+    // CHECK:       IE.GroupConvolution
+    // CHECK:       IE.Concat
+    // CHECK:       IE.Slice
+}

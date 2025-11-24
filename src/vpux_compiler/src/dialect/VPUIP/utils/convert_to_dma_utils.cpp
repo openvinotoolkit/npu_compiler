@@ -176,17 +176,25 @@ bool isDMASupportedMemPermuteDistribution(vpux::NDTypeInterface inputType, vpux:
 
 bool vpux::VPUIP::isBeneficialForUsingPermuteDMA(config::ArchKind arch, NDTypeInterface inType, NDTypeInterface outType,
                                                  mlir::AffineMap memPerm, int64_t dmaPortCount, vpux::Logger log) {
+    auto nestedLog = log.nest();
+    if (inType.getShape().isDynamic() || outType.getShape().isDynamic()) {
+        nestedLog.trace("MemPermuteOp has dynamic input/output; do not convert to PermuteDMA.");
+        return false;
+    }
+
     // Check if the memory permutation satisfies optimized conditions for Shave optimizations
     // If it does, using PermuteDMA is not beneficial
     if (satisfiesOptimizedMemPermute(arch, inType, outType)) {
+        nestedLog.trace("MemPermuteOp performs better as a Sw kernel.");
         return false;
     }
 
     if (!isDMASupportedMemPermuteDistribution(inType, outType)) {
+        nestedLog.trace("MemPermuteOp does not support in/out distribution as NNDMA Task.");
         return false;
     }
 
-    auto subShapes = VPUIP::getPermuteDMASubInputShapes(arch, inType, outType, memPerm, dmaPortCount, log);
+    auto subShapes = VPUIP::getPermuteDMASubInputShapes(arch, inType, outType, memPerm, dmaPortCount, nestedLog);
     return subShapes.has_value();
 }
 
@@ -866,6 +874,11 @@ bool vpux::VPUIP::isCompatibleWithMultiClusterNNDMA(VPU::DepthToSpaceOp op, vpux
     if (op.getMode() != IE::DepthToSpaceMode::BLOCKS_FIRST) {
         return false;
     }
+
+    if (IE::hasDynamicTensors(op)) {
+        return false;
+    }
+
     const auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput().getType());
     const auto outputType = mlir::cast<vpux::NDTypeInterface>(op.getOutput().getType());
     const auto inOrder = inputType.getDimsOrder();

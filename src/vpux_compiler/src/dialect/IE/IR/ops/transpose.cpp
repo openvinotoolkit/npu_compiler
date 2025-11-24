@@ -6,10 +6,11 @@
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/elem_type_info_utils.hpp"
-#include "vpux/compiler/dialect/VPU/utils/static_shape_op_utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/dialect/const/ops.hpp"
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/permute_utils.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Arith/Utils/Utils.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
@@ -144,8 +145,9 @@ mlir::LogicalResult ConvertConstToAttr::matchAndRewrite(IE::TransposeOp transpos
     const auto orderAttr =
             mlir::AffineMapAttr::get(mlir::AffineMap::getPermutationMap(perm, transposeOp->getContext()));
 
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(transposeOp, transposeOp.getType(), transposeOp.getInput(), nullptr,
-                                                 orderAttr);
+    auto newOp = rewriter.replaceOpWithNewOp<IE::TransposeOp>(transposeOp, transposeOp.getType(),
+                                                              transposeOp.getInput(), nullptr, orderAttr);
+    extendOpLoc(newOp, "const_to_attr");
 
     return mlir::success();
 }
@@ -193,8 +195,9 @@ mlir::LogicalResult FuseTransposes::matchAndRewrite(IE::TransposeOp transposeOp,
     auto permMap = mlir::AffineMap::getPermutationMap(perm, transposeOp->getContext());
 
     const auto permAttr = mlir::AffineMapAttr::get(permMap.compose(prevPermMap));
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(transposeOp, transposeOp.getType(), prevTransposeOp.getInput(),
-                                                 nullptr, permAttr);
+    auto newOp = rewriter.replaceOpWithNewOp<IE::TransposeOp>(transposeOp, transposeOp.getType(),
+                                                              prevTransposeOp.getInput(), nullptr, permAttr);
+    extendOpLoc(newOp, "fused");
 
     return mlir::success();
 }
@@ -279,7 +282,9 @@ mlir::LogicalResult CollapseMutualTransposes::matchAndRewrite(IE::TransposeOp tr
     const auto shape = mlir::cast<NDTypeInterface>(transposeOp.getOutput().getType()).getShape();
     const auto newShape = to_small_vector(shape);
     const auto newShapeAttr = getIntArrayAttr(rewriter.getContext(), newShape);
-    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(transposeOp, firstTransposeIn, nullptr, false, newShapeAttr);
+    auto newOp =
+            rewriter.replaceOpWithNewOp<IE::ReshapeOp>(transposeOp, firstTransposeIn, nullptr, false, newShapeAttr);
+    extendOpLoc(newOp, "as_reshape");
 
     return mlir::success();
 }
@@ -313,7 +318,9 @@ mlir::LogicalResult ConvertTrivialTransposeToReshape::matchAndRewrite(IE::Transp
 
     const auto outputShape = mlir::cast<mlir::ShapedType>(transposeOp.getOutput().getType()).getShape();
     const auto outputShapeAttr = getIntArrayAttr(getContext(), outputShape);
-    rewriter.replaceOpWithNewOp<IE::ReshapeOp>(transposeOp, transposeOp.getInput(), nullptr, false, outputShapeAttr);
+    auto newOp = rewriter.replaceOpWithNewOp<IE::ReshapeOp>(transposeOp, transposeOp.getInput(), nullptr, false,
+                                                            outputShapeAttr);
+    extendOpLoc(newOp, "as_reshape");
 
     return mlir::success();
 }
@@ -366,8 +373,10 @@ mlir::LogicalResult vpux::IE::TransposeOp::reifyResultShapes(mlir::OpBuilder& bu
     for (const auto& dimIdx : irange(outputShapedType.getRank())) {
         if (outputShapedType.isDynamicDim(dimIdx)) {
             // Dynamic dimension: return mlir::Value according to permutation.
-            mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(loc, getInput(), order[dimIdx]);
-            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, loc, dimOp));
+            auto dimLoc = appendLoc(loc, llvm::StringLiteral("dim_{0}"), dimIdx);
+            auto index = builder.create<mlir::arith::ConstantIndexOp>(appendLoc(dimLoc, "const_index"), order[dimIdx]);
+            mlir::OpFoldResult dimOp = builder.createOrFold<mlir::tensor::DimOp>(dimLoc, getInput(), index);
+            shapes.push_back(mlir::getValueOrCreateConstantIndexOp(builder, appendLoc(loc, "const_index"), dimOp));
         } else {
             // Static dimension: return mlir::IntegerAttr.
             shapes.push_back(builder.getIndexAttr(inputShapedType.getDimSize(dimIdx)));
@@ -378,5 +387,5 @@ mlir::LogicalResult vpux::IE::TransposeOp::reifyResultShapes(mlir::OpBuilder& bu
 }
 
 bool vpux::IE::TransposeOp::requiresStaticShape() {
-    return vpux::VPU::hasEnableExtraStaticShapeOps(getModuleOp(this->getOperation()));
+    return config::hasEnableExtraStaticShapeOps(getModuleOp(this->getOperation()));
 }

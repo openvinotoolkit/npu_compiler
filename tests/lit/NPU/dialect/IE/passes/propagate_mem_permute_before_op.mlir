@@ -1307,3 +1307,53 @@ func.func @NotPropagatePermuteQuantizeIfNotSupportedByNCEPermute(%arg0: tensor<1
 
     // CHECK:       return [[PERMUTE_QUANTIZE]] : tensor<1x1280x1x16xf16, {order = #NHWC}>
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+!qElemType = !quant.uniform<i8:f16, 0.0472412109375>
+
+// CHECK-LABEL: @PropagateMemPermuteThroughConcatWithQuantizeCast
+// CHECK-SAME:    [[INPUT1:%.+]]: tensor<1x256x2x256xsi8, {order = #NHWC}>
+// CHECK-SAME:    [[INPUT2:%.+]]: tensor<1x2x256x3840xsi8>
+func.func @PropagateMemPermuteThroughConcatWithQuantizeCast(%arg0: tensor<1x256x2x256xsi8, {order = #NHWC}>, %arg1: tensor<1x2x256x3840xsi8>) -> tensor<1x2x256x4096x!qElemType> {
+  
+  %0 = IE.MemPermute(%arg0) {
+    dst_order = #NHWC, 
+    mem_perm = #NHWC
+  } : tensor<1x256x2x256xsi8, {order = #NHWC}> -> tensor<1x2x256x256xsi8, {order = #NHWC}>
+  
+  %1 = IE.MemPermute(%arg1) {
+    dst_order = #NHWC, 
+    mem_perm = #NHWC
+  } : tensor<1x2x256x3840xsi8> -> tensor<1x2x256x3840xsi8, {order = #NHWC}>
+  
+  %2 = IE.Concat(%0, %1) {
+    static_offsets = [[0, 0, 0, 0], [0, 0, 0, 256]]
+  } : tensor<1x2x256x256xsi8, {order = #NHWC}>, tensor<1x2x256x3840xsi8, {order = #NHWC}> -> tensor<1x2x256x4096xsi8, {order = #NHWC}>
+  
+  %3 = IE.QuantizeCast(%2) {
+    dstElemType = !qElemType
+  } : tensor<1x2x256x4096xsi8, {order = #NHWC}> -> tensor<1x2x256x4096x!qElemType, {order = #NHWC}>
+  
+  %4 = IE.MemPermute(%3) {
+    dst_order = #NCHW, 
+    mem_perm = #NWCH
+  } : tensor<1x2x256x4096x!qElemType, {order = #NHWC}> -> tensor<1x2x256x4096x!qElemType>
+  
+  return %4 : tensor<1x2x256x4096x!qElemType>
+
+  // CHECK:       [[PERMUTE_CAST:%.+]] = IE.PermuteCast([[INPUT1]]) {dst_order = #NCHW, mem_perm = #NCHW}
+  // CHECK-SAME:        : tensor<1x256x2x256xsi8, {order = #NHWC}> -> tensor<1x2x256x256xsi8>
+  
+  // CHECK:       [[CONCAT:%.+]] = IE.Concat([[PERMUTE_CAST]], [[INPUT2]])
+  // CHECK-SAME{LITERAL}:     {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 256]]}
+  // CHECK-SAME:        : tensor<1x2x256x256xsi8>, tensor<1x2x256x3840xsi8> -> tensor<1x2x256x4096xsi8>
+  
+  // CHECK:       [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[CONCAT]]) {dstElemType = !qElemType}
+  // CHECK-SAME:        : tensor<1x2x256x4096xsi8> -> tensor<1x2x256x4096x!qElemType>
+  
+  // CHECK:       return [[QUANTIZE_CAST]] : tensor<1x2x256x4096x!qElemType>
+}

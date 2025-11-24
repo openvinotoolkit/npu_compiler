@@ -8,6 +8,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/infer_output_shape.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/IR/BuiltinTypes.h>
 #include <cstdint>
@@ -60,7 +61,7 @@ mlir::LogicalResult vpux::IE::MaxPoolOp::reifyResultShapes(mlir::OpBuilder& buil
     const auto padEnd = parseIntArrayAttr<int64_t>(getPadsEndAttr());
 
     auto outShape = reifyConvPoolTensors(builder, getInput(), getOutput(), nullptr, kernelSize, strides, padBegin,
-                                         padEnd, getLoc());
+                                         padEnd, appendLoc(getLoc(), "maxpool"));
 
     if (mlir::failed(outShape)) {
         return outShape;

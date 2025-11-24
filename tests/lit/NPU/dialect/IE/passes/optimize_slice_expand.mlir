@@ -101,7 +101,7 @@ func.func @main(%arg0: tensor<1x16x28x28x!qElemType>) -> tensor<1x4x28x28x!qElem
 // CHECK-LABEL: @DoNotOptimizeSliceQuantizeCastExpandUserCanUseAutopad
 module @DoNotOptimizeSliceQuantizeCastExpandUserCanUseAutopad {
 config.PipelineOptions @Options {
-   config.Option @VPU.AutoPaddingIDU : true
+   config.Option @config.AutoPaddingIDU : true
 }
 // CHECK: ([[INPUT:%.+]]: tensor<1x16x64x64x!qElemType>)
 func.func @main(%arg0: tensor<1x16x64x64x!qElemType>) -> tensor<1x16x64x64x!qElemType1> {

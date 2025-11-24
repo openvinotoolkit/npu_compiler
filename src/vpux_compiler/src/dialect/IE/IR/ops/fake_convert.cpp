@@ -10,7 +10,7 @@ using namespace vpux;
 
 mlir::LogicalResult vpux::IE::FakeConvertOp::verify() {
     const auto dstType = getDstType();
-    if (!dstType.isFloat8E4M3FN() && !dstType.isFloat8E5M2()) {
+    if (!mlir::isa<mlir::Float8E4M3FNType>(dstType) && !mlir::isa<mlir::Float8E5M2Type>(dstType)) {
         return errorAt(*this, "Unsupported FakeConvert destination type {0}", dstType);
     }
 

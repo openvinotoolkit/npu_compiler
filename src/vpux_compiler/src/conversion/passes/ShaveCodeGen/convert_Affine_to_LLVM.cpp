@@ -69,7 +69,8 @@ class ConvertAffine2LLVMPass final : public impl::ConvertAffine2LLVMBase<Convert
 public:
     using ArgIndices = SmallVector<size_t>;
     using SwKernelUses = SmallVector<vpux::VPUIP::SwKernelOp>;
-    explicit ConvertAffine2LLVMPass(Logger log): _log(log) {
+    explicit ConvertAffine2LLVMPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
@@ -88,9 +89,6 @@ private:
     // Given some argument indices for funcOp, add llvm.noalias attributes for the
     // arguments that correspond to those indices.
     void addNoAliasLLVMAttributes(mlir::LLVM::LLVMFuncOp funcOp, ArgIndices& noAliasArgIdx);
-
-private:
-    Logger _log;
 };
 
 void ConvertAffine2LLVMPass::getArgMemRefNoAliasMask(mlir::func::FuncOp funcOp, llvm::SmallBitVector& allUseMask,

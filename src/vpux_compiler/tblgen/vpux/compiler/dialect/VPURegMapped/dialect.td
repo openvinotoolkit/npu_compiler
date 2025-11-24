@@ -41,8 +41,7 @@ def VPURegMapped_Dialect : Dialect {
     let dependentDialects = [
         "vpux::Const::ConstDialect",
         "vpux::ELFNPU37XX::ELFNPU37XXDialect",
-        "mlir::func::FuncDialect",
-        "mlir::quant::QuantizationDialect"
+        "mlir::func::FuncDialect"
     ];
 
     let extraClassDeclaration = [{

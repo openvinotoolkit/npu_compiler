@@ -533,9 +533,6 @@ Specify "NPU_COMPILATION_MODE": "HostCompile" in `extra_config` section of JSON 
       },
       "AccuracyCheck": {
         "disabled": true
-      },
-      "IMD": {
-        "disabled": false
       }
     }
   ]

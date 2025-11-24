@@ -17,5 +17,4 @@ add_npu_library(npu_compiler_dialect_vpurt_transforms
         npu_compiler_dialect_vpurt
         npu_compiler_dialect_vpurt_interfaces
         npu_compiler_dialect_vpurt_utils
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_costmodel)

@@ -389,9 +389,6 @@ void SimplifySchedulePass::safeRunOnFunc() {
     VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
     barrierInfo.clearAttributes();
     VPURT::postProcessBarrierOps(funcOp);
-
-    _log.info("[SimplifySchedule phase]");
-    cycleCostInfo.printNNCacheStatistics(_log);
 }
 
 }  // namespace

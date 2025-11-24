@@ -20,7 +20,7 @@ namespace HostExec {
 
 std::unique_ptr<mlir::Pass> createSerializeELFToBinaryPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertToLLVMUMDCallsPass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createWrapFuncCallsIntoAsyncRegionsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createPrepareHostFuncForAsyncExecutionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createOptimizeMemRefCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createReplaceAllocsWithSingleAllocAndViewsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSerializeNetworkMetadataPass(Logger log = Logger::global());

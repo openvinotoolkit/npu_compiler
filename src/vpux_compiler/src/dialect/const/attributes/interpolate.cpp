@@ -208,13 +208,12 @@ Const::Content vpux::Const::InterpolateAttr::transform(vpux::Const::Content& inp
         auto outBuf = output.getRawTempBuf();
         std::copy_n(inBuf.data(), inBuf.size(), outBuf.data());
     } else {
-        const auto ctx = getContext();
-        if (elemType == mlir::FloatType::getF16(ctx)) {
+        if (mlir::isa<mlir::Float16Type>(elemType)) {
             const auto inBuf = input.getStorageBuf<vpux::type::float16>();
             interpCubicImpl<vpux::type::float16>(inBuf, output, inType, getAxes(), getSizes(), getCoordMode(),
                                                  getNearestMode(), getAntialias(), getPadsBegin(), getPadsEnd(),
                                                  getCubeCoeff());
-        } else if (elemType == mlir::FloatType::getF32(ctx)) {
+        } else if (mlir::isa<mlir::Float32Type>(elemType)) {
             const auto inBuf = input.getStorageBuf<float>();
             interpCubicImpl<float>(inBuf, output, inType, getAxes(), getSizes(), getCoordMode(), getNearestMode(),
                                    getAntialias(), getPadsBegin(), getPadsEnd(), getCubeCoeff());

@@ -472,7 +472,6 @@ def WlmLegalizePagesForBarrierDmas : PassBase<"wlm-legalize-pages-for-barrier-dm
         >
     ];
 }
-
 //
 // WlmInsertDummyBarriersInPages
 //
@@ -515,7 +514,6 @@ def OptimizeBarriersSlotsUsage : PassBase<"optimize-barriers-slots-usage", "vpux
 
     let constructor = "vpux::VPURT::createOptimizeBarriersSlotsUsagePass()";
 }
-
 //
 // CheckWlmPageSplitConstraints
 //

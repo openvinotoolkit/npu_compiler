@@ -12,5 +12,5 @@ add_tool_target(
         ${CMAKE_CURRENT_SOURCE_DIR}
     LINK_LIBRARIES
         openvino::runtime
-        gflags
+        openvino::gflags_nothreads_static
 )

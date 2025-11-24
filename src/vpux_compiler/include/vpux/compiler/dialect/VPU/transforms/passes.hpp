@@ -129,6 +129,14 @@ struct TilingOptions : mlir::PassPipelineOptions<TilingOptions> {
             *this, "enable-shave-ddr-access-optimization",
             llvm::cl::desc("SHAVE DDR access optimization option (true, false or auto)"), llvm::cl::init("true")};
 
+    BoolOption enableReorderConcatBranches{
+            *this, "enable-reorder-concat-branches",
+            llvm::cl::desc("Reorder branches of concat to make sure it is executed branch by branch"),
+            llvm::cl::init(false)};
+
+    BoolOption enablePrintStatistics{*this, "enable-print-statistics", ::llvm::cl::desc("Enable print statistics"),
+                                     ::llvm::cl::init(vpux::isDeveloperBuild())};
+
     // Extended Tiling options - Incremental Pipeline
     BoolOption readStrategyFromJson{*this, "read-strategy-from-json",
                                     llvm::cl::desc("Read the multiclustering and tiling strategy from a JSON file"),
@@ -228,12 +236,12 @@ struct InitCompilerOptions : mlir::PassPipelineOptions<InitCompilerOptions> {
                                                   llvm::cl::desc("Enable weights dequantization for weights as input"),
                                                   llvm::cl::init(false)};
 
+    BoolOption enableAdaptiveStripping{*this, "enable-adaptive-stripping", llvm::cl::desc("Enable adaptive stripping"),
+                                       llvm::cl::init(false)};
+
     BoolOption enableQDQOptimizationAggressive{*this, "enable-qdq-optimization-aggressive",
                                                llvm::cl::desc("Enable aggressive QDQ optimizations"),
                                                llvm::cl::init(false)};
-
-    BoolOption enableAdaptiveStripping{*this, "enable-adaptive-stripping", llvm::cl::desc("Enable adaptive stripping"),
-                                       llvm::cl::init(false)};
 
     BoolOption enableExtraStaticShapeOps{
             *this, "enable-extra-static-shape-ops",
@@ -352,8 +360,10 @@ std::unique_ptr<mlir::Pass> createMakeOpsWithDistributedTensorPass(bool enableEx
 std::unique_ptr<mlir::Pass> createMakeDistributedCopiesPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustDistributedTensorAroundOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustMemorySpacePass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAdjustMemorySpaceForSHVOpsPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createCostModelAnalysisConstructPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createCostModelAnalysisDestroyPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createPrintNNCacheStatisticsPass(Logger log = Logger::global(), StringRef passName = "");
 std::unique_ptr<mlir::Pass> createMultiClusterStrategyAssignmentPass(
         bool enablePrefetchTiling = true, const int clusteredOpThreshold = CLUSTERED_OP_THRESHOLD_FOR_TILING_CACHE,
         StringRef mcOptimizationScope = "subgraph", Logger log = Logger::global());
@@ -381,7 +391,7 @@ std::unique_ptr<mlir::Pass> createManualStrategyUtilsPass(
         std::string contextId = "default", Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createDetectionOutputDecompositionPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSplitGRUSequencePass(Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createAddSwOpAuxiliaryBufferPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAddSwOpAuxiliaryBufferPass(const Logger& log = Logger::global());
 std::unique_ptr<mlir::Pass> createTileLSTMSequencePass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createAdjustLSTMCellInputsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createComputeInterpolateCoordinatesPass(bool enableExplicitDistributionInfoAttr = false,
@@ -394,6 +404,8 @@ std::unique_ptr<mlir::Pass> createAddExplicitPaddingBeforeNCEPermutePass(Logger 
 std::unique_ptr<mlir::Pass> createOutputPipelineTilingPass(bool enablePrefetchTiling = true,
                                                            Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createSCFVerticalFusionPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createSCFFuseLastViewLikeOpPass(Logger log = Logger::global());
+
 std::unique_ptr<mlir::Pass> createLegalizeDynamicShapeConcatForSWLayersPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertConstArgsToMultiConstantsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConcatRepeatingBlocksOutliningPass(int64_t minSeqLength = 1,
@@ -484,8 +496,11 @@ std::unique_ptr<mlir::Pass> createOptimizeConcatPass(bool optimizeOnlyOuterConca
                                                      Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createStrategyManagerImplPass(bool enablePrefetchTiling = true,
                                                           Logger log = Logger::global());
-std::unique_ptr<mlir::Pass> createEfficientIROrderPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createEfficientIROrderPass(bool enableReorderConcatBranches = false,
+                                                       Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRemoveOutputSparseToAvoidSuboptimalDPUWorkloadsPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createFlashSDPATilingStrategyEstimationPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createUnrollFlashSDPAPass(Logger log = Logger::global());
 
 void buildActivationSparsityPipeline(mlir::OpPassManager& pm, const VPU::ActivationSparsityOptions& options,
                                      Logger log = Logger::global());
@@ -624,6 +639,7 @@ std::unique_ptr<mlir::Pass> createFinalizeComputeFunctionBoundariesPass(Logger l
 std::unique_ptr<mlir::Pass> createConvertDynamicToStaticKernelsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createConvertVPUOpsToUpstreamOpsPass(Logger log = Logger::global());
 std::unique_ptr<mlir::Pass> createRestorePadAttrAfterSCFTilingPass(Logger log = Logger::global());
+std::unique_ptr<mlir::Pass> createAdjustBlockSizeForScfTilingPass(Logger log = Logger::global());
 
 //
 // Registration

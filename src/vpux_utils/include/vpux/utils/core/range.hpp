@@ -17,6 +17,7 @@
 #include <llvm/ADT/STLExtras.h>
 #include <llvm/ADT/iterator_range.h>
 
+#include <numeric>
 #include <vector>
 
 namespace vpux {
@@ -240,6 +241,12 @@ auto to_container(Range&& range) {
         addToContainer(out, std::forward<decltype(val)>(val));
     }
     return out;
+}
+
+// Range accumulate
+template <class Range, class T, class Op = std::plus<>>
+T accumulate(Range&& range, T init, Op op = {}) {
+    return std::accumulate(llvm::adl_begin(range), llvm::adl_end(range), std::move(init), op);
 }
 
 }  // namespace vpux

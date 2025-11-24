@@ -106,8 +106,8 @@ func.func @NotChangeTilingStrategyForVF(%input: tensor<1x32x135x240xf16, {order 
 
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 
-// CHECK-LABEL: func.func @AvoidExcessiveTiling
-func.func @AvoidExcessiveTiling(%input: tensor<1x256x184x240x!qElemType, {order = #NHWC}>)
+// CHECK-LABEL: func.func @TilingWithMinFragmentation
+func.func @TilingWithMinFragmentation(%input: tensor<1x256x184x240x!qElemType, {order = #NHWC}>)
             -> tensor<1x128x184x240x!qElemType2, {order = #NHWC}> {
     %weights = const.Declare tensor<128x256x3x3x!qElemType1, {order = #NHWC}> = dense<1.0> : tensor<128x256x3x3xf16>, [#const.CastElemType<ui8>, #const.CastElemType<!qElemType1>, #const.Reorder<#NHWC>]
     %weightsTBL = const.Declare tensor<128x1x1x4xsi32> = dense<1> : tensor<128x1x1x4xsi32>
@@ -128,7 +128,7 @@ func.func @AvoidExcessiveTiling(%input: tensor<1x256x184x240x!qElemType, {order 
     // CHECK-SAME:          pad = #VPU.Padding<left = 1 : i64, right = 1 : i64, top = 1 : i64, bottom = 1 : i64>,
     // CHECK-SAME:          rawFilterShape = [128, 256, 3, 3],
     // CHECK-SAME:          strides = [1, 1],
-    // CHECK-SAME:          tilingStrategy = [1, 1, 13, 1]}
+    // CHECK-SAME:          tilingStrategy = [1, 1, 23, 1]}
     // CHECK-SAME:      -> tensor<1x128x184x240x!qElemType1, {order = #NHWC}>
 
     // CHECK:       return [[OUTPUT]] : tensor<1x128x184x240x!qElemType1, {order = #NHWC}>

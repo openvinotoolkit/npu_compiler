@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/dialect.hpp"
 #include "vpux/compiler/dialect/VPUMI40XX/ops.hpp"
@@ -11,6 +10,7 @@
 #include "vpux/compiler/dialect/VPUMI40XX/utils.hpp"
 #include "vpux/compiler/dialect/VPURegMapped/ops.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 
 #include "vpux/compiler/utils/attributes.hpp"
 #include "vpux/compiler/utils/options.hpp"
@@ -28,11 +28,11 @@ using namespace vpux;
 namespace {
 class AddFetchOpsPass : public VPUMI40XX::impl::AddFetchOpsBase<AddFetchOpsPass> {
 public:
-    explicit AddFetchOpsPass(Logger log): _log(log) {
+    explicit AddFetchOpsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
-    Logger _log;
     void safeRunOnFunc() final;
 };
 
@@ -277,13 +277,13 @@ void AddFetchOpsPass::safeRunOnFunc() {
 
     if (mlir::failed(addFetchTasks(mpi, DMA_WLM_TILEIDX, DMA_DDR2CMX_LISTIDX, VPURegMapped::TaskType::DPUInvariant,
                                    _log, tilesCount))) {
-        VPU::setWorkloadManagementStatus(parentModule, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(parentModule, WorkloadManagementStatus::FAILED);
         signalPassFailure();
         return;
     }
     if (mlir::failed(addFetchTasks(mpi, DMA_WLM_TILEIDX, DMA_DDR2CMX_LISTIDX, VPURegMapped::TaskType::ActKernelRange,
                                    _log, tilesCount, shavesCountPerTile))) {
-        VPU::setWorkloadManagementStatus(parentModule, VPU::WorkloadManagementStatus::FAILED);
+        config::setWorkloadManagementStatus(parentModule, WorkloadManagementStatus::FAILED);
         signalPassFailure();
         return;
     }

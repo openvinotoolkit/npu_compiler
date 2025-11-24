@@ -4,9 +4,9 @@
 
 # OpenVINO™ Intel® NPU Compiler
 
-[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/openvinotoolkit/npu_compiler/badge)](https://scorecard.dev/viewer/?uri=github.com/openvinotoolkit/npu_compiler)
 [![ubuntu_22](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_22.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_22.yml?query=event%3Apush)
 [![ubuntu_24](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_24.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/ubuntu_24.yml?query=event%3Apush)
+[![Windows (2022)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2022.yml/badge.svg?branch=develop&event=push)](https://github.com/openvinotoolkit/npu_compiler/actions/workflows/windows_2022.yml?query=event%3Apush)
 
 [![OpenVINO Docs](https://img.shields.io/badge/OpenVINO-documentation-blue)](https://docs.openvino.ai/)
 [![OpenVINO Downloads](https://img.shields.io/badge/OpenVINO-downloads-blue)](https://www.intel.com/content/www/us/en/developer/tools/openvino-toolkit/download.html)
@@ -15,6 +15,9 @@
 
 [![NPU Windows Driver](https://img.shields.io/badge/NPU-Windows_Drivers-lightblue)](https://www.intel.com/content/www/us/en/download/794734/intel-npu-driver-windows.html)
 [![NPU Linux Driver](https://img.shields.io/badge/NPU-Linux_Drivers-lightblue)](https://github.com/intel/linux-npu-driver/releases)
+
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/openvinotoolkit/npu_compiler/badge)](https://scorecard.dev/viewer/?uri=github.com/openvinotoolkit/npu_compiler)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/10402/badge)](https://www.bestpractices.dev/projects/10402)
 
 </div>
 

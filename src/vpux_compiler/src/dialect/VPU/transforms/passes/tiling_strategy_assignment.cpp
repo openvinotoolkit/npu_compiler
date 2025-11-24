@@ -10,6 +10,7 @@
 #include "vpux/compiler/dialect/VPU/utils/cost_model/cost_model.hpp"
 #include "vpux/compiler/dialect/VPU/utils/generate_tiling.hpp"
 #include "vpux/compiler/dialect/VPU/utils/manual_strategy_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/op_tiling_cache.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sibling_ops_analysis.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
@@ -220,9 +221,6 @@ void TilingStrategyAssignmentPass::safeRunOnFunc() {
     auto& cache = VPU::OpTilingCache::instance();
     cache.printStats(_log);
     cache.cleanUp();
-
-    _log.info("[TilingStrategyAssignment phase]");
-    _costModel->printNNCacheStatistics();
 }
 }  // namespace
 

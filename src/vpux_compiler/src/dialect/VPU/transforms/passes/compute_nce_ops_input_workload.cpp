@@ -321,15 +321,12 @@ std::pair<SmallVector<int64_t>, SmallVector<int64_t>> computeInputWorkload(NCEOp
 class ComputeNCEInputWorkloadsPass final :
         public VPU::impl::ComputeNCEInputWorkloadsBase<ComputeNCEInputWorkloadsPass> {
 public:
-    explicit ComputeNCEInputWorkloadsPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ComputeNCEInputWorkloadsPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void ComputeNCEInputWorkloadsPass::safeRunOnFunc() {

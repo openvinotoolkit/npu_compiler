@@ -115,18 +115,18 @@ void setHWClampOp(mlir::Operation* mainOp, mlir::Operation* activationOp) {
     auto maybeClampOp = mlir::dyn_cast<IE::ClampOp>(activationOp);
     VPUX_THROW_WHEN(maybeClampOp == nullptr, "Not ClampOp provided at {0}", activationOp->getLoc());
 
-    auto hasClampAttr = mainOp->hasAttr("clamp");
+    auto hasClampAttr = mainOp->hasAttr(vpux::OperationAttrName::CLAMP);
     mlir::DictionaryAttr clampOpInfo;
 
     if (hasClampAttr) {
-        auto mainClampAttr = mlir::dyn_cast<mlir::DictionaryAttr>(mainOp->getAttr("clamp"));
+        auto mainClampAttr = mlir::dyn_cast<mlir::DictionaryAttr>(mainOp->getAttr(vpux::OperationAttrName::CLAMP));
         VPUX_THROW_UNLESS(mainClampAttr, "The clamp attribute is expected to be a DictionaryAttr at {0}",
                           mainOp->getLoc());
         clampOpInfo = mergeClampAttrs(mainClampAttr, maybeClampOp);
     } else {
         clampOpInfo = activationOp->getAttrDictionary();
     }
-    mainOp->setAttr("clamp", clampOpInfo);
+    mainOp->setAttr(vpux::OperationAttrName::CLAMP, clampOpInfo);
 }
 
 }  // namespace VPU

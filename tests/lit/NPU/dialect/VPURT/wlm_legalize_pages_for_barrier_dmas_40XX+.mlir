@@ -119,6 +119,8 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
 
     // After legalization (barX(PageY)):
     //
+    //        BarDMA(Bootstrap)
+    //               |
     // _______      DMA0
     //               |
     //              bar0(0)
@@ -157,7 +159,10 @@ func.func @DmaAndDpuGraph() -> memref<1x16x8x32xf16,  #NHWC, [@CMX_NN, 0]> {
     // CHECK:   [[BAR4:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
     // CHECK:   [[BAR5:%.+]] = VPURT.DeclareVirtualBarrier <{wlmPage = 2 : i64}> -> !VPURT.Barrier
     // CHECK:   [[BAR6:%.+]] = VPURT.DeclareVirtualBarrier <{isFinalBarrier, wlmPage = 3 : i64}> -> !VPURT.Barrier
-
+	
+    // Placeholder for boostrap barProgDMA
+    // CHECK:   VPURT.Task wlmPage(0) {
+    // CHECK-NEXT: VPUIP.BarProgDMA {port = 0 : i64} inputs(%7 : memref<0x0x0x0xi32, @DDR>) outputs(%8 : memref<0x0x0x0xi32, @DDR>) physical_barrier_range(<0 : i64 to 3 : i64>)
     // CHECK:   VPURT.Task updates([[BAR0]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK:   VPURT.Task waits([[BAR0]] : !VPURT.Barrier) updates([[BAR1]] : !VPURT.Barrier) wlmPage(0) {
     // CHECK:   VPURT.Task waits([[BAR1]] : !VPURT.Barrier) updates([[BAR2]], [[BAR3]] : !VPURT.Barrier, !VPURT.Barrier) wlmPage(0) {

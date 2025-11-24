@@ -16,11 +16,11 @@ module @mainModule attributes { config.arch = #config.arch_kind<NPU37XX> } {
 
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
-// CHECK: config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-// CHECK: config.Option @VPU.BarrierMaxVariantSum : 256
-// CHECK: config.Option @VPU.BarrierMaxVariantCount : 256
-// CHECK: config.Option @VPU.MetadataMaxVariantCount : 256
-// CHECK: config.Option @VPU.MetadataMaxInvariantCount : 32
-// CHECK: config.Option @VPU.MetadataMaxKernelInvocationCount : 64
-// CHECK: config.Option @VPU.MetadataMaxKernelRangeCount : 32
-// CHECK-NOT: config.Option @VPU.MetadataMaxMediaCount : 4
+// CHECK: config.Option @config.UseDedicatedFifoPerShaveEngine : false
+// CHECK: config.Option @config.BarrierMaxVariantSum : 256
+// CHECK: config.Option @config.BarrierMaxVariantCount : 256
+// CHECK: config.Option @config.MetadataMaxVariantCount : 256
+// CHECK: config.Option @config.MetadataMaxInvariantCount : 32
+// CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 64
+// CHECK: config.Option @config.MetadataMaxKernelRangeCount : 32
+// CHECK-NOT: config.Option @config.MetadataMaxMediaCount : 4

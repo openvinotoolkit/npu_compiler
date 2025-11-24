@@ -10,12 +10,12 @@
 module @test {
 
 // CHECK-DAG:    {{  }}config.PipelineOptions @Options {
-// CHECK-DAG:    {{    }}config.Option @VPU.BarrierMaxVariantSum : 64
-// CHECK-DAG:    {{    }}config.Option @VPU.BarrierMaxVariantCount : 128
-// CHECK-DAG:    {{    }}config.Option @VPU.AutoPaddingODU : false
-// CHECK-DAG:    {{    }}config.Option @VPU.AutoPaddingIDU : false
-// CHECK-DAG:    {{    }}config.Option @VPU.MaxKernelSize : 11
-// CHECK-DAG:    {{    }}config.Option @VPU.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
+// CHECK-DAG:    {{    }}config.Option @config.BarrierMaxVariantSum : 64
+// CHECK-DAG:    {{    }}config.Option @config.BarrierMaxVariantCount : 128
+// CHECK-DAG:    {{    }}config.Option @config.AutoPaddingODU : false
+// CHECK-DAG:    {{    }}config.Option @config.AutoPaddingIDU : false
+// CHECK-DAG:    {{    }}config.Option @config.MaxKernelSize : 11
+// CHECK-DAG:    {{    }}config.Option @config.FragmentationAvoidRatioPipeliningLargeWeights : 4.500000e-01 : f32
 // CHECK-DAG:    {{  }}}
 
 // CHECK-DAG:    {{  }}config.ExecutorResource 2 of @DMA_NN

@@ -16,6 +16,4 @@ add_npu_library(${TARGET_NAME}
         npu_ov_utils
         npu_elf
         openvino::npu_al
-        npu_compiler_dialect_hostexec
-    SYSTEM_INCLUDES
-        ${VPUNN_INCLUDE_DIRS})
+        npu_compiler_dialect_hostexec)

@@ -31,7 +31,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 0 : i32, len = 2 : i32, srcWidth = 2 : i32, srcStride = 2 : i32, srcPlaneStride = 0 : i32, dstWidth = 2 : i32, dstStride = 2 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -65,7 +64,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 0 : i32, len = 801360 : i32, srcWidth = 801360 : i32, srcStride = 801360 : i32, srcPlaneStride = 0 : i32, dstWidth = 801360 : i32, dstStride = 801360 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -99,7 +97,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 8904 : i32, srcStride = 8904 : i32, srcPlaneStride = 8904 : i32, dstWidth = 168 : i32, dstStride = 360 : i32, dstPlaneStride = 115200 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -133,7 +130,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 192 : i32, srcPlaneStride = 10176 : i32, dstWidth = 168 : i32, dstStride = 360 : i32, dstPlaneStride = 115200 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -167,7 +163,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 3 : i32, len = 464 : i32, srcWidth = 464 : i32, srcStride = 464 : i32, srcPlaneStride = 103936 : i32, dstWidth = 464 : i32, dstStride = 480 : i32, dstPlaneStride = 111360 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -201,7 +196,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 360 : i32, srcPlaneStride = 115200 : i32, dstWidth = 168 : i32, dstStride = 192 : i32, dstPlaneStride = 10176 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -235,7 +229,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 3 : i32, len = 464 : i32, srcWidth = 464 : i32, srcStride = 480 : i32, srcPlaneStride = 111360 : i32, dstWidth = 464 : i32, dstStride = 464 : i32, dstPlaneStride = 103936 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -269,7 +262,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 90 : i32, len = 8904 : i32, srcWidth = 168 : i32, srcStride = 360 : i32, srcPlaneStride = 115200 : i32, dstWidth = 8904 : i32, dstStride = 8904 : i32, dstPlaneStride = 8904 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -306,7 +298,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 23 : i32, len = 10240 : i32, srcWidth = 10240 : i32, srcStride = 10240 : i32, srcPlaneStride = 10240 : i32, dstWidth = 512 : i32, dstStride = 1024 : i32, dstPlaneStride = 61440 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -343,7 +334,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   dma_descriptor(<numPlanes = 23 : i32, len = 10240 : i32, srcWidth = 512 : i32, srcStride = 1024 : i32, srcPlaneStride = 61440 : i32, dstWidth = 10240 : i32, dstStride = 10240 : i32, dstPlaneStride = 10240 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -379,7 +369,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   descriptor(<numPlanes = 0 : i32, len = 200340 : i32, srcWidth = 200340 : i32, srcStride = 200340 : i32, srcPlaneStride = 0 : i32, dstWidth = 200340 : i32, dstStride = 200340 : i32, dstPlaneStride = 0 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }
@@ -412,7 +401,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
         outputs(%reg_out : memref<1024xui8, @Register>) start_after(0) clean_after(0) acceleration_mode(<DISABLE>) -> !VPURegMapped.Index<0:0:0>
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 
@@ -454,7 +442,6 @@ config.Resources 1 of @NCE at 6.000000e+02 MHz
     // CHECK:   descriptor(<numPlanes = 3 : i32, len = 80 : i32, srcWidth = 80 : i32, srcStride = 80 : i32, srcPlaneStride = 80 : i32, dstWidth = 10 : i32, dstStride = 32 : i32, dstPlaneStride = 192 : i32>)
 
     ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
-    ELF.CompilerHash("0123456789abcdef0123456789abcdef01234567") {sym_name = "CompilerHash"}
     VPUMI40XX.OpRanges
   }
 }

@@ -530,13 +530,16 @@ void getQuantParamsAttr(mlir::Value qValue, mlir::Type pType, mlir::ArrayAttr& p
     SmallVector<int64_t> zeroes;
     int64_t quantDim = -1;
     const auto qType = mlir::cast<vpux::NDTypeInterface>(qValue.getType()).getElementType();
+    mlir::Type storageType;
 
     if (mlir::isa<mlir::quant::UniformQuantizedType>(qType)) {
         auto quantParams = mlir::cast<mlir::quant::UniformQuantizedType>(qType);
+        storageType = quantParams.getStorageType();
         scales = {quantParams.getScale()};
         zeroes = {quantParams.getZeroPoint()};
     } else if (mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(qType)) {
         auto quantParams = mlir::cast<mlir::quant::UniformQuantizedPerAxisType>(qType);
+        storageType = quantParams.getStorageType();
         quantDim = computeReverseMemDim(qValue, quantParams.getQuantizedDimension());
         scales = {quantParams.getScales().begin(), quantParams.getScales().end()};
         zeroes = {quantParams.getZeroPoints().begin(), quantParams.getZeroPoints().end()};
@@ -555,13 +558,14 @@ void getQuantParamsAttr(mlir::Value qValue, mlir::Type pType, mlir::ArrayAttr& p
         zeroes = SmallVector<int64_t>(zeroes.begin() + tileOffset, zeroes.begin() + tileOffset + tileSize);
     }
 
+    const auto needsF32Params = storageType.isInteger(16);
     llvm::SmallVector<int64_t> params;
     params.push_back(quantDim);
     params.push_back(scales.size());
-    if (pType.isF16()) {
+    if (pType.isF16() && !needsF32Params) {
         packAsFpIntoU64<TS, vpux::type::float16>(scales, params);
         packAsFpIntoU64<TZ, vpux::type::float16>(zeroes, params);
-    } else if (pType.isF32()) {
+    } else if (pType.isF32() || needsF32Params) {
         packAsFpIntoU64<TS, float>(scales, params);
         packAsFpIntoU64<TZ, float>(zeroes, params);
     } else {
@@ -734,6 +738,36 @@ InputTiling backInferGridSampleSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, c
     return vpux::backInferGridSampleTile(outputTile, origInputShape, origGridShape, log);
 }
 
+InputTiling backInferDeformableConvolutionSwKernelInputTile(VPUIP::SwKernelOp swKernelOp,
+                                                            const vpux::TileInfo& outputTile, Logger log) {
+    auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+    VPUX_THROW_UNLESS(std::distance(swKernelRuns.begin(), swKernelRuns.end()) == 1,
+                      "SwKernelOp has already been tiled at '{0}'", swKernelOp);
+
+    auto swKernelRun = *swKernelRuns.begin();
+
+    VPUX_THROW_UNLESS(swKernelRun.getAttrs().has_value(), "SwKernelOp has no attr '{0}'", swKernelOp);
+
+    const auto inputs = swKernelOp.getInputs();
+    const auto attrs = swKernelRun.getAttrs().value();
+
+    VPUX_THROW_UNLESS(inputs.size() == 4, "SwKernelOp {0} should have 4 inputs, got '{1}'", swKernelOp, inputs.size());
+
+    VPUX_THROW_UNLESS(attrs.size() == 8, "SwKernelOp {0} should have 8 attributes, got '{1}'", swKernelOp,
+                      attrs.size());
+
+    const auto origInputShape = mlir::cast<vpux::NDTypeInterface>(inputs[0].getType()).getShape();
+    const auto origOffsetShape = mlir::cast<vpux::NDTypeInterface>(inputs[1].getType()).getShape();
+    const auto origKernelShape = mlir::cast<vpux::NDTypeInterface>(inputs[2].getType()).getShape();
+    const auto origMaskShape = mlir::cast<vpux::NDTypeInterface>(inputs[3].getType()).getShape();
+
+    auto inOrder = mlir::dyn_cast<vpux::NDTypeInterface>(inputs[0].getType()).getDimsOrder();
+    const auto initialOutputOffset = reverseIntArrayAttr(inOrder, mlir::dyn_cast<mlir::ArrayAttr>(attrs[7]));
+
+    return vpux::backInferDeformableConvolutionTile(outputTile, origInputShape, origOffsetShape, origKernelShape,
+                                                    origMaskShape, initialOutputOffset, log);
+}
+
 InputTiling backInferRMSSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
                                           Logger /*log*/) {
     auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
@@ -775,6 +809,11 @@ InputTiling backInferRoPESwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
         sinTile.shape[Dim(2)] = inTile.shape[Dim(2)];
         sinTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
         cosTile.offsets[Dim(2)] = inTile.offsets[Dim(2)];
+
+        cosTile.shape[Dim(0)] = inTile.shape[Dim(0)];
+        sinTile.shape[Dim(0)] = inTile.shape[Dim(0)];
+        sinTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
+        cosTile.offsets[Dim(0)] = inTile.offsets[Dim(0)];
     }
 
     return TilingInfo{{std::move(inTile), std::move(cosTile), std::move(sinTile)}};
@@ -851,6 +890,69 @@ InputTiling backInferSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
     dataStorageTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
     dataStorageTile.offsets[Dims4D::Act::N] = outputTile.offsets[Dims4D::Act::N];
     inTiles.tiles.push_back(dataStorageTile);
+
+    return inTiles;
+}
+
+void pushSDPAExtendedOptionalInputs(const mlir::OperandRange& inputs, InputTiling& inTiles, int64_t optionalSizeArea) {
+    int inSize = inputs.size();
+    ShapeRef inputVShape = getShape(inputs[2]);
+    for (int i = 3; i < inSize - optionalSizeArea; i++) {
+        ShapeRef unknownShape = getShape(inputs[i]);
+        TileInfo unknownTile(getShape(inputs[i]));
+        if (unknownShape[Dims4D::Act::W] == inputVShape[Dims4D::Act::W]) {
+            TileInfo inQTile = inTiles.tiles[0];
+            adjustMaskOrBiasTile(unknownTile, inQTile);
+            inTiles.tiles.push_back(unknownTile);
+        } else {
+            // Push input Scale
+            TileInfo inScaleTile(getShape(inputs[i]));
+            inTiles.tiles.push_back(inScaleTile);
+        }
+    }
+}
+
+InputTiling backInferSDPAExtendedSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
+                                                   Logger /*log*/) {
+    auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+    VPUX_THROW_UNLESS(std::distance(swKernelRuns.begin(), swKernelRuns.end()) == 1,
+                      "SwKernelOp has already been tiled at '{0}'", swKernelOp);
+    const auto inputs = swKernelOp.getInputs();
+    TileInfo inQTile(getShape(inputs[0]));
+    TileInfo inKTile(getShape(inputs[1]));
+    TileInfo inVTile(getShape(inputs[2]));
+
+    inQTile.shape[Dims4D::Act::H] = outputTile.shape[Dims4D::Act::H];
+    inQTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
+    inQTile.shape[Dims4D::Act::N] = outputTile.shape[Dims4D::Act::N];
+    inQTile.offsets[Dims4D::Act::H] = outputTile.offsets[Dims4D::Act::H];
+    inQTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
+    inQTile.offsets[Dims4D::Act::N] = outputTile.offsets[Dims4D::Act::N];
+
+    inKTile.shape[Dims4D::Act::N] = outputTile.shape[Dims4D::Act::N];
+    inKTile.offsets[Dims4D::Act::N] = outputTile.offsets[Dims4D::Act::N];
+    inKTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
+    inKTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
+
+    inVTile.shape[Dims4D::Act::C] = outputTile.shape[Dims4D::Act::C];
+    inVTile.shape[Dims4D::Act::N] = outputTile.shape[Dims4D::Act::N];
+    inVTile.offsets[Dims4D::Act::C] = outputTile.offsets[Dims4D::Act::C];
+    inVTile.offsets[Dims4D::Act::N] = outputTile.offsets[Dims4D::Act::N];
+
+    // InputQ, inputK and InputV are mandatory
+    InputTiling inTiles = TilingInfo{{std::move(inQTile), std::move(inKTile), std::move(inVTile)}};
+
+    // Last 2 inputs, DataStorage and DPUStorage are always present because it's generated if absent, in VPU dialect
+    pushSDPAExtendedOptionalInputs(inputs, inTiles, 2);
+
+    TileInfo dataStorageTile(getShape(inputs[inputs.size() - 2]));
+    dataStorageTile.shape[Dims4D::Act::H] = outputTile.shape[Dims4D::Act::H];
+    dataStorageTile.offsets[Dims4D::Act::H] = outputTile.offsets[Dims4D::Act::H];
+
+    inTiles.tiles.push_back(dataStorageTile);
+
+    TileInfo dpuStorageTile(getShape(inputs[inputs.size() - 1]));
+    inTiles.tiles.push_back(dpuStorageTile);
 
     return inTiles;
 }
@@ -966,6 +1068,43 @@ InputTiling backInferMatMulSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const
     input2Tile.shape[Dim(input2Tile.shape.size() - 1)] = input2Shape[Dim(input2Shape.size() - 1)];
 
     return InputTiling{{std::move(input1Tile), std::move(input2Tile)}};
+}
+
+SmallVector<mlir::Attribute> getDeformableConvolutionSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp swKernelOp,
+                                                                                 ArrayRef<mlir::Attribute> origAttr,
+                                                                                 const TileInfo& outTile, Logger log) {
+    log.trace("Update attrs for SwKernel Op at '{0}' for out tile {1}", swKernelOp, outTile);
+
+    // Get output tile against the original output
+
+    auto kernelRun = *swKernelOp.getBody().getOps<VPUIP::SwKernelRun>().begin();
+    auto attrs = kernelRun.getAttrs().value();
+
+    VPUX_THROW_UNLESS(origAttr.size() == attrs.size(), "Unmatched attr size found at '{0}'", swKernelOp);
+
+    VPUX_THROW_UNLESS(attrs.size() == 8, "SwKernelOp {0} should have 8 attributes, got '{1}'", swKernelOp,
+                      attrs.size());
+
+    SmallVector<mlir::Attribute> newAttrs(attrs.begin(), attrs.end());
+
+    auto dim = mlir::dyn_cast<vpux::NDTypeInterface>(swKernelOp.getInputs()[0].getType()).getDimsOrder();
+
+    const auto initialOutputOffset = reverseIntArrayAttr(dim, mlir::dyn_cast<mlir::ArrayAttr>(attrs[7]));
+
+    const auto localOutputOffset = to_small_vector(outTile.offsets);
+
+    SmallVector<int64_t> outputTileOffset;
+
+    std::transform(localOutputOffset.begin(), localOutputOffset.end(), initialOutputOffset.begin(),
+                   std::back_inserter(outputTileOffset), std::plus<int64_t>());
+
+    auto newOutputTile = outTile;
+
+    newOutputTile.offsets = Shape(outputTileOffset);
+
+    newAttrs[7] = getIntArrayAttr(swKernelOp->getContext(), permuteIntArrayAttr(dim, outputTileOffset));
+
+    return newAttrs;
 }
 
 SmallVector<mlir::Attribute> getInterpolateSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp swKernelOp,
@@ -1159,8 +1298,8 @@ InputTiling backInferTopKSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const v
 
 bool isReduceKernelEntry(StringRef kernelEntryName) {
     static const std::unordered_set<std::string> reduceEntryNames = {
-            "reduce_l1",   "reduce_l2",  "reduce_logical_and", "reduce_logical_or", "reduce_max",
-            "reduce_mean", "reduce_min", "reduce_prod",        "reduce_sum"};
+            "reduce_l1",   "reduce_l2",          "reduce_logical_and", "reduce_logical_or", "reduce_max",
+            "reduce_mean", "reduce_mean_square", "reduce_min",         "reduce_prod",       "reduce_sum"};
 
     return reduceEntryNames.find(kernelEntryName.str()) != reduceEntryNames.end();
 }
@@ -1352,36 +1491,46 @@ InputTiling backInferLSTMSequenceSwKernelInputTile(VPUIP::SwKernelOp swKernelOp,
 
     const auto batchSize = outputTile.shape[Dims4D::Act::N];
     const auto batchOffset = outputTile.offsets[Dims4D::Act::N];
+    const auto batchAxis = outputTile.axis[Dims4D::Act::N];
     const auto numDirections = outputTile.shape[Dims4D::Act::C];
     const auto numDirectionsOffset = outputTile.offsets[Dims4D::Act::C];
+    const auto numDirectionsAxis = outputTile.axis[Dims4D::Act::C];
 
     inputDataTile.shape[Dims4D::Act::N] = batchSize;
     inputDataTile.shape[Dims4D::Act::C] = numDirections;
     inputDataTile.offsets[Dims4D::Act::N] = batchOffset;
     inputDataTile.offsets[Dims4D::Act::C] = numDirectionsOffset;
+    inputDataTile.axis[Dims4D::Act::N] = batchAxis;
+    inputDataTile.axis[Dims4D::Act::C] = numDirectionsAxis;
 
     initialHiddenStateTile.shape[Dims4D::Act::N] = batchSize;
     initialHiddenStateTile.shape[Dims4D::Act::C] = numDirections;
     initialHiddenStateTile.offsets[Dims4D::Act::N] = batchOffset;
     initialHiddenStateTile.offsets[Dims4D::Act::C] = numDirectionsOffset;
+    initialHiddenStateTile.axis[Dims4D::Act::N] = batchAxis;
+    initialHiddenStateTile.axis[Dims4D::Act::C] = numDirectionsAxis;
 
     initialCellStateTile.shape[Dims4D::Act::N] = batchSize;
     initialCellStateTile.shape[Dims4D::Act::C] = numDirections;
     initialCellStateTile.offsets[Dims4D::Act::N] = batchOffset;
     initialCellStateTile.offsets[Dims4D::Act::C] = numDirectionsOffset;
+    initialCellStateTile.axis[Dims4D::Act::N] = batchAxis;
+    initialCellStateTile.axis[Dims4D::Act::C] = numDirectionsAxis;
 
     weightsHiddenTile.shape[Dims4D::Act::N] = numDirections;
     weightsHiddenTile.offsets[Dims4D::Act::N] = numDirectionsOffset;
+    weightsHiddenTile.axis[Dims4D::Act::N] = numDirectionsAxis;
 
     biasesTile.shape[Dims4D::Act::C] = numDirections;
     biasesTile.offsets[Dims4D::Act::C] = numDirectionsOffset;
+    biasesTile.axis[Dims4D::Act::C] = numDirectionsAxis;
 
     const SmallVector<TileInfo> inputTiles = {std::move(inputDataTile),        std::move(initialHiddenStateTile),
                                               std::move(initialCellStateTile), std::move(weightsHiddenTile),
                                               std::move(biasesTile),           std::move(syncBufferTile)};
 
-    log.trace("backInferLSTMCellSwKernelInputTile  outputTile '{0}'", outputTile);
-    log.trace("backInferLSTMCellSwKernelInputTile  inputTiles '{0}'", inputTiles);
+    log.trace("backInferLSTMSequenceSwKernelInputTile  outputTile '{0}'", outputTile);
+    log.trace("backInferLSTMSequenceSwKernelInputTile  inputTiles '{0}'", inputTiles);
 
     return TilingInfo{inputTiles};
 }
@@ -1581,6 +1730,94 @@ InputTiling backInferMvn1NormSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, con
     return TilingInfo{{std::move(inDataTile), std::move(inMeanVarTile)}};
 }
 
+InputTiling backInferFlashSDPASwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile,
+                                                Logger) {
+    const auto keyShape = getShape(swKernelOp->getOperand(1));
+    const auto loc = swKernelOp->getLoc();
+
+    auto swKernelRuns = swKernelOp.getBody().getOps<VPUIP::SwKernelRun>();
+    VPUX_THROW_UNLESS(std::distance(swKernelRuns.begin(), swKernelRuns.end()) == 1,
+                      "Got multiple SwKernel.run operation before multi-shave tiling at {0}", loc);
+
+    auto swKernelRun = *swKernelRuns.begin();
+
+    VPUX_THROW_UNLESS(swKernelRun.getAttrs().has_value(), "SwKernelOp has no attr '{0}'", swKernelOp);
+
+    // for some reason attributes are stored as [[INT64_MAX, inputMask]] <- array of arrays
+    // find out if attenion mask and/or scale tensors are present and get their shape
+    const auto attrs = parseIntArrayOfArrayAttr<int64_t>(swKernelRun.getAttrs().value());
+    const auto inputsMask = attrs[0][1];
+
+    const auto hasAttentionMask = static_cast<bool>(inputsMask & (1 << 2));
+    const auto hasScale = static_cast<bool>(inputsMask & (1 << 3));
+
+    auto attentionMaskShape = std::optional<ShapeRef>{};
+    auto scaleShape = std::optional<ShapeRef>{};
+    const auto attentionMaskIndex = 7;
+
+    if (hasAttentionMask) {
+        attentionMaskShape = getShape(swKernelOp->getOperand(attentionMaskIndex));
+    }
+
+    if (hasScale) {
+        auto scaleIndex = attentionMaskIndex + hasAttentionMask;
+        scaleShape = getShape(swKernelOp->getOperand(scaleIndex));
+    }
+
+    return vpux::VPU::FlashSDPAOpInputTiling(outputTile, keyShape, attentionMaskShape, scaleShape);
+}
+
+InputTiling backInferYUVToRGBSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const vpux::TileInfo& outputTile, Logger) {
+    auto H = Dim(1), W = Dim(2), C = Dim(3);  // N = Dim(0)
+
+    VPUX_THROW_UNLESS(outputTile.shape[H] % 2 == 0 && outputTile.shape[W] % 2 == 0,
+                      "Invalid YuvToRgbOp outputTile, output C,H channels are not even");
+
+    const auto inputs = swKernelOp.getInputs();
+    const auto singlePlane = (inputs.size() == 1);
+
+    if (!singlePlane) {
+        if (inputs.size() == 2) {
+            // NV12 format: Y plane + UV plane
+            TileInfo input1Tile = outputTile;  // Y plane
+            TileInfo input2Tile = outputTile;  // UV plane
+
+            input1Tile.shape[C] = 1;                            // Y plane has 1 channel
+            input2Tile.shape[C] = 2;                            // UV plane has 2 channels (interleaved U,V)
+            input2Tile.shape[H] = outputTile.shape[H] / 2;      // UV plane height is half
+            input2Tile.shape[W] = outputTile.shape[W] / 2;      // UV plane width is half
+            input2Tile.offsets[H] = outputTile.offsets[H] / 2;  // UV plane offset H is half
+            input2Tile.offsets[W] = outputTile.offsets[W] / 2;  // UV plane offset W is half
+
+            return TilingInfo{{std::move(input1Tile), std::move(input2Tile)}};
+        } else if (inputs.size() == 3) {
+            // I420 format: Y plane + U plane + V plane
+            TileInfo input1Tile = outputTile;  // Y plane
+            TileInfo input2Tile = outputTile;  // U plane
+            TileInfo input3Tile = outputTile;  // V plane
+
+            input1Tile.shape[C] = 1;                            // Y plane has 1 channel
+            input2Tile.shape[C] = 1;                            // U plane has 1 channel
+            input2Tile.shape[H] = outputTile.shape[H] / 2;      // U plane height is half
+            input2Tile.shape[W] = outputTile.shape[W] / 2;      // U plane width is half
+            input2Tile.offsets[H] = outputTile.offsets[H] / 2;  // U plane offset H is half
+            input2Tile.offsets[W] = outputTile.offsets[W] / 2;  // U plane offset W is half
+
+            input3Tile.shape[C] = 1;                            // V plane has 1 channel
+            input3Tile.shape[H] = outputTile.shape[H] / 2;      // V plane height is half
+            input3Tile.shape[W] = outputTile.shape[W] / 2;      // V plane width is half
+            input3Tile.offsets[H] = outputTile.offsets[H] / 2;  // V plane offset H is half
+            input3Tile.offsets[W] = outputTile.offsets[W] / 2;  // V plane offset W is half
+
+            return TilingInfo{{std::move(input1Tile), std::move(input2Tile), std::move(input3Tile)}};
+        } else {
+            VPUX_THROW("YuvToRGB expects 2 inputs (NV12) or 3 inputs (I420) for multi-plane, got {0}", inputs.size());
+        }
+    } else {
+        VPUX_THROW("YuvToRGB single plane MC/MS is not yet supported");
+    }
+}
+
 }  // namespace
 
 InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const SmallVector<vpux::TileInfo>& outputTiles,
@@ -1598,6 +1835,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferGatherNDSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "grid_sample") {
         return backInferGridSampleSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "deformable_convolution") {
+        return backInferDeformableConvolutionSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "gather_elements") {
         return backInferGatherElementsSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "rms_norm") {
@@ -1606,6 +1845,8 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferRoPESwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "sdpa") {
         return backInferSDPASwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "sdpa_extended") {
+        return backInferSDPAExtendedSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "pad") {
         return backInferPadSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "mvn1_sum") {
@@ -1628,7 +1869,7 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
         return backInferGRUGatesSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "lstm_cell") {
         return backInferLSTMCellSwKernelInputTile(swKernelOp, outputTile, log);
-    } else if (kernelEntryName == "lstm_sequence") {
+    } else if ((kernelEntryName == "lstm_sequence") || (kernelEntryName == "lstm_dpu")) {
         return backInferLSTMSequenceSwKernelInputTile(swKernelOp, outputTile, log);
     } else if (kernelEntryName == "random_uniform") {
         return backInferRandomUniformSwKernelInputTile(swKernelOp, outputTile, log);
@@ -1639,6 +1880,10 @@ InputTiling backInferSwKernelInputTile(VPUIP::SwKernelOp swKernelOp, const Small
                                                                   log);
     } else if (kernelEntryName == "reorder") {
         return backInferMemPermuteSwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "flash_sdpa") {
+        return backInferFlashSDPASwKernelInputTile(swKernelOp, outputTile, log);
+    } else if (kernelEntryName == "nv12_to_rgb" || kernelEntryName == "i420_to_rgb") {
+        return backInferYUVToRGBSwKernelInputTile(swKernelOp, outputTile, log);
     }
 
     SmallVector<TileInfo> inputTiles;
@@ -1677,6 +1922,8 @@ SmallVector<mlir::Attribute> getSwkernelNewAttrsAfterTiling(VPUIP::SwKernelOp sw
         return getLstmSequenceSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, outTile, log);
     } else if (kernelEntryName == "gatherND") {
         return getGatherNDSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, outTile, log);
+    } else if (kernelEntryName == "deformable_convolution") {
+        return getDeformableConvolutionSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, outTile, log);
     } else if (kernelEntryName == "dequantize") {
         return getDequantizeSwkernelNewAttrsAfterTiling(swKernelOp, origAttr, outTile, log);
     } else {

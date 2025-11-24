@@ -7,7 +7,6 @@
 #include "vpux/compiler/dialect/VPUASM/ops.hpp"
 #include "vpux/compiler/dialect/VPUASM/utils.hpp"
 #include "vpux/compiler/utils/ELF/utils.hpp"
-#include "vpux/compiler/utils/attributes.hpp"
 
 #include <kernels/inc/common_types.h>
 
@@ -47,7 +46,7 @@ vpux::NDTypeInterface getNdTypeFromBufferSymRef(mlir::Operation* op, mlir::Symbo
 
 void vpux::VPUASM::KernelParamsOp::serializeCached(elf::writer::BinaryDataSection<uint8_t>& binDataSection,
                                                    ELF::SymbolReferenceMap& symRefMap) {
-    const auto params = getProperties().kernel_params.getStorage();
+    const auto& params = getProperties().kernel_params;
 
     // serialize pre-computed kernel params structs
     // will either be sw_params::MemRefData for pre-compiled kernels
@@ -148,8 +147,7 @@ size_t vpux::VPUASM::KernelParamsOp::getBinarySizeCached(ELF::SymbolReferenceMap
 }
 
 size_t vpux::VPUASM::KernelParamsOp::getParamsStructSize() {
-    const auto params = getProperties().kernel_params.getStorage();
-    return params.size();
+    return getProperties().kernel_params.size();
 }
 
 // The parameter structs for the sw layers must be 64Byte aligned as an ActShave requirement
@@ -356,7 +354,7 @@ std::vector<ELF::RelocationInfo> vpux::VPUASM::KernelParamsOp::getRelocationInfo
 void vpux::VPUASM::KernelParamsOp::build(mlir::OpBuilder&, mlir::OperationState& state, mlir::StringAttr symName,
                                          mlir::ArrayAttr inputs, mlir::ArrayAttr outputs,
                                          mlir::ArrayAttr dynamicInputShapes, mlir::ArrayAttr dynamicOutputShapes,
-                                         mlir::StringAttr kernelType, KernelParamsProperty&& kernelParams,
+                                         mlir::StringAttr kernelType, SmallVector<uint8_t>&& kernelParams,
                                          mlir::UnitAttr isOutputBroadcasted = nullptr,
                                          mlir::UnitAttr isJitCompiled = nullptr) {
     auto& props = state.getOrAddProperties<Properties>();

@@ -28,6 +28,7 @@ mlir::LogicalResult D2SToTransposedConvVerifier::isBeneficialConversion(Logger l
     }
 
     auto outputType = mlir::cast<vpux::NDTypeInterface>(d2sOp.getOutput().getType());
+
     auto outputChannels = outputType.getShape()[Dims4D::Act::C];
 
     auto alignment = VPU::NCEInvariant::getAlignment(outputType.getElementType());

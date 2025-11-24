@@ -5,7 +5,6 @@
 
 #include "Decoder.hpp"
 #include <cassert>
-#include <iostream>
 #include <stdexcept>
 #include "commons.hpp"
 

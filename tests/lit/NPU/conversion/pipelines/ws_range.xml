@@ -1,0 +1,131 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<net name="torch-jit-export" version="11">
+  <layers>
+    <layer id="365" name="Range_278" type="Range" version="opset4">
+      <data output_type="f32"/>
+      <rt_info>
+        <attribute name="fused_names" value="Range_278" version="0"/>
+      </rt_info>
+      <input>
+        <port id="0" precision="FP32"/>
+        <port id="1" precision="FP32"/>
+        <port id="2" precision="FP32"/>
+      </input>
+      <output>
+        <port id="3" precision="FP32" names="onnx::Reshape_736">
+          <dim>16</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="367" name="Reshape_282" type="Reshape" version="opset1">
+      <data special_zero="true"/>
+      <rt_info>
+        <attribute name="fused_names" value="Reshape_282" version="0"/>
+      </rt_info>
+      <input>
+        <port id="0" precision="FP32">
+          <dim>16</dim>
+        </port>
+        <port id="1" precision="I64">
+          <dim>1</dim>
+        </port>
+      </input>
+      <output>
+        <port id="2" precision="FP32" names="onnx::Shape_740">
+          <dim>16</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="366" name="Constant_281" type="Const" version="opset1">
+      <data element_type="i64" offset="6" shape="1" size="8"/>
+      <rt_info>
+        <attribute name="fused_names" value="Constant_281" version="0"/>
+      </rt_info>
+      <input/>
+      <output>
+        <port id="0" precision="I64" names="onnx::Reshape_739">
+          <dim>1</dim>
+        </port>
+      </output>
+    </layer>
+    <layer id="358" name="Constant_276" type="Convert" version="opset1">
+      <data destination_type="f32"/>
+      <rt_info>
+        <attribute name="decompression" version="0"/>
+        <attribute name="fused_names" value="Constant_276" version="0"/>
+      </rt_info>
+      <input>
+        <port id="0" precision="FP16"/>
+      </input>
+      <output>
+        <port id="1" precision="FP32" names="onnx::Range_734"/>
+      </output>
+    </layer>
+    <layer id="364" name="Constant_277" type="Convert" version="opset1">
+      <data destination_type="f32"/>
+      <rt_info>
+        <attribute name="decompression" version="0"/>
+        <attribute name="fused_names" value="Constant_277" version="0"/>
+      </rt_info>
+      <input>
+        <port id="0" precision="FP16"/>
+      </input>
+      <output>
+        <port id="1" precision="FP32" names="onnx::Range_735"/>
+      </output>
+    </layer>
+    <layer id="362" name="Cast_275" type="Convert" version="opset1">
+      <data destination_type="f32"/>
+      <rt_info>
+        <attribute name="fused_names" value="Cast_275" version="0"/>
+      </rt_info>
+      <input>
+        <port id="0" precision="I64"/>
+      </input>
+      <output>
+        <port id="1" precision="FP32" names="onnx::Range_733"/>
+      </output>
+    </layer>
+    <layer id="357" name="Constant_276_compressed" type="Const" version="opset1">
+      <data element_type="f16" offset="0" shape="" size="2"/>
+      <input/>
+      <output>
+        <port id="0" precision="FP16"/>
+      </output>
+    </layer>
+    <layer id="363" name="Constant_277_compressed" type="Const" version="opset1">
+      <data element_type="f16" offset="2" shape="" size="2"/>
+      <input/>
+      <output>
+        <port id="0" precision="FP16"/>
+      </output>
+    </layer>
+    <layer id="361" name="Constant_264" type="Const" version="opset1">
+      <data element_type="f16" offset="4" shape="" size="2"/>
+      <input/>
+      <output>
+        <port id="0" precision="FP16"/>
+      </output>
+    </layer>
+    <layer id="369" name="Reshape_292" type="Result" version="opset1" output_names="Reshape_292">
+      <data shape="16" element_type="f32"/>
+      <input>
+        <port id="0" precision="FP32" names="Reshape_292">
+          <dim>16</dim>
+        </port>
+      </input>
+      <output/>
+    </layer>
+  </layers>
+  <edges>
+    <edge from-layer="365" to-layer="367" from-port="3" to-port="0"/>
+    <edge from-layer="367" to-layer="369" from-port="2" to-port="0"/>
+    <edge from-layer="366" to-layer="367" from-port="0" to-port="1"/>
+    <edge from-layer="358" to-layer="365" from-port="1" to-port="0"/>
+    <edge from-layer="364" to-layer="365" from-port="1" to-port="2"/>
+    <edge from-layer="362" to-layer="365" from-port="1" to-port="1"/>
+    <edge from-layer="357" to-layer="358" from-port="0" to-port="0"/>
+    <edge from-layer="363" to-layer="364" from-port="0" to-port="0"/>
+    <edge from-layer="361" to-layer="362" from-port="0" to-port="0"/>
+  </edges>
+</net>

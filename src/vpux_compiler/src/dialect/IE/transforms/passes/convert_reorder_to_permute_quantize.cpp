@@ -78,16 +78,13 @@ mlir::LogicalResult FusePermuteRewrite::matchAndRewrite(IE::ReorderOp origOp, ml
 class ConvertReorderToPermuteQuantizePass final :
         public IE::impl::ConvertReorderToPermuteQuantizeBase<ConvertReorderToPermuteQuantizePass> {
 public:
-    explicit ConvertReorderToPermuteQuantizePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit ConvertReorderToPermuteQuantizePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
     bool isSupportedReorder(IE::ReorderOp reorder, Logger log) const;
-
-private:
-    Logger _log;
 };
 
 bool hasQuantizedAvgPoolUserToPropagate(IE::ReorderOp reorder) {

@@ -599,3 +599,70 @@ func.func @GruGatesClustering(%arg0: tensor<1x1x2x768xf16>, %arg1: tensor<1x1x2x
 // CHECK:           %[[VAL_9:.*]] = VPU.UnrolledType(%[[VAL_8]] : !VPU.DistributedTensor<1x1x2x256xf16, #NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = [1, 1, 2, 1], num_clusters = 2 : i64}>) -> tensor<1x1x2x256xf16>
 // CHECK:           return %[[VAL_9]] : tensor<1x1x2x256xf16>
 }
+
+// -----
+
+// CHECK-LABEL: @FlashSDPA
+// CHECK-SAME: [[QUERY:%[^, ]+]]: tensor<1x8x64x64xf16>,
+// CHECK-SAME: [[KEY:%[^, ]+]]: tensor<1x8x32x64xf16>,
+// CHECK-SAME: [[VALUE:%[^, ]+]]: tensor<1x8x32x128xf16>,
+// CHECK-SAME: [[ATTENTION_MASK:%[^, ]+]]: tensor<1x8x64x32xf16>,
+// CHECK-SAME: [[SCALE:%[^, ]+]]: tensor<1x1x1x1xf16>
+func.func @FlashSDPA(%arg0: tensor<1x8x64x64xf16>, %arg1: tensor<1x8x32x64xf16>, %arg2: tensor<1x8x32x128xf16>, %arg3: tensor<1x8x64x32xf16>, %arg4: tensor<1x1x1x1xf16>) -> tensor<1x8x64x128xf16> {
+    %cst = const.Declare tensor<1x8x64x32xf16> = dense<0.000000e+00> : tensor<1x8x64x32xf16>
+    %cst_0 = const.Declare tensor<1x8x64x1xf32> = dense<0.000000e+00> : tensor<1x8x64x1xf32>
+    %cst_1 = const.Declare tensor<1x8x64x1xf32> = dense<0xFF800000> : tensor<1x8x64x1xf32>
+    %cst_2 = const.Declare tensor<1x8x64x128xf16> = dense<0.000000e+00> : tensor<1x8x64x128xf16>
+
+    %result_running_output, %result_running_max, %result_running_sum, %result_query =
+        VPU.FlashSDPA(%arg0, %arg1, %arg2, %cst, %cst_2, %cst_1, %cst_0, %arg3, %arg4) {
+            is_head = true,
+            is_tail = true,
+            multiClusterStrategy = #VPU.multi_cluster_strategy<SplitOverKernel>,
+            operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 1, 1>
+        } : tensor<1x8x64x64xf16>, tensor<1x8x32x64xf16>, tensor<1x8x32x128xf16>,
+            tensor<1x8x64x32xf16>, tensor<1x8x64x128xf16>, tensor<1x8x64x1xf32>,
+            tensor<1x8x64x1xf32>, tensor<1x8x64x32xf16>, tensor<1x1x1x1xf16>
+          -> tensor<1x8x64x128xf16>, tensor<1x8x64x1xf32>, tensor<1x8x64x1xf32>, tensor<1x8x64x64xf16>
+
+    return %result_running_output : tensor<1x8x64x128xf16>
+
+    // CHECK-DAG:       [[IN_AUX:%.+]] = const.Declare tensor<1x8x64x32xf16> = dense<0.000000e+00> : tensor<1x8x64x32xf16>
+    // CHECK-DAG:       [[IN_SUM:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0.000000e+00> : tensor<1x8x64x1xf32>
+    // CHECK-DAG:       [[IN_MAX:%.+]] = const.Declare tensor<1x8x64x1xf32> = dense<0xFF800000> : tensor<1x8x64x1xf32>
+    // CHECK-DAG:       [[IN_OUT:%.+]] = const.Declare tensor<1x8x64x128xf16> = dense<0.000000e+00> : tensor<1x8x64x128xf16>
+
+    // CHECK:           [[IN0:%.+]] = VPU.UnrolledType([[QUERY]] : tensor<1x8x64x64xf16>) -> !VPU.DistributedTensor<1x8x64x64xf16,
+    // CHECK-SAME:          [[SEGMENTED:#NCHW, @CMX_NN, {mode = "SEGMENTED", num_tiles = \[1, 2, 1, 1\], num_clusters = 2 : i64}]]>
+
+    // CHECK:           [[IN1:%.+]] = VPU.UnrolledType([[KEY]] : tensor<1x8x32x64xf16>) -> !VPU.DistributedTensor<1x8x32x64xf16, [[SEGMENTED]]>
+    // CHECK:           [[IN2:%.+]] = VPU.UnrolledType([[VALUE]] : tensor<1x8x32x128xf16>) -> !VPU.DistributedTensor<1x8x32x128xf16, [[SEGMENTED]]>
+    // CHECK:           [[IN3:%.+]] = VPU.UnrolledType([[IN_AUX]] : tensor<1x8x64x32xf16>) -> !VPU.DistributedTensor<1x8x64x32xf16, [[SEGMENTED]]>
+    // CHECK:           [[IN4:%.+]] = VPU.UnrolledType([[IN_OUT]] : tensor<1x8x64x128xf16>) -> !VPU.DistributedTensor<1x8x64x128xf16, [[SEGMENTED]]>
+    // CHECK:           [[IN5:%.+]] = VPU.UnrolledType([[IN_MAX]] : tensor<1x8x64x1xf32>) -> !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>
+    // CHECK:           [[IN6:%.+]] = VPU.UnrolledType([[IN_SUM]] : tensor<1x8x64x1xf32>) -> !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>
+    // CHECK:           [[IN7:%.+]] = VPU.UnrolledType([[ATTENTION_MASK]] : tensor<1x8x64x32xf16>) -> !VPU.DistributedTensor<1x8x64x32xf16, [[SEGMENTED]]>
+    // CHECK:           [[IN8:%.+]] = VPU.UnrolledType([[SCALE]] : tensor<1x1x1x1xf16>) -> !VPU.DistributedTensor<1x1x1x1xf16, #NCHW, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64}>
+
+    // CHECK:           [[RES_OUT_DIST:%[^, ]+]], [[RES_MAX_DIST:%[^, ]+]], [[RES_SUM_DIST:%[^, ]+]], [[RES_QUERY_DIST:%[^, ]+]] =
+    // CHECK-SAME:          VPU.FlashSDPA([[IN0]], [[IN1]], [[IN2]], [[IN3]], [[IN4]], [[IN5]], [[IN6]], [[IN7]], [[IN8]]) {
+    // CHECK-SAME:              is_head = true,
+    // CHECK-SAME:              is_tail = true,
+    // CHECK-SAME:              operandSegmentSizes = array<i32: 1, 1, 1, 1, 1, 1, 1, 1, 1>
+    // CHECK-SAME:          }
+    // CHECK-SAME:          -> !VPU.DistributedTensor<1x8x64x128xf16, [[SEGMENTED]]>,
+    // CHECK-SAME:             !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>,
+    // CHECK-SAME:             !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>
+
+    // CHECK:           [[RES_OUT:%.+]] = VPU.UnrolledType([[RES_OUT_DIST]]
+    // CHECK-SAME:          : !VPU.DistributedTensor<1x8x64x128xf16, [[SEGMENTED]]>) -> tensor<1x8x64x128xf16>
+    // CHECK:           [[RES_MAX:%.+]] = VPU.UnrolledType([[RES_MAX_DIST]]
+    // CHECK-SAME:          : !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>) -> tensor<1x8x64x1xf32>
+    // CHECK:           [[RES_SUM:%.+]] = VPU.UnrolledType([[RES_SUM_DIST]]
+    // CHECK-SAME:          : !VPU.DistributedTensor<1x8x64x1xf32, [[SEGMENTED]]>) -> tensor<1x8x64x1xf32>
+    // CHECK:           [[RES_QUERY:%.+]] = VPU.UnrolledType([[RES_QUERY_DIST]]
+    // CHECK-SAME:          : !VPU.DistributedTensor<1x8x64x64xf16, [[SEGMENTED]]>) -> tensor<1x8x64x64xf16>
+
+    //CHECK:            return [[RES_OUT]] : tensor<1x8x64x128xf16>
+
+}

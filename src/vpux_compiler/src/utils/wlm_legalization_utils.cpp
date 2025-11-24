@@ -221,4 +221,74 @@ VPUIP::FetchDMAAttr getFetchDMAAttr(int64_t groupIdx, BarrierInfo& barrierInfo, 
     return VPUIP::FetchDMAAttr::get(ctx, executorKindAttr, tileIdxAttr, listIdxAttr, groupIdxAttr);
 }
 
+void legalizeScheduleForNonWlm(mlir::func::FuncOp netFunc, BarrierInfo& barrierInfo, Logger log) {
+    log.info("Legalize schedule for non-WLM");
+
+    // Build task queue type map for all queues in order to test paths between tasks on different FIFOs.
+    barrierInfo.clearTaskQueueTypeMap();
+    barrierInfo.initializeTaskQueueTypeMap(
+            {VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU, VPU::ExecutorKind::SHAVE_ACT});
+    barrierInfo.buildTaskQueueTypeMap();
+
+    bool modifiedIR = false;
+    ExecutionGroupAnalysis execGroupAnalysis(netFunc, /* ignoreVariantLimit */ true, /* ignoreInvariantLimit */ false);
+
+    auto getExecutionGroups = [&](vpux::VPU::ExecutorKind executorKind) {
+        if (executorKind == VPU::ExecutorKind::DPU) {
+            return execGroupAnalysis.getDPUExecutionGroups();
+        } else if (executorKind == VPU::ExecutorKind::SHAVE_ACT) {
+            return execGroupAnalysis.getActShvExecutionGroups();
+        } else {
+            VPUX_THROW("Unsupported executor kind for non-WLM legalization '{0}'", executorKind);
+        }
+    };
+
+    std::vector<vpux::VPU::ExecutorKind> executors = {VPU::ExecutorKind::DPU, VPU::ExecutorKind::SHAVE_ACT};
+    for (auto executorKind : executors) {
+        size_t newBarriers = 0;
+
+        auto execGroups = getExecutionGroups(executorKind);
+        for (size_t taskBlockIndex = 0; taskBlockIndex < barrierInfo.getControlGraphBlockCount(); ++taskBlockIndex) {
+            newBarriers += barrierInfo.createBarrierDependenciesBetweenExecutionGroups(taskBlockIndex, execGroups);
+        }
+
+        if (newBarriers > 0) {
+            modifiedIR = true;
+            log.info("Inserted {0} barriers between {1} tasks on same FIFO.", newBarriers,
+                     stringifyExecutorKind(executorKind));
+        }
+    }
+
+    barrierInfo.clearTaskQueueTypeMap();
+
+    if (modifiedIR) {
+        VPURT::orderExecutionTasksAndBarriers(netFunc, barrierInfo, log);
+        VPUX_THROW_UNLESS(barrierInfo.verifyControlGraphSplit(), "Encountered split of control graph is incorrect");
+
+        execGroupAnalysis =
+                ExecutionGroupAnalysis(netFunc, /* ignoreVariantLimit */ true, /* ignoreInvariantLimit */ false);
+        VPUX_THROW_UNLESS(barrierInfo.verifyBarriersForTaskDescriptorFetch(execGroupAnalysis.getExecutionGroups(),
+                                                                           /* wlmEnabled */ false),
+                          "Encountered execution group without required barrier for task descriptor fetch.");
+    }
+
+    VPURT::postProcessBarrierOps(netFunc);
+}
+
+bool verifyBarriersForTaskDescriptorFetch(BarrierInfo& barrierInfo, mlir::func::FuncOp func, bool wlmFlag,
+                                          std::optional<WorkloadManagementMode> wlmMode) {
+    bool ignoreVariantLimit = false;
+    if (!wlmFlag) {
+        ignoreVariantLimit = true;
+    }
+    auto execGroupAnalysis = ExecutionGroupAnalysis(func, ignoreVariantLimit, /* ignoreInvariantLimit */ false);
+    auto validateEachTileSeparately = true;
+    if (wlmMode.has_value() && wlmMode.value() == WorkloadManagementMode::PWLM_V0_LCA) {
+        validateEachTileSeparately = false;
+    }
+    auto execGroups = validateEachTileSeparately ? execGroupAnalysis.getExecutionGroups()
+                                                 : execGroupAnalysis.getExecutionGroupsForTile(0);
+    return barrierInfo.verifyBarriersForTaskDescriptorFetch(execGroups, wlmFlag);
+}
+
 }  // namespace vpux

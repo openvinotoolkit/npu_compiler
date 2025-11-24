@@ -16,6 +16,7 @@
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_sparsity.hpp"
 #include "vpux/compiler/dialect/VPU/utils/sparsity_support.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
@@ -37,6 +38,9 @@ bool vpux::VPU::NCEAveragePoolOp::fitIntoCMX(vpux::NDTypeInterface input, vpux::
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();
     SmallVector<Byte> buffers = {input.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
+
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
                    reservedMem.count() <=
            totalAvailableCMXSize;

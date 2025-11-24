@@ -14,7 +14,6 @@
 
 #include <llvm/Support/Regex.h>
 
-#include <iostream>
 #include <memory>
 #include <string>
 

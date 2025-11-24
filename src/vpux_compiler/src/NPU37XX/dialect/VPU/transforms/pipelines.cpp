@@ -69,7 +69,7 @@ void vpux::VPU::arch37xx::buildDefaultHWPipeline(mlir::OpPassManager& pm,
     pm.addPass(VPU::createSWKernelDataPrefetchReserveMemPass(log));
 
     // TODO: E#140041 enable profiling with outlining
-    if (options.enableConcatRepeatingBlockOutlining && !options.enableProfiling) {
+    if (options.enableConcatRepeatingBlockOutlining && canOutlineFromProfilingPerspective(options)) {
         pm.addPass(VPU::createConcatRepeatingBlocksOutliningPass(options.concatRepeatingBlockOutliningSeqLength, log));
         pm.addPass(mlir::createCanonicalizerPass(grc));
     }
@@ -143,6 +143,7 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logg
     pm.addPass(VPU::createDecomposeMVNPass(log));
     pm.addPass(VPU::createAddSwOpAuxiliaryBufferPass(log));
 
+    pm.addPass(VPU::createFlashSDPATilingStrategyEstimationPass(log));
     pm.addPass(VPU::createTilingStrategyAssignmentPass(
             /*enablePrefetchTiling=*/false, /*enableVPUNNCostForTiling*/ false,
             /*enableShaveDDRAccessOptimization*/ "true", log));
@@ -150,6 +151,7 @@ void vpux::VPU::arch37xx::buildReferenceSWPipeline(mlir::OpPassManager& pm, Logg
     pm.addPass(VPU::createApplyTilingPass(/*enableSCFTiling=*/false, log));
     pm.addPass(VPU::createComputeInterpolateCoordinatesPass(/*enableExplicitDistributionInfoAttr*/ false, log));
 
+    pm.addPass(VPU::createUnrollFlashSDPAPass(log));
     pm.addPass(VPU::createBoundedTensorsToDynamicDimsMaskPass(log));
 }
 

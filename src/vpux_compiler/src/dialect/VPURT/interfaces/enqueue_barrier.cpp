@@ -7,6 +7,8 @@
 #include "vpux/compiler/dialect/VPUIP/utils/sw_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
+#include "vpux/compiler/dialect/config/IR/resources.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/shave.hpp"
 
 using namespace vpux;
@@ -21,7 +23,7 @@ vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(mlir::func::FuncOp fun
     _taskQueueTypeMap = VPURT::getTaskOpQueues(func, _barrierInfo);
     initPrevPhysBarrierData(func);
     _startBarrierIndex = getStartBarrierIndex(func);
-    _swFifosPerShaveEngineEnabled = VPU::isFifoPerShaveEngineEnabled(func);
+    _swFifosPerShaveEngineEnabled = config::isFifoPerShaveEngineEnabled(func);
 
     mlir::DenseSet<vpux::VPU::ExecutorKind> executorsKind{VPU::ExecutorKind::DMA_NN, VPU::ExecutorKind::DPU};
     if (_swFifosPerShaveEngineEnabled) {
@@ -29,13 +31,17 @@ vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(mlir::func::FuncOp fun
     }
     _barrierInfo.initializeTaskQueueTypeMap(executorsKind);
     _barrierInfo.buildTaskQueueTypeMap();
-    findShvTasksWithDpu();
+
+    auto module = func->getParentOfType<mlir::ModuleOp>();
+    auto numClusters = config::getTileExecutor(module).getCount();
+
+    findShvTasksWithDpu(numClusters);
 }
 
 vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(
         BarrierInfoTest& barrierInfoTest, std::map<VPURT::TaskQueueType, SmallVector<uint32_t>>& taskQueueTypeMap,
         SmallVector<size_t>& barrierToPidVec, size_t barrierFifoDepth, size_t dmaFifoDepth,
-        bool optimizeAndMergeEnqFlag, const SmallVector<size_t>& shvTasksWithDpu, Logger log)
+        bool optimizeAndMergeEnqFlag, size_t numClusters, const SmallVector<size_t>& shvTasksWithDpu, Logger log)
         : _barrierInfo(barrierInfoTest),
           _taskQueueTypeMap(taskQueueTypeMap),
           _barrierDepthCheck(barrierFifoDepth > 1 ? barrierFifoDepth - 1 : 1),
@@ -59,7 +65,9 @@ vpux::VPURT::EnqueueBarrierHandler::EnqueueBarrierHandler(
         });
         VPUX_THROW_WHEN(shvQueueIt == _taskQueueTypeMap.end(), "Can not find task {0} in task queue map", shvTaskInd);
 
-        _shvTasksWithDpuPerTile[shvQueueIt->first.id].push_back(shvTaskInd);
+        auto tileIndex = vpux::getShaveTileIndexFromEncodedId(shvQueueIt->first.id, numClusters);
+
+        _shvTasksWithDpuPerTile[tileIndex].push_back(shvTaskInd);
     }
 }
 
@@ -81,7 +89,7 @@ void vpux::VPURT::EnqueueBarrierHandler::initPrevPhysBarrierData(SmallVector<siz
     }
 }
 
-void vpux::VPURT::EnqueueBarrierHandler::findShvTasksWithDpu() {
+void vpux::VPURT::EnqueueBarrierHandler::findShvTasksWithDpu(size_t numClusters) {
     for (auto& [queueType, taskVec] : _taskQueueTypeMap) {
         if (queueType.type != VPU::ExecutorKind::SHAVE_ACT) {
             continue;
@@ -89,7 +97,8 @@ void vpux::VPURT::EnqueueBarrierHandler::findShvTasksWithDpu() {
 
         for (auto taskInd : taskVec) {
             if (isDpuShaveKernelType(_barrierInfo.getTaskOpAtIndex(taskInd))) {
-                _shvTasksWithDpuPerTile[queueType.id].push_back(taskInd);
+                auto tileIndex = vpux::getShaveTileIndexFromEncodedId(queueType.id, numClusters);
+                _shvTasksWithDpuPerTile[tileIndex].push_back(taskInd);
             }
         }
     }

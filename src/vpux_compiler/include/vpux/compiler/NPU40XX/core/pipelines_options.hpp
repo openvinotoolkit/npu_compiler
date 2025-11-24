@@ -63,6 +63,11 @@ struct DefaultHWOptionsDeviceBase : public virtual vpux::DefaultHWOptionsBase, p
                                    llvm::cl::desc("Enable execution of grouped MatMul as a single operation."),
                                    llvm::cl::init(true)};
 
+    BoolOption enableReorderConcatBranches{
+            *this, "enable-reorder-concat-branches",
+            llvm::cl::desc("Reorder branches of concat to make sure it is executed branch by branch"),
+            llvm::cl::init(false)};
+
     BoolOption enableSegmentedDmaFusion{*this, "enable-segmented-dma-fusion",
                                         llvm::cl::desc("Enable fusion of segmented DMAs"), llvm::cl::init(false)};
     // VPUIP option shared with VPU pass

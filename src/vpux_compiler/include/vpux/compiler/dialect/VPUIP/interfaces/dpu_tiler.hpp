@@ -9,14 +9,16 @@
 #include "vpux/compiler/core/tiling.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 
-#include <vpu/dpu_types.h>
-
 #include <set>
 #include <tuple>
 
 namespace vpux::VPUIP {
 enum class NCETaskType : uint64_t;
 }  // namespace vpux::VPUIP
+
+namespace VPUNN {
+enum class Operation;
+}
 
 namespace vpux {
 namespace VPUIP {
@@ -52,6 +54,19 @@ struct WorkloadCostParams {
     VPU::PPEAttr ppeAttr = nullptr;
     bool isNcePermute = false;
     bool isNceCompressConv = false;
+};
+
+struct ShaveWorkloadCostParams {
+    config::ArchKind arch;
+    std::vector<mlir::Type> inDataTypes;
+    std::vector<mlir::Type> outDataTypes;
+    std::vector<Shape> inputShapes;
+    std::vector<Shape> outputShapes;
+    std::vector<DimsOrder> inOrders;
+    std::vector<DimsOrder> outOrders;
+    int64_t numSHV;    // SHAVEs per tile
+    int64_t numTiles;  // Store used CMX tiles, e.g., SOK may use partial nce clusters
+    VPU::MultiClusterStrategy layerStrategy = VPU::MultiClusterStrategy::Clustering;
 };
 
 enum class SplitDimension { SPLIT_OVER_H = 0, SPLIT_OVER_W = 1, SPLIT_OVER_HW = 2 };

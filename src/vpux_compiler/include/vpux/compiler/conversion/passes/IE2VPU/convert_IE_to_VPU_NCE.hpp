@@ -5,8 +5,11 @@
 
 #pragma once
 
+#include "vpux/compiler/dialect/IE/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/pooling.hpp"
+#include "vpux/compiler/dialect/IE/IR/ops/specialized.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/dpu.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
 #include "vpux/compiler/utils/rewriter.hpp"
 

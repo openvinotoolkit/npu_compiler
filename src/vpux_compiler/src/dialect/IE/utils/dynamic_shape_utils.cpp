@@ -7,18 +7,43 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/dialect/core/interfaces/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
+
+#include <mlir/Dialect/Arith/IR/Arith.h>
+#include <mlir/Dialect/MemRef/IR/MemRef.h>
+#include <mlir/Dialect/Tensor/IR/Tensor.h>
 
 namespace vpux {
 namespace IE {
+
+void DynamicDimOpBuilder::notifyOperationInserted(mlir::Operation* op, mlir::OpBuilder::InsertPoint) {
+    if (auto dimOp = mlir::dyn_cast_or_null<mlir::tensor::DimOp>(op)) {
+        auto index = dimOp.getConstantIndex().value_or(0);
+        extendOpLoc(op, StringLiteral("dim_{0}"), index);
+    } else if (mlir::isa<mlir::arith::ConstantIndexOp>(op)) {
+        extendOpLoc(op, StringLiteral("const_index"));
+    }
+}
 
 bool hasDynamicShapeAttr(mlir::Value value) {
     auto type = value.getType();
     return mlir::isa<Core::BoundedTensorType>(type) || mlir::isa<Core::DynamicDimsMaskTensorType>(type);
 }
 
+bool hasDynamicShape(mlir::Value value) {
+    if (auto rankedTensorType = mlir::dyn_cast<mlir::RankedTensorType>(value.getType())) {
+        return !rankedTensorType.hasStaticShape();
+    }
+    return false;
+}
+
 bool hasDynamicTensors(mlir::Operation* op) {
-    const auto hasDynamicInputs = llvm::any_of(op->getOperands(), hasDynamicShapeAttr);
-    const auto hasDynamicOutputs = llvm::any_of(op->getResults(), hasDynamicShapeAttr);
+    const auto hasDynamicInputs = llvm::any_of(op->getOperands(), [&](mlir::Value val) {
+        return hasDynamicShapeAttr(val) || hasDynamicShape(val);
+    });
+    const auto hasDynamicOutputs = llvm::any_of(op->getResults(), [&](mlir::Value val) {
+        return hasDynamicShapeAttr(val) || hasDynamicShape(val);
+    });
 
     return hasDynamicInputs || hasDynamicOutputs;
 }

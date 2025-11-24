@@ -12,6 +12,5 @@ add_npu_library(npu_compiler_dialect_core_transforms
         npu_compiler_utils
         npu_llvm_utils
         npu_ov_utils
-        flatbuffers
         npu_elf
         MLIRTransformUtils)

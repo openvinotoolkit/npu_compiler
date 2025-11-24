@@ -31,4 +31,7 @@ mlir::LogicalResult buildIDUSEDense(mlir::OpBuilder& builder, const mlir::Locati
 mlir::LogicalResult buildIDUConvContinue(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger&,
                                          std::optional<bool> isContinued);
 
+mlir::LogicalResult buildIDUNthwNtk(mlir::OpBuilder& builder, const mlir::Location& loc, const Logger& log,
+                                    VPU::MPEMode mpeFrequentMode, VPUIP::NCETaskType dpuTaskType);
+
 }  // namespace vpux::VPUIPDPU::arch40xx::IDU

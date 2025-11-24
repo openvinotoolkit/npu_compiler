@@ -8,8 +8,6 @@
 
 #include "vpux/compiler/dialect/VPU/utils/type_infer.hpp"
 
-#include <algorithm>
-
 using namespace vpux;
 using namespace VPU;
 

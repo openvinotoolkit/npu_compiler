@@ -32,6 +32,7 @@
 #include <llvm/ADT/TypeSwitch.h>
 #include <mlir/Dialect/SCF/IR/SCF.h>
 #include <mlir/Dialect/Tensor/IR/Tensor.h>
+#include <iterator>
 
 using namespace vpux;
 
@@ -61,6 +62,93 @@ mlir::LogicalResult vpux::updateFunctionSignature(mlir::func::FuncOp funcOp, Arr
 
     log.trace("Update Function signature : '{0}' -> '{1}'", origFuncType, newFuncType);
     funcOp.setType(newFuncType);
+
+    return mlir::success();
+}
+
+mlir::LogicalResult vpux::updateModuleInfo(mlir::Operation* module, ArrayRef<mlir::Type> newResultTypes, Logger log) {
+    auto netInfoOps = module->getRegion(0).getOps<net::NetworkInfoOp>();
+    if (netInfoOps.empty()) {
+        log.trace("No NetworkInfoOp found in the module");
+        return mlir::success();
+    }
+    if (std::next(netInfoOps.begin()) != netInfoOps.end()) {
+        log.warning("Multiple NetworkInfoOp found in the module, only the first one will be updated");
+    }
+    auto netInfoOp = *netInfoOps.begin();
+    // No actions on inputs, only outputs
+    auto& outputsInfoBlock = netInfoOp.getOutputsInfo().front();
+
+    // Collect all DataInfoOps to match with newResultTypes by index
+    SmallVector<net::DataInfoOp> dataInfoOps;
+    for (auto& op : outputsInfoBlock.getOperations()) {
+        if (auto dataInfoOp = mlir::dyn_cast<net::DataInfoOp>(op)) {
+            dataInfoOps.push_back(dataInfoOp);
+        }
+    }
+
+    // Compare and update each DataInfoOp with corresponding newResultType
+    for (size_t i = 0; i < dataInfoOps.size() && i < newResultTypes.size(); ++i) {
+        auto dataInfoOp = dataInfoOps[i];
+        auto newResultType = newResultTypes[i];
+
+        auto primaryName = dataInfoOp.getName();
+        auto currentUserType = dataInfoOp.getUserType();
+
+        log.trace("Processing output DataInfoOp[{0}]: {1}, current type: {2}, new type: {3}", i, primaryName,
+                  currentUserType, newResultType);
+
+        // Compare the types - check if update is needed
+        if (currentUserType != newResultType) {
+            // Check if this is a scalar shape conversion case ([] -> [1])
+            // In such cases, we should NOT update the DataInfo to preserve original metadata
+            // This is because MLIR scalar is represented as [1], ngraph as [].
+            // Keeping MLIR representation lead to fail in single-layer test on eltwise + scalar.
+            bool isScalarShapeConversion = false;
+
+            if (auto currentTensorType = mlir::dyn_cast<mlir::RankedTensorType>(currentUserType)) {
+                if (auto newTensorType = mlir::dyn_cast<mlir::RankedTensorType>(newResultType)) {
+                    // Check if this is scalar (rank 0) to [1] (rank 1) conversion
+                    if (currentTensorType.getRank() == 0 && newTensorType.getRank() == 1) {
+                        auto newShape = newTensorType.getShape();
+                        if (newShape.size() == 1 && newShape[0] == 1) {
+                            // This is a scalar [] -> [1] conversion, skip DataInfo update
+                            isScalarShapeConversion = true;
+                            log.trace("Skipping DataInfoOp[{0}] update - scalar shape conversion detected: [] "
+                                      "-> [1]",
+                                      i);
+                        }
+                    }
+                }
+            }
+
+            if (!isScalarShapeConversion) {
+                log.trace("Updating DataInfoOp[{0}] type: {1} -> {2}", i, currentUserType, newResultType);
+
+                // Update the DataInfoOp with new type
+                mlir::OpBuilder builder(dataInfoOp);
+                builder.create<net::DataInfoOp>(dataInfoOp.getLoc(), dataInfoOp.getNameAttr(),
+                                                mlir::TypeAttr::get(newResultType),  // Update with new type
+                                                dataInfoOp.getOriginalShapeAttr(), dataInfoOp.getFriendlyNameAttr(),
+                                                dataInfoOp.getInputNameAttr(), dataInfoOp.getTensorNamesAttr(),
+                                                0  // Default profiling sections count
+                );
+
+                // Replace old DataInfoOp with new one
+                dataInfoOp.erase();
+
+                log.trace("Successfully updated DataInfoOp[{0}]", i);
+            }
+        } else {
+            log.trace("DataInfoOp[{0}] type unchanged", i);
+        }
+    }
+
+    // Check for size mismatch
+    if (dataInfoOps.size() != newResultTypes.size()) {
+        log.warning("Size mismatch: DataInfoOps count ({0}) != newResultTypes count ({1})", dataInfoOps.size(),
+                    newResultTypes.size());
+    }
 
     return mlir::success();
 }

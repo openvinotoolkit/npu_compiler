@@ -5,10 +5,14 @@
 
 #pragma once
 
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
-
+#include <mlir/IR/Operation.h>
 namespace vpux {
 namespace VPU {
+
 bool isDepthwiseOp(mlir::Operation* op);
+
+bool isNCEWithInt4Weights(mlir::Operation* op);
+bool isNCEWithSEPActivation(mlir::Operation* op);
+
 }  // namespace VPU
 }  // namespace vpux

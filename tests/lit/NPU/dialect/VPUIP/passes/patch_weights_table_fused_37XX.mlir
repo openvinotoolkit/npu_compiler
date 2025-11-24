@@ -9,7 +9,7 @@
 #NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
 #NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
 
-!IpOp_Stub = memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
+!IpOp_Stub = memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
 !FusedConstantType_DDR = memref<1x1x1x5120xui8, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}>
 !FusedConstantType_CMX = memref<1x1x1x5120xui8, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
 
@@ -29,8 +29,8 @@ func.func @PatchFusedConstantWithSwizzling() -> !IpOp_Stub {
         #const.SwizzleConstant<5 : i64, 3 : i64>
         ]
 
-    %in = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> !IpOp_Stub
-    %out = VPURT.DeclareBuffer <CMX_NN> [0] <692736> -> !IpOp_Stub
+    %in = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
+    %out = VPURT.DeclareBuffer <CMX_NN> [0] <173184> -> memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
 
     %0 = VPURT.DeclareBuffer <CMX_NN> [0] <1404928> -> !FusedConstantType_CMX
 
@@ -45,23 +45,23 @@ func.func @PatchFusedConstantWithSwizzling() -> !IpOp_Stub {
         %5 = VPUIP.SubView %arg7 [0, 0, 0, 1024] [1, 1, 1, 4096] : !FusedConstantType_CMX to !FusedConstantType_CMX_SubView2
         %6 = VPUIP.ViewOp %4: !FusedConstantType_CMX_SubView1 to !FusedConstantType_CMX_View1
         %7 = VPUIP.ViewOp %5: !FusedConstantType_CMX_SubView2 to !FusedConstantType_CMX_View2
-        %8 = VPUIP.NCEClusterTask {constantsFused = true, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], minimumHardwareExecutionCost = 56892 : i64, task_type = #VPUIP.nce_task_type<CONV>} input(%in : !IpOp_Stub) weights(%7 : !FusedConstantType_CMX_View2) weight_table(%6 : !FusedConstantType_CMX_View1) parent_input(%in : !IpOp_Stub) parent_output(%out : !IpOp_Stub) outputs(%out : !IpOp_Stub) -> !IpOp_Stub
+        %8 = VPUIP.NCEClusterTask {constantsFused = true, kernel_padding = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, kernel_size = [1, 1], kernel_strides = [1, 1], minimumHardwareExecutionCost = 56892 : i64, task_type = #VPUIP.nce_task_type<CONV>} input(%in : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>) weights(%7 : !FusedConstantType_CMX_View2) weight_table(%6 : !FusedConstantType_CMX_View1) parent_input(%in : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>) parent_output(%out : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>) outputs(%out : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>) -> memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
         variants : {
-            DPUTask {outEnd = [103, 103, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
+            DPUTask {outEnd = [51, 51, 63], mpe_mode = #VPU.mpe_mode<CUBOID_16x16>, pad = #VPU.Padding<left = 0 : i64, right = 0 : i64, top = 0 : i64, bottom = 0 : i64>, outStart = [0, 0, 0]}
         }
         PPE : {
             PPETask {ppe = #VPU.PPEStub<>}
         }
-    async.yield %out : !IpOp_Stub
+    async.yield %out : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
     }
 
-    %5 = async.await %r1 : !async.value<memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>>
-    return %5 : memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
+    %5 = async.await %r1 : !async.value<memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>>
+    return %5 : memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK-DAG:   [[FUSED_CONSTANT:%.*]] = const.Declare memref<1x1x1x5120xui8, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}> = dense<
     // CHECK-SAME: #const.RelocateWeightsTable<weightsPtr=[1405952], sparsityPtr=16777215 : i64, offsets=[0], weightsTableSize=1024 : i64, weightsElemBitSize=16 : i64, channelOffset=0 : i64
     // CHECK-SAME: #const.SwizzleConstant<5 : i64, 3 : i64>
-    // CHECK:   [[INPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
-    // CHECK:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <692736> -> memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:   [[INPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <512> -> memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
+    // CHECK:   [[OUTPUT:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <173184> -> memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>
     // CHECK:   [[FUSED_BUF:%.*]] = VPURT.DeclareBuffer <CMX_NN> [0] <1404928> -> memref<1x1x1x5120xui8, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
 
     // CHECK:       [[T0:%.+]], [[R0:%.+]] = async.execute
@@ -72,7 +72,7 @@ func.func @PatchFusedConstantWithSwizzling() -> !IpOp_Stub {
     // CHECK:           async.yield [[VAR0]] : memref<1x1x1x5120xui8, {order = #NCHW, swizzlingScheme = #VPUIP.SwizzlingSchemeAttr<key = 5 : i64, sizeAlignment = 512 : i64>}, [@CMX_NN, 0]>
 
     // CHECK:       [[T1:%.+]], [[R1:%.+]] = async.execute
-    // CHECK-SAME:          -> !async.value<memref<1x64x104x104xf16, #NHWC, [@CMX_NN, 0]>>
+    // CHECK-SAME:          -> !async.value<memref<1x64x52x52xf16, #NHWC, [@CMX_NN, 0]>>
     // CHECK:       [[SUBVIEW_1:%.*]] = VPUIP.SubView
     // CHECK:       [[SUBVIEW_2:%.*]] = VPUIP.SubView
     // CHECK:       [[VIEW_1:%.*]] = VPUIP.ViewOp

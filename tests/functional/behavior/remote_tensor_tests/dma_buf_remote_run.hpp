@@ -22,6 +22,7 @@
 #include <common_test_utils/ov_tensor_utils.hpp>
 #include <common_test_utils/test_constants.hpp>
 #include <openvino/core/any.hpp>
+#include <openvino/core/memory_util.hpp>
 #include <openvino/core/type/element_iterator.hpp>
 #include <openvino/runtime/compiled_model.hpp>
 #include <openvino/runtime/core.hpp>
@@ -81,7 +82,7 @@ TEST_P(NPUInferRequestDynamicRemoteTensorsTests_NPU3720, InferDynamicNetworkRemo
     for (auto& shape : vector_shapes) {
         ov::Tensor in_tensor = ov::test::utils::create_and_fill_tensor(ov::element::f32, shape, 100, 0);
 
-        const auto byte_size = ov::element::get_memory_size(ov::element::f32, shape_size(in_tensor.get_shape()));
+        const auto byte_size = ov::util::get_memory_size(ov::element::f32, shape_size(in_tensor.get_shape()));
         size_t size = byte_size + alignment - (byte_size % alignment);
         struct dma_heap_allocation_data heapAlloc = {
                 .len = size,  // this length should be alligned to the page size

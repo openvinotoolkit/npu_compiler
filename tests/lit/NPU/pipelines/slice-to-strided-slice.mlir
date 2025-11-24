@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-// RUN: vpux-translate --vpu-arch=%arch% --import-IE slice-to-strided-slice.xml -o %t
+// RUN: vpux-translate --vpu-arch=%arch% --import-IE ./IR/slice-to-strided-slice.xml -o %t
 // RUN: FileCheck %s --input-file %t
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 

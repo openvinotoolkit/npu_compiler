@@ -509,4 +509,3 @@ func.func @PropagateFQDownThroughConcatAndCleanup(%arg0: tensor<1x3x320x640xf32>
 
     // CHECK: return [[CONV]] : tensor<1x48x320x320xf32>
 }
-

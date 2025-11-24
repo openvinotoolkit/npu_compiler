@@ -728,8 +728,9 @@ mlir::LogicalResult AdjustShapeForNCEMatMul::matchAndRewrite(VPU::NCEMatMulOp or
 
     auto newMatMulOp = rewriter.create<VPU::NCEMatMulOp>(
             origOp.getLoc(), outputType, newInput.getOutput(), origOp.getWeights(), origOp.getWeightsTable(),
-            origOp.getStridesAttr(), origOp.getPadAttr(), origOp.getPpeAttr(), origOp.getMpeEngineAttr(),
-            origOp.getRawFilterShapeAttr(),
+            origOp.getWeightTableDataPtr(), origOp.getWeightTableSpPtr(), origOp.getWeightTableScale(),
+            origOp.getWeightTableBias(), origOp.getWeightZeroPoints(), origOp.getStridesAttr(), origOp.getPadAttr(),
+            origOp.getPpeAttr(), origOp.getMpeEngineAttr(), origOp.getRawFilterShapeAttr(),
             /* multiClusterStrategyAttr = */ nullptr);
 
     const auto outShape = getShape(origOp.getOutput()).toValues();
@@ -862,15 +863,12 @@ mlir::LogicalResult AdjustShapeForNCEAvgPool::matchAndRewrite(VPU::NCEAveragePoo
 class AdjustForOptimizedLayersPass final :
         public VPU::impl::AdjustForOptimizedLayersBase<AdjustForOptimizedLayersPass> {
 public:
-    explicit AdjustForOptimizedLayersPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit AdjustForOptimizedLayersPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void AdjustForOptimizedLayersPass::safeRunOnFunc() {

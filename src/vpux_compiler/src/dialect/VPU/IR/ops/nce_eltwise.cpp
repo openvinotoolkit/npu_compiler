@@ -6,6 +6,7 @@
 #include "vpux/compiler/core/attributes/shape.hpp"
 #include "vpux/compiler/core/layers.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops/eltwise.hpp"
+#include "vpux/compiler/dialect/IE/utils/dynamic_shape_utils.hpp"
 #include "vpux/compiler/dialect/IE/utils/type_padding.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
@@ -13,6 +14,7 @@
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/eltwise_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/sprlut_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
 #include "vpux/compiler/utils/VPU/tile_utils.hpp"
 #include "vpux/compiler/utils/error.hpp"
@@ -43,6 +45,8 @@ bool vpux::VPU::NCEEltwiseOp::fitIntoCMX(vpux::NDTypeInterface input1, vpux::NDT
     auto totalAvailableCMXSize = reservedMem.count() == 0 ? getTotalCMXSize(getOperation()).count()
                                                           : getTotalCMXFragmentationAwareSize(getOperation()).count();
     SmallVector<Byte> buffers = {input1.getTotalAllocSize(), input2.getTotalAllocSize(), output.getTotalAllocSize()};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     return vpux::VPU::calculateAlignedBuffersMemoryRequirement(config::getArch(getOperation()), buffers).count() +
                    reservedMem.count() <=
@@ -104,14 +108,33 @@ mlir::LogicalResult vpux::VPU::NCEEltwiseOp::inferReturnTypes(mlir::MLIRContext*
         return errorAt(loc, "Broadcasting is not supported for {0} operation", NCEEltwiseOp::getOperationName());
     }
 
-    auto outShape = std::move(in1Shape);
-    if (mlir::failed(IE::padOutputShape(outShape, op.getOutputPaddingAttr(), loc))) {
-        return mlir::failure();
-    }
-
     auto inputType = mlir::cast<vpux::NDTypeInterface>(op.getInput1().getType());
-    auto outputType =
-            mlir::RankedTensorType::get(outShape, inputType.getElementType(), createTensorAttrFromType(inputType));
+
+    auto [outStaticShape, outBounds, outDimMask] = callOnShapeOf(inputType, [&](const auto& inShape) {
+        auto oShape = copyShape(inShape);
+        mlir::ArrayAttr inputPaddingAttr = op.getInputPaddingAttr();
+        if (inputPaddingAttr != nullptr) {
+            const auto inputPadding = parseIntArrayAttr<int64_t>(inputPaddingAttr);
+            for (size_t i = 0; i < oShape.size(); ++i) {
+                oShape[Dim(i)] -= inputPadding[i];
+            }
+        }
+
+        mlir::ArrayAttr outputPaddingAttr = op.getOutputPaddingAttr();
+        if (outputPaddingAttr != nullptr) {
+            const auto outputPadding = parseIntArrayAttr<int64_t>(outputPaddingAttr);
+            for (size_t i = 0; i < oShape.size(); ++i) {
+                oShape[Dim(i)] += outputPadding[i];
+            }
+        }
+
+        return splitShapeAndRepresentation(oShape);
+    });
+
+    SmallVector<int64_t> outputShape(outStaticShape.begin(), outStaticShape.end());
+    const auto tensorAttr = vpux::getTensorAttr(ctx, DimsOrder::fromNumDims(outputShape.size()),
+                                                inputType.getMemSpace(), outBounds, outDimMask);
+    auto outputType = mlir::RankedTensorType::get(outputShape, inputType.getElementType(), tensorAttr);
 
     inferredReturnTypes.push_back(outputType);
     return mlir::success();
@@ -184,6 +207,8 @@ bool VPU::NCEEltwiseOp::doesLayerFitIntoCMX(VPU::MultiClusterStrategy strategy, 
                                          getInput2().getType(),
                                          getActivationDistributionAttrFromOp(nceOp, getInput2(), getInput2().getType(),
                                                                              numClusters, strategy, siblingsAnalysis))};
+    auto ppeAttr = getPpe();
+    addSprLutBufferIfPresent(ppeAttr, buffers);
 
     if (!this->getIsInplace().value_or(false)) {
         buffers.push_back(VPU::getTotalAllocSizeWithDistribution(
@@ -229,7 +254,8 @@ vpux::NDTypeInterface vpux::VPU::NCEEltwiseOp::getDistributedTypeForOpOperand(ml
 //
 
 vpux::VPU::SparsitySupport vpux::VPU::NCEEltwiseOp::sparsitySupport() {
-    // TODO E#66913: enable input sparsity support once inputs are aligned with respect to storage element size
+    // TODO E#66913: enable input sparsity support once inputs are aligned with respect to storage element
+    // size
     return VPU::SparsitySupport::SPARSE_OUTPUTS;
 }
 //

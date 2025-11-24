@@ -59,40 +59,14 @@ struct CommandListIndexState {
     // with given pointers
     mlir::LLVM::CallOp lastSubmitCommandListCallOp = nullptr;
 
-    // The max number of inputs for all sub graphs.
-    // This is used to allocate an array for input pointers
-    uint32_t maxNumInputs = 0;
-
-    // The max number of outputs for all sub graphs
-    // This is used to allocate an array for input pointers
-    uint32_t maxNumOutputs = 0;
-
-    // Buffer to stores input buffer pointers
-    mlir::LLVM::AllocaOp inputs = nullptr;
-
-    // Buffer to stores output buffer pointers
-    mlir::LLVM::AllocaOp outputs = nullptr;
-
     bool commandListGroupStarted = false;
 
-    void initialize(mlir::ModuleOp& moduleOp, mlir::func::FuncOp& funcOp) {
+    void initialize(mlir::func::FuncOp& funcOp) {
         mlir::OpBuilder builder(funcOp);
         auto& entryBlock = funcOp.getBody().front();
         builder.setInsertionPointToStart(&entryBlock);
 
         stepSizeInByte = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), builder.getIntegerType(64), 8);
-
-        obtainNumMaxNumArguments(moduleOp);
-
-        auto voidPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-        auto constMaxNumInputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
-                                                                        builder.getIntegerType(32), maxNumInputs);
-        auto constMaxNumOutputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
-                                                                         builder.getIntegerType(32), maxNumOutputs);
-        inputs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, voidPtrType,
-                                                      constMaxNumInputs);
-        outputs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, voidPtrType,
-                                                       constMaxNumOutputs);
     }
 
     // Update pointers of commandlist**
@@ -149,9 +123,209 @@ struct CommandListIndexState {
 
         module->setAttr(HOST_EXEC_NUM_SUBGRAPH_ATTR_NAME, numSubGraphs);
     }
+};
 
-    // Obtain the max inputs and outputs,
-    void obtainNumMaxNumArguments(mlir::ModuleOp moduleOp) {
+class MemRefDescriptorUtil {
+public:
+    // Standard indices for MemRef descriptor components
+    static constexpr unsigned BASE_PTR_INDEX = 0;     // Base pointer
+    static constexpr unsigned ALIGNED_PTR_INDEX = 1;  // Aligned pointer (actual data)
+    static constexpr unsigned OFFSET_INDEX = 2;       // Offset
+    static constexpr unsigned SIZES_INDEX = 3;        // Dimensions array
+    static constexpr unsigned STRIDES_INDEX = 4;      // Strides array
+
+    // Extract components from MemRef value
+    static mlir::Value extractBasePtr(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
+        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, BASE_PTR_INDEX);
+    }
+
+    static mlir::Value extractAlignedPtr(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
+        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, ALIGNED_PTR_INDEX);
+    }
+
+    static mlir::Value extractOffset(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
+        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, OFFSET_INDEX);
+    }
+
+    static mlir::Value extractSizes(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
+        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, SIZES_INDEX);
+    }
+
+    static mlir::Value extractStrides(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value memrefValue) {
+        return builder.create<mlir::LLVM::ExtractValueOp>(loc, memrefValue, STRIDES_INDEX);
+    }
+
+    static mlir::Value getSizeForDim(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value sizesArray,
+                                     uint32_t dimIndex) {
+        auto i32Type = builder.getIntegerType(32);
+        auto constDimIndex = builder.create<mlir::LLVM::ConstantOp>(loc, i32Type, dimIndex);
+
+        auto ptrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+        auto gepOp = builder.create<mlir::LLVM::GEPOp>(loc, ptrType, builder.getI64Type(), sizesArray,
+                                                       mlir::ValueRange{constDimIndex});
+
+        return builder.create<mlir::LLVM::LoadOp>(loc, builder.getI64Type(), gepOp);
+    }
+
+    static mlir::Value getStrideForDim(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value stridesArray,
+                                       uint32_t dimIndex) {
+        auto i32Type = builder.getIntegerType(32);
+        auto constDimIndex = builder.create<mlir::LLVM::ConstantOp>(loc, i32Type, dimIndex);
+
+        auto ptrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+        auto gepOp = builder.create<mlir::LLVM::GEPOp>(loc, ptrType, builder.getI64Type(), stridesArray,
+                                                       mlir::ValueRange{constDimIndex});
+
+        return builder.create<mlir::LLVM::LoadOp>(loc, builder.getI64Type(), gepOp);
+    }
+
+    static uint32_t getRank(mlir::Value memrefValue) {
+        // Cast the type to a MemRefType.
+        if (auto memrefType = llvm::dyn_cast<mlir::MemRefType>(memrefValue.getType())) {
+            return memrefType.getRank();
+        }
+
+        return 0;
+    }
+};
+
+int64_t getElementByteSize(mlir::Value sourceDesc) {
+    int64_t bytes = 2;
+
+    if (auto op = sourceDesc.getDefiningOp<mlir::memref::SubViewOp>()) {
+        auto memRefType = op.getSource().getType();
+        auto elementType = memRefType.getElementType();
+        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+    } else if (auto op = sourceDesc.getDefiningOp<mlir::memref::ViewOp>()) {
+        auto memRefType = op.getSource().getType();
+        auto elementType = memRefType.getElementType();
+        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+    } else if (auto op = sourceDesc.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
+        return getElementByteSize(op.getInputs()[0]);
+    } else {
+        auto type = sourceDesc.getType();
+        if (auto memRefType = mlir::dyn_cast_or_null<mlir::MemRefType>(type)) {
+            auto elementType = memRefType.getElementType();
+            return (elementType.getIntOrFloatBitWidth() + 7) / 8;
+        }
+
+        return bytes;
+    }
+}
+
+// Extract buffer pointers from memref descriptors
+inline mlir::Value getBufferStartAddress(mlir::OpBuilder& builder, mlir::Location& loc, mlir::Value& sourceDesc) {
+    // Extract source buffer pointer (allocated pointer + offset)
+    int64_t bytes = getElementByteSize(sourceDesc);
+
+    mlir::Type i64Type = builder.getI64Type();
+    auto srcPtrExtractOp =
+            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::BASE_PTR_INDEX);
+    auto srcOffsetExtractOp =
+            builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, MemRefDescriptorUtil::OFFSET_INDEX);
+
+    auto srcPtrToIntOp = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, srcPtrExtractOp);
+    auto elementByteSize = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), i64Type, bytes);
+    auto byteOffsetMulOp = builder.create<mlir::LLVM::MulOp>(loc, i64Type, elementByteSize, srcOffsetExtractOp);
+    auto srcAddOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, srcPtrToIntOp, byteOffsetMulOp);
+
+    return srcAddOp;
+}
+
+// Manages input and output tensor information
+class ModelIOManager {
+public:
+    // The max number of inputs / outputs for all sub graphs.
+    // This is used to allocate an array for input / outputs pointers
+    uint32_t maxNumInputs = 0;
+    uint32_t maxNumOutputs = 0;
+
+    // Buffers for inputs/outputs, their strides and sizes
+    mlir::LLVM::AllocaOp inputDescs = nullptr;
+    mlir::LLVM::AllocaOp outputDescs = nullptr;
+
+    ModelIOManager(mlir::ModuleOp& moduleOp, mlir::func::FuncOp& funcOp, Logger log): _log(std::move(log)) {
+        mlir::OpBuilder builder(funcOp);
+        auto& entryBlock = funcOp.getBody().front();
+        builder.setInsertionPointToStart(&entryBlock);
+
+        analyzeIORequirements(moduleOp);
+
+        auto voidPtrType = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+        auto tensorDescType = getTensorDescStructType(moduleOp.getContext());
+        auto constMaxNumInputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
+                                                                        builder.getIntegerType(32), maxNumInputs);
+        auto constMaxNumOutputs = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(),
+                                                                         builder.getIntegerType(32), maxNumOutputs);
+
+        // Allocate buffers for input/output pointers
+        inputDescs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, tensorDescType,
+                                                          constMaxNumInputs);
+        outputDescs = builder.create<mlir::LLVM::AllocaOp>(builder.getUnknownLoc(), voidPtrType, tensorDescType,
+                                                           constMaxNumOutputs);
+    }
+
+    // Process buffers and extract their data, size, and stride information
+    bool processTensors(mlir::OpBuilder& builder, mlir::Location loc,
+                        const mlir::SmallVector<mlir::Value, 1>& inputBuffers,
+                        const mlir::SmallVector<mlir::Value, 1>& outputBuffers,
+                        const mlir::LLVMTypeConverter& typeConverter) {
+        // Process inputs
+        for (size_t i = 0; i < inputBuffers.size(); ++i) {
+            if (!processBuffer(builder, loc, inputBuffers[i], i, inputDescs, typeConverter, "input")) {
+                return false;
+            }
+        }
+
+        // Process outputs
+        for (size_t i = 0; i < outputBuffers.size(); ++i) {
+            if (!processBuffer(builder, loc, outputBuffers[i], i, outputDescs, typeConverter, "output")) {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    // Get the maximum number of inputs
+    uint32_t getMaxInputCount() const {
+        return maxNumInputs;
+    }
+
+    // Get the maximum number of outputs
+    uint32_t getMaxOutputCount() const {
+        return maxNumOutputs;
+    }
+
+    // Get input/output buffers
+    mlir::Value getInputBufferDescs() {
+        return inputDescs.getResult();
+    }
+    mlir::Value getOutputBufferDescs() {
+        return outputDescs.getResult();
+    }
+
+    mlir::LLVM::LLVMStructType getTensorDescStructType(mlir::MLIRContext* ctx) {
+        // Note
+        // If members are added/removed from struct, update HostExec::MemRefDesc
+        // in params.hpp. as MemRefDesc is used to get buffer information (e.g., strides)
+        SmallVector<mlir::Type, 4> members;
+        auto int64Type = mlir::IntegerType::get(ctx, 64);
+        auto voidPtrType = mlir::LLVM::LLVMPointerType::get(ctx);
+        auto arrayType = mlir::LLVM::LLVMArrayType::get(int64Type, vpux::HostExec::MaxStrideDim);
+        members.push_back(voidPtrType);  // aligned ptr
+        members.push_back(int64Type);    // dimCount
+        members.push_back(arrayType);    // size
+        members.push_back(arrayType);    // strides
+
+        return mlir::LLVM::LLVMStructType::getLiteral(ctx, members);
+    }
+
+private:
+    Logger _log;
+
+    // Analyze model to determine max input/output requirements
+    void analyzeIORequirements(mlir::ModuleOp moduleOp) {
         maxNumInputs = 0;
         maxNumOutputs = 0;
 
@@ -167,6 +341,69 @@ struct CommandListIndexState {
                 maxNumInputs = std::max(maxNumInputs, inputCount);
             }
         }
+    }
+
+    // Process a single buffer and extract its stride information
+    bool processBuffer(mlir::OpBuilder& builder, mlir::Location loc, mlir::Value buffer, size_t index,
+                       mlir::LLVM::AllocaOp bufferDescArray, const mlir::LLVMTypeConverter& typeConverter,
+                       const char* bufferType) {
+        auto llvmValue = buffer;
+
+        // Convert to LLVM type if needed
+        if (!mlir::LLVM::isCompatibleType(llvmValue.getType())) {
+            if (auto converted = typeConverter.materializeTargetConversion(
+                        builder, loc, typeConverter.convertType(llvmValue.getType()), mlir::ValueRange{llvmValue})) {
+                llvmValue = converted;
+            } else {
+                _log.error("Could not convert {0} type: {1}", bufferType, llvmValue.getType());
+                return false;
+            }
+        }
+
+        auto i64Type = builder.getI64Type();
+        auto voidPtrTy = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+        auto tensorStructType = getTensorDescStructType(builder.getContext());
+        auto rank = MemRefDescriptorUtil::getRank(buffer);
+        if (rank == 0) {
+            _log.error("Could not get rank from {0} type", buffer.getType());
+            return false;
+        } else if (rank > vpux::HostExec::MaxStrideDim) {
+            _log.error("MemRef rank {0} is greater than supported max {1}", rank, vpux::HostExec::MaxStrideDim);
+            return false;
+        }
+        auto arrayType = mlir::LLVM::LLVMArrayType::get(i64Type, rank);
+
+        // Get buffer address and store it in the array
+        auto bufferPtr = getBufferStartAddress(builder, loc, llvmValue);
+
+        auto bufferBaseGepPtr =
+                builder.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, tensorStructType, bufferDescArray,
+                                                  ArrayRef<mlir::LLVM::GEPArg>{static_cast<int32_t>(index), 0});
+        builder.create<mlir::LLVM::StoreOp>(loc, bufferPtr, bufferBaseGepPtr);
+
+        auto dimCountGepPtr =
+                builder.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, tensorStructType, bufferDescArray,
+                                                  ArrayRef<mlir::LLVM::GEPArg>{static_cast<int32_t>(index), 1});
+        auto dimCount = builder.create<mlir::LLVM::ConstantOp>(loc, i64Type, rank);
+        builder.create<mlir::LLVM::StoreOp>(loc, dimCount, dimCountGepPtr);
+
+        // Extract and store sizes information
+        auto sizesGepPtr =
+                builder.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, tensorStructType, bufferDescArray,
+                                                  ArrayRef<mlir::LLVM::GEPArg>{static_cast<int32_t>(index), 2});
+        auto sizesExtracted = MemRefDescriptorUtil::extractSizes(builder, loc, llvmValue);
+        auto sizes = builder.create<mlir::LLVM::StoreOp>(loc, sizesExtracted, sizesGepPtr);
+        sizes->setAttr("elem_type", mlir::TypeAttr::get(arrayType));
+
+        // Pointer to temporary buffer for strides
+        auto stridesGepPtr =
+                builder.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, tensorStructType, bufferDescArray,
+                                                  ArrayRef<mlir::LLVM::GEPArg>{static_cast<int32_t>(index), 3});
+        auto stridesExtracted = MemRefDescriptorUtil::extractStrides(builder, loc, llvmValue);
+        auto strides = builder.create<mlir::LLVM::StoreOp>(loc, stridesExtracted, stridesGepPtr);
+        strides->setAttr("elem_type", mlir::TypeAttr::get(arrayType));
+
+        return true;
     }
 };
 
@@ -278,49 +515,6 @@ void createSubmitCommandList(mlir::OpBuilder& builder, mlir::ModuleOp& moduleOp,
 
     // Mark this call op as the last one to update 3rd and 4th arguments of the last submit command list
     cmdListIndexState.lastSubmitCommandListCallOp = callOp;
-}
-
-int64_t getElementByteSize(mlir::Value sourceDesc) {
-    int64_t bytes = 2;
-
-    if (auto op = sourceDesc.getDefiningOp<mlir::memref::SubViewOp>()) {
-        auto memRefType = op.getSource().getType();
-        auto elementType = memRefType.getElementType();
-        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
-    } else if (auto op = sourceDesc.getDefiningOp<mlir::memref::ViewOp>()) {
-        auto memRefType = op.getSource().getType();
-        auto elementType = memRefType.getElementType();
-        return (elementType.getIntOrFloatBitWidth() + 7) / 8;
-    } else if (auto op = sourceDesc.getDefiningOp<mlir::UnrealizedConversionCastOp>()) {
-        return getElementByteSize(op.getInputs()[0]);
-    } else {
-        auto type = sourceDesc.getType();
-        if (auto memRefType = mlir::dyn_cast_or_null<mlir::MemRefType>(type)) {
-            auto elementType = memRefType.getElementType();
-            return (elementType.getIntOrFloatBitWidth() + 7) / 8;
-        }
-
-        return bytes;
-    }
-}
-
-// Extract buffer pointers from memref descriptors
-inline mlir::Value getBufferStartAddress(mlir::OpBuilder& builder, mlir::Location& loc, mlir::Value& sourceDesc) {
-    // Extract source buffer pointer (allocated pointer + offset)
-    // mlir::memref::Mem
-
-    int64_t bytes = getElementByteSize(sourceDesc);
-
-    mlir::Type i64Type = builder.getI64Type();
-    mlir::LLVM::ExtractValueOp srcPtrExtractOp = builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, 0);
-    mlir::LLVM::ExtractValueOp srcOffsetExtractOp = builder.create<mlir::LLVM::ExtractValueOp>(loc, sourceDesc, 2);
-    mlir::LLVM::PtrToIntOp srcPtrToIntOp = builder.create<mlir::LLVM::PtrToIntOp>(loc, i64Type, srcPtrExtractOp);
-    auto elementByteSize = builder.create<mlir::LLVM::ConstantOp>(builder.getUnknownLoc(), i64Type, bytes);
-    mlir::LLVM::MulOp byteOffsetMulOp =
-            builder.create<mlir::LLVM::MulOp>(loc, i64Type, elementByteSize, srcOffsetExtractOp);
-    mlir::LLVM::AddOp srcAddOp = builder.create<mlir::LLVM::AddOp>(loc, i64Type, srcPtrToIntOp, byteOffsetMulOp);
-
-    return srcAddOp;
 }
 
 mlir::LogicalResult areAllLLVMTypes(mlir::Operation* op, mlir::ValueRange operands,
@@ -453,10 +647,11 @@ template <typename AsyncOp>
 class AsyncOpRewriter final : public mlir::OpRewritePattern<AsyncOp> {
 public:
     AsyncOpRewriter(mlir::MLIRContext* ctx, const mlir::LLVMTypeConverter& typeConverter, mlir::PatternBenefit benefit,
-                    CommandListIndexState& cmdListIndexState, Logger log)
+                    CommandListIndexState& cmdListIndexState, ModelIOManager& ioManager, Logger log)
             : mlir::OpRewritePattern<AsyncOp>(ctx, benefit),
               _typeConverter(typeConverter),
               commandListIndexState(cmdListIndexState),
+              modelIOManager(ioManager),
               _log(std::move(log)) {
         this->setDebugName("AsyncOpRewriter");
     }
@@ -465,6 +660,7 @@ private:
     mlir::LogicalResult matchAndRewrite(AsyncOp origOp, mlir::PatternRewriter& rewriter) const final;
     const mlir::LLVMTypeConverter& _typeConverter;
     CommandListIndexState& commandListIndexState;
+    ModelIOManager& modelIOManager;
     Logger _log;
 };
 
@@ -630,9 +826,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
         createL0ResetCommandList(origOp, rewriter, commandListIndexState);
     }
 
-    auto voidPtrTy = mlir::LLVM::LLVMPointerType::get(ctx);
-    auto& inputs = commandListIndexState.inputs;
-    auto& outputs = commandListIndexState.outputs;
+    // Process kernels
     std::map<std::string, std::pair<HostExec::BinaryOp, mlir::Value>> kernels;
     for (auto& op : origOp.getBody()->getOperations()) {
         if (auto callOp = mlir::dyn_cast<Core::NestedCallOp>(op)) {
@@ -679,6 +873,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
                 kernels[calleeNameAttr.str()] = std::make_pair(kernelBinary, kernelGlobal);
             }
 
+            // Gather inputs and outputs
             kernelInputs.insert(kernelInputs.begin(), callOp.getArgOperands().begin(),
                                 callOp.getArgOperands().begin() + inputCount);
             kernelOutputs.insert(kernelOutputs.begin(), callOp.getArgOperands().begin() + inputCount,
@@ -692,55 +887,18 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
             auto voidPointerType = mlir::LLVM::LLVMPointerType::get(&(_typeConverter.getContext()));
             auto stackSaveOp = rewriter.create<mlir::LLVM::StackSaveOp>(loc, voidPointerType);
 
-            // Store each output pointer as void* in the input array
-            for (size_t i = 0; i < kernelInputs.size(); ++i) {
-                auto idx = rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(64), i);
-                auto gep = rewriter.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, voidPtrTy, inputs, mlir::ValueRange{idx});
-                auto llvmInput = kernelInputs[i];
-                if (!mlir::LLVM::isCompatibleType(llvmInput.getType())) {
-                    if (auto converted = _typeConverter.materializeTargetConversion(
-                                rewriter, loc, _typeConverter.convertType(llvmInput.getType()),
-                                mlir::ValueRange{llvmInput})) {
-                        llvmInput = converted;
-                    } else {
-                        _log.error("Could not convert input type: {0}", llvmInput.getType());
-                        return mlir::failure();
-                    }
-                }
-
-                // input pointer = allocated pointer(0) + offset(2)
-                auto inputPtr = getBufferStartAddress(rewriter, loc, llvmInput);
-                rewriter.create<mlir::LLVM::StoreOp>(loc, inputPtr, gep);
-            }
-
-            // Store each output pointer as void* in the output array
-            for (size_t i = 0; i < kernelOutputs.size(); ++i) {
-                auto idx = rewriter.create<mlir::LLVM::ConstantOp>(loc, rewriter.getIntegerType(64), i);
-                auto gep =
-                        rewriter.create<mlir::LLVM::GEPOp>(loc, voidPtrTy, voidPtrTy, outputs, mlir::ValueRange{idx});
-                auto llvmOutput = kernelOutputs[i];
-                if (!mlir::LLVM::isCompatibleType(llvmOutput.getType())) {
-                    if (auto converted = _typeConverter.materializeTargetConversion(
-                                rewriter, loc, _typeConverter.convertType(llvmOutput.getType()),
-                                mlir::ValueRange{llvmOutput})) {
-                        llvmOutput = converted;
-                    } else {
-                        _log.error("Could not convert output type: {0}", llvmOutput.getType());
-                        return mlir::failure();
-                    }
-                }
-
-                // output pointer = allocated pointer(0) + offset(2)
-                auto outputPtr = getBufferStartAddress(rewriter, loc, llvmOutput);
-                rewriter.create<mlir::LLVM::StoreOp>(loc, outputPtr, gep);
+            // Process tensors using ModelIOManager
+            if (!modelIOManager.processTensors(rewriter, loc, kernelInputs, kernelOutputs, _typeConverter)) {
+                return mlir::failure();
             }
 
             auto returnType = mlir::Type(mlir::LLVM::LLVMVoidType::get(ctx));
             auto cmdList = commandListIndexState.getCommandList(funcOp);
-            createLLVMFuncCallOp(rewriter, moduleOp, "npu_level_zero_execute_graph",
-                                 {inputs.getResult(), numInputs, outputs.getResult(), numOutputs, kernelGlobal,
-                                  kernelSize, umdContext, device, ddiTable, cmdList, cmdQueue},
-                                 returnType);
+            createLLVMFuncCallOp(
+                    rewriter, moduleOp, "npu_level_zero_execute_graph",
+                    {modelIOManager.getInputBufferDescs(), numInputs, modelIOManager.getOutputBufferDescs(), numOutputs,
+                     kernelGlobal, kernelSize, umdContext, device, ddiTable, cmdList, cmdQueue},
+                    returnType);
 
             // Restore stack used for descriptors
             rewriter.create<mlir::LLVM::StackRestoreOp>(loc, stackSaveOp);
@@ -762,7 +920,7 @@ mlir::LogicalResult AsyncOpRewriter<mlir::async::ExecuteOp>::matchAndRewrite(mli
 class ConvertToLLVMUMDCallsPass final : public HostExec::impl::ConvertToLLVMUMDCallsBase<ConvertToLLVMUMDCallsPass> {
 public:
     explicit ConvertToLLVMUMDCallsPass(Logger log) {
-        Base::initLogger(log, Base::getArgumentName());
+        Base::initLogger(std::move(log), Base::getArgumentName());
     }
 
 private:
@@ -804,18 +962,20 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
     target.addLegalOp<mlir::cf::AssertOp>();
 
     CommandListIndexState commandListIndexState;
-    commandListIndexState.initialize(module, mainFuncOp);
+    commandListIndexState.initialize(mainFuncOp);
+
+    ModelIOManager ioManager(module, mainFuncOp, _log);
 
     patterns.add<LvlZeroMemoryCopyLowering>(typeConverter, commandListIndexState);
     patterns.add<LvlZeroAllocLowering>(typeConverter);
     patterns.add<AsyncOpRewriter<mlir::async::AddToGroupOp>>(ctx, typeConverter, vpux::benefitHigh,
-                                                             commandListIndexState, _log);
+                                                             commandListIndexState, ioManager, _log);
     patterns.add<AsyncOpRewriter<mlir::async::CreateGroupOp>>(ctx, typeConverter, vpux::benefitHigh,
-                                                              commandListIndexState, _log);
+                                                              commandListIndexState, ioManager, _log);
     patterns.add<AsyncOpRewriter<mlir::async::AwaitAllOp>>(ctx, typeConverter, vpux::benefitHigh, commandListIndexState,
-                                                           _log);
+                                                           ioManager, _log);
     patterns.add<AsyncOpRewriter<mlir::async::AwaitOp>>(ctx, typeConverter, vpux::benefitHigh, commandListIndexState,
-                                                        _log);
+                                                        ioManager, _log);
 
     // Note: ExecuteOp is a special case, a few conditions apply which is why it is the last pattern,
     // 1 npu_level_zero_execute_graph that all inputs and outputs are converted to LLVM types.
@@ -823,7 +983,7 @@ void ConvertToLLVMUMDCallsPass::safeRunOnModule() {
     // operations should be removed or converted before this pattern is applied.
 
     patterns.add<AsyncOpRewriter<mlir::async::ExecuteOp>>(ctx, typeConverter, vpux::benefitLow, commandListIndexState,
-                                                          _log);
+                                                          ioManager, _log);
 
     if (mlir::failed(mlir::applyPartialConversion(module, target, std::move(patterns)))) {
         signalPassFailure();

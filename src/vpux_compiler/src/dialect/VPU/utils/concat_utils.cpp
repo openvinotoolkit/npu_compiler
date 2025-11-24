@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
+#include "vpux/compiler/utils/attributes.hpp"
 
 using namespace vpux;
 using namespace VPU;

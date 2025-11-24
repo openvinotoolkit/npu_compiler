@@ -16,8 +16,8 @@ module @mainModule attributes { config.arch = #config.arch_kind<NPU40XX> } {
 
 // CHECK: module @mainModule attributes
 // CHECK: config.PipelineOptions @Options
-// CHECK: config.Option @VPU.UseDedicatedFifoPerShaveEngine : false
-// CHECK: config.Option @VPU.BarrierMaxVariantSum : 64
-// CHECK: config.Option @VPU.BarrierMaxVariantCount : 128
-// CHECK: config.Option @VPU.MetadataMaxKernelInvocationCount : 64
-// CHECK: config.Option @VPU.MetadataMaxKernelRangeCount : 64
+// CHECK: config.Option @config.UseDedicatedFifoPerShaveEngine : false
+// CHECK: config.Option @config.BarrierMaxVariantSum : 64
+// CHECK: config.Option @config.BarrierMaxVariantCount : 128
+// CHECK: config.Option @config.MetadataMaxKernelInvocationCount : 64
+// CHECK: config.Option @config.MetadataMaxKernelRangeCount : 64

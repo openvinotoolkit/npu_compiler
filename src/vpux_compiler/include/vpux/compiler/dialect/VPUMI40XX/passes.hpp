@@ -58,8 +58,6 @@ std::unique_ptr<mlir::Pass> createAddBarrierConfigurationOps(
                 WorkloadManagementBarrierProgrammingMode::LEGACY,
         Logger log = Logger::global());
 
-std::unique_ptr<mlir::Pass> createCheckFWLMModeConstraintsPass(Logger log = Logger::global());
-
 //
 // Registration
 //

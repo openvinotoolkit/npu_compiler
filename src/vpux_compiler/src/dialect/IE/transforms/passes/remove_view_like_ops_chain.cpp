@@ -116,15 +116,12 @@ mlir::LogicalResult ViewLikeOpsChainRewriter::matchAndRewrite(IE::ViewLikeOpInte
 
 class RemoveViewLikeOpsChainPass final : public IE::impl::RemoveViewLikeOpsChainPassBase<RemoveViewLikeOpsChainPass> {
 public:
-    explicit RemoveViewLikeOpsChainPass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit RemoveViewLikeOpsChainPass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void RemoveViewLikeOpsChainPass::safeRunOnFunc() {

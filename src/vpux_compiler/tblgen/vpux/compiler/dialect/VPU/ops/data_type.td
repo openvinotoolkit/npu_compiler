@@ -205,6 +205,7 @@ def VPU_DynamicDequantizeOp :
                 VPU_EltwiseOp,
                 DeclareOpInterfaceMethods<VPU_TilingBuilderOpInterface>,
                 DeclareOpInterfaceMethods<VPU_SWOpInterface>,
+                DeclareOpInterfaceMethods<VPU_VerticalFusionOpInterface>,
                 DeclareOpInterfaceMethods<VPU_ClusteredOpInterface>
             ]
         > {

@@ -20,6 +20,8 @@
 
 using namespace vpux;
 
+namespace {
+
 VPUIP::DType createDType(mlir::Type type) {
     if (type.isF64()) {
         return VPUIP::DType_FP64;
@@ -66,53 +68,22 @@ VPUIP::DType createDType(mlir::Type type) {
     }
 }
 
-VPUIP::MemoryLocation createMemoryLocation(VPURT::BufferSection section) {
-    switch (section) {
-    case VPURT::BufferSection::NetworkInput:
-        return VPUIP::MemoryLocation_ProgrammableInput;
-    case VPURT::BufferSection::NetworkOutput:
-        return VPUIP::MemoryLocation_ProgrammableOutput;
-    case VPURT::BufferSection::ProfilingOutput:
-        return VPUIP::MemoryLocation_ProfilingOutput;
-    case VPURT::BufferSection::Constant:
-        return VPUIP::MemoryLocation_GraphFile;
-    case VPURT::BufferSection::SW_KernelText:
-        return VPUIP::MemoryLocation_GFEmbeddedKernel;
-    case VPURT::BufferSection::FunctionInput:
-    case VPURT::BufferSection::FunctionOutput:
-    case VPURT::BufferSection::DDR:
-        return VPUIP::MemoryLocation_VPU_DDR_Heap;
-    case VPURT::BufferSection::CSRAM:
-        return VPUIP::MemoryLocation_VPU_CSRAM;
-    case VPURT::BufferSection::CMX_NN:
-        return VPUIP::MemoryLocation_VPU_CMX_NN;
-    case VPURT::BufferSection::Register:
-        return VPUIP::MemoryLocation_AbsoluteAddr;
-    case VPURT::BufferSection::MAC_Accumulators:
-        return VPUIP::MemoryLocation_MAC_Accumulators;
-    default:
-        VPUX_THROW("Unsupported BufferSection {0}", section);
-    }
-}
+}  // namespace
 
-VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensorRef(
-        StringRef name, vpux::NDTypeInterface type, VPURT::BufferSection section, ArrayRef<int64_t> sectionIndex,
-        int64_t byteOffset, ArrayRef<int64_t> mult, ArrayRef<int64_t> shift, int64_t postShift,
-        ArrayRef<uint8_t> zeroPoints, std::optional<int64_t> sparsityMapOffset,
-        std::optional<int64_t> storageElementOffset, std::optional<int64_t> storageElementSize,
-        std::optional<int64_t> swizzlingKey, std::optional<uint64_t> descriptor) {
-    const auto serializedName = createString(name);
+namespace vpux::VPUMI37XX {
 
+MVCNN::TensorReference createTensorRef(vpux::NDTypeInterface type, ArrayRef<int64_t> sectionIndex, int64_t byteOffset,
+                                       ArrayRef<int64_t> mult, ArrayRef<int64_t> shift, ArrayRef<uint8_t> zeroPoints,
+                                       std::optional<int64_t> sparsityMapOffset,
+                                       std::optional<int64_t> storageElementOffset,
+                                       std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey) {
     const auto serializedDataType = static_cast<MVCNN::DType>(createDType(type.getElementType()));
     const auto serializedDims = createDims(type);
-    const auto dimsOrder = type.getDimsOrder();
 
     const auto serializedDataReference =
             createIndirectDataReference(byteOffset, sparsityMapOffset, storageElementOffset, storageElementSize);
 
-    const auto serializedLocale = static_cast<MVCNN::MemoryLocation>(createMemoryLocation(section));
-
-    Vector<uint8_t> serializedQuantZero = createVector(zeroPoints);
+    MVCNN::Vector<uint8_t> serializedQuantZero = createVector(zeroPoints);
 
     const auto serializedLocaleIndex = arrayCast<uint32_t>(sectionIndex);
     // Unchecked casting of quant_mult since it stores both u16 and i16 values
@@ -123,38 +94,27 @@ VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensor
     const auto serializedQuantMult = createVector(castedQuantMult);
     const auto serializedQuantShift = arrayCast<uint8_t>(shift);
 
-    const auto basePtrs = createVector(std::vector<uint16_t>{});
-
     auto strides = createStrides<uint64_t>(type);
-    MVCNN::TensorReferenceBuilder builder(_impl);
 
-    builder.add_name(serializedName);
-    builder.add_dimensions(serializedDims);
-    builder.add_bit_strides(strides);
-    builder.add_data(serializedDataReference);
-    builder.add_locale(serializedLocale);
-    builder.add_locale_index(serializedLocaleIndex);
-    builder.add_data_dtype(serializedDataType);
-    builder.add_quant_zero(serializedQuantZero);
-    builder.add_quant_mult(serializedQuantMult);
-    builder.add_quant_shift(serializedQuantShift);
-    builder.add_quant_post_shift_right(checked_cast<int8_t>(postShift));
-    builder.add_order(dimsOrder.code());
-    builder.add_base_ptrs(basePtrs);
+    MVCNN::TensorReference tensor;
+    tensor.add_dimensions(serializedDims);
+    tensor.add_bit_strides(strides);
+    tensor.add_data(serializedDataReference);
+    tensor.add_locale_index(serializedLocaleIndex);
+    tensor.add_data_dtype(serializedDataType);
+    tensor.add_quant_zero(serializedQuantZero);
+    tensor.add_quant_mult(serializedQuantMult);
+    tensor.add_quant_shift(serializedQuantShift);
     if (swizzlingKey.has_value()) {
-        builder.add_swizzling_key(checked_cast<uint8_t>(swizzlingKey.value()));
+        tensor.add_swizzling_key(checked_cast<uint8_t>(swizzlingKey.value()));
     }
-    if (descriptor.has_value()) {
-        builder.add_descriptor(checked_cast<uint64_t>(descriptor.value()));
-    }
-    return builder.Finish();
+    return tensor;
 }
 
-VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensorRef(
-        StringRef name, vpux::NDTypeInterface type, VPURT::BufferSection section, ArrayRef<int64_t> sectionIndex,
-        int64_t byteOffset, std::optional<int64_t> sparsityMapOffset, std::optional<int64_t> storageElementOffset,
-        std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey,
-        std::optional<uint64_t> descriptor) {
+MVCNN::TensorReference createTensorRef(vpux::NDTypeInterface type, ArrayRef<int64_t> sectionIndex, int64_t byteOffset,
+                                       std::optional<int64_t> sparsityMapOffset,
+                                       std::optional<int64_t> storageElementOffset,
+                                       std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey) {
     SmallVector<uint8_t> zeroPoints;
     SmallVector<int64_t> mults;
     SmallVector<int64_t> shifts;
@@ -187,53 +147,46 @@ VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensor
         shifts.push_back(0);
     }
 
-    return createTensorRef(name, type, section, sectionIndex, byteOffset, mults, shifts, 0, zeroPoints,
-                           sparsityMapOffset, storageElementOffset, storageElementSize, swizzlingKey, descriptor);
+    return createTensorRef(type, sectionIndex, byteOffset, mults, shifts, zeroPoints, sparsityMapOffset,
+                           storageElementOffset, storageElementSize, swizzlingKey);
 }
 
-VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensorRef(
-        StringRef name, vpux::NDTypeInterface type, VPURT::BufferSection section, int64_t sectionIndex,
-        int64_t byteOffset, std::optional<int64_t> sparsityMapOffset, std::optional<int64_t> storageElementOffset,
-        std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey,
-        std::optional<uint64_t> descriptor) {
-    return createTensorRef(name, type, section, ArrayRef({sectionIndex}), byteOffset, sparsityMapOffset,
-                           storageElementOffset, storageElementSize, swizzlingKey, descriptor);
+MVCNN::TensorReference createTensorRef(vpux::NDTypeInterface type, int64_t sectionIndex, int64_t byteOffset,
+                                       std::optional<int64_t> sparsityMapOffset,
+                                       std::optional<int64_t> storageElementOffset,
+                                       std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey) {
+    return createTensorRef(type, ArrayRef({sectionIndex}), byteOffset, sparsityMapOffset, storageElementOffset,
+                           storageElementSize, swizzlingKey);
 }
 
-VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensorRef(
-        mlir::Value val, StringRef name, VPURT::BufferSection section, ArrayRef<int64_t> sectionIndex,
-        int64_t byteOffset, std::optional<int64_t> sparsityMapOffset, std::optional<int64_t> storageElementOffset,
-        std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey,
-        std::optional<uint64_t> descriptor) {
-    VPUX_THROW_UNLESS(_tensors.count(val) == 0, "Value '{0}' was already serialized", val.getLoc());
-    const auto ref =
-            createTensorRef(name, mlir::cast<vpux::NDTypeInterface>(val.getType()), section, sectionIndex, byteOffset,
-                            sparsityMapOffset, storageElementOffset, storageElementSize, swizzlingKey, descriptor);
-    _tensors.insert({val, ref});
-    return ref;
+MVCNN::TensorReference createTensorRef(mlir::Value val, ArrayRef<int64_t> sectionIndex, int64_t byteOffset,
+                                       std::optional<int64_t> sparsityMapOffset,
+                                       std::optional<int64_t> storageElementOffset,
+                                       std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey) {
+    return createTensorRef(mlir::cast<vpux::NDTypeInterface>(val.getType()), sectionIndex, byteOffset,
+                           sparsityMapOffset, storageElementOffset, storageElementSize, swizzlingKey);
 }
 
-VPUMI37XX::BlobWriter::TensorReference vpux::VPUMI37XX::BlobWriter::createTensorRef(
-        mlir::Value val, StringRef name, VPURT::BufferSection section, int64_t sectionIndex, int64_t byteOffset,
-        std::optional<int64_t> sparsityMapOffset, std::optional<int64_t> storageElementOffset,
-        std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey,
-        std::optional<uint64_t> descriptor) {
-    return createTensorRef(val, name, section, ArrayRef({sectionIndex}), byteOffset, sparsityMapOffset,
-                           storageElementOffset, storageElementSize, swizzlingKey, descriptor);
+MVCNN::TensorReference createTensorRef(mlir::Value val, int64_t sectionIndex, int64_t byteOffset,
+                                       std::optional<int64_t> sparsityMapOffset,
+                                       std::optional<int64_t> storageElementOffset,
+                                       std::optional<int64_t> storageElementSize, std::optional<int64_t> swizzlingKey) {
+    return createTensorRef(val, ArrayRef({sectionIndex}), byteOffset, sparsityMapOffset, storageElementOffset,
+                           storageElementSize, swizzlingKey);
 }
 
-VPUMI37XX::BlobWriter::Vector<uint32_t> vpux::VPUMI37XX::BlobWriter::createDims(ShapeRef shape) {
+MVCNN::Vector<uint32_t> createDims(ShapeRef shape) {
     return createVector(shape | transformed([](int64_t val) {
                             return checked_cast<uint32_t>(val);
                         }));
 }
 
-VPUMI37XX::BlobWriter::Vector<uint32_t> vpux::VPUMI37XX::BlobWriter::createDims(vpux::NDTypeInterface type) {
+MVCNN::Vector<uint32_t> createDims(vpux::NDTypeInterface type) {
     return createDims(type.getShape());
 }
 
 template <typename T>
-VPUMI37XX::BlobWriter::Vector<T> vpux::VPUMI37XX::BlobWriter::createStrides(StridesRef strides, Bit elemSize) {
+MVCNN::Vector<T> createStrides(StridesRef strides, Bit elemSize) {
     Strides temp;
     temp.push_back(elemSize);
     temp.append(strides.begin(), strides.end());
@@ -254,24 +207,26 @@ VPUMI37XX::BlobWriter::Vector<T> vpux::VPUMI37XX::BlobWriter::createStrides(Stri
 }
 
 template <typename T>
-VPUMI37XX::BlobWriter::Vector<T> vpux::VPUMI37XX::BlobWriter::createStrides(vpux::NDTypeInterface type) {
+MVCNN::Vector<T> createStrides(vpux::NDTypeInterface type) {
     const auto strides = type.getStrides();
     return createStrides<T>(strides, type.getElemTypeSize());
 }
 
-VPUMI37XX::BlobWriter::IndirectDataReference vpux::VPUMI37XX::BlobWriter::createIndirectDataReference(
-        int64_t dataIndex, std::optional<int64_t> sparsityIndex, std::optional<int64_t> storageElementIndex,
-        std::optional<int64_t> storageElementSize) {
-    MVCNN::IndirectDataReferenceBuilder builder(_impl);
-    builder.add_data_index(checked_cast<uint64_t>(dataIndex));
+MVCNN::IndirectDataReference createIndirectDataReference(int64_t dataIndex, std::optional<int64_t> sparsityIndex,
+                                                         std::optional<int64_t> storageElementIndex,
+                                                         std::optional<int64_t> storageElementSize) {
+    MVCNN::IndirectDataReference indDataRef;
+    indDataRef.add_data_index(checked_cast<uint64_t>(dataIndex));
     if (sparsityIndex.has_value()) {
-        builder.add_sparsity_index(checked_cast<uint64_t>(sparsityIndex.value()));
+        indDataRef.add_sparsity_index(checked_cast<uint64_t>(sparsityIndex.value()));
     }
     if (storageElementIndex.has_value()) {
-        builder.add_storage_element_index(checked_cast<uint64_t>(storageElementIndex.value()));
+        indDataRef.add_storage_element_index(checked_cast<uint64_t>(storageElementIndex.value()));
     }
     if (storageElementSize.has_value()) {
-        builder.add_storage_element_size(checked_cast<uint32_t>(storageElementSize.value()));
+        indDataRef.add_storage_element_size(checked_cast<uint32_t>(storageElementSize.value()));
     }
-    return builder.Finish();
+    return indDataRef;
 }
+
+}  // namespace vpux::VPUMI37XX

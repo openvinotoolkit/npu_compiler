@@ -37,10 +37,15 @@ private:
     void safeRunOnFunc() final;
 };
 
-mlir::Operation* getSliceOrStridedSliceOp(mlir::Operation* op) {
+mlir::Operation* getSliceOrStridedSliceOp(mlir::Operation* op, bool& isInterleaved) {
     if (mlir::isa_and_nonnull<IE::SliceOp, IE::StridedSliceOp>(op)) {
         return op;
     }
+    if (mlir::isa_and_nonnull<IE::SplitOp>(op)) {
+        isInterleaved = true;
+        return op;
+    }
+
     return nullptr;
 }
 
@@ -48,7 +53,7 @@ mlir::Operation* getSliceOrStridedSliceOp(mlir::Operation* op) {
 // safeRunOnFunc
 //
 
-// Match pattern
+// Match RoPE pattern
 // Input --------> IE.Multiply --------------------------------------------------
 //       |                                                                      |
 //       --> IE.StridedSlice -> IE.Multiply                                     |   -> IE.Add
@@ -67,18 +72,29 @@ mlir::Operation* getSliceOrStridedSliceOp(mlir::Operation* op) {
 //   |                                                                                                          |
 //    -----------------------------------------------------------------------------------------------------------
 
+// Match RoPE Interleaved pattern
+// Input --------> IE.Multiply -----------------------------------------------------------------------
+//       |                                                                                           |
+//       |              |--> IE.Split -> IE.Reshape -> IE.Multiply -> IE.Reshape--|                  |
+//       IE.Reshape ----|                                                         |---> IE.Concat ---| -> IE.Add
+//                      |--> IE.Split --------------------------------------------|                         ^
+//   |                                                                                                      |
+//   --------------------------------------------------------------------------------------------------------
+
 void FuseRoPEPass::safeRunOnFunc() {
     auto func = getOperation();
     func->walk([&](IE::AddOp addOp) {
         auto skipReshapeIfPresent = [](mlir::Operation* op) -> mlir::Operation* {
-            if (!mlir::isa_and_nonnull<IE::AffineReshapeOp>(op)) {
+            if (!mlir::isa_and_nonnull<IE::AffineReshapeOp, IE::ReshapeOp>(op)) {
                 return op;
             }
             if (!op->hasOneUse()) {
                 return nullptr;
             }
+
             return op->getOperand(0).getDefiningOp();
         };
+        bool isInterleaved = false;
 
         auto mulOp1 =
                 mlir::dyn_cast_or_null<IE::MultiplyOp>(skipReshapeIfPresent(addOp->getOperand(0).getDefiningOp()));
@@ -86,23 +102,36 @@ void FuseRoPEPass::safeRunOnFunc() {
         if (!mulOp1 || !mulOp2) {
             return;
         }
-        auto input_cos = mulOp1.getOperand(1);
-        auto input_sin = mulOp2.getOperand(1);
 
-        auto concatOp = mulOp2.getOperand(0).getDefiningOp<IE::ConcatOp>();
+        auto concatOp =
+                mlir::dyn_cast_or_null<IE::ConcatOp>(skipReshapeIfPresent(mulOp2.getOperand(0).getDefiningOp()));
         if (!concatOp || concatOp.getInputs().size() != 2) {
             return;
         }
-        auto mulOp3 = concatOp.getOperand(0).getDefiningOp<IE::MultiplyOp>();
-        auto stridedSliceOp2 = getSliceOrStridedSliceOp(concatOp.getOperand(1).getDefiningOp());
+
+        auto mulOp3 =
+                mlir::dyn_cast_or_null<IE::MultiplyOp>(skipReshapeIfPresent(concatOp.getOperand(0).getDefiningOp()));
+        auto stridedSliceOp2 = getSliceOrStridedSliceOp(concatOp.getOperand(1).getDefiningOp(), isInterleaved);
         if (!mulOp3 || !stridedSliceOp2) {
             return;
         }
-        auto stridedSliceOp1 = getSliceOrStridedSliceOp(mulOp3.getOperand(0).getDefiningOp());
+        auto stridedSliceOp1 =
+                getSliceOrStridedSliceOp(skipReshapeIfPresent(mulOp3.getOperand(0).getDefiningOp()), isInterleaved);
         if (!stridedSliceOp1) {
             return;
         }
-        auto tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(stridedSliceOp1->getOperand(0).getType());
+
+        auto input = stridedSliceOp1->getOperand(0);
+        auto input_cos = mulOp1.getOperand(1);
+        auto input_sin = mulOp2.getOperand(1);
+
+        // For interleaving, before SplitOp, the input is reshaped to <NxCxHxWx2>,
+        // so we have to get the input from the MultiplyOp
+        if (isInterleaved) {
+            input = mulOp1->getOperand(0);
+        }
+
+        auto tensorType = mlir::dyn_cast<vpux::NDTypeInterface>(input.getType());
         if (!tensorType || tensorType.getRank() != 4) {
             return;
         }
@@ -131,8 +160,8 @@ void FuseRoPEPass::safeRunOnFunc() {
                                                       false, getIntArrayAttr(builder, sinShape));
             _log.trace("Reshaped input_cos to match input_sin shape");
         }
-        auto ropeOp = builder.create<IE::RoPEOp>(appendLoc(addOp->getLoc(), "rope"), stridedSliceOp1->getOperand(0),
-                                                 input_cos, input_sin);
+        auto ropeOp = builder.create<IE::RoPEOp>(appendLoc(addOp->getLoc(), "rope"), input, input_cos, input_sin,
+                                                 isInterleaved);
         addOp->replaceAllUsesWith(ropeOp);
     });
 }

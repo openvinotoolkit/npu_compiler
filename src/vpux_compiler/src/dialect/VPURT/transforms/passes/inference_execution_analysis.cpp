@@ -80,12 +80,13 @@ profiling::TaskInfo makeTaskInfo(VPURT::TaskOp taskOp, double startTimeNs, doubl
 /// @param totalEnergy - includes dpu and shave energy for all workloads
 /// @param totalCycles - model inference cycles by DPU freq and the parallalism among different executors are considered
 /// @param numTils - number of tiles in NCE, to get a perTile AF
-double getActivityFactor(double totalEnergy, size_t totalCycles, size_t numTiles) {
-    // A statistical ratio from VPUNN team, to estimate final NPU activity factor considering DMA running.
-    // TODO: get npu_ratio by vpunn API
+/// @param arch - architecture kind
+double getActivityFactor(double totalEnergy, size_t totalCycles, size_t numTiles, config::ArchKind arch) {
     VPUX_THROW_WHEN(totalCycles == 0 || numTiles == 0, "Divide zero value as totalCycles = {0} or numTiles = {1}",
                     totalCycles, numTiles);
-    const auto npu_ratio = 0.85;
+    // A statistical ratio for total activity factor, to estimate final NPU activity factor considering DMA running.
+    // For newer architectures than NPU40XX, the ratio is 1 (no change) as VPUNN itself can process it well.
+    const auto npu_ratio = (arch <= config::ArchKind::NPU40XX ? 0.85 : 1.0);
     auto energyPerTile = totalEnergy / numTiles;
     auto afPerTile = energyPerTile / totalCycles;
     auto af = afPerTile * npu_ratio;  // reduce activity factor
@@ -202,7 +203,7 @@ void InferenceExecutionAnalysisPass::safeRunOnFunc() {
         // Set compiled Activity Factor (AF) attribute to TileResource op for NPU Energy feature
         if (tileOp != nullptr) {
             auto numTiles = tileOp.getCount();
-            auto activityFactor = getActivityFactor(dpuTotalEnergy + shaveTotalEnergy, totalCycles, numTiles);
+            auto activityFactor = getActivityFactor(dpuTotalEnergy + shaveTotalEnergy, totalCycles, numTiles, arch);
             auto activityFactorAttr =
                     mlir::FloatAttr::get(mlir::FloatType::getF64(funcOp.getContext()), activityFactor);
             tileOp.setActivityFactorAttr(activityFactorAttr);
@@ -224,9 +225,6 @@ void InferenceExecutionAnalysisPass::safeRunOnFunc() {
         auto tasksCycleConfig = infSim.getTaskCycleConfig();
         createScheduleTraceEventFile(tasksCycleConfig, freqInMHz, _compileSchedTraceFileName, _log);
     }
-
-    _log.info("[InferenceExecutionAnalysis phase]");
-    cycleCostInfo.printNNCacheStatistics(_log);
 }
 
 }  // namespace

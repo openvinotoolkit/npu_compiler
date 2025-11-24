@@ -126,15 +126,12 @@ mlir::LogicalResult CopiesForM2iOp::matchAndRewrite(VPU::M2ITaskOp origOp, mlir:
 
 class AdjustMemorySpacePass final : public VPU::impl::AdjustMemorySpaceBase<AdjustMemorySpacePass> {
 public:
-    explicit AdjustMemorySpacePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit AdjustMemorySpacePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void AdjustMemorySpacePass::safeRunOnFunc() {

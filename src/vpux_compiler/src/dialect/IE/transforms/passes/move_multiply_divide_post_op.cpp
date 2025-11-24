@@ -110,8 +110,9 @@ mlir::Value getSingleDataInput(mlir::Operation* op) {
             }
             return nullptr;
         }
-        auto shape = getShape(operand);
-        if (vpux::details::calcTotalShapeSize(shape.raw()) == 1) {
+        auto operandType = mlir::cast<vpux::NDTypeInterface>(operand.getType());
+        const auto numElements = operandType.getNumElements();
+        if (numElements == 1) {
             return operand;
         }
     }

@@ -181,3 +181,39 @@ func.func @KeepI4ForSI4WeightsAsInputs(%arg0: tensor<1x256x2048xf32>, %arg1: ten
 
   // CHECK:       return [[CONV_RESULT]] : tensor<256x2048x1x1xf16>
 }
+
+// -----
+
+!qElemType = !quant.uniform<i8:f16, 0.060064338235294119>
+!qElemType1 = !quant.uniform<i4:f16, 1.000000e+00>
+
+// CHECK-LABEL:   @KeepI4ForSlicedSI4WeightsAsInputs
+// CHECK-SAME:      [[INPUT:%.+]]: tensor<1x256x2048xf32>
+// CHECK-SAME:      [[WEIGHTS:%.+]]: tensor<4096x2048xsi4>
+func.func @KeepI4ForSlicedSI4WeightsAsInputs(%arg0: tensor<1x256x2048xf32>, %arg1: tensor<4096x2048xsi4>) -> tensor<256x2048x1x1xf16> {
+  %reshape_0 = IE.AffineReshape(%arg0) {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 256, 2048]} : tensor<1x256x2048xf32> -> tensor<1x1x256x2048xf32>
+  %convert = IE.Convert(%reshape_0) {dstElemType = f16} : tensor<1x1x256x2048xf32> -> tensor<1x1x256x2048xf16>
+  %quantize = IE.Quantize(%convert) {dstElemType = !qElemType} : tensor<1x1x256x2048xf16> -> tensor<1x1x256x2048x!qElemType>
+  %slice = IE.Slice %arg1 [0, 0] [2048, 2048] : tensor<4096x2048xsi4> to tensor<2048x2048xsi4>
+  %quantize_cast = IE.QuantizeCast(%slice) {dstElemType = !qElemType1} : tensor<2048x2048xsi4> -> tensor<2048x2048x!qElemType1>
+  %reshape_1 = IE.AffineReshape(%quantize) {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x1x256x2048x!qElemType> -> tensor<256x2048x1x1x!qElemType>
+  %reshape_2 = IE.AffineReshape(%quantize_cast) {dim_mapping = [[0], [1, 2, 3]], shape_value = [2048, 2048, 1, 1]} : tensor<2048x2048x!qElemType1> -> tensor<2048x2048x1x1x!qElemType1>
+  %conv = IE.Convolution(%reshape_1, %reshape_2) {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<256x2048x1x1x!qElemType>, tensor<2048x2048x1x1x!qElemType1> -> tensor<256x2048x1x1xf16>
+
+  return %conv : tensor<256x2048x1x1xf16>
+
+  // CHECK:       [[RESHAPE_0:%.+]] = IE.AffineReshape([[INPUT]])
+  // CHECK-SAME{LITERAL}:   {dim_mapping = [[0, 1], [2], [3]], shape_value = [1, 1, 256, 2048]} : tensor<1x256x2048xf32> -> tensor<1x1x256x2048xf32>
+  // CHECK:       [[CONVERT:%.+]] = IE.Convert([[RESHAPE_0]]) {dstElemType = f16} : tensor<1x1x256x2048xf32> -> tensor<1x1x256x2048xf16>
+  // CHECK:       [[QUANTIZE:%.+]] = IE.Quantize([[CONVERT]]) {dstElemType = !qElemType} : tensor<1x1x256x2048xf16> -> tensor<1x1x256x2048x!qElemType>
+  // CHECK:       [[SLICE:%.+]] = IE.Slice [[WEIGHTS]] [0, 0] [2048, 2048] : tensor<4096x2048xsi4> to tensor<2048x2048xsi4>
+  // CHECK:       [[QUANTIZE_CAST:%.+]] = IE.QuantizeCast([[SLICE]]) {dstElemType = !qElemType1} : tensor<2048x2048xsi4> -> tensor<2048x2048x!qElemType1>
+  // CHECK:       [[RESHAPE_1:%.+]] = IE.AffineReshape([[QUANTIZE]])
+  // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [0], [0], [1, 2, 3]], shape_value = [256, 2048, 1, 1]} : tensor<1x1x256x2048x!qElemType> -> tensor<256x2048x1x1x!qElemType>
+  // CHECK:       [[RESHAPE_2:%.+]] = IE.AffineReshape([[QUANTIZE_CAST]])
+  // CHECK-SAME{LITERAL}:   {dim_mapping = [[0], [1, 2, 3]], shape_value = [2048, 2048, 1, 1]} : tensor<2048x2048x!qElemType1> -> tensor<2048x2048x1x1x!qElemType1>
+  // CHECK:       [[CONV_RESULT:%.+]] = IE.Convolution([[RESHAPE_1]], [[RESHAPE_2]])
+  // CHECK-SAME:            {dilations = [1, 1], pads_begin = [0, 0], pads_end = [0, 0], strides = [1, 1]} : tensor<256x2048x1x1x!qElemType>, tensor<2048x2048x1x1x!qElemType1> -> tensor<256x2048x1x1xf16>
+
+  // CHECK:       return [[CONV_RESULT]] : tensor<256x2048x1x1xf16>
+}

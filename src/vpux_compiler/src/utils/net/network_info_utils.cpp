@@ -4,6 +4,7 @@
 //
 
 #include "vpux/compiler/utils/net/network_info_utils.hpp"
+#include "vpux/compiler/utils/analysis.hpp"
 
 namespace vpux::net {
 
@@ -39,7 +40,12 @@ mlir::func::FuncOp findEntryPointFunc(mlir::Operation* op, Logger& log) {
         return nullptr;
     }
 
-    auto topModuleOp = getTopModuleOp(op);
+    auto topModuleOp = getTopParentOpOfType<mlir::ModuleOp>(op);
+    if (topModuleOp == nullptr) {
+        log.warning("Top level module not found");
+        return nullptr;
+    }
+
     auto netOps = to_small_vector(topModuleOp.getOps<net::NetworkInfoOp>());
     if (netOps.size() != 1) {
         log.warning("Expected exactly one net::NetworkInfoOp, found {0}", netOps.size());

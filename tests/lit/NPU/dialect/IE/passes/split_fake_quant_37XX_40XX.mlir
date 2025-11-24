@@ -6,6 +6,7 @@
 // RUN: vpux-opt --split-input-file --init-compiler="vpu-arch=%arch%" --split-fake-quant %s | FileCheck %s
 // REQUIRES: arch-NPU37XX || arch-NPU40XX
 
+
 !qElemType = !quant.uniform<i8<-127:127>:f16:0, {0.011811023622047244:-42,0.0090543491633858271:-6,0.010630690206692913:-14}>
 
 // CHECK-LABEL: @ConstantsDequantizeSplitFakeQuantForMultiZP

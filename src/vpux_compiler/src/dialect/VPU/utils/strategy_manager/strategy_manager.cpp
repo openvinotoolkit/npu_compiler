@@ -188,10 +188,10 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                     }
 
                     auto inputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOperation()->getOperand(0).getType());
+                    auto inputShape = getBoundedShape(inputType);
 
-                    auto inputShape = inputType.getShape();
-                    auto outputShape =
-                            mlir::cast<vpux::NDTypeInterface>(origOp.getOperation()->getResult(0).getType()).getShape();
+                    auto outputType = mlir::cast<vpux::NDTypeInterface>(origOp.getOperation()->getResult(0).getType());
+                    auto outputShape = getBoundedShape(outputType);
 
                     if (mlir::isa<VPU::SoftMaxOp>(origOp) && inputType.getRank() == 5) {
                         auto clusteredOp = mlir::dyn_cast<VPU::ClusteredOpInterface>(origOp.getOperation());
@@ -205,8 +205,6 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
                     if (mlir::isa<VPU::MemPermuteOp>(origOp)) {
                         auto memPermuteOp = mlir::dyn_cast<VPU::MemPermuteOp>(origOp.getOperation());
                         auto memPerm = memPermuteOp.getMemPerm();
-                        const auto inputType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getInput().getType());
-                        const auto outputType = mlir::cast<vpux::NDTypeInterface>(memPermuteOp.getOutput().getType());
                         auto module = getModuleOp(memPermuteOp.getOperation());
                         const auto dmaPortNum =
                                 config::getAvailableExecutor(module, VPU::ExecutorKind::DMA_NN).getCount();
@@ -386,9 +384,6 @@ void StrategyManager::assignMultiClusterStrategy(bool enableMultiClusterForSWLay
     };
 
     _func.walk(callback);
-
-    _log.info("[MC Assign / greedy phase]");
-    _costModel.printNNCacheStatistics();
 }
 
 void StrategyManager::optimizeMulticlusterStrategy() {

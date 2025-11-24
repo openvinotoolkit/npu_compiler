@@ -209,3 +209,121 @@ module @OneDMAWithPermuteDMATransactionAttr {
     return
   }
 }
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @UnrollDistributedExpandDMAOutputWithTransactionAttr {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input_0" : tensor<1x60x8x56xf16>
+  } outputsInfo : {
+    DataInfo "output_0" : tensor<1x64x8x56xf16>
+  }
+  func.func @main() {
+    ELF.Main @ELFMain {
+      ELF.CreateSection @buffer.Constant.0.constant aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+        VPUASM.ConstBuffer @Declare_0 !VPUASM.Buffer< "Constant"[0] <0> : memref<1x64x8x56xf16, #NHWC, @DDR> :  swizzling(0)> = dense<1.000000e+00> : tensor<1x64x8x56xf16>, [#const.Reorder<#NHWC>]
+      }
+      ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+        VPUASM.DeclareBuffer @DeclareBuffer_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x64x8x56xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+      }
+      ELF.CreateLogicalSection @buffer.CMX_NN.1 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+        VPUASM.DeclareBuffer @DeclareBuffer_1 !VPUASM.Buffer< "CMX_NN"[1] <0> : memref<1x64x8x56xf16, #NHWC, [@CMX_NN, 1]> :  swizzling(0)>
+      }
+      ELF.CreateSection @task.dma.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+        VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) input(@buffer.Constant.0.constant::@Declare_0) outputs([@buffer.CMX_NN.0::@DeclareBuffer_0, @buffer.CMX_NN.1::@DeclareBuffer_1])
+         waits([]) updates([]) start_after(0) clean_after(0) dma_transaction(#VPUMI40XX.ExpandDMATransaction<inputType = memref<1x64x8x56xf16, #NHWC, @DDR>,
+            outputType = !VPUIP.DistributedBuffer<1x64x8x56xf16, {order = #NHWC, strides = [30464, 1, 3808, 68]}, @CMX_NN, {mode = "DUPLICATED", num_clusters = 2 : i64, uniform_distributed_segments}>,
+            padsBegin = [0, 0, 0, 0], padsEnd = [0, 4, 0, 0]>)
+            dma_descriptor(<numPlanes = 0 : i32, len = 4096 : i32, srcWidth = 4096 : i32, srcStride = 4096 : i32, srcPlaneStride = 0 : i32, dstWidth = 64 : i32, dstStride = 68 : i32, dstPlaneStride = 0 : i32>)
+            acceleration_mode(<DISABLE>) tile_indexes([0, 1])
+      }
+      ELF.CreateSection @note.LoaderABIVersion aligned(64) secType(SHT_NOTE) secFlags("SHF_NONE") secLocation(<DDR>) {
+        ELF.ABIVersion(1 _ 0 _ 0) {sym_name = "LoaderABIVersion"}
+      }
+      ELF.CreateSection @perf.metrics aligned(64) secType(VPU_SHT_PERF_METRICS) secFlags("SHF_NONE") secLocation(<DDR>) {
+        ELF.PerformanceMetricsSection @PerfMetrics
+      }
+    }
+    return
+  }
+
+  // CHECK: ELF.CreateSection @buffer.Constant.0.constant aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+  // CHECK: VPUASM.ConstBuffer @Declare_0 !VPUASM.Buffer< "Constant"[0] <0> : memref<1x64x8x56xf16, #NHWC, @DDR> :  swizzling(0)> = dense<1.000000e+00> : tensor<1x64x8x56xf16>, [#const.Reorder<#NHWC>]
+  // CHECK: ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+  // CHECK: VPUASM.DeclareBuffer @DeclareBuffer_0 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x64x8x56xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+  // CHECK: ELF.CreateLogicalSection @buffer.CMX_NN.1 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+  // CHECK: VPUASM.DeclareBuffer @DeclareBuffer_1 !VPUASM.Buffer< "CMX_NN"[1] <0> : memref<1x64x8x56xf16, #NHWC, [@CMX_NN, 1]> :  swizzling(0)>
+     // CHECK: ELF.CreateSection @task.dma.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+        // CHECK: NPUReg40XX.NNDMA descriptor = <
+        // CHECK:  DMARegister {
+        // CHECK:  UINT dma_cfg_fields_num_dim = 1,
+        // CHECK: UINT dma_cfg_fields_src_burst_length = 0xF,
+        // CHECK: UINT dma_cfg_fields_dst_burst_length = 0xF,
+        // CHECK: UINT dma_cfg_fields_arb_qos = 0xFF,
+        // CHECK: UINT dma_cfg_fields_ord = 1,
+        // CHECK:    dma_remote_width_fetch = UINT 0xE000,
+        // CHECK:  dma_width {
+        // CHECK:    UINT dma_width_src = 0xE000,
+        // CHECK:    UINT dma_width_dst = 0x78,
+        // CHECK:  dma_list_size {
+        // CHECK:    UINT dma_list_size_src = 0,
+        // CHECK:    UINT dma_list_size_dst = 0x1BF,
+        // CHECK:  dma_dim_size {
+        // CHECK:    UINT dma_dim_size_src_1 = 0,
+        // CHECK:    UINT dma_dim_size_dst_1 = 0x1BF,
+        // CHECK:  dma_stride_src_1 = UINT 0,
+        // CHECK:  dma_stride_dst_1 = UINT 0x88,
+        // CHECK:  dma_dim_size_2 {
+        // CHECK:    UINT dma_dim_size_src_2 = 0,
+        // CHECK:    UINT dma_dim_size_dst_2 = 0,
+        // CHECK:  dma_list_addr {
+        // CHECK:    UINT dma_list_addr_src = 0,
+        // CHECK:    UINT dma_list_addr_dst = 0,
+        // CHECK:  dma_stride_dst_2 = UINT 0,
+        // CHECK:  dma_remote_width_store = UINT 0,
+}
+
+// -----
+
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+module @OneDMAWithPerAxisTileDMATransactionAttr {
+  net.NetworkInfo entryPoint : @main inputsInfo : {
+    DataInfo "input_0" : tensor<1xf16>
+  } outputsInfo : {
+    DataInfo "output_0" : tensor<1xf16>
+  }
+  func.func @main() {
+    ELF.Main @ELFMain {
+      ELF.CreateLogicalSection @buffer.DDR.0 aligned(64) secType(SHT_NOBITS) secFlags("SHF_WRITE|SHF_ALLOC") secLocation(<DDR>) {
+        VPUASM.DeclareBuffer @DeclareBuffer_0 !VPUASM.Buffer< "DDR"[0] <0> : memref<1x4x122x120xf16, #NHWC, @DDR> :  swizzling(0)>
+      }
+      ELF.CreateLogicalSection @buffer.CMX_NN.0 aligned(64) secType(VPU_SHT_CMX_WORKSPACE) secFlags("SHF_NONE") secLocation(<CMX_NN>) {
+        VPUASM.DeclareBuffer @DeclareBuffer_1 !VPUASM.Buffer< "CMX_NN"[0] <0> : memref<1x4x122x240xf16, #NHWC, [@CMX_NN, 0]> :  swizzling(0)>
+      }
+      ELF.CreateSection @task.dma.0.0 aligned(64) secType(SHT_PROGBITS) secFlags(SHF_ALLOC) secLocation(<DDR>) {
+        VPUASM.NNDMA @NNDMA_0_0_0 idx(!VPURegMapped.Index<0:0:0>) input(@buffer.DDR.0::@DeclareBuffer_0) outputs([@buffer.CMX_NN.0::@DeclareBuffer_1]) waits([]) updates([]) start_after(0) clean_after(0) dma_transaction(#VPUMI40XX.PerAxisTileDMATransaction<inputType = memref<1x4x122x120xf16, #NHWC, @DDR>, outputType = memref<1x4x122x240xf16, #NHWC, [@CMX_NN, 0]>, axis = 3 : i64, tiles = 2 : i64>) acceleration_mode(<DISABLE>) tile_indexes([0])
+        // CHECK-NOT:   VPUASM.NNDMA
+        // CHECK:       NPUReg40XX.NNDMA
+        // CHECK:  UINT dma_cfg_fields_num_dim = 2
+        // CHECK:  UINT dma_cfg_fields_conversion_cfg = 0
+        // CHECK:  UINT dma_width_src = 0x3C0
+        // CHECK:  UINT dma_width_dst = 0x39300
+        // CHECK:  UINT dma_src = 0
+        // CHECK:  UINT dma_dst = 0
+        // CHECK:  UINT dma_dim_size_src_1 = 1
+        // CHECK:  UINT dma_dim_size_dst_1 = 0
+        // CHECK:  dma_stride_src_1 = UINT 0,
+        // CHECK:  dma_stride_dst_1 = UINT 0
+        // CHECK:  UINT dma_dim_size_src_2 = 0x79
+        // CHECK:  UINT dma_dim_size_dst_2 = 0
+        // CHECK:  dma_stride_src_2 = UINT 0x3C0
+        // CHECK:  dma_stride_dst_2 = UINT 0
+        // CHECK:  UINT start_after_ = 0
+        // CHECK:  UINT clean_after_ = 0
+
+      }
+    }
+    return
+  }
+}

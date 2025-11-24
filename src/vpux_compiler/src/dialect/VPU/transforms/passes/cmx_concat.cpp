@@ -13,6 +13,7 @@
 #include "vpux/compiler/dialect/VPU/transforms/passes.hpp"
 #include "vpux/compiler/dialect/VPU/utils/auto_padding_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/concat_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/VPU/utils/ppe_version_config.hpp"
@@ -94,11 +95,7 @@ bool areDistributedTypesConcatenable(VPU::DistributedTensorType firstType, VPU::
 
     const auto firstPerClusterShapes = firstType.getPerClusterMemoryShapes();
     const auto secondPerClusterShapes = secondType.getPerClusterMemoryShapes();
-    if (!areInOutShapesOffsetsCompatible(firstPerClusterShapes, secondPerClusterShapes)) {
-        return false;
-    }
-
-    return true;
+    return areInOutShapesOffsetsCompatible(firstPerClusterShapes, secondPerClusterShapes);
 }
 
 NDTypeInterface getConcatDistributedType(VPU::DistributedTypeInterface origType, ShapeRef shape,
@@ -257,7 +254,7 @@ bool InputConcatPattern::inputConcatOnlyMeetRequirement(size_t cmxSize) {
     }
 
     // assert that the concat still can fit in CMX when considering fragmentation
-    if (!concatFitsInCMX(cmxSize * FRAGMENTATION_AVOID_RATIO_PIPELINING)) {
+    if (!concatFitsInCMX(cmxSize * FRAGMENTATION_AVOID_RATIO_MAX_PIPELINING)) {
         _log.trace("Concat does not fit in cmx");
         return false;
     }
@@ -614,7 +611,7 @@ bool InputConcatPattern::insertNCEOperation() {
                     ppeAttr = quantParamsAdapter->recomputeQuantParams(ppeAttr, elemType, elemType, kernelShape);
                 }
             }
-            if (const auto scaleAdapter = VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterScale*>()) {
+            if (const auto scaleAdapter = VPU::PpeVersionConfig::getFactoryAs<VPU::IPpeAdapterScaleBias*>()) {
                 ppeAttr = scaleAdapter->updateScale(ppeAttr, {1.0});
             }
 
@@ -668,7 +665,7 @@ bool InputConcatPattern::isMemConsistentPerCluster() {
     // CMX Concat is not supported when the memory is inconsistent for each single cluster
     // when distributed tensors are SEGMENTED or OVERLAPPED over the dim which is not higher than concat dim
 
-    auto hasMultiCluster = llvm::any_of(_inputParts, [](InputConcatPart concatPart) {
+    auto hasMultiCluster = llvm::any_of(_inputParts, [](const InputConcatPart& concatPart) {
         return concatPart.isMultiCluster();
     });
 
@@ -921,7 +918,7 @@ bool OutputConcatPattern::areConcatPartsTypesConsistent(ArrayRef<OutputConcatPar
     // Check if all branches are of the same type
     // Either all or none should be in multi cluster mode
     size_t distributedOpParts = 0;
-    for (auto concatPart : parts) {
+    for (const auto& concatPart : parts) {
         if (concatPart.isMultiCluster()) {
             distributedOpParts++;
         }
@@ -1000,7 +997,7 @@ bool OutputConcatPattern::outputPatternCanBeCMXed(size_t cmxSize) {
             mlir::cast<vpux::VPU::DistributedTensorType>(distributedTypeInterfaceInput.getDistributedTypes().front());
 
     if (inTypeDistributed != nullptr) {
-        for (auto concatPart : ArrayRef(_outputParts).drop_front()) {
+        for (auto& concatPart : ArrayRef(_outputParts).drop_front()) {
             const auto distributedTypeInterfaceOutput = mlir::cast<vpux::VPU::DistributedTypeInterface>(
                     concatPart.nceOp->getOperand(concatPart.nceInput).getType());
             if (!distributedTypeInterfaceOutput.containsDistributedTypes()) {
@@ -1313,13 +1310,13 @@ bool CMXConcatPass::areInputOutputPatternsCompatible(InputConcatPattern& inputPa
     // both are distributed types or both are normal types
     bool inputHasDistributed = false;
     bool outputHasDistributed = false;
-    for (auto concatPart : inputPattern.getInputParts()) {
+    for (const auto& concatPart : inputPattern.getInputParts()) {
         if (concatPart.isMultiCluster()) {
             inputHasDistributed = true;
             break;
         }
     }
-    for (auto concatPart : outputPattern.getOutputParts()) {
+    for (const auto& concatPart : outputPattern.getOutputParts()) {
         if (concatPart.isMultiCluster()) {
             outputHasDistributed = true;
             break;

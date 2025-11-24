@@ -22,7 +22,6 @@
 #include <vpux/utils/core/type/bfloat16.hpp>
 
 #include <cmath>
-#include <iostream>
 #include <limits>
 
 static_assert(sizeof(vpux::type::bfloat16) == 2, "class bfloat16 must be exactly 2 bytes");

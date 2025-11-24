@@ -8,6 +8,8 @@
 #include "vpux/compiler/dialect/VPU/utils/const_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/core/types.hpp"
+#include "vpux/compiler/utils/infer_output_shape.hpp"
 
 using namespace vpux;
 
@@ -25,14 +27,17 @@ mlir::LogicalResult vpux::VPU::LessOp::inferReturnTypes(mlir::MLIRContext* ctx, 
     const auto in1Type = mlir::cast<vpux::NDTypeInterface>(less.getInput1().getType());
     const auto in2Type = mlir::cast<vpux::NDTypeInterface>(less.getInput2().getType());
 
-    const auto outShapeRes =
-            IE::broadcastEltwiseShape(in1Type.getShape().raw(), in2Type.getShape().raw(), less.getAutoBroadcast(), loc);
+    const auto outShapeInfo = inferEltwiseOutputShapeInfo(ShapeInfo::fromNDType(in1Type),
+                                                          ShapeInfo::fromNDType(in2Type), less.getAutoBroadcast(), loc);
 
-    if (mlir::succeeded(outShapeRes)) {
-        const auto outType =
-                mlir::RankedTensorType::get(outShapeRes.value(), getBool8Type(ctx), createTensorAttrFromType(in1Type));
-        inferredReturnTypes.push_back(outType);
-    }
+    // Less operation returns boolean type
+    const auto elementType = getBool8Type(ctx);
+    const auto tensorAttr = vpux::getTensorAttr(ctx, IE::inferOrder(in1Type, in2Type), /*memSpace=*/nullptr,
+                                                BoundsRef(outShapeInfo.bounds));
+
+    auto outType = mlir::RankedTensorType::get(outShapeInfo.shape, elementType, tensorAttr);
+
+    inferredReturnTypes.emplace_back(outType);
 
     return mlir::success();
 }

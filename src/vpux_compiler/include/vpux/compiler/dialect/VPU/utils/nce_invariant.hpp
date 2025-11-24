@@ -75,8 +75,8 @@ bool isOutputActTypeSupported(vpux::NDTypeInterface type, int64_t alignment, Log
 
 Byte getWeightsTableSize(int64_t OC);
 
-mlir::FailureOr<SmallVector<Byte>> getWeightsTableSize(int64_t OC, mlir::Value weightsTable,
-                                                       mlir::Value weightTableScale, mlir::Value weightTableBias);
+SmallVector<Byte> getWeightsTableSize(int64_t OC, mlir::Value weightsTable, mlir::Value weightTableScale,
+                                      mlir::Value weightTableBias);
 
 mlir::LogicalResult getWeightTableBuffers(mlir::Operation* op, SmallVector<Byte>& buffers, int64_t OC);
 
@@ -121,7 +121,7 @@ mlir::LogicalResult verifyPoolCMX(mlir::Location loc, mlir::ModuleOp module, vpu
 //
 // Verify weights table utils
 //
-mlir::LogicalResult verifyWeightTables(mlir::Operation* origOp, Logger log = Logger::global());
+mlir::LogicalResult verifyWeightTables(mlir::Operation* origOp);
 
 //
 // Check if given architecture supports Elementwise multiply operation

@@ -7,8 +7,10 @@
 
 #include "vpux/compiler/dialect/IE/IR/ops/data_movement.hpp"
 #include "vpux/compiler/dialect/IE/IR/ops_interfaces.hpp"
-#include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/convolution.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/utils/conv_utils.hpp"
+#include "vpux/compiler/dialect/VPU/utils/nce_invariant.hpp"
 #include "vpux/compiler/dialect/config/IR/attributes.hpp"
 #include "vpux/utils/core/error.hpp"
 
@@ -51,11 +53,6 @@ mlir::LogicalResult verifyLSTMSequenceLayoutInfo(mlir::Operation* op);
 
 mlir::LogicalResult verifyInterpolateLayoutInfo(mlir::Operation* op);
 void inferInterpolateLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
-
-mlir::LogicalResult verifyQuantizeLayoutInfo(mlir::Operation* op);
-void inferQuantizeLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
-mlir::LogicalResult verifyDequantizeLayoutInfo(mlir::Operation* op);
-void inferDequantizeLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info);
 
 DimsOrder inferSqueezeOutputLayout(const DimArr& inPerm, const SmallVector<int64_t>& axesVec,
                                    ArrayRef<int64_t> inShape);
@@ -405,27 +402,6 @@ public:
 
     mlir::LogicalResult verifyLayout(mlir::Operation* origOp) const {
         return VPU::verifyAffineReshapeLayoutInfo(origOp);
-    }
-
-    IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {
-        return IE::getLayoutInfo(origOp);
-    }
-};
-
-//
-// QuantizeDimsOrderOpModelForSW
-//
-
-class QuantizeDimsOrderOpModelForSW final :
-        public IE::LayoutInfoOpInterface::FallbackModel<QuantizeDimsOrderOpModelForSW> {
-public:
-    static void inferLayoutInfo(mlir::Operation* op, IE::LayerLayoutInfo& info, const bool /*seOpsEnabled*/,
-                                const bool /*seExperimentalOpsEnabled*/) {
-        VPU::inferQuantizeLayoutInfo(op, info);
-    }
-
-    mlir::LogicalResult verifyLayout(mlir::Operation* op) const {
-        return VPU::verifyQuantizeLayoutInfo(op);
     }
 
     IE::LayerLayoutInfo getLayoutInfo(mlir::Operation* origOp) const {

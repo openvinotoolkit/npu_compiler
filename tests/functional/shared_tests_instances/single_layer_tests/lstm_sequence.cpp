@@ -487,11 +487,10 @@ private:
                     variance /= vec.size();
                     double std_dev = std::sqrt(variance);
                     std::cout << "[ COMPARATION Y] [" << std::setw(3) << b << ", " << std::setw(3) << d << ", "
-                              << std::setw(3) << s << "] "
-                              << ": " << std::fixed << std::setprecision(10) << mse_hidden_vals << " | " << std::fixed
-                              << std::setprecision(10) << max_abs_hidden_vals << " | " << std::fixed
-                              << std::setprecision(10) << cosine_hidden_vals << " | " << std::fixed
-                              << std::setprecision(6) << std::setw(12) << min_val << " | " << std::fixed
+                              << std::setw(3) << s << "] " << ": " << std::fixed << std::setprecision(10)
+                              << mse_hidden_vals << " | " << std::fixed << std::setprecision(10) << max_abs_hidden_vals
+                              << " | " << std::fixed << std::setprecision(10) << cosine_hidden_vals << " | "
+                              << std::fixed << std::setprecision(6) << std::setw(12) << min_val << " | " << std::fixed
                               << std::setprecision(6) << std::setw(12) << max_val << " | " << std::fixed
                               << std::setprecision(6) << std::setw(12) << mean << " | " << std::fixed
                               << std::setprecision(6) << std::setw(12) << std_dev << " | " << std::endl;
@@ -566,8 +565,7 @@ private:
                 double max_abs_hidden_vals = get_max_abs(actualBuffer, expectedBuffer, hidden_size);
                 double cosine_hidden_vals = get_cosine_similarity(actualBuffer, expectedBuffer, hidden_size);
 #ifdef LSTM_PRINT_DEBUG_STATISTICS
-                std::cout << "[ COMPARATION Co] [" << std::setw(3) << b << ", " << std::setw(3) << d << ", "
-                          << "] "
+                std::cout << "[ COMPARATION Co] [" << std::setw(3) << b << ", " << std::setw(3) << d << ", " << "] "
                           << ": " << std::fixed << std::setprecision(10) << mse_hidden_vals << " | " << std::fixed
                           << std::setprecision(10) << max_abs_hidden_vals << " | " << std::fixed
                           << std::setprecision(10) << cosine_hidden_vals << " | " << std::endl;

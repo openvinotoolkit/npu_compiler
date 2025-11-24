@@ -12,6 +12,7 @@
 #include "vpux/compiler/dialect/core/IR/tensor_attr.hpp"
 #include "vpux/compiler/dialect/core/types.hpp"
 #include "vpux/compiler/utils/attributes.hpp"
+#include "vpux/compiler/utils/rewriter.hpp"
 
 #include <mlir/Dialect/Affine/Utils.h>
 #include <mlir/Dialect/Arith/IR/Arith.h>
@@ -24,7 +25,7 @@ namespace vpux::VPU {
 
 /** @brief Information about a tile.
 
-    The structure incapsulates data of offsets, shape and tile axis
+    The structure encapsulates data of offsets, shape and tile axis
     for a tensor represented as mlir::OpFoldResult
 */
 
@@ -107,6 +108,36 @@ mlir::Value generateTile(mlir::Location loc, mlir::OpBuilder& builder, mlir::Val
 */
 mlir::Type extractResultType(mlir::Type origType, SCFShapeRef newShape, BoundsRef bounds);
 
+/** @brief Return padding value for quantized type
+
+    The function creates padding value for quantized type based on zero point
+*/
+inline mlir::Value createQuantizedPaddingValue(mlir::Location loc, mlir::OpBuilder& builder,
+                                               mlir::quant::QuantizedType qType, vpux::NDTypeInterface tiledType) {
+    auto createPaddingValue = [&](mlir::Type valueType, mlir::TypedAttr attr) -> mlir::Value {
+        auto constantOp = builder.create<mlir::arith::ConstantOp>(loc, attr);
+        return builder.create<mlir::UnrealizedConversionCastOp>(loc, valueType, constantOp.getResult()).getResult(0);
+    };
+
+    mlir::Value paddingValue;
+    auto storageType = qType.getStorageType();
+    mlir::Type paddingType = storageType;
+
+    VPUX_THROW_WHEN(mlir::isa<mlir::quant::UniformQuantizedPerAxisType>(tiledType.getElementType()),
+                    "Per-channel quantization is not supported");
+
+    if (auto intType = mlir::dyn_cast<mlir::IntegerType>(storageType)) {
+        paddingType = builder.getIntegerType(intType.getWidth());
+    }
+
+    if (const auto uniformType = mlir::dyn_cast<mlir::quant::UniformQuantizedType>(qType)) {
+        const auto zeroPoint = uniformType.getZeroPoint();
+        auto zeroPointAttr = builder.getIntegerAttr(paddingType, zeroPoint);
+        paddingValue = createPaddingValue(tiledType.getElementType(), zeroPointAttr);
+    }
+    return paddingValue;
+}
+
 /** @brief create operation with padding adjustment
 
     @note If operation has paddings which are not 0, they have to be corrected based on
@@ -125,20 +156,20 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
         operandsGenerator(inputTiling);
         return opGenerator();
     }
+
     auto padInfo = toPadInfo(mlir::cast<ConcreteOp>(operation).getPad());
     if (!padInfo.enabled()) {
         operandsGenerator(inputTiling);
         return opGenerator();
     }
-
     auto loc = operation->getLoc();
 
     operandsGenerator(inputTiling);
     VPUX_THROW_WHEN(tiledOperands.empty(), "Empty tiled operation for operation");
     auto tiledInput = tiledOperands.front();
     auto tiledType = mlir::cast<vpux::NDTypeInterface>(tiledInput.getType());
+    auto qType = mlir::dyn_cast<mlir::quant::QuantizedType>(tiledType.getElementType());
 
-    auto paddingValue = builder.create<mlir::arith::ConstantOp>(loc, builder.getZeroAttr(tiledType.getElementType()));
     auto adjustedBounds = Bounds();
     if (auto boundedType = mlir::dyn_cast<vpux::Core::BoundedTensorType>(tiledType)) {
         adjustedBounds = boundedType.getBounds().toValues();
@@ -148,10 +179,11 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     SmallVector<mlir::OpFoldResult> highs(tiledType.getRank(), builder.getIndexAttr(0));
 
     auto padsByDims = padInfo.toPadByDims();
-    // bounds are not updated for dynamic dimensions, as the pad value is calculated at runtime based on the loop index
+    // bounds are not updated for dynamic dimensions, as the pad value is calculated at runtime based on the loop
+    // index
     for (auto index : irange(Dims4D::Act::numSpatialDims)) {
         const auto spatialDim = Dims4D::Act::getSpatialDim(index);
-        if (llvm::find(dims, spatialDim) != dims.end()) {
+        if (is_contained(dims, spatialDim)) {
             lows[spatialDim.ind()] = inputTiling.pads.value()[index];
             // the order of pads is "left, top, right, bottom"
             // so, to get padding of other side, get +2 to current index
@@ -159,14 +191,33 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
         } else {
             lows[spatialDim.ind()] = builder.getIndexAttr(padsByDims[spatialDim.ind()].first);
             highs[spatialDim.ind()] = builder.getIndexAttr(padsByDims[spatialDim.ind()].second);
-            if (!adjustedBounds.raw().empty()) {
-                adjustedBounds[spatialDim] += padsByDims[spatialDim.ind()].first + padsByDims[spatialDim.ind()].second;
-            }
         }
+        if (!adjustedBounds.raw().empty()) {
+            adjustedBounds[spatialDim] += padsByDims[spatialDim.ind()].first + padsByDims[spatialDim.ind()].second;
+        }
+    }
+
+    mlir::Value paddingValue;
+    if (qType != nullptr) {
+        paddingValue = createQuantizedPaddingValue(loc, builder, qType, tiledType);
+    } else {
+        paddingValue = builder.create<mlir::arith::ConstantOp>(loc, builder.getZeroAttr(tiledType.getElementType()));
     }
 
     tiledOperands[0] = builder.create<mlir::tensor::PadOp>(loc, /*result=*/mlir::Type(), tiledInput, lows, highs,
                                                            paddingValue, /*nofold=*/false);
+
+    if (!mlir::cast<mlir::RankedTensorType>(tiledOperands[0].getType()).hasStaticShape() &&
+        adjustedBounds.raw().empty()) {
+        auto origInputType = mlir::cast<vpux::NDTypeInterface>(operation->getOperand(0).getType());
+        auto boundsValue = to_small_vector(origInputType.getShape());
+        adjustedBounds = vpux::Bounds(ArrayRef<int64_t>(boundsValue.data(), boundsValue.size()));
+        for (auto index : irange(Dims4D::Act::numSpatialDims)) {
+            const auto spatialDim = Dims4D::Act::getSpatialDim(index);
+            adjustedBounds[spatialDim] += padsByDims[spatialDim.ind()].first + padsByDims[spatialDim.ind()].second;
+        }
+    }
+
     const auto tensorDesc = vpux::getTensorAttr(tiledType.getContext(), tiledType.getDimsOrder(),
                                                 tiledType.getMemSpace(), adjustedBounds);
     SmallVector<int64_t> staticDims;
@@ -183,15 +234,7 @@ mlir::Operation* createTiledPaddedOperation(OpGeneratorFunc opGenerator, OpTilin
     const auto createOperation = [&]() {
         auto generatedOp = mlir::cast<ConcreteOp>(opGenerator());
         generatedOp.setPadAttr(getPaddingAttr(builder.getContext(), 0, 0, 0, 0));
-        auto outputType = mlir::cast<vpux::NDTypeInterface>(generatedOp->getResult(0).getType());
-        auto outputShape = to_small_vector(outputType.getShape().raw());
-        for (auto staticDim : staticDims | indexed) {
-            if (staticDim.value() == mlir::ShapedType::kDynamic) {
-                outputShape[staticDim.index()] = mlir::ShapedType::kDynamic;
-            }
-        }
-        outputType = outputType.changeShape(ShapeRef(outputShape));
-        generatedOp->getResult(0).setType(outputType);
+        vpux::inferReturnTypes(generatedOp, vpux::InferShapedTypeMode::SHAPE);
         return generatedOp;
     };
     return createOperation();
@@ -229,6 +272,11 @@ void correctPaddedOutput(mlir::OpBuilder& builder, ConcreteOp operation, SmallVe
 */
 bool checkFusion(mlir::OpOperand& consumer, mlir::OpResult producerCandidate);
 
+/** @brief Generate upper bounds for dynamic tensors
+ */
+mlir::LogicalResult getResultTileBounds(mlir::Operation* operation, unsigned resultNumber, DimArrRef tilingDims,
+                                        ArrayRef<mlir::OpFoldResult> sizes, Bounds& resultBounds);
+
 /** @brief Checks if an operation is an NCE operation with padding attribute
  *
  *  This function verifies if the given operation is an NCE operation
@@ -247,7 +295,7 @@ llvm::SmallVector<mlir::Operation*> collectOpsInTopologicalOrder(
 /**
  * @brief Utility class for analyzing and processing affine operation chains in MLIR
  *
- * The AffineChainUtils class provides functionality to collect, and evaluate
+ * The AffineChainUtils class provides functionality to collect and evaluate
  * chains of affine operations in MLIR. It helps with tracking dependencies between
  * affine operations and computing values from OpFoldResult objects within the context
  * of affine transformations.
@@ -265,25 +313,48 @@ public:
 
     llvm::SmallSetVector<mlir::Operation*, 4> collectAffineOpsChain(mlir::Value val);
 
+    enum class MODE { MAX_VALUE, ALL_VALUES };
+
     /**
      * @brief Get the value from an OpFoldResult
      * @param val The OpFoldResult to process
      * @param valueMap Map of values to their possible ranges
      * @return The computed value, or nullopt if processing failed
      */
-    std::optional<int64_t> getOpFoldResultValue(mlir::OpFoldResult val,
-                                                llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap);
+    std::optional<SmallVector<int64_t>> getOpFoldResultValue(
+            mlir::OpFoldResult val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap,
+            MODE mode = MODE::MAX_VALUE);
+    std::optional<int64_t> getIntegerFromValue(mlir::Value value, bool processOpChain = false);
 
 private:
     std::pair<mlir::AffineMap, mlir::ValueRange> getAffineMapAndOperands(mlir::Operation* op);
     int64_t getAffineResult(mlir::Operation* op, llvm::ArrayRef<int64_t> results);
     void updateChainCache(mlir::Value val, const llvm::SmallSetVector<mlir::Operation*, 4>& chain) const;
-    std::optional<int64_t> getIntegerFromValue(mlir::Value value);
-    std::optional<int64_t> processAffineCallChain(mlir::Value val,
-                                                  llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap);
+    std::optional<SmallVector<int64_t>> processAffineCallChain(
+            mlir::Value val, llvm::DenseMap<mlir::Value, SmallVector<int64_t>>& valueMap, MODE mode = MODE::MAX_VALUE);
+    bool processAffineOp(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap);
+    bool processArithOp(mlir::Operation* op, llvm::DenseMap<mlir::Value, int64_t>& valueMap);
+    std::optional<int64_t> getIntValueFromDimOp(mlir::tensor::DimOp dimOp);
+
+    std::optional<int64_t> getConstantInt(mlir::Value val) {
+        if (auto constOp = mlir::dyn_cast_or_null<mlir::arith::ConstantOp>(val.getDefiningOp())) {
+            if (auto intAttr = mlir::dyn_cast<mlir::IntegerAttr>(constOp.getValue())) {
+                return intAttr.getInt();
+            }
+        }
+        return std::nullopt;
+    }
+
+    bool evaluateOpChain(llvm::SmallSetVector<mlir::Operation*, 4>& opChain,
+                         llvm::DenseMap<mlir::Value, int64_t>& localOperandMap);
 
     mutable llvm::DenseMap<mlir::Value, llvm::SmallSetVector<mlir::Operation*, 4>> _chainCache;
     Logger _log;
 };
+
+mlir::func::FuncOp cloneFuncOp(mlir::func::FuncOp originalFunc, const std::string& newName,
+                               mlir::FunctionType newFuncType = nullptr);
+
+mlir::RankedTensorType removeBoundsAttr(mlir::RankedTensorType type);
 
 }  // namespace vpux::VPU

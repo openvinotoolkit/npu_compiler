@@ -188,11 +188,13 @@ mlir::LogicalResult MoveThroughSlice::matchAndRewrite(IE::SliceOp origOp, mlir::
 
             updateSliceAttributes(staticSizes, staticOffsets, orderAttr.getValue(), origPermuteInputOrder);
 
-            auto newSliceOp = rewriter.create<IE::SliceOp>(origOp->getLoc(), origTransposeOp.getInput(), staticOffsets,
+            auto newSliceOp = rewriter.create<IE::SliceOp>(slice->getLoc(), origTransposeOp.getInput(), staticOffsets,
                                                            staticSizes);
 
-            rewriter.replaceOpWithNewOp<IE::TransposeOp>(slice, newSliceOp.getResult(), nullptr,
-                                                         origTransposeOp.getOrderValueAttr());
+            auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(slice, newSliceOp.getResult(), nullptr,
+                                                                             origTransposeOp.getOrderValueAttr());
+
+            extendOpLoc(newTranspose, "_transpose");
         }
     }
 
@@ -391,8 +393,10 @@ mlir::LogicalResult MoveTransposeThroughMultiply::matchAndRewrite(IE::MultiplyOp
             origOp.getLoc(), newOutputType, input1, input2, origOp.getAutoBroadcastAttr(), origOp.getPostOpAttr(),
             origOp.getClampAttr(), origOp.getOutputPaddingAttr(), origOp.getInputPaddingAttr());
 
-    rewriter.replaceOpWithNewOp<IE::TransposeOp>(origOp, newMultiplyOp.getOutput(), transpose1Op.getOrder(),
-                                                 transpose1Op.getOrderValueAttr());
+    auto newTranspose = rewriter.replaceOpWithNewOp<IE::TransposeOp>(
+            origOp, newMultiplyOp.getOutput(), transpose1Op.getOrder(), transpose1Op.getOrderValueAttr());
+    extendOpLoc(newTranspose, "_transpose");
+
     rewriter.eraseOp(transpose1Op);
     rewriter.eraseOp(transpose2Op);
     _log.debug("Successfully moved Transpose through Multiply.");
@@ -458,15 +462,12 @@ mlir::LogicalResult MoveThroughOneInputEltwise::matchAndRewrite(mlir::Operation*
 
 class PropagateTransposePass final : public IE::impl::PropagateTransposeBase<PropagateTransposePass> {
 public:
-    explicit PropagateTransposePass(Logger log): _log(log) {
-        _log.setName(Base::getArgumentName());
+    explicit PropagateTransposePass(Logger log) {
+        Base::initLogger(log, Base::getArgumentName());
     }
 
 private:
     void safeRunOnFunc() final;
-
-private:
-    Logger _log;
 };
 
 void PropagateTransposePass::safeRunOnFunc() {

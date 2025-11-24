@@ -535,3 +535,28 @@ func.func @ConvertShapeCastWhenPermuteCastFound(%arg0: tensor<1x1x2x2xf16, {orde
     // CHECK:     [[MEMPERMUTE:%.+]] = IE.MemPermute([[INPUT]]) {dst_order = #NCHW, mem_perm = #NWHC} : tensor<1x1x2x2xf16, {order = #NHWC}> -> tensor<1x1x2x2xf16>
     // CHECK:     return [[MEMPERMUTE]]
 }
+
+// -----
+
+#NCHW = affine_map<(d0, d1, d2, d3) -> (d0, d1, d2, d3)>
+#NHWC = affine_map<(d0, d1, d2, d3) -> (d0, d2, d3, d1)>
+#NWCH = affine_map<(d0, d1, d2, d3) -> (d0, d3, d1, d2)>
+
+// CHECK-LABEL:   @NotFuseMemPermThroughConcat
+// CHECK-SAME:    [[INPUT_0:%.+]]: tensor<1x256x2x256xsi8, {order = #NHWC}>
+// CHECK-SAME:    [[INPUT_1:%.+]]: tensor<1x2x256x3840xsi8>
+func.func @NotFuseMemPermThroughConcat(%arg0: tensor<1x256x2x256xsi8, {order = #NHWC}>, %arg1: tensor<1x2x256x3840xsi8>) -> tensor<1x2x256x4096xsi8> {
+    %0 = IE.MemPermute(%arg0) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x256x2x256xsi8, {order = #NHWC}> -> tensor<1x2x256x256xsi8, {order = #NHWC}>
+    %1 = IE.MemPermute(%arg1) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x2x256x3840xsi8> -> tensor<1x2x256x3840xsi8, {order = #NHWC}>
+    %2 = IE.Concat(%0, %1) {static_offsets = [[0, 0, 0, 0], [0, 0, 0, 256]]} : tensor<1x2x256x256xsi8, {order = #NHWC}>, tensor<1x2x256x3840xsi8, {order = #NHWC}> -> tensor<1x2x256x4096xsi8, {order = #NHWC}>
+    %3 = IE.MemPermute(%2) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x2x256x4096xsi8, {order = #NHWC}> -> tensor<1x2x256x4096xsi8>
+
+    return %3 : tensor<1x2x256x4096xsi8>
+
+    // CHECK:     [[IN_0:%.+]] = IE.MemPermute([[INPUT_0]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x256x2x256xsi8, {order = #NHWC}> -> tensor<1x2x256x256xsi8, {order = #NHWC}>
+    // CHECK:     [[IN_1:%.+]] = IE.MemPermute([[INPUT_1]]) {dst_order = #NHWC, mem_perm = #NHWC} : tensor<1x2x256x3840xsi8> -> tensor<1x2x256x3840xsi8, {order = #NHWC}>
+    // CHECK:     [[CONCAT:%.+]] = IE.Concat([[IN_0]], [[IN_1]]) {static_offsets = {{\[\[}}0, 0, 0, 0], [0, 0, 0, 256]]} : tensor<1x2x256x256xsi8, {order = #NHWC}>, tensor<1x2x256x3840xsi8, {order = #NHWC}> -> tensor<1x2x256x4096xsi8, {order = #NHWC}>
+    // CHECK:     [[OUT:%.+]] = IE.MemPermute([[CONCAT]]) {dst_order = #NCHW, mem_perm = #NWCH} : tensor<1x2x256x4096xsi8, {order = #NHWC}> -> tensor<1x2x256x4096xsi8>
+
+    // CHECK:     return [[OUT]] : tensor<1x2x256x4096xsi8>
+}

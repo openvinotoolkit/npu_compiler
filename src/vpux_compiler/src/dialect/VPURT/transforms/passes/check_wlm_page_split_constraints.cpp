@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "vpux/compiler/dialect/VPU/utils/workload_management_status_utils.hpp"
 #include "vpux/compiler/dialect/VPUIP/IR/dialect.hpp"
 #include "vpux/compiler/dialect/VPUIP/utils/utils.hpp"
 #include "vpux/compiler/dialect/VPURT/IR/task.hpp"
@@ -12,6 +11,7 @@
 #include "vpux/compiler/dialect/VPURT/utils/barrier_legalization_utils.hpp"
 #include "vpux/compiler/dialect/config/IR/resources.hpp"
 #include "vpux/compiler/dialect/config/IR/utils.hpp"
+#include "vpux/compiler/dialect/config/utils/config_option_utils.hpp"
 #include "vpux/compiler/utils/dma.hpp"
 #include "vpux/compiler/utils/options.hpp"
 #include "vpux/compiler/utils/wlm_legalization_utils.hpp"
@@ -48,7 +48,7 @@ void CheckWlmPageSplitConstraintsPass::safeRunOnFunc() {
 
     auto module = func->getParentOfType<mlir::ModuleOp>();
 
-    if (VPU::getWorkloadManagementStatus(module) != VPU::WorkloadManagementStatus::ENABLED) {
+    if (config::getWorkloadManagementStatus(module) != WorkloadManagementStatus::ENABLED) {
         // WLM is not supported, no need to run this pass
         return;
     }

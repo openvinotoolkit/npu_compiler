@@ -616,3 +616,27 @@ func.func @PadTwoDynamicInputsSubgraph(
   // CHECK:   [[RESHAPE_OUT:%.+]] = IE.DynamicReshape([[ADD]], [[CONCAT]]) {output_bounds = [1, 64, 128], output_shape = [1, -9223372036854775808, 128]} : tensor<1x64x128xf32>, tensor<3xsi64> -> tensor<1x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 128]> : tensor<3xsi64>, order = #CHW}>
   // CHECK:   return [[RESHAPE_OUT]] : tensor<1x?x128xf32, {bounds = #const.OpaqueI64Elements<[1, 64, 128]> : tensor<3xsi64>, order = #CHW}>
 }
+
+// CHECK-LABEL: @SecondDynamicInputsSubgraph
+func.func @SecondDynamicInputsSubgraph(%IN1: tensor<1x1x768xf32>, %IN2: tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>) -> tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}> {
+  %cst = const.Declare tensor<1xsi64> = dense<768> : tensor<1xsi64>
+  %cst_0 = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+  %0 = IE.Add(%IN1, %IN2) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x768xf32>, tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}> -> tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+  %1 = IE.ShapeOf(%IN2) {dstElemType = si64} : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}> -> tensor<3xsi64>
+  %2 = IE.Slice %1 [1] [1] : tensor<3xsi64> to tensor<1xsi64>
+  %3 = IE.Concat(%cst_0, %2, %cst) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<3xsi64>
+  %4 = IE.DynamicReshape(%0, %3) {output_bounds = [1, 10, 768], output_shape = [1, -9223372036854775808, 768]} : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>, tensor<3xsi64> -> tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+  return %4 : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = affine_map<(d0, d1, d2) -> (d0, d1, d2)>}>
+
+  // CHECK:   [[IN1:%.+]]: tensor<1x1x768xf32>
+  // CHECK:   [[IN2:%.+]]: tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = #CHW}>
+  // CHECK:   [[CST:%.+]] = const.Declare tensor<1xsi64> = dense<768> : tensor<1xsi64>
+  // CHECK:   [[CST_0:%.+]] = const.Declare tensor<1xsi64> = dense<1> : tensor<1xsi64>
+  // CHECK:   [[EXPAND_0:%.+]] = IE.DynamicExpand([[IN2]]) : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = #CHW}> -> tensor<1x10x768xf32>
+  // CHECK:   [[ADD:%.+]] = IE.Add([[IN1]], [[EXPAND_0]]) {auto_broadcast = #IE.auto_broadcast_type<NUMPY>} : tensor<1x1x768xf32>, tensor<1x10x768xf32> -> tensor<1x10x768xf32>
+  // CHECK:   [[SHAPE_OF:%.+]] = IE.ShapeOf([[IN2]]) {dstElemType = si64} : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = #CHW}> -> tensor<3xsi64>
+  // CHECK:   [[SLICE:%.+]] = IE.Slice [[SHAPE_OF]] [1] [1] : tensor<3xsi64> to tensor<1xsi64>
+  // CHECK:   [[CONCAT:%.+]] = IE.Concat([[CST_0]], [[SLICE]], [[CST]]) {per_axis = #IE.Concat<axis = 0 : i64>} : tensor<1xsi64>, tensor<1xsi64>, tensor<1xsi64> -> tensor<3xsi64>
+  // CHECK:   [[RESHAPE_OUT:%.+]] = IE.DynamicReshape([[ADD]], [[CONCAT]]) {output_bounds = [1, 10, 768], output_shape = [1, -9223372036854775808, 768]} : tensor<1x10x768xf32>, tensor<3xsi64> -> tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = #CHW}>
+  // CHECK:   return [[RESHAPE_OUT]] : tensor<1x?x768xf32, {bounds = #const.OpaqueI64Elements<[1, 10, 768]> : tensor<3xsi64>, order = #CHW}>
+}

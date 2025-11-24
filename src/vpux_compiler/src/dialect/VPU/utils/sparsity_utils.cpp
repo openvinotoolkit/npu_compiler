@@ -6,6 +6,8 @@
 #include "vpux/compiler/dialect/VPU/utils/sparsity_utils.hpp"
 #include "vpux/compiler/dialect/VPU/IR/attributes.hpp"
 #include "vpux/compiler/dialect/VPU/IR/ops.hpp"
+#include "vpux/compiler/dialect/VPU/IR/ops/internal.hpp"
+#include "vpux/compiler/dialect/VPU/IR/type_interfaces.hpp"
 #include "vpux/compiler/dialect/VPU/IR/types.hpp"
 #include "vpux/compiler/dialect/VPU/utils/distributed_tensor_utils.hpp"
 #include "vpux/compiler/dialect/VPU/utils/explicit_distribution_utils.hpp"
@@ -84,10 +86,15 @@ VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
         return SparsityRemovalFlag::ClusteredOpInterfaceMissingFail;
     }
 
+    const auto outputTensorType = mlir::cast<NDTypeInterface>(clusteredOp->getResult(0).getType());
+    const auto sparseOutputType = mlir::dyn_cast<VPU::SparseTensorType>(outputTensorType);
+    if (sparseOutputType == nullptr) {
+        return SparsityRemovalFlag::SparseOutputMissingFail;
+    }
+
     // First try to retrive the DistributedTensorType (it will be present in the passes post
     // MakeOpsWithDistributedTensorPass).
-    auto distributedTensorType =
-            mlir::dyn_cast_or_null<vpux::VPU::DistributedTensorType>(clusteredOp->getResult(0).getType());
+    auto distributedTensorType = mlir::dyn_cast_or_null<VPU::DistributedTensorType>(sparseOutputType.getData());
     if (distributedTensorType == nullptr) {
         if (!clusteredOp.getMultiClusterStrategy().has_value()) {
             return SparsityRemovalFlag::MultiClusterStrategyMissingFail;
@@ -98,12 +105,6 @@ VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
             return SparsityRemovalFlag::SOKMissingFail;
         }
 
-        const auto outputTensorType = mlir::cast<vpux::NDTypeInterface>(clusteredOp->getResult(0).getType());
-        const auto sparseOutputType = mlir::dyn_cast<vpux::VPU::SparseTensorType>(outputTensorType);
-        if (sparseOutputType == nullptr) {
-            return SparsityRemovalFlag::SparseOutputMissingFail;
-        }
-
         VPUX_THROW_UNLESS(sparseOutputType.getSparsityMap() != nullptr, "Missing sparsity map from sparse type {0}",
                           sparseOutputType);
         VPUX_THROW_UNLESS(sparseOutputType.getStorageElementTable() == nullptr,
@@ -112,9 +113,9 @@ VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
         const auto numClusters = VPU::getOptimalNumClusters(clusteredOp, outputTensorType.getShape(), strategy);
         const auto distributedDataType = getDistributedOutputTypeFromOp(
                 clusteredOp, sparseOutputType.getData(), numClusters,
-                /*inputTypes*/ {}, /*tileInfo*/ vpux::TileInfo(ShapeRef()), /*hasExplicitDistributedAttr*/ false);
+                /*inputTypes*/ {}, /*tileInfo*/ TileInfo(ShapeRef()), /*hasExplicitDistributedAttr*/ false);
 
-        distributedTensorType = mlir::cast<vpux::VPU::DistributedTensorType>(distributedDataType);
+        distributedTensorType = mlir::cast<VPU::DistributedTensorType>(distributedDataType);
     }
 
     // Removes SOK layer's output sparsity if SOK layer has different split sizes on clusters excluding the last
@@ -141,11 +142,20 @@ VPU::SparsityRemovalFlag VPU::shouldRemoveOutputSparsity(mlir::Operation* op) {
     // because we must have the same workload channel excluding the last one. If there's no sparsity, we can
     // keep the workload with 48 channels.
     auto users = to_small_vector(clusteredOp->getUsers());
-    if (llvm::find_if(users, [](const mlir::Operation* op) {
-            if (auto concatOp = mlir::dyn_cast_or_null<VPU::ConcatOp>(op)) {
-                const auto outputType = mlir::cast<vpux::NDTypeInterface>(concatOp.getOutput().getType());
+    if (llvm::find_if(users, [](mlir::Operation* op) {
+            auto opToCheck = op;
+            while (mlir::isa_and_nonnull<VPU::UnrolledTypeOp>(opToCheck)) {
+                if (!opToCheck->hasOneUse()) {
+                    break;
+                }
+
+                opToCheck = *opToCheck->getUsers().begin();
+            }
+
+            if (auto concatOp = mlir::dyn_cast_or_null<VPU::ConcatOp>(opToCheck)) {
+                const auto outputType = mlir::cast<NDTypeInterface>(concatOp.getOutput().getType());
                 const auto outputShape = outputType.getShape();
-                const auto inputDataType = mlir::cast<vpux::NDTypeInterface>(concatOp.getInputs().front().getType());
+                const auto inputDataType = mlir::cast<NDTypeInterface>(concatOp.getInputs().front().getType());
                 const auto inputShape = inputDataType.getShape();
 
                 if (inputShape[Dims4D::Act::C] != outputShape[Dims4D::Act::C]) {
