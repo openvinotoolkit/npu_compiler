@@ -9,6 +9,18 @@
 !MemRef = memref<1x3x62x62xf16>
 
 module @ChainCalls {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 1474552
+        }
+        }
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x3x62x62xf16>
     } outputsInfo : {
@@ -61,6 +73,18 @@ module @ChainCalls {
 
 !MemRef = memref<1x1x2x64xf16>
 module @SwKernelsChainCalls {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 1474552
+        }
+        }
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1x2x64xf16>
     } outputsInfo : {
@@ -146,6 +170,18 @@ module @SwKernelsChainCalls {
 
 !MemRef = memref<1x1x2x64xf16>
 module @SwKernelsIndependentCalls {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 1474552
+        }
+        }
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+
     net.NetworkInfo entryPoint : @main inputsInfo : {
         DataInfo "input" : tensor<1x1x2x64xf16>
     } outputsInfo : {

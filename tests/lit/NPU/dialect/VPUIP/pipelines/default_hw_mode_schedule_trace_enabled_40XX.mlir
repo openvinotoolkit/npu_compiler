@@ -9,6 +9,18 @@
 
 // CHECK-LABEL: @Gather
 module @Gather attributes {config.arch = #config.arch_kind<NPU40XX>, config.compilationMode = #config.compilation_mode<DefaultHW>} {
+    config.Resources {activity_factor = 0.078934384661980161 : f64} 2 of @NCE at 1.700000e+03 MHz {
+        builtin.module @ReservedMemory {
+        module @DummySWKernelsForInstructionPrefetchReservedMemory {
+            config.MemoryResource 8 bytes of @CMX_NN offset 1474552
+        }
+        }
+        config.MemoryResource 1326182 bytes of @CMX_NN_FragmentationAware
+        config.MemoryResource 1473536 bytes of @CMX_NN {config.bandwidth = 64 : i64, config.derateFactor = 1.000000e+00 : f64}
+        config.ExecutorResource 2 of @SHAVE_ACT
+        config.ExecutorResource 1 of @DPU
+    }
+
     VPURT.SW.Runtime
       entryPoint: @VPU.SW::@runtime
       stack_configuration: [4096, 4096, 4096, 4096]
