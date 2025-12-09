@@ -31,7 +31,9 @@ using namespace vpux;
 
 namespace {
 
-static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {"activation_swish", "eltwise_mul", "softmax", "convert", "rms_norm", "activation_swish", "activation_sin", "eltwise_equal", "activation_cos", "eltwise_select", "topk"};
+static const SmallVector<StringLiteral> SW_DUMMY_KERNELS_PREFETCH_SUPPORTED = {
+        "activation_swish", "eltwise_mul",   "softmax",        "convert",        "rms_norm", "activation_swish",
+        "activation_sin",   "eltwise_equal", "activation_cos", "eltwise_select", "topk"};
 
 //
 // AddSwKernelInstructionPrefetch
@@ -66,8 +68,9 @@ private:
                                                             size_t clusterIdx, std::string& kernelName,
                                                             mlir::SymbolRefAttr functionSymbol);
 
-    VPUIP::SwKernelOp insertDummyKernelOpBeforeFirstKernelTask(mlir::Operation* firstSwTask, mlir::ValueRange updateBarrier,
-                                                               size_t clusterIdx, std::string& kernelName);
+    VPUIP::SwKernelOp insertDummyKernelOpBeforeFirstKernelTask(mlir::Operation* firstSwTask,
+                                                               mlir::ValueRange updateBarrier, size_t clusterIdx,
+                                                               std::string& kernelName);
     mlir::Operation* getFirstSwTaskInIRWaitingForBarrier(mlir::Value waitBarrier);
     std::pair<std::string, size_t> getKernelNameAndSize(VPUIP::SwKernelOp swKernelOp);
 
@@ -79,8 +82,9 @@ private:
     std::vector<VPUIP::SwKernelOp> insertPrefetchTasks(mlir::Operation* funcOp, SwKernelPrefetchVec& kernelsToPrefetch,
                                                        mlir::Operation* firstShaveTaskInIR,
                                                        mlir::Value bestUpdateBarrier);
-    std::vector<VPUIP::SwKernelOp> insertPrefetchTasksDuringExec(mlir::Operation* funcOp, AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch,
-                                                                 VPURT::TaskConfigVec& allTasks);
+    std::vector<VPUIP::SwKernelOp> insertPrefetchTasksDuringExec(
+            mlir::Operation* funcOp, AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch,
+            VPURT::TaskConfigVec& allTasks);
 
     bool hasVPUSWModule(mlir::Operation* funcOp);
     size_t getOffsetReservedMem(const mlir::ModuleOp module);
@@ -189,10 +193,8 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertPrefetchOpBeforeFirstKer
 }
 
 // For LNL, Shave kernel instruction prefetch needs to insert a dummy kernel instead of prefetch kernel
-VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelOpBeforeFirstKernelTask(mlir::Operation* firstSwTask,
-                                                                                           mlir::ValueRange updateBarrier,
-                                                                                           size_t clusterIdx,
-                                                                                           std::string& kernelName) {
+VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelOpBeforeFirstKernelTask(
+        mlir::Operation* firstSwTask, mlir::ValueRange updateBarrier, size_t clusterIdx, std::string& kernelName) {
     mlir::OpBuilder builder(firstSwTask);
     auto kernelOp = kernelNameToOps[kernelName];
     auto moduleOp = kernelOp->getParentOfType<mlir::ModuleOp>();
@@ -205,7 +207,8 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelOpBeforeFirst
     auto createBuffer = [&](mlir::Value io, StringRef suffix, mlir::SmallVector<mlir::Value>& buffers) {
         if (auto bufOp = io.getDefiningOp<VPURT::DeclareBufferOp>()) {
             auto origType = mlir::cast<NDTypeInterface>(io.getType());
-            auto newMemSpaceAttr = vpux::IndexedSymbolAttr::get(moduleOp->getContext(), stringifyEnum(VPU::MemoryKind::CMX_NN), tileIndex);
+            auto newMemSpaceAttr = vpux::IndexedSymbolAttr::get(moduleOp->getContext(),
+                                                                stringifyEnum(VPU::MemoryKind::CMX_NN), tileIndex);
             auto newSectionIndexAttr = builder.getI64ArrayAttr({tileIndex});
             auto newType = origType.changeShape({1, 1, 1, 1}).changeMemSpace(newMemSpaceAttr);
             auto newBuff = builder.create<VPURT::DeclareBufferOp>(appendLoc(bufOp->getLoc(), suffix), newType,
@@ -245,10 +248,11 @@ VPUIP::SwKernelOp AddSwKernelInstructionPrefetch::insertDummyKernelOpBeforeFirst
     // so we need to add skipProfiling as attribute to avoid capturing their metadata
     cachePrefetchSwKernel->setAttr("skipProfiling", mlir::UnitAttr::get(firstSwTask->getContext()));
 
-    auto args =
-            (kernelName == "convert" || kernelName == "eltwise_mul" || kernelName == "activation_cos"
-                || kernelName == "activation_sin" || kernelName == "eltwise_equal"
-                || kernelName == "eltwise_select" || kernelName == "rms_norm") ? mlir::ArrayAttr::get(moduleOp->getContext(), {}) : kernelNameToArgs[kernelName];
+    auto args = (kernelName == "convert" || kernelName == "eltwise_mul" || kernelName == "activation_cos" ||
+                 kernelName == "activation_sin" || kernelName == "eltwise_equal" || kernelName == "eltwise_select" ||
+                 kernelName == "rms_norm")
+                        ? mlir::ArrayAttr::get(moduleOp->getContext(), {})
+                        : kernelNameToArgs[kernelName];
 
     vpux::VPUIP::initSwKernel(cachePrefetchSwKernel, mlir::ValueRange(srcBuffers), mlir::ValueRange(dstBuffers), args,
                               _log.nest(), /*swKernelRunOp=*/nullptr);
@@ -422,11 +426,8 @@ std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTas
     return prefetchedKernels;
 }
 
-uint64_t findNextSaturationStart(size_t startIndex,
-                                 vpux::VPURT::TaskConfigVec& allTasks,
-                                 size_t numClusters,
+uint64_t findNextSaturationStart(size_t startIndex, vpux::VPURT::TaskConfigVec& allTasks, size_t numClusters,
                                  std::map<uint64_t, size_t>& swKernelCountsCache) {
-    
     // Saturation is defined as 2x the number of clusters (e.g., 4 clusters -> 8 SW kernels)
     const size_t saturationThreshold = numClusters * 2;
 
@@ -468,8 +469,7 @@ struct GapCandidate {
     }
 };
 
-size_t getSwKernelCountAtTime(uint64_t startTime,
-                              VPURT::TaskConfigVec& allTasks) {
+size_t getSwKernelCountAtTime(uint64_t startTime, VPURT::TaskConfigVec& allTasks) {
     size_t count = 0;
     for (auto& taskConfig : allTasks) {
         if (static_cast<uint64_t>(taskConfig.cycleStart) == startTime) {
@@ -478,26 +478,21 @@ size_t getSwKernelCountAtTime(uint64_t startTime,
             }
         }
         if (static_cast<uint64_t>(taskConfig.cycleStart) > startTime) {
-            break; 
+            break;
         }
     }
     return count;
 }
 
-std::optional<GapCandidate> findBestInsertionGap(
-        const std::string& kernelName,
-        uint64_t targetKernelGroupStartTime,
-        VPURT::TaskConfigVec& allTasks,
-        size_t numClusters,
-        Logger& log) {
-
+std::optional<GapCandidate> findBestInsertionGap(const std::string& kernelName, uint64_t targetKernelGroupStartTime,
+                                                 VPURT::TaskConfigVec& allTasks, size_t numClusters, Logger& log) {
     const int64_t targetInsertTile = 1;
     const uint64_t GAP_THRESHOLD = 50000;
     const size_t saturationThreshold = numClusters * 2;
 
     // <LookaheadGapSize, GapCandidate>
     std::map<uint64_t, GapCandidate, std::greater<uint64_t>> validGaps;
-    std::map<uint64_t, size_t> swKernelCountsCache; // local cache
+    std::map<uint64_t, size_t> swKernelCountsCache;  // local cache
 
     int64_t previousT1TaskIndex = -1;
     uint64_t previousT1TaskStartTime = 0;
@@ -516,14 +511,14 @@ std::optional<GapCandidate> findBestInsertionGap(
         }
 
         if (previousT1TaskIndex != -1 && isT1Task) {
-            
             auto& insertionPointTask = allTasks[previousT1TaskIndex];
             auto insertionPointStartTime = static_cast<uint64_t>(insertionPointTask.cycleStart);
 
             size_t simultaneousSwKernels = getSwKernelCountAtTime(insertionPointStartTime, allTasks);
-            
+
             if (simultaneousSwKernels < saturationThreshold) {
-                uint64_t nextSaturationStart = findNextSaturationStart(previousT1TaskIndex, allTasks, numClusters, swKernelCountsCache);
+                uint64_t nextSaturationStart =
+                        findNextSaturationStart(previousT1TaskIndex, allTasks, numClusters, swKernelCountsCache);
                 uint64_t gapEnd = std::min(nextSaturationStart, targetKernelGroupStartTime);
                 uint64_t lookaheadGap = 0;
                 if (gapEnd > previousT1TaskStartTime) {
@@ -554,58 +549,53 @@ std::optional<GapCandidate> findBestInsertionGap(
 }
 
 std::vector<VPUIP::SwKernelOp> AddSwKernelInstructionPrefetch::insertPrefetchTasksDuringExec(
-    mlir::Operation* funcOp, AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch,
-    VPURT::TaskConfigVec& allTasks) {
-    
+        mlir::Operation* funcOp, AddSwKernelInstructionPrefetch::SwKernelPrefetchVec& kernelsToPrefetch,
+        VPURT::TaskConfigVec& allTasks) {
     auto moduleOp = funcOp->getParentOfType<mlir::ModuleOp>();
     const auto numClusters = getNumTiles(moduleOp);
     VPUX_THROW_WHEN(numClusters == 0, "Number of tiles is zero.");
 
     std::vector<VPUIP::SwKernelOp> prefetchedKernels{};
-    
+
     for (auto& kernelInfo : kernelsToPrefetch) {
         std::string kernelName = std::get<0>(kernelInfo);
         size_t firstAppearanceIndex = std::get<2>(kernelInfo);
 
         if (firstAppearanceIndex >= allTasks.size()) {
-             _log.trace("Skipping kernel '{0}': Invalid firstAppearanceIndex {1}", kernelName, firstAppearanceIndex);
-             continue;
+            _log.trace("Skipping kernel '{0}': Invalid firstAppearanceIndex {1}", kernelName, firstAppearanceIndex);
+            continue;
         }
         if (kernelNameToOps.count(kernelName) == 0) {
-             _log.trace("Skipping kernel '{0}': Missing dependencies (kernelNameToOps)", kernelName);
-             continue;
+            _log.trace("Skipping kernel '{0}': Missing dependencies (kernelNameToOps)", kernelName);
+            continue;
         }
 
         auto targetKernelGroupStartTime = static_cast<uint64_t>(allTasks[firstAppearanceIndex].cycleStart);
 
-        auto bestGapOpt = findBestInsertionGap(kernelName, targetKernelGroupStartTime,
-                                               allTasks, numClusters, _log);
+        auto bestGapOpt = findBestInsertionGap(kernelName, targetKernelGroupStartTime, allTasks, numClusters, _log);
 
         if (!bestGapOpt.has_value()) {
             _log.trace("Kernel '{0}': No valid gap found.", kernelName);
             continue;
         }
-        
-        GapCandidate bestGap = bestGapOpt.value();
-        _log.trace("Kernel '{0}': Found best gap of {1} cycles. Inserting relative to task {2}.",
-                   kernelName, bestGap.lookaheadGap, bestGap.insertionPointTaskIndex);
 
-        if (bestGap.insertionPointTaskIndex < 0 || static_cast<size_t>(bestGap.insertionPointTaskIndex) >= allTasks.size()) {
-             _log.error("Kernel '{0}': Invalid insertionPointTaskIndex {1}. Skipping insertion.", 
-                        kernelName, bestGap.insertionPointTaskIndex);
-             continue;
+        GapCandidate bestGap = bestGapOpt.value();
+        _log.trace("Kernel '{0}': Found best gap of {1} cycles. Inserting relative to task {2}.", kernelName,
+                   bestGap.lookaheadGap, bestGap.insertionPointTaskIndex);
+
+        if (bestGap.insertionPointTaskIndex < 0 ||
+            static_cast<size_t>(bestGap.insertionPointTaskIndex) >= allTasks.size()) {
+            _log.error("Kernel '{0}': Invalid insertionPointTaskIndex {1}. Skipping insertion.", kernelName,
+                       bestGap.insertionPointTaskIndex);
+            continue;
         }
-        
+
         auto insertBeforeOp = allTasks[bestGap.insertionPointTaskIndex].taskOp;
         size_t dynamicExecTile = _dynamicPrefetchTileCounter % numClusters;
         _dynamicPrefetchTileCounter++;
 
-        auto newPrefetchKernel = insertDummyKernelOpBeforeFirstKernelTask(
-            insertBeforeOp,
-            mlir::ValueRange(),
-            dynamicExecTile,
-            kernelName
-        );
+        auto newPrefetchKernel = insertDummyKernelOpBeforeFirstKernelTask(insertBeforeOp, mlir::ValueRange(),
+                                                                          dynamicExecTile, kernelName);
 
         prefetchedKernels.push_back(newPrefetchKernel);
     }
@@ -659,9 +649,10 @@ void AddSwKernelInstructionPrefetch::safeRunOnFunc() {
     }
     _log.trace("insertPoint: {0}, bestReleaseCycle: {1}", *firstShaveTaskInIR, bestReleaseCycle);
 
-    auto newPrefetchKernels = (firstShaveTaskInIR == nullptr)
-        ? insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks)
-        : insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
+    auto newPrefetchKernels =
+            (firstShaveTaskInIR == nullptr)
+                    ? insertPrefetchTasksDuringExec(funcOp, kernelsToPrefetch, allTasks)
+                    : insertPrefetchTasks(funcOp, kernelsToPrefetch, firstShaveTaskInIR, bestUpdateBarrier);
 
     // Update dependencies for cache handling operations to meet requirements of control graph split.
     auto& barrierInfo = getAnalysis<BarrierInfo>();
